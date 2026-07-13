@@ -13,9 +13,6 @@ _PYPROJECT = """\
 name = "__APP_NAME__"
 version = "0.1.0"
 requires-python = ">=3.12"
-# While Tenchi is unpublished, point uv at your checkout, for example:
-#   [tool.uv.sources]
-#   tenchi = { path = "../tenchi", editable = true }
 dependencies = ["tenchi"]
 
 [dependency-groups]
