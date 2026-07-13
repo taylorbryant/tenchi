@@ -7,8 +7,8 @@ never wait for a request to surface.
 
 Use cases are plain async functions. The server calls them with keyword
 arguments derived from the contract: ``request`` when the contract declares
-a request type, ``params`` when it declares path parameters, and always
-``context``.
+a request type, ``params`` when it declares path parameters, ``query`` when
+it declares a query type, and always ``context``.
 """
 
 from __future__ import annotations
@@ -64,6 +64,8 @@ def route(
     call_kwargs: list[str] = []
     if contract.params is not None:
         call_kwargs.append("params")
+    if contract.query is not None:
+        call_kwargs.append("query")
     if contract.request is not None:
         call_kwargs.append("request")
     call_kwargs.append("context")

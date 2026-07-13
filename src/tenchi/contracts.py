@@ -34,6 +34,7 @@ class Contract(Generic[ResponseT]):
     path: str
     request: type[Any] | None = None
     params: type[Any] | None = None
+    query: type[Any] | None = None
     response: type[ResponseT] | None = None
     status: int = 200
     errors: tuple[ErrorDef, ...] = ()
@@ -50,6 +51,7 @@ def contract(
     path: str,
     request: type[Any] | None = None,
     params: type[Any] | None = None,
+    query: type[Any] | None = None,
     response: type[ResponseT] | None = None,
     status: int = 200,
     errors: Sequence[ErrorDef] = (),
@@ -66,6 +68,10 @@ def contract(
         params: Type validated from the path parameters, usually a Pydantic
             model with one field per ``{name}`` segment. Passed to the use
             case as its ``params`` argument.
+        query: Type validated from the URL query string, usually a Pydantic
+            model whose fields have defaults. Passed to the use case as its
+            ``query`` argument. Values arrive as strings (or lists of
+            strings for repeated keys) and are coerced by Pydantic.
         response: Type the use case result is validated against before
             serialization. ``None`` means an empty response body.
         status: Success status code. Defaults to 200.
@@ -86,6 +92,7 @@ def contract(
         path=path,
         request=request,
         params=params,
+        query=query,
         response=response,
         status=status,
         errors=tuple(errors),

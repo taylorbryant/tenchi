@@ -1,7 +1,7 @@
 from app.shared.errors import todo_not_found
 from tenchi.contracts import contract
 
-from .schemas import CreateTodo, GetTodoParams, Todo
+from .schemas import CreateTodo, GetTodoParams, ListTodosQuery, Todo
 
 create_todo_contract = contract(
     method="POST",
@@ -14,6 +14,7 @@ create_todo_contract = contract(
 list_todos_contract = contract(
     method="GET",
     path="/todos",
+    query=ListTodosQuery,
     response=list[Todo],
 )
 

@@ -23,6 +23,7 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 from starlette.applications import Starlette
+from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -41,6 +42,7 @@ ContextFactory = Callable[[], Any | Awaitable[Any]]
 class _BoundRoute:
     route: Route
     params_adapter: TypeAdapter[Any] | None
+    query_adapter: TypeAdapter[Any] | None
     request_adapter: TypeAdapter[Any] | None
     response_adapter: TypeAdapter[Any] | None
 
@@ -73,6 +75,11 @@ def create_app(
                 if item.contract.params is not None
                 else None
             ),
+            query_adapter=(
+                TypeAdapter(item.contract.query)
+                if item.contract.query is not None
+                else None
+            ),
             request_adapter=(
                 TypeAdapter(item.contract.request)
                 if item.contract.request is not None
@@ -102,6 +109,20 @@ def create_app(
     )
 
 
+def _query_dict(query_params: QueryParams) -> dict[str, str | list[str]]:
+    """Collapse a query multi-dict: single values stay scalar, repeats list."""
+    raw: dict[str, str | list[str]] = {}
+    for key, value in query_params.multi_items():
+        existing = raw.get(key)
+        if existing is None:
+            raw[key] = value
+        elif isinstance(existing, list):
+            existing.append(value)
+        else:
+            raw[key] = [existing, value]
+    return raw
+
+
 def _make_endpoint(
     bound: _BoundRoute,
     context_factory: ContextFactory,
@@ -116,6 +137,10 @@ def _make_endpoint(
             if bound.params_adapter is not None:
                 kwargs["params"] = bound.params_adapter.validate_python(
                     request.path_params
+                )
+            if bound.query_adapter is not None:
+                kwargs["query"] = bound.query_adapter.validate_python(
+                    _query_dict(request.query_params)
                 )
             if bound.request_adapter is not None:
                 kwargs["request"] = bound.request_adapter.validate_json(

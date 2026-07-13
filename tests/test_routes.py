@@ -44,6 +44,18 @@ def test_route_computes_call_kwargs_from_contract() -> None:
     )
     assert route(get_contract, get_item).call_kwargs == ("params", "context")
 
+    search_contract = contract(
+        method="GET", path="/search", query=ItemParams, response=list[Item]
+    )
+
+    async def search_items(query: ItemParams, context: object) -> list[Item]:
+        return []
+
+    assert route(search_contract, search_items).call_kwargs == (
+        "query",
+        "context",
+    )
+
 
 def test_route_rejects_sync_use_case() -> None:
     def sync_use_case(context: object) -> list[Item]:

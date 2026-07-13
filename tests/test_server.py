@@ -17,6 +17,12 @@ class Item(BaseModel):
     name: str
 
 
+class SearchQuery(BaseModel):
+    term: str = ""
+    limit: int = 10
+    tags: list[str] = []
+
+
 @dataclass(frozen=True, slots=True)
 class Context:
     request_id: int
@@ -60,6 +66,9 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
     async def whoami(context: Context) -> int:
         return context.request_id
 
+    async def search(query: SearchQuery, context: Context) -> SearchQuery:
+        return query
+
     routes = route_group(
         route(
             contract(method="POST", path="/echo", request=Item, response=Item),
@@ -88,6 +97,15 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         route(
             contract(method="GET", path="/whoami", response=int),
             whoami,
+        ),
+        route(
+            contract(
+                method="GET",
+                path="/search",
+                query=SearchQuery,
+                response=SearchQuery,
+            ),
+            search,
         ),
     )
     async with await make_client(routes) as client:
@@ -162,6 +180,32 @@ async def test_response_not_matching_contract_becomes_internal_error(
 
     assert response.status_code == 500
     assert response.json()["code"] == "INTERNAL_SERVER_ERROR"
+
+
+async def test_query_params_are_coerced(client: httpx.AsyncClient) -> None:
+    response = await client.get("/search?term=milk&limit=5&tags=a&tags=b")
+
+    assert response.status_code == 200
+    assert response.json() == {"term": "milk", "limit": 5, "tags": ["a", "b"]}
+
+
+async def test_query_defaults_apply_when_absent(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get("/search")
+
+    assert response.status_code == 200
+    assert response.json() == {"term": "", "limit": 10, "tags": []}
+
+
+async def test_invalid_query_maps_to_framework_422(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get("/search?limit=lots")
+
+    assert response.status_code == 422
+    assert response.headers[ERROR_SOURCE_HEADER] == "framework"
+    assert response.json()["code"] == "VALIDATION_ERROR"
 
 
 async def test_context_factory_runs_per_request(

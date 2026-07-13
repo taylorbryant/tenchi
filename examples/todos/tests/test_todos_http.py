@@ -78,6 +78,26 @@ async def test_list_todos_returns_created_todos(
     assert response.json() == [created]
 
 
+async def test_list_todos_filters_by_query(client: httpx.AsyncClient) -> None:
+    created = (await client.post("/todos", json={"title": "one"})).json()
+
+    open_todos = await client.get("/todos", params={"completed": "false"})
+    done_todos = await client.get("/todos", params={"completed": "true"})
+
+    assert open_todos.json() == [created]
+    assert done_todos.json() == []
+
+
+async def test_list_todos_rejects_invalid_query(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get("/todos", params={"completed": "banana"})
+
+    assert response.status_code == 422
+    assert response.headers[ERROR_SOURCE_HEADER] == "framework"
+    assert response.json()["code"] == "VALIDATION_ERROR"
+
+
 async def test_get_todo_returns_todo_by_path_param(
     client: httpx.AsyncClient,
 ) -> None:

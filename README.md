@@ -127,6 +127,25 @@ create_todo_contract = contract(
 )
 ```
 
+Contracts can also declare path parameters (`params=`) and query parameters
+(`query=`), each validated into its own model and passed to the use case as
+a keyword argument of the same name:
+
+```python
+class ListTodosQuery(BaseModel):
+    completed: bool | None = None
+
+list_todos_contract = contract(
+    method="GET",
+    path="/todos",
+    query=ListTodosQuery,
+    response=list[Todo],
+)
+
+async def list_todos(query: ListTodosQuery, context: AppContext) -> list[Todo]:
+    ...
+```
+
 Routes bind contracts to use cases. Binding is validated eagerly, so a use
 case that cannot accept what its contract declares fails at import time:
 

@@ -9,6 +9,10 @@ class GetTodoParams(BaseModel):
     todo_id: str
 
 
+class ListTodosQuery(BaseModel):
+    completed: bool | None = None
+
+
 class Todo(BaseModel):
     id: str
     title: str
