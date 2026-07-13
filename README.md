@@ -1,1 +1,230 @@
-# tenchi
+# Tenchi
+
+Tenchi is a contract-first, Python-native framework for building REST APIs
+around use cases, ports, and explicit dependency wiring. It is the Python
+sibling of Beignet: the same architecture — contracts at the HTTP boundary,
+use cases at the center, protocol-based ports, infrastructure adapters, and
+explicit server composition — expressed with plain functions, dataclasses,
+`typing.Protocol`, Pydantic v2, and Starlette instead of TypeScript
+machinery.
+
+## Installation
+
+Tenchi requires Python 3.12+.
+
+```sh
+uv add tenchi          # or: pip install tenchi
+```
+
+To work on this repository:
+
+```sh
+uv sync                # install the package and dev tools
+uv run pytest          # tests (framework + todos example)
+uv run ruff check .    # lint
+uv run pyright         # strict type checking
+```
+
+## Architecture
+
+Applications follow a prescriptive structure. Each feature owns its
+contracts, schemas, ports, routes, use cases, and tests; infrastructure
+implements ports; server composition owns concrete wiring:
+
+```txt
+app/
+  features/
+    todos/
+      contracts.py        # HTTP boundary: method, path, request/response, errors
+      schemas.py          # Pydantic models shared by contracts, use cases, ports
+      ports.py            # typing.Protocol interfaces the feature needs
+      routes.py           # binds contracts to use cases
+      use_cases/          # application workflows (plain async functions)
+      tests/              # use-case tests, no HTTP required
+  shared/
+    errors.py             # application error definitions with stable codes
+  infra/
+    memory_todo_repository.py   # concrete port implementations
+    port_wiring.py              # constructs concrete adapters
+  server/
+    context.py            # AppContext dataclass holding ports
+    routes.py             # composes feature route groups
+    app.py                # concrete wiring + ASGI app
+tests/                    # HTTP integration tests
+```
+
+Dependency direction is strict: schemas and use cases never import
+infrastructure or the HTTP runtime; routes bind contracts to use cases but
+construct nothing concrete; only `server/` (and `infra/`) know which
+implementations are in play.
+
+## The basic flow
+
+Schemas are ordinary Pydantic models:
+
+```python
+# app/features/todos/schemas.py
+from pydantic import BaseModel
+
+class CreateTodo(BaseModel):
+    title: str
+
+class Todo(BaseModel):
+    id: str
+    title: str
+    completed: bool
+```
+
+Ports describe what application code needs, as protocols:
+
+```python
+# app/features/todos/ports.py
+from typing import Protocol
+from .schemas import Todo
+
+class TodoRepository(Protocol):
+    async def create(self, *, title: str) -> Todo: ...
+    async def list(self) -> list[Todo]: ...
+```
+
+The application context is a frozen dataclass of ports:
+
+```python
+# app/server/context.py
+from dataclasses import dataclass
+from app.features.todos.ports import TodoRepository
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    todos: TodoRepository
+```
+
+Use cases are plain async functions — no base classes, no decorators:
+
+```python
+# app/features/todos/use_cases/create_todo.py
+from app.server.context import AppContext
+from ..schemas import CreateTodo, Todo
+
+async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
+    return await context.todos.create(title=request.title)
+```
+
+Contracts define and validate the HTTP boundary. Any type Pydantic can
+validate works, including `list[Todo]`:
+
+```python
+# app/features/todos/contracts.py
+from tenchi.contracts import contract
+from .schemas import CreateTodo, Todo
+
+create_todo_contract = contract(
+    method="POST",
+    path="/todos",
+    request=CreateTodo,
+    response=Todo,
+    status=201,
+)
+```
+
+Routes bind contracts to use cases. Binding is validated eagerly, so a use
+case that cannot accept what its contract declares fails at import time:
+
+```python
+# app/features/todos/routes.py
+from tenchi.routes import route, route_group
+from .contracts import create_todo_contract
+from .use_cases.create_todo import create_todo
+
+routes = route_group(
+    route(create_todo_contract, create_todo),
+)
+```
+
+Server composition owns concrete wiring and produces the ASGI app. The
+context factory runs once per request:
+
+```python
+# app/server/app.py
+from tenchi.server import create_app
+from app.infra.port_wiring import create_todo_repository
+from app.server.context import AppContext
+from app.server.routes import routes
+
+todo_repository = create_todo_repository()
+
+def create_context() -> AppContext:
+    return AppContext(todos=todo_repository)
+
+app = create_app(routes=routes, context_factory=create_context)
+```
+
+Run it with any ASGI server:
+
+```sh
+uvicorn app.server.app:app --reload
+curl -X POST localhost:8000/todos -H 'content-type: application/json' \
+  -d '{"title": "Buy milk"}'
+```
+
+## Errors
+
+Application errors carry a stable code, an HTTP status, and optional
+structured details. Contracts declare the errors they are expected to
+return; declared errors map to their status, and everything else — including
+undeclared `AppError`s — becomes a framework-owned 500 so contracts stay
+honest:
+
+```python
+# app/shared/errors.py
+from tenchi.errors import ErrorDef
+
+todo_not_found = ErrorDef(code="TODO_NOT_FOUND", status=404, message="Todo not found")
+```
+
+```python
+# in a use case
+raise AppError(todo_not_found, details={"todo_id": params.todo_id})
+```
+
+```python
+# in a contract
+get_todo_contract = contract(
+    method="GET",
+    path="/todos/{todo_id}",
+    params=GetTodoParams,
+    response=Todo,
+    errors=(todo_not_found,),
+)
+```
+
+Error responses use a flat envelope, `{"code", "message", "details"?}`, and
+every error response carries an `x-tenchi-error-source` header set to `app`
+or `framework` so the two are always distinguishable.
+
+## Testing
+
+Use cases test without HTTP — construct a context with a fake or memory
+adapter and call the function:
+
+```python
+async def test_create_todo() -> None:
+    context = AppContext(todos=MemoryTodoRepository())
+    todo = await create_todo(CreateTodo(title="Buy milk"), context)
+    assert todo.title == "Buy milk"
+```
+
+Integration tests exercise the full boundary with `httpx.ASGITransport`; see
+`examples/todos/tests/test_todos_http.py`.
+
+## Example
+
+A complete todos application using the prescribed structure lives in
+[`examples/todos/`](examples/todos/).
+
+## Status
+
+Tenchi is an early vertical slice: contracts, route binding, ASGI dispatch,
+request-scoped context, ports, and expected-error mapping. A typed `httpx`
+client, the `tenchi` CLI (`new`, `make`, `routes`, `doctor`, `dev`), and
+provider-backed infrastructure are planned but intentionally not started.
