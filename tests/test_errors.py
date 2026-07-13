@@ -23,6 +23,21 @@ def test_app_error_accepts_override_message_and_details() -> None:
     assert error.details == {"item_id": "abc123"}
 
 
+def test_app_error_carries_response_headers() -> None:
+    throttled = ErrorDef(
+        code="THROTTLED",
+        status=429,
+        message="Slow down",
+        headers=("Retry-After",),
+    )
+
+    error = AppError(throttled, headers={"Retry-After": "30"})
+
+    assert throttled.headers == ("Retry-After",)
+    assert error.headers == {"Retry-After": "30"}
+    assert AppError(throttled).headers == {}
+
+
 def test_error_body_omits_absent_details() -> None:
     assert error_body(code="X", message="y") == {"code": "X", "message": "y"}
     assert error_body(code="X", message="y", details=[1]) == {

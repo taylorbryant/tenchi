@@ -127,6 +127,13 @@ create_todo_contract = contract(
 )
 ```
 
+Contracts can also carry documentation metadata (`summary=`,
+`description=`, `tags=`, `deprecated=`) and non-JSON media types: pair
+`request_media_type="text/plain"` with `request=str`, or
+`"application/octet-stream"` with `bytes`, and the server, client, and
+OpenAPI document all follow (useful for webhook endpoints that need the
+raw body).
+
 Contracts can also declare path parameters (`params=`) and query parameters
 (`query=`), each validated into its own model and passed to the use case as
 a keyword argument of the same name:
@@ -244,6 +251,15 @@ todo_not_found = ErrorDef(code="TODO_NOT_FOUND", status=404, message="Todo not f
 ```python
 # in a use case
 raise AppError(todo_not_found, details={"todo_id": params.todo_id})
+```
+
+Errors can carry response headers — declare the names on the definition
+(they appear in the OpenAPI document) and set values per instance:
+
+```python
+throttled = ErrorDef(code="THROTTLED", status=429, message="Slow down",
+                     headers=("Retry-After",))
+raise AppError(throttled, headers={"Retry-After": "30"})
 ```
 
 ```python

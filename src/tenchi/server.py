@@ -242,13 +242,24 @@ def _make_endpoint(
                     _query_dict(request.query_params)
                 )
             if bound.request_adapter is not None:
-                kwargs["request"] = bound.request_adapter.validate_json(
-                    await request.body()
-                )
+                body = await request.body()
+                if contract.request_media_type == "application/json":
+                    kwargs["request"] = bound.request_adapter.validate_json(body)
+                elif contract.request_media_type.startswith("text/"):
+                    kwargs["request"] = bound.request_adapter.validate_python(
+                        body.decode("utf-8")
+                    )
+                else:
+                    kwargs["request"] = bound.request_adapter.validate_python(body)
         except ValidationError as exc:
             return _framework_error_response(
                 tenchi_errors.validation_error,
                 details=exc.errors(include_url=False, include_input=False),
+            )
+        except UnicodeDecodeError:
+            return _framework_error_response(
+                tenchi_errors.validation_error,
+                details=[{"msg": "Request body is not valid UTF-8 text"}],
             )
 
         try:
@@ -277,7 +288,12 @@ def _make_endpoint(
 
         try:
             validated = bound.response_adapter.validate_python(result)
-            payload = bound.response_adapter.dump_json(validated)
+            if contract.response_media_type == "application/json":
+                payload: bytes | str = bound.response_adapter.dump_json(validated)
+            elif isinstance(validated, bytes | str):
+                payload = validated
+            else:
+                payload = bound.response_adapter.dump_json(validated)
         except ValidationError:
             logger.exception(
                 "Response from %s does not match the contract's response type",
@@ -288,7 +304,7 @@ def _make_endpoint(
         return Response(
             payload,
             status_code=contract.status,
-            media_type="application/json",
+            media_type=contract.response_media_type,
         )
 
     return endpoint
@@ -298,7 +314,7 @@ def _app_error_response(exc: AppError) -> JSONResponse:
     return JSONResponse(
         error_body(code=exc.code, message=exc.message, details=exc.details),
         status_code=exc.status,
-        headers={ERROR_SOURCE_HEADER: "app"},
+        headers={**exc.headers, ERROR_SOURCE_HEADER: "app"},
     )
 
 

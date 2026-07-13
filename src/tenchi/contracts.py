@@ -39,6 +39,12 @@ class Contract(Generic[ResponseT]):
     status: int = 200
     errors: tuple[ErrorDef, ...] = ()
     name: str = field(default="")
+    request_media_type: str = "application/json"
+    response_media_type: str = "application/json"
+    summary: str | None = None
+    description: str | None = None
+    tags: tuple[str, ...] = ()
+    deprecated: bool = False
 
     def declares_error(self, definition: ErrorDef) -> bool:
         """Whether this contract declares the given error as expected."""
@@ -56,6 +62,12 @@ def contract(
     status: int = 200,
     errors: Sequence[ErrorDef] = (),
     name: str | None = None,
+    request_media_type: str = "application/json",
+    response_media_type: str = "application/json",
+    summary: str | None = None,
+    description: str | None = None,
+    tags: Sequence[str] = (),
+    deprecated: bool = False,
 ) -> Contract[ResponseT]:
     """Declare an HTTP contract.
 
@@ -79,6 +91,18 @@ def contract(
             errors are mapped to their HTTP status; undeclared ``AppError``
             instances are treated as internal server errors.
         name: Optional stable name, defaulting to ``"METHOD path"``.
+        request_media_type: Media type of the request body. The default,
+            ``application/json``, validates the body as JSON. ``text/*``
+            types validate the decoded text, and any other type (such as
+            ``application/octet-stream``) validates the raw bytes — pair
+            them with ``request=str`` and ``request=bytes`` respectively.
+        response_media_type: Media type of the success response. Non-JSON
+            types send ``str``/``bytes`` results as-is.
+        summary: Short one-line summary for documentation.
+        description: Longer documentation text. When omitted, OpenAPI
+            generation falls back to the bound use case's docstring.
+        tags: Documentation tags grouping related operations.
+        deprecated: Mark the operation as deprecated in documentation.
     """
     normalized_method = method.upper()
     if normalized_method not in _METHODS:
@@ -87,6 +111,8 @@ def contract(
         raise ValueError(f"contract path must start with '/', got {path!r}")
     if not 100 <= status <= 599:
         raise ValueError(f"contract(path={path!r}): invalid status {status}")
+    if not request_media_type or not response_media_type:
+        raise ValueError(f"contract(path={path!r}): media types must be non-empty")
     return Contract(
         method=normalized_method,
         path=path,
@@ -97,4 +123,10 @@ def contract(
         status=status,
         errors=tuple(errors),
         name=name or f"{normalized_method} {path}",
+        request_media_type=request_media_type,
+        response_media_type=response_media_type,
+        summary=summary,
+        description=description,
+        tags=tuple(tags),
+        deprecated=deprecated,
     )

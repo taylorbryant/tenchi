@@ -9,6 +9,7 @@ document is served by the same machinery it describes.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -103,6 +104,16 @@ def _operation(
         "operationId": _unique_operation_id(item, operation_ids)
     }
 
+    if declared.summary is not None:
+        operation["summary"] = declared.summary
+    description = declared.description or inspect.getdoc(item.use_case)
+    if description:
+        operation["description"] = description
+    if declared.tags:
+        operation["tags"] = list(declared.tags)
+    if declared.deprecated:
+        operation["deprecated"] = True
+
     parameters: list[dict[str, Any]] = []
     if declared.params is not None:
         parameters.extend(_parameters(declared.params, "path", components))
@@ -115,7 +126,7 @@ def _operation(
         operation["requestBody"] = {
             "required": True,
             "content": {
-                "application/json": {
+                declared.request_media_type: {
                     "schema": _json_schema(
                         declared.request, components, mode="validation"
                     )
@@ -133,7 +144,7 @@ def _responses(declared: Contract[Any], components: dict[str, Any]) -> dict[str,
     success: dict[str, Any] = {"description": "Successful response"}
     if declared.response is not None:
         success["content"] = {
-            "application/json": {
+            declared.response_media_type: {
                 "schema": _json_schema(
                     declared.response, components, mode="serialization"
                 )
@@ -168,7 +179,7 @@ def _error_response(
     description = "; ".join(
         f"{definition.code}: {definition.message}" for definition in definitions
     )
-    return {
+    response: dict[str, Any] = {
         "description": description,
         "content": {
             "application/json": {
@@ -176,6 +187,12 @@ def _error_response(
             }
         },
     }
+    header_names = [name for definition in definitions for name in definition.headers]
+    if header_names:
+        response["headers"] = {
+            name: {"schema": {"type": "string"}} for name in header_names
+        }
+    return response
 
 
 def _parameters(

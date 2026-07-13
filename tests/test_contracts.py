@@ -46,3 +46,19 @@ def test_contract_rejects_relative_path() -> None:
 def test_contract_rejects_invalid_status() -> None:
     with pytest.raises(ValueError, match="invalid status"):
         contract(method="GET", path="/items", status=42)
+
+
+def test_contract_metadata_defaults() -> None:
+    declared = contract(method="GET", path="/items", response=list[Item])
+
+    assert declared.request_media_type == "application/json"
+    assert declared.response_media_type == "application/json"
+    assert declared.summary is None
+    assert declared.description is None
+    assert declared.tags == ()
+    assert declared.deprecated is False
+
+
+def test_contract_rejects_empty_media_type() -> None:
+    with pytest.raises(ValueError, match="media types must be non-empty"):
+        contract(method="GET", path="/items", response_media_type="")

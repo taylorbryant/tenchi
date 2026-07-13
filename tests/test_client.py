@@ -48,6 +48,22 @@ search_contract = contract(
     method="GET", path="/search", query=SearchQuery, response=SearchQuery
 )
 clear_contract = contract(method="DELETE", path="/items", status=204)
+shout_contract = contract(
+    method="POST",
+    path="/shout",
+    request=str,
+    request_media_type="text/plain",
+    response=str,
+    response_media_type="text/plain",
+)
+checksum_contract = contract(
+    method="POST",
+    path="/checksum",
+    request=bytes,
+    request_media_type="application/octet-stream",
+    response=bytes,
+    response_media_type="application/octet-stream",
+)
 
 
 @pytest.fixture
@@ -68,12 +84,20 @@ async def client() -> AsyncIterator[Client]:
     async def clear(context: Context) -> None:
         return None
 
+    async def shout(request: str, context: Context) -> str:
+        return request.upper()
+
+    async def checksum(request: bytes, context: Context) -> bytes:
+        return bytes([sum(request) % 256])
+
     app = create_app(
         routes=route_group(
             route(create_item_contract, create_item),
             route(get_item_contract, get_item),
             route(search_contract, search),
             route(clear_contract, clear),
+            route(shout_contract, shout),
+            route(checksum_contract, checksum),
         ),
         context_factory=Context,
     )
@@ -112,6 +136,14 @@ async def test_call_omits_query_to_use_defaults(client: Client) -> None:
 
 async def test_call_returns_none_for_empty_response(client: Client) -> None:
     assert await client.call(clear_contract) is None
+
+
+async def test_call_round_trips_text_media_type(client: Client) -> None:
+    assert await client.call(shout_contract, request="hello") == "HELLO"
+
+
+async def test_call_round_trips_binary_media_type(client: Client) -> None:
+    assert await client.call(checksum_contract, request=b"\x01\x02\x03") == b"\x06"
 
 
 async def test_declared_error_raises_app_error(client: Client) -> None:

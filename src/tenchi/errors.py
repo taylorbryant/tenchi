@@ -8,6 +8,7 @@ application-owned ones via the ``x-tenchi-error-source`` response header.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,6 +33,11 @@ class ErrorDef:
     message: str
     """Default human-readable message."""
 
+    headers: tuple[str, ...] = ()
+    """Names of response headers this error may carry, such as
+    ``("Retry-After",)``. Used for documentation; values are set per
+    instance via ``AppError(..., headers={...})``."""
+
 
 class AppError(Exception):
     """Application error raised from use cases.
@@ -43,6 +49,7 @@ class AppError(Exception):
 
     definition: ErrorDef
     details: Any
+    headers: dict[str, str]
 
     def __init__(
         self,
@@ -50,10 +57,12 @@ class AppError(Exception):
         *,
         message: str | None = None,
         details: Any = None,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         super().__init__(message or definition.message)
         self.definition = definition
         self.details = details
+        self.headers = dict(headers) if headers else {}
 
     @property
     def code(self) -> str:

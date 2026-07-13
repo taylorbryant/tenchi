@@ -107,7 +107,10 @@ class Client:
         if response.status_code == contract.status:
             if contract.response is None:
                 return cast(ResponseT, None)
-            return _adapter(contract.response).validate_json(response.content)
+            adapter = _adapter(contract.response)
+            if contract.response_media_type == "application/json":
+                return adapter.validate_json(response.content)
+            return adapter.validate_python(response.content)
 
         return self._raise_for_error(contract, response)
 
@@ -152,8 +155,16 @@ class Client:
                 f"{contract.name} declares a request type; pass request= to call()"
             )
         adapter = _adapter(contract.request)
-        content = adapter.dump_json(adapter.validate_python(request))
-        return content, {"content-type": "application/json"}
+        validated = adapter.validate_python(request)
+        if contract.request_media_type == "application/json":
+            content: bytes = adapter.dump_json(validated)
+        elif isinstance(validated, bytes):
+            content = validated
+        elif isinstance(validated, str):
+            content = validated.encode("utf-8")
+        else:
+            content = adapter.dump_json(validated)
+        return content, {"content-type": contract.request_media_type}
 
     def _raise_for_error(
         self, contract: Contract[Any], response: httpx.Response

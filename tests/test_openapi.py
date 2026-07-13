@@ -179,6 +179,100 @@ def test_duplicate_use_case_names_get_unique_operation_ids() -> None:
     assert document["paths"]["/b"]["get"]["operationId"] == "handler_2"
 
 
+def test_operation_metadata_flows_from_the_contract() -> None:
+    declared = contract(
+        method="GET",
+        path="/meta",
+        response=Item,
+        summary="Get the item",
+        description="Longer prose.",
+        tags=("items", "admin"),
+        deprecated=True,
+    )
+
+    async def handler(context: Context) -> Item:
+        """Docstring that should NOT be used."""
+        return Item(name="x")
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="0"
+    )
+    operation = document["paths"]["/meta"]["get"]
+
+    assert operation["summary"] == "Get the item"
+    assert operation["description"] == "Longer prose."
+    assert operation["tags"] == ["items", "admin"]
+    assert operation["deprecated"] is True
+
+
+def test_description_falls_back_to_use_case_docstring() -> None:
+    declared = contract(method="GET", path="/doc", response=Item)
+
+    async def handler(context: Context) -> Item:
+        """Fetch the item from the repository."""
+        return Item(name="x")
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="0"
+    )
+
+    assert (
+        document["paths"]["/doc"]["get"]["description"]
+        == "Fetch the item from the repository."
+    )
+
+
+def test_media_types_flow_into_content_keys() -> None:
+    declared = contract(
+        method="POST",
+        path="/raw",
+        request=bytes,
+        request_media_type="application/octet-stream",
+        response=str,
+        response_media_type="text/plain",
+    )
+
+    async def handler(request: bytes, context: Context) -> str:
+        return "ok"
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="0"
+    )
+    operation = document["paths"]["/raw"]["post"]
+
+    body_content = operation["requestBody"]["content"]
+    assert list(body_content) == ["application/octet-stream"]
+    assert body_content["application/octet-stream"]["schema"] == {
+        "format": "binary",
+        "type": "string",
+    }
+    response_content = operation["responses"]["200"]["content"]
+    assert list(response_content) == ["text/plain"]
+    assert response_content["text/plain"]["schema"] == {"type": "string"}
+
+
+def test_declared_error_headers_are_documented() -> None:
+    throttled = ErrorDef(
+        code="THROTTLED",
+        status=429,
+        message="Slow down",
+        headers=("Retry-After",),
+    )
+    declared = contract(
+        method="GET", path="/limited", response=Item, errors=(throttled,)
+    )
+
+    async def handler(context: Context) -> Item:
+        return Item(name="x")
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="0"
+    )
+    response = document["paths"]["/limited"]["get"]["responses"]["429"]
+
+    assert response["headers"] == {"Retry-After": {"schema": {"type": "string"}}}
+
+
 async def test_openapi_route_serves_document_without_documenting_itself() -> None:
     group = make_group()
     app = create_app(

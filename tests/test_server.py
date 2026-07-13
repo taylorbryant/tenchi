@@ -29,6 +29,9 @@ class Context:
 
 
 boom = ErrorDef(code="BOOM", status=409, message="Boom")
+throttled = ErrorDef(
+    code="THROTTLED", status=429, message="Slow down", headers=("Retry-After",)
+)
 
 
 async def make_client(routes: RouteGroup) -> httpx.AsyncClient:
@@ -69,6 +72,15 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
     async def search(query: SearchQuery, context: Context) -> SearchQuery:
         return query
 
+    async def shout(request: str, context: Context) -> str:
+        return request.upper()
+
+    async def checksum(request: bytes, context: Context) -> bytes:
+        return bytes([sum(request) % 256])
+
+    async def rate_limited(context: Context) -> Item:
+        raise AppError(throttled, headers={"Retry-After": "30"})
+
     routes = route_group(
         route(
             contract(method="POST", path="/echo", request=Item, response=Item),
@@ -106,6 +118,32 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
                 response=SearchQuery,
             ),
             search,
+        ),
+        route(
+            contract(
+                method="POST",
+                path="/shout",
+                request=str,
+                request_media_type="text/plain",
+                response=str,
+                response_media_type="text/plain",
+            ),
+            shout,
+        ),
+        route(
+            contract(
+                method="POST",
+                path="/checksum",
+                request=bytes,
+                request_media_type="application/octet-stream",
+                response=bytes,
+                response_media_type="application/octet-stream",
+            ),
+            checksum,
+        ),
+        route(
+            contract(method="GET", path="/limited", response=Item, errors=(throttled,)),
+            rate_limited,
         ),
     )
     async with await make_client(routes) as client:
@@ -206,6 +244,44 @@ async def test_invalid_query_maps_to_framework_422(
     assert response.status_code == 422
     assert response.headers[ERROR_SOURCE_HEADER] == "framework"
     assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+async def test_text_media_type_round_trips(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/shout", content="hello", headers={"content-type": "text/plain"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.text == "HELLO"
+
+
+async def test_invalid_utf8_text_body_maps_to_422(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post("/shout", content=b"\xff\xfe")
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+async def test_binary_media_type_round_trips(client: httpx.AsyncClient) -> None:
+    response = await client.post("/checksum", content=b"\x01\x02\x03")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.content == b"\x06"
+
+
+async def test_app_error_headers_reach_the_response(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get("/limited")
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "30"
+    assert response.headers[ERROR_SOURCE_HEADER] == "app"
+    assert response.json()["code"] == "THROTTLED"
 
 
 async def test_context_factory_runs_per_request(

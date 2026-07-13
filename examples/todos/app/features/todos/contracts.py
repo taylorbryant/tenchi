@@ -9,6 +9,8 @@ create_todo_contract = contract(
     request=CreateTodo,
     response=Todo,
     status=201,
+    summary="Create a todo",
+    tags=("todos",),
 )
 
 list_todos_contract = contract(
@@ -16,6 +18,9 @@ list_todos_contract = contract(
     path="/todos",
     query=ListTodosQuery,
     response=list[Todo],
+    summary="List todos",
+    description="Returns all todos, optionally filtered by completion state.",
+    tags=("todos",),
 )
 
 get_todo_contract = contract(
@@ -24,4 +29,6 @@ get_todo_contract = contract(
     params=GetTodoParams,
     response=Todo,
     errors=(todo_not_found,),
+    summary="Get a todo by id",
+    tags=("todos",),
 )
