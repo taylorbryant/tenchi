@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -18,6 +19,7 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked
       - name: Check tag matches project version
+        if: github.ref_type == 'tag'
         run: |
           version=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
