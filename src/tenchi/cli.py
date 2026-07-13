@@ -14,7 +14,7 @@ Commands are intentionally few and reliable:
 
 The ``routes``, ``openapi``, and ``dev`` commands rely on the structural
 convention that ``app/server/routes.py`` exposes ``routes`` and
-``app/server/app.py`` exposes ``app``; both can be overridden by flag.
+``app/server/asgi.py`` exposes ``app``; both can be overridden by flag.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from .scaffold import app_files, feature_files, use_case_files
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
 _DEFAULT_ROUTES = "app.server.routes:routes"
-_DEFAULT_APP = "app.server.app:app"
+_DEFAULT_APP = "app.server.asgi:app"
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -2,7 +2,7 @@
 
 Run locally with:
 
-    uvicorn app.server.app:app --reload
+    uvicorn app.server.asgi:app --reload
 
 The lifespan opens the SQLite-backed repository at startup and closes it at
 shutdown; the context wrapping it is rebuilt for every request by

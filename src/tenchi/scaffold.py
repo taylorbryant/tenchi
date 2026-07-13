@@ -232,7 +232,7 @@ _SERVER_APP = """\
 
 Run locally with:
 
-    uvicorn app.server.app:app --reload
+    uv run tenchi dev
 \"\"\"
 
 from tenchi.server import create_app
@@ -308,7 +308,7 @@ _FILES: dict[str, str] = {
     "app/infra/memory_todo_repository.py": _MEMORY_REPOSITORY,
     "app/infra/port_wiring.py": _PORT_WIRING,
     "app/server/__init__.py": "",
-    "app/server/app.py": _SERVER_APP,
+    "app/server/asgi.py": _SERVER_APP,
     "app/server/context.py": _CONTEXT,
     "app/server/routes.py": _SERVER_ROUTES,
     "app/shared/__init__.py": "",

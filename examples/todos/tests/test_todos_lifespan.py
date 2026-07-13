@@ -1,6 +1,6 @@
 """The composed app end-to-end: lifespan-owned SQLite repository over HTTP.
 
-Mirrors ``app/server/app.py`` with a per-test database path, and simulates a
+Mirrors ``app/server/asgi.py`` with a per-test database path, and simulates a
 server restart by composing the app twice against the same file.
 """
 
