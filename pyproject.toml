@@ -21,6 +21,9 @@ dev = [
     "uvicorn>=0.30",
 ]
 
+[project.scripts]
+tenchi = "tenchi.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

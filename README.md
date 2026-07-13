@@ -263,6 +263,31 @@ async def test_create_todo() -> None:
 Integration tests exercise the full boundary with `httpx.ASGITransport`; see
 `examples/todos/tests/test_todos_http.py`.
 
+## CLI
+
+```sh
+tenchi new my_app     # scaffold a new application with the prescribed structure
+tenchi routes         # print the bound route table (from app.server.routes:routes)
+```
+
+`tenchi new` generates the todos starter — feature, ports, memory adapter,
+wiring, and passing tests — so a new project starts from a working vertical
+slice:
+
+```sh
+uv run tenchi new my_app
+cd my_app && uv sync && uv run pytest
+```
+
+`tenchi routes` prints every bound route with its status, use case, and
+declared error codes:
+
+```txt
+POST  /todos            201  app.features.todos.use_cases.create_todo.create_todo
+GET   /todos            200  app.features.todos.use_cases.list_todos.list_todos
+GET   /todos/{todo_id}  200  app.features.todos.use_cases.get_todo.get_todo  [TODO_NOT_FOUND]
+```
+
 ## Example
 
 A complete todos application using the prescribed structure lives in
@@ -270,7 +295,8 @@ A complete todos application using the prescribed structure lives in
 
 ## Status
 
-Tenchi is an early vertical slice: contracts, route binding, ASGI dispatch,
-request-scoped context, ports, and expected-error mapping. A typed `httpx`
-client, the `tenchi` CLI (`new`, `make`, `routes`, `doctor`, `dev`), and
+Tenchi is an early vertical slice: contracts (body, path, and query
+validation), route binding, ASGI dispatch, request-scoped context, ports,
+expected-error mapping, a contract-driven typed client, and a small CLI
+(`new`, `routes`). Remaining CLI commands (`make`, `doctor`, `dev`) and
 provider-backed infrastructure are planned but intentionally not started.
