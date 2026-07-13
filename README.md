@@ -329,9 +329,17 @@ routes = route_group(
 ## CLI
 
 ```sh
-tenchi new my_app     # scaffold a new application with the prescribed structure
-tenchi routes         # print the bound route table (from app.server.routes:routes)
+tenchi new my_app                      # scaffold a new application
+tenchi make feature notes              # generate a feature skeleton
+tenchi make use-case notes create_note # generate a use-case stub and test
+tenchi routes                          # print the bound route table
+tenchi openapi [-o openapi.json]       # print or write the OpenAPI document
+tenchi dev                             # serve app.server.app:app with reload
 ```
+
+Generators create files and print wiring instructions — they never edit
+existing modules, because dependency wiring stays explicit and app-owned.
+Everything they generate passes Ruff, Pyright strict, and pytest as-is.
 
 `tenchi new` generates the todos starter — feature, ports, memory adapter,
 wiring, and passing tests — so a new project starts from a working vertical
@@ -365,6 +373,6 @@ touches only `infra/` and `server/`.
 Tenchi is an early vertical slice: contracts (body, path, and query
 validation), route binding, ASGI dispatch, lifespan-managed resources with
 request-scoped context, ports, expected-error mapping, a contract-driven
-typed client, OpenAPI 3.1 generation, and a small CLI (`new`, `routes`).
-Remaining CLI commands (`make`, `doctor`, `dev`) and provider-backed
-infrastructure are planned but intentionally not started.
+typed client, OpenAPI 3.1 generation, and a CLI (`new`, `make feature`,
+`make use-case`, `routes`, `openapi`, `dev`). `tenchi doctor` and
+provider-backed infrastructure are planned but intentionally not started.

@@ -51,10 +51,11 @@ _README = """\
 A [Tenchi](https://github.com/taylorbryant/tenchi) application.
 
 ```sh
-uv sync                                        # install dependencies
-uv run pytest                                  # run tests
-uv run uvicorn app.server.app:app --reload     # run the server
-uv run tenchi routes                           # list bound routes
+uv sync                 # install dependencies
+uv run pytest           # run tests
+uv run tenchi dev       # run the server with reload
+uv run tenchi routes    # list bound routes
+uv run tenchi openapi   # print the OpenAPI document
 ```
 """
 
@@ -322,3 +323,66 @@ def app_files(app_name: str) -> dict[str, str]:
         path: content.replace("__APP_NAME__", app_name)
         for path, content in _FILES.items()
     }
+
+
+_MAKE_FEATURE_ROUTES = '''\
+"""Routes for the __FEATURE__ feature.
+
+Bind contracts to use cases with route(contract, use_case), then compose
+this group in app/server/routes.py.
+"""
+
+from tenchi.routes import route_group
+
+routes = route_group()
+'''
+
+
+def feature_files(feature: str) -> dict[str, str]:
+    """Return a feature skeleton, relative to ``app/features/<feature>/``."""
+    return {
+        "__init__.py": "",
+        "schemas.py": f'"""Pydantic models for the {feature} feature."""\n',
+        "ports.py": (
+            f'"""Dependency protocols the {feature} feature needs, '
+            'implemented in app/infra/."""\n'
+        ),
+        "contracts.py": f'"""HTTP contracts for the {feature} feature."""\n',
+        "routes.py": _MAKE_FEATURE_ROUTES.replace("__FEATURE__", feature),
+        "use_cases/__init__.py": "",
+        "tests/__init__.py": "",
+    }
+
+
+_USE_CASE = """\
+from app.server.context import AppContext
+
+
+async def __NAME__(context: AppContext) -> None:
+    raise NotImplementedError
+"""
+
+_USE_CASE_TEST = """\
+import pytest
+
+pytestmark = pytest.mark.skip(reason="TODO: implement __NAME__")
+
+
+async def test___NAME__() -> None:
+    raise NotImplementedError
+"""
+
+
+def use_case_files(feature: str, name: str) -> dict[str, str]:
+    """Return a use-case stub and test, relative to the feature directory."""
+    substitutions = {"__FEATURE__": feature, "__NAME__": name}
+    files = {
+        f"use_cases/{name}.py": _USE_CASE,
+        f"tests/test_{name}.py": _USE_CASE_TEST,
+    }
+    rendered: dict[str, str] = {}
+    for path, content in files.items():
+        for marker, value in substitutions.items():
+            content = content.replace(marker, value)
+        rendered[path] = content
+    return rendered
