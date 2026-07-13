@@ -279,6 +279,37 @@ wrap it in `asgi-lifespan`'s `LifespanManager` so startup and shutdown run
 (`ASGITransport` alone does not trigger lifespan events); see
 `examples/todos/tests/test_todos_lifespan.py`.
 
+## OpenAPI
+
+Contracts carry everything an OpenAPI document needs, so generation is a
+pure function — no decorators, no runtime introspection of handlers:
+
+```python
+from tenchi.openapi import openapi_schema
+
+document = openapi_schema(api_routes, title="Todos", version="0.1.0")
+```
+
+Request bodies use validation-mode JSON Schema, responses use
+serialization mode, path/query parameters come from the `params`/`query`
+models, declared errors appear as error responses under their status with
+the standard envelope schema, and routes with validated input document the
+framework's 422 automatically.
+
+To serve the document, compose `openapi_route` alongside your routes in
+`server/routes.py` — it is generated once at startup and served by the same
+route machinery it describes (and it does not document itself):
+
+```python
+from tenchi.openapi import openapi_route
+
+api_routes = route_group(todo_routes)
+routes = route_group(
+    api_routes,
+    openapi_route(api_routes, title="Todos", version="0.1.0"),
+)
+```
+
 ## CLI
 
 ```sh
@@ -302,6 +333,7 @@ declared error codes:
 POST  /todos            201  app.features.todos.use_cases.create_todo.create_todo
 GET   /todos            200  app.features.todos.use_cases.list_todos.list_todos
 GET   /todos/{todo_id}  200  app.features.todos.use_cases.get_todo.get_todo  [TODO_NOT_FOUND]
+GET   /openapi.json     200  tenchi.openapi.openapi_route.<locals>.get_openapi
 ```
 
 ## Example
@@ -317,6 +349,6 @@ touches only `infra/` and `server/`.
 Tenchi is an early vertical slice: contracts (body, path, and query
 validation), route binding, ASGI dispatch, lifespan-managed resources with
 request-scoped context, ports, expected-error mapping, a contract-driven
-typed client, and a small CLI (`new`, `routes`). Remaining CLI commands
-(`make`, `doctor`, `dev`) and provider-backed infrastructure are planned
-but intentionally not started.
+typed client, OpenAPI 3.1 generation, and a small CLI (`new`, `routes`).
+Remaining CLI commands (`make`, `doctor`, `dev`) and provider-backed
+infrastructure are planned but intentionally not started.

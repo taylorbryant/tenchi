@@ -8,6 +8,7 @@ Canonical imports use the submodules — ``tenchi.contracts``,
 from .client import Client, UnexpectedResponseError
 from .contracts import Contract, contract
 from .errors import AppError, ErrorDef
+from .openapi import openapi_route, openapi_schema
 from .routes import Route, RouteGroup, route, route_group
 from .server import create_app
 
@@ -24,6 +25,8 @@ __all__ = [
     "__version__",
     "contract",
     "create_app",
+    "openapi_route",
+    "openapi_schema",
     "route",
     "route_group",
 ]
