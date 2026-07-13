@@ -186,6 +186,33 @@ curl -X POST localhost:8000/todos -H 'content-type: application/json' \
   -d '{"title": "Buy milk"}'
 ```
 
+## Typed client
+
+The same contracts drive a typed `httpx`-based client — no code generation,
+no drift. `call()` returns the contract's response type, so `todo` below is
+statically a `Todo` and `todos` a `list[Todo]`:
+
+```python
+from tenchi.client import Client
+
+async with Client(base_url="http://localhost:8000") as client:
+    todo = await client.call(create_todo_contract, request=CreateTodo(title="Buy milk"))
+    todos = await client.call(list_todos_contract, query=ListTodosQuery(completed=False))
+```
+
+Declared errors come back as the same `AppError` the server raised, carrying
+the same `ErrorDef`; anything undeclared raises `UnexpectedResponseError`:
+
+```python
+try:
+    await client.call(get_todo_contract, params=GetTodoParams(todo_id="missing"))
+except AppError as err:
+    assert err.definition == todo_not_found
+```
+
+For tests, pass your own `httpx.AsyncClient` with an `ASGITransport` via
+`Client(http=...)` to call the app in-process.
+
 ## Errors
 
 Application errors carry a stable code, an HTTP status, and optional
