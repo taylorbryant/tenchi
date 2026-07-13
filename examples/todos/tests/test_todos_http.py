@@ -1,7 +1,7 @@
 """HTTP integration tests for the todos example.
 
 Each test composes a fresh application with its own repository, mirroring
-``app/server/app.py`` but with per-test isolation.
+``app/server/asgi.py`` but with per-test isolation.
 """
 
 from collections.abc import AsyncIterator

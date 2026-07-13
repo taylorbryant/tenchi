@@ -49,7 +49,7 @@ app/
   server/
     context.py            # AppContext dataclass holding ports
     routes.py             # composes feature route groups
-    app.py                # concrete wiring + ASGI app
+    asgi.py               # concrete wiring + ASGI app
 tests/                    # HTTP integration tests
 ```
 
@@ -173,7 +173,7 @@ them at shutdown, and whatever it yields is handed to the context factory,
 which runs once per request:
 
 ```python
-# app/server/app.py
+# app/server/asgi.py
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -201,7 +201,7 @@ the memory-backed fixtures in the example tests).
 Run it with any ASGI server:
 
 ```sh
-uvicorn app.server.app:app --reload
+uvicorn app.server.asgi:app --reload
 curl -X POST localhost:8000/todos -H 'content-type: application/json' \
   -d '{"title": "Buy milk"}'
 ```
@@ -334,7 +334,7 @@ tenchi make feature notes              # generate a feature skeleton
 tenchi make use-case notes create_note # generate a use-case stub and test
 tenchi routes                          # print the bound route table
 tenchi openapi [-o openapi.json]       # print or write the OpenAPI document
-tenchi dev                             # serve app.server.app:app with reload
+tenchi dev                             # serve app.server.asgi:app with reload
 ```
 
 Generators create files and print wiring instructions — they never edit

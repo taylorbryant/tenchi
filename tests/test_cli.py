@@ -33,7 +33,7 @@ def test_new_scaffolds_a_working_app(
         [
             sys.executable,
             "-c",
-            "from app.server.app import app; print(type(app).__name__)",
+            "from app.server.asgi import app; print(type(app).__name__)",
         ],
         cwd=root,
         capture_output=True,
