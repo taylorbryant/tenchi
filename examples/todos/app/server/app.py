@@ -3,20 +3,33 @@
 Run locally with:
 
     uvicorn app.server.app:app --reload
+
+The lifespan opens the SQLite-backed repository at startup and closes it at
+shutdown; the context wrapping it is rebuilt for every request by
+``create_context``.
 """
 
-from app.infra.port_wiring import create_todo_repository
+import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
+from app.features.todos.ports import TodoRepository
+from app.infra.port_wiring import open_todo_repository
 from app.server.context import AppContext
 from app.server.routes import routes
 from tenchi.server import create_app
 
-# Repositories are process-scoped; the context wrapping them is rebuilt for
-# every request by ``create_context``.
-todo_repository = create_todo_repository()
+DATABASE_PATH = os.environ.get("TODOS_DATABASE", "todos.db")
 
 
-def create_context() -> AppContext:
-    return AppContext(todos=todo_repository)
+@asynccontextmanager
+async def lifespan() -> AsyncGenerator[TodoRepository]:
+    async with open_todo_repository(DATABASE_PATH) as todos:
+        yield todos
 
 
-app = create_app(routes=routes, context_factory=create_context)
+def create_context(todos: TodoRepository) -> AppContext:
+    return AppContext(todos=todos)
+
+
+app = create_app(routes=routes, context_factory=create_context, lifespan=lifespan)

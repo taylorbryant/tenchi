@@ -161,22 +161,35 @@ routes = route_group(
 ```
 
 Server composition owns concrete wiring and produces the ASGI app. The
-context factory runs once per request:
+lifespan owns process-scoped resources — it opens them at startup, closes
+them at shutdown, and whatever it yields is handed to the context factory,
+which runs once per request:
 
 ```python
 # app/server/app.py
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from tenchi.server import create_app
-from app.infra.port_wiring import create_todo_repository
+from app.features.todos.ports import TodoRepository
+from app.infra.port_wiring import open_todo_repository
 from app.server.context import AppContext
 from app.server.routes import routes
 
-todo_repository = create_todo_repository()
+@asynccontextmanager
+async def lifespan() -> AsyncGenerator[TodoRepository]:
+    async with open_todo_repository("todos.db") as todos:
+        yield todos
 
-def create_context() -> AppContext:
-    return AppContext(todos=todo_repository)
+def create_context(todos: TodoRepository) -> AppContext:
+    return AppContext(todos=todos)
 
-app = create_app(routes=routes, context_factory=create_context)
+app = create_app(routes=routes, context_factory=create_context, lifespan=lifespan)
 ```
+
+For apps without real resources, `lifespan` is optional and the context
+factory can take zero arguments and close over module-scoped objects (see
+the memory-backed fixtures in the example tests).
 
 Run it with any ASGI server:
 
@@ -261,7 +274,10 @@ async def test_create_todo() -> None:
 ```
 
 Integration tests exercise the full boundary with `httpx.ASGITransport`; see
-`examples/todos/tests/test_todos_http.py`.
+`examples/todos/tests/test_todos_http.py`. When the app uses a lifespan,
+wrap it in `asgi-lifespan`'s `LifespanManager` so startup and shutdown run
+(`ASGITransport` alone does not trigger lifespan events); see
+`examples/todos/tests/test_todos_lifespan.py`.
 
 ## CLI
 
@@ -291,12 +307,16 @@ GET   /todos/{todo_id}  200  app.features.todos.use_cases.get_todo.get_todo  [TO
 ## Example
 
 A complete todos application using the prescribed structure lives in
-[`examples/todos/`](examples/todos/).
+[`examples/todos/`](examples/todos/). It ships two adapters for the same
+port: the SQLite repository (aiosqlite) wired into the running app through
+the lifespan, and the memory repository used by unit tests — swapping them
+touches only `infra/` and `server/`.
 
 ## Status
 
 Tenchi is an early vertical slice: contracts (body, path, and query
-validation), route binding, ASGI dispatch, request-scoped context, ports,
-expected-error mapping, a contract-driven typed client, and a small CLI
-(`new`, `routes`). Remaining CLI commands (`make`, `doctor`, `dev`) and
-provider-backed infrastructure are planned but intentionally not started.
+validation), route binding, ASGI dispatch, lifespan-managed resources with
+request-scoped context, ports, expected-error mapping, a contract-driven
+typed client, and a small CLI (`new`, `routes`). Remaining CLI commands
+(`make`, `doctor`, `dev`) and provider-backed infrastructure are planned
+but intentionally not started.

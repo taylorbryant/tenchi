@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, overload
 
 from pydantic import TypeAdapter, ValidationError
 from starlette.applications import Starlette
@@ -35,7 +36,19 @@ from .routes import Route, RouteGroup
 
 logger = logging.getLogger("tenchi.server")
 
-ContextFactory = Callable[[], Any | Awaitable[Any]]
+ContextFactory = Callable[..., Any]
+Lifespan = Callable[[], AbstractAsyncContextManager[Any]]
+
+_UNSET = object()
+
+
+class _LifespanState:
+    """Holds the value yielded by the app lifespan while it is running."""
+
+    __slots__ = ("value",)
+
+    def __init__(self) -> None:
+        self.value: Any = _UNSET
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,18 +60,50 @@ class _BoundRoute:
     response_adapter: TypeAdapter[Any] | None
 
 
+@overload
+def create_app(
+    *,
+    routes: RouteGroup,
+    context_factory: Callable[[], object],
+    lifespan: Callable[[], AbstractAsyncContextManager[object]] | None = None,
+) -> Starlette: ...
+
+
+@overload
+def create_app[StateT](
+    *,
+    routes: RouteGroup,
+    context_factory: Callable[[StateT], object],
+    lifespan: Callable[[], AbstractAsyncContextManager[StateT]],
+) -> Starlette: ...
+
+
 def create_app(
     *,
     routes: RouteGroup,
     context_factory: ContextFactory,
+    lifespan: Lifespan | None = None,
 ) -> Starlette:
     """Build an ASGI application from bound routes and a context factory.
 
     ``context_factory`` is called once per request, so the context it
-    returns is request-scoped; long-lived resources such as repositories
-    should be created at module scope in server composition and closed over
-    by the factory.
+    returns is request-scoped.
+
+    ``lifespan`` owns process-scoped resources: an async context manager
+    factory entered at startup and exited at shutdown. Whatever it yields —
+    a connection, a repository, a dataclass of ports — is passed to
+    ``context_factory`` on every request when the factory accepts one
+    argument. A zero-argument factory may still be combined with a lifespan
+    that only opens and closes module-scoped resources.
     """
+    takes_state = _context_factory_takes_state(context_factory)
+    if takes_state and lifespan is None:
+        raise ValueError(
+            "create_app: context_factory accepts a lifespan state argument "
+            "but no lifespan= was provided"
+        )
+
+    state = _LifespanState()
     starlette_routes: list[StarletteRoute] = []
     seen: set[tuple[str, str]] = set()
 
@@ -94,7 +139,7 @@ def create_app(
         starlette_routes.append(
             StarletteRoute(
                 item.contract.path,
-                _make_endpoint(bound, context_factory),
+                _make_endpoint(bound, context_factory, takes_state, state),
                 methods=[item.contract.method],
                 name=None,
             )
@@ -102,11 +147,51 @@ def create_app(
 
     return Starlette(
         routes=starlette_routes,
+        lifespan=_starlette_lifespan(lifespan, state) if lifespan else None,
         exception_handlers={
             HTTPException: _handle_http_exception,
             Exception: _handle_unexpected_exception,
         },
     )
+
+
+def _context_factory_takes_state(context_factory: ContextFactory) -> bool:
+    try:
+        signature = inspect.signature(context_factory)
+    except (TypeError, ValueError):
+        return False
+
+    required = [
+        parameter
+        for parameter in signature.parameters.values()
+        if parameter.kind
+        in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+        and parameter.default is inspect.Parameter.empty
+    ]
+    if len(required) > 1:
+        raise ValueError(
+            "create_app: context_factory must take zero arguments or a "
+            f"single lifespan state argument, not {len(required)}"
+        )
+    return len(required) == 1
+
+
+def _starlette_lifespan(
+    lifespan: Lifespan, state: _LifespanState
+) -> Callable[[Starlette], AbstractAsyncContextManager[None]]:
+    @asynccontextmanager
+    async def run(_: Starlette) -> AsyncGenerator[None]:
+        async with lifespan() as value:
+            state.value = value
+            try:
+                yield
+            finally:
+                state.value = _UNSET
+
+    return run
 
 
 def _query_dict(query_params: QueryParams) -> dict[str, str | list[str]]:
@@ -126,9 +211,23 @@ def _query_dict(query_params: QueryParams) -> dict[str, str | list[str]]:
 def _make_endpoint(
     bound: _BoundRoute,
     context_factory: ContextFactory,
+    takes_state: bool,
+    state: _LifespanState,
 ) -> Callable[[Request], Awaitable[Response]]:
     contract = bound.route.contract
     use_case = bound.route.use_case
+
+    def build_context() -> Any:
+        if not takes_state:
+            return context_factory()
+        if state.value is _UNSET:
+            raise RuntimeError(
+                f"{contract.name}: context_factory expects lifespan state, "
+                "but the lifespan has not run. Serve the app with lifespan "
+                "support (uvicorn does this by default; in tests wrap the "
+                "app in asgi-lifespan's LifespanManager)."
+            )
+        return context_factory(state.value)
 
     async def endpoint(request: Request) -> Response:
         kwargs: dict[str, Any] = {}
@@ -153,7 +252,7 @@ def _make_endpoint(
             )
 
         try:
-            context = context_factory()
+            context = build_context()
             if inspect.isawaitable(context):
                 context = await context
             kwargs["context"] = context
