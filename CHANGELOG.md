@@ -1,0 +1,52 @@
+# Changelog
+
+All notable changes to Tenchi are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/), and Tenchi adheres to
+[Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
+versions may change the public API.
+
+## [0.2.0] - 2026-07-14
+
+### Added
+
+- `tenchi doctor`: static dependency-direction and structure checks.
+  Imports across `app/` are resolved (including relative imports) and
+  validated against the architecture rules — use cases cannot import
+  concrete infrastructure or the HTTP runtime, schemas and ports stay
+  runtime-free, shared code cannot depend on features, infrastructure
+  cannot reach back into use cases, routes, contracts, or server
+  composition. Findings carry file, line, and the rule broken.
+- `headers=` on contracts: request headers validated into a model and
+  passed to the use case, completing the input surface alongside body,
+  path, and query. HTTP names map to fields by lowercasing and swapping
+  `-` for `_`; the typed client and the OpenAPI document reverse the
+  mapping.
+- `create_app(hooks=...)`: the authentication seam. Hooks receive a
+  `RequestInfo` (method, path, lowercased headers, matched contract) and
+  the request context, run before input validation, and either raise an
+  `AppError` to reject or return an enriched context to attach identity.
+- `route_group(errors=...)`: declare expected errors across every
+  contract in a group — the ergonomic way to declare hook-raised errors,
+  which also documents them on every route in the OpenAPI document.
+- `tenchi.server.RequestInfo` exported from the package root.
+- The todos example wires an optional API-key hook (`TODOS_API_KEY`).
+
+## [0.1.0] - 2026-07-14
+
+Initial release.
+
+- Contracts defining and validating the HTTP boundary: JSON bodies, path
+  and query parameters, success status, declared errors, documentation
+  metadata, and non-JSON media types.
+- Routes binding contracts to plain async use-case functions with
+  import-time signature validation.
+- An ASGI server (`create_app`) with request-scoped context creation,
+  lifespan-managed resources, expected-error mapping, and a standard
+  error envelope distinguishing framework-owned from app-owned errors.
+- Protocol-based ports with memory and SQLite adapters in the todos
+  example.
+- A contract-driven typed `httpx` client.
+- OpenAPI 3.1 generation from contracts, served through the framework's
+  own route machinery.
+- The `tenchi` CLI: `new`, `make feature`, `make use-case`, `routes`,
+  `openapi`, `dev`.
