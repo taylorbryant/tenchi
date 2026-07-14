@@ -26,6 +26,7 @@ from pydantic import TypeAdapter, ValidationError
 from starlette.applications import Starlette
 from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route as StarletteRoute
@@ -96,6 +97,7 @@ def create_app(
     context_factory: Callable[[], object],
     lifespan: Callable[[], AbstractAsyncContextManager[object]] | None = None,
     hooks: Sequence[Hook] = (),
+    middleware: Sequence[Middleware] = (),
 ) -> Starlette: ...
 
 
@@ -106,6 +108,7 @@ def create_app[StateT](
     context_factory: Callable[[StateT], object],
     lifespan: Callable[[], AbstractAsyncContextManager[StateT]],
     hooks: Sequence[Hook] = (),
+    middleware: Sequence[Middleware] = (),
 ) -> Starlette: ...
 
 
@@ -115,6 +118,7 @@ def create_app(
     context_factory: ContextFactory,
     lifespan: Lifespan | None = None,
     hooks: Sequence[Hook] = (),
+    middleware: Sequence[Middleware] = (),
 ) -> Starlette:
     """Build an ASGI application from bound routes and a context factory.
 
@@ -136,6 +140,15 @@ def create_app(
     ``hooks`` run on every request after the context is created and before
     inputs are validated; see :data:`Hook`. Authentication belongs here;
     business authorization belongs in use cases.
+
+    ``middleware`` is passed straight to Starlette — the seam for CORS,
+    compression, and other ASGI concerns::
+
+        from starlette.middleware import Middleware
+        from starlette.middleware.cors import CORSMiddleware
+
+        create_app(..., middleware=[Middleware(CORSMiddleware,
+                                               allow_origins=["https://app.example.com"])])
     """
     takes_state = _context_factory_takes_state(context_factory)
     if takes_state and lifespan is None:
@@ -195,6 +208,7 @@ def create_app(
 
     return Starlette(
         routes=starlette_routes,
+        middleware=list(middleware),
         lifespan=_starlette_lifespan(lifespan, state) if lifespan else None,
         exception_handlers={
             HTTPException: _handle_http_exception,
