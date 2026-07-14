@@ -24,6 +24,11 @@ dependencies = [
     "typing-extensions>=4.10",
 ]
 
+[project.urls]
+Repository = "https://github.com/taylorbryant/tenchi"
+Changelog = "https://github.com/taylorbryant/tenchi/blob/main/CHANGELOG.md"
+Roadmap = "https://github.com/taylorbryant/tenchi/blob/main/ROADMAP.md"
+
 [dependency-groups]
 dev = [
     "aiosqlite>=0.20",

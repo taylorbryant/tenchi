@@ -212,7 +212,7 @@ versions may change the public API.
   The taskboard example now opens a connection and transaction per
   request this way. `docs/providers.md` records the accompanying
   decision: Tenchi documents ports + adapters + scoped resources as its
-  integration story instead of growing Beignet-style provider packages.
+  integration story instead of growing a provider-package tier.
 
 - `Client` owns more of its transport: `Client(headers=...)` sends default
   headers on every request (the natural home for an `authorization`

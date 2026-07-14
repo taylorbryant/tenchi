@@ -1,12 +1,15 @@
 # Tenchi
 
-Tenchi is a contract-first, Python-native framework for building REST APIs
-around use cases, ports, and explicit dependency wiring. It is the Python
-sibling of Beignet: the same architecture — contracts at the HTTP boundary,
-use cases at the center, protocol-based ports, infrastructure adapters, and
-explicit server composition — expressed with plain functions, dataclasses,
-`typing.Protocol`, Pydantic v2, and Starlette instead of TypeScript
-machinery.
+Tenchi is a contract-first Python framework for building typed JSON APIs
+around use cases, ports, and explicit dependency wiring. Its one opinion,
+applied everywhere: **declare the boundary, validate at the boundary, and
+keep everything inside it plain.** Contracts at the HTTP boundary, use
+cases at the center, protocol-based ports, infrastructure adapters, and
+explicit server composition — all expressed with plain functions, frozen
+dataclasses, `typing.Protocol`, Pydantic v2, and Starlette. No decorators
+to register, no DI container to configure, no metaclasses to excavate:
+the whole framework is an afternoon's read, and it intends to stay that
+way ([ROADMAP.md](ROADMAP.md)).
 
 ## Installation
 

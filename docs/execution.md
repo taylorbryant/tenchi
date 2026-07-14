@@ -14,8 +14,9 @@ schedulers, and tests call the same functions — and when the taskboard's
 outbox worker was built, it had to hand-roll what the server already
 does: validate a raw payload against a declared type, and run the call
 inside a unit of work whose exit sees success or failure. A second
-non-HTTP entrypoint would copy that again. Beignet answers this with a
-framework-wide execution layer; what is the Tenchi-sized version?
+non-HTTP entrypoint would copy that again. Larger frameworks answer
+this with a framework-wide execution layer — context propagation,
+hooks, instrumentation, the works. What is the Tenchi-sized version?
 
 ## Forces
 
@@ -76,8 +77,8 @@ hand-rolled validation became one `execute` call.
 
 ## What was deliberately left out
 
-Each of these appeared in the "Python Beignet" proposal; each is
-deferred for the same reason — no second real use today:
+Each of these is standard equipment in full execution layers elsewhere;
+each is deferred for the same reason — no second real use today:
 
 - **Hooks and policy gates.** The worker trusts its queue; scripts trust
   their operator. The first real case of "every non-HTTP execution must
