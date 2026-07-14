@@ -10,8 +10,6 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import httpx
-from asgi_lifespan import LifespanManager
 from starlette.applications import Starlette
 
 from app.features.projects.schemas import Project
@@ -21,6 +19,7 @@ from tenchi.contracts import contract
 from tenchi.errors import AppError, ErrorDef
 from tenchi.routes import route, route_group
 from tenchi.server import create_app
+from tenchi.testing import open_http
 
 glitch = ErrorDef(code="GLITCH", status=409, message="Glitched after writing")
 
@@ -64,17 +63,13 @@ async def test_commit_on_success_rollback_on_error(tmp_path: Path) -> None:
     database = str(tmp_path / "taskboard.db")
     app = make_app(database)
 
-    async with LifespanManager(app):
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as http:
-            kept = await http.post("/write")
-            assert kept.status_code == 201
+    async with open_http(app) as http:
+        kept = await http.post("/write")
+        assert kept.status_code == 201
 
-            failed = await http.post("/glitch")
-            assert failed.status_code == 409
-            assert failed.json()["code"] == "GLITCH"
+        failed = await http.post("/glitch")
+        assert failed.status_code == 409
+        assert failed.json()["code"] == "GLITCH"
 
     async with open_request_ports(database) as ports:
         names = [p.name for p in await ports.projects.list_owned_by("alice")]

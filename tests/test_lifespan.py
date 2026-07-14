@@ -6,12 +6,12 @@ from dataclasses import dataclass
 
 import httpx
 import pytest
-from asgi_lifespan import LifespanManager
 from starlette.applications import Starlette
 
 from tenchi.contracts import contract
 from tenchi.routes import route, route_group
 from tenchi.server import create_app
+from tenchi.testing import open_http
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,12 +49,8 @@ async def test_lifespan_state_reaches_the_context_factory() -> None:
     events: list[str] = []
     app = make_app(events)
 
-    async with LifespanManager(app) as manager:
-        transport = httpx.ASGITransport(app=manager.app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
-            response = await client.get("/label")
+    async with open_http(app) as client:
+        response = await client.get("/label")
 
     assert response.json() == "from-lifespan"
     assert events == ["startup", "shutdown"]
@@ -75,12 +71,8 @@ async def test_zero_arg_factory_may_still_use_a_lifespan() -> None:
         lifespan=lifespan,
     )
 
-    async with LifespanManager(app):
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
-            response = await client.get("/label")
+    async with open_http(app) as client:
+        response = await client.get("/label")
 
     assert response.json() == "module-scoped"
     assert events == ["startup", "shutdown"]

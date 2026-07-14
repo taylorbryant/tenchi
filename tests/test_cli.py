@@ -116,6 +116,7 @@ def test_make_feature_scaffolds_importable_skeleton(
         "schemas.py",
         "ports.py",
         "contracts.py",
+        "policy.py",
         "routes.py",
         "use_cases/__init__.py",
         "tests/__init__.py",

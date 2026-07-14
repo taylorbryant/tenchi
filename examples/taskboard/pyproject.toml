@@ -10,7 +10,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "asgi-lifespan>=2.1",
     "httpx>=0.27",
     "openapi-spec-validator>=0.7",
     "pyright>=1.1.390",

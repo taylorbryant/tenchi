@@ -42,6 +42,7 @@ from app.shared.users import User
 from tenchi.client import Client
 from tenchi.errors import AppError
 from tenchi.server import create_app
+from tenchi.testing import open_http
 
 TOKENS = {
     "alice-token": User(id="alice", name="Alice"),
@@ -185,3 +186,11 @@ async def test_pagination_over_http(harness: Harness) -> None:
 
     assert page.total == 5
     assert [task.title for task in page.items] == ["task 2", "task 3"]
+
+
+async def test_health_is_public_and_runs_the_database_check() -> None:
+    async with open_http(make_app()) as http:
+        response = await http.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "checks": {"database": "ok"}}

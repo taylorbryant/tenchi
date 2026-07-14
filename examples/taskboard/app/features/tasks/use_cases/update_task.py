@@ -1,3 +1,4 @@
+from app.features.projects.policy import can_view_project
 from app.server.context import AppContext
 from app.shared.errors import task_not_found
 from app.shared.users import require_user
@@ -16,7 +17,7 @@ async def update_task(
         raise AppError(task_not_found, details={"task_id": params.task_id})
 
     project = await context.projects.get(task.project_id)
-    if project is None or project.owner_id != user.id:
+    if not can_view_project(user, project):
         raise AppError(task_not_found, details={"task_id": params.task_id})
 
     changes = request.model_dump(exclude_none=True)

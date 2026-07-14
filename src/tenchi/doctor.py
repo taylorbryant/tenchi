@@ -3,8 +3,10 @@
 Doctor enforces the dependency direction that keeps Tenchi apps honest:
 
 - Domain and schema code must not import infrastructure or the HTTP runtime.
-- Use cases may import schemas, ports, the app context, and shared errors —
-  never concrete infrastructure or server composition.
+- Use cases may import schemas, ports, policies, the app context, and
+  shared errors — never concrete infrastructure or server composition.
+- Policies take their subjects as arguments: they import schemas, domain
+  types, and shared errors, and nothing with I/O behind it.
 - Routes bind contracts to use cases but must not import infrastructure.
 - Shared code must not depend on features.
 - Infrastructure implements ports; it must not import use cases, routes,
@@ -42,6 +44,7 @@ _FEATURE_KINDS: dict[str, Category] = {
     "contracts": "contracts",
     "routes": "routes",
     "use_cases": "use_cases",
+    "policy": "policy",
     "tests": "tests",
 }
 
@@ -70,6 +73,16 @@ _RULES: dict[Category, dict[Category, str]] = {
         "context": "contracts must not import the app context",
         "use_cases": "contracts must not import use cases",
         **{k: f"contracts {v}" for k, v in _HTTP_RULES.items()},
+    },
+    "policy": {
+        "infra": "policies must not import infrastructure",
+        "server": "policies must not import server composition",
+        "context": "policies must not import the app context; they take "
+        "their subjects as arguments",
+        "use_cases": "policies must not import use cases",
+        "routes": "policies must not import routes",
+        "contracts": "policies must not import contracts",
+        **{k: f"policies {v}" for k, v in _HTTP_RULES.items()},
     },
     "use_cases": {
         "infra": "use cases must not import concrete infrastructure",

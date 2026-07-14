@@ -121,6 +121,13 @@ async def test_get_todo_maps_expected_error(client: httpx.AsyncClient) -> None:
     }
 
 
+async def test_health_endpoint_is_live(client: httpx.AsyncClient) -> None:
+    response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
 async def test_unknown_route_is_a_framework_404(
     client: httpx.AsyncClient,
 ) -> None:

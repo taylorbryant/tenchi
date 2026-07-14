@@ -303,6 +303,68 @@ async with Client(
 A fully configured `httpx.AsyncClient` can still be supplied via
 `Client(http=...)`; the caller keeps ownership of it.
 
+## Pagination
+
+`tenchi.pagination` standardizes offset pagination: subclass `PageQuery`
+to add filters, use `Page[Item]` as the contract response, and build
+results with `page()`:
+
+```python
+from tenchi.pagination import Page, PageQuery, page
+
+class ListTasksQuery(PageQuery):          # limit/offset with sane bounds
+    status: TaskStatus | None = None
+
+async def list_tasks(query: ListTasksQuery, context: AppContext) -> Page[Task]:
+    items, total = await context.tasks.search(..., limit=query.limit, offset=query.offset)
+    return page(items, total=total, query=query)
+```
+
+## Health
+
+`health_route()` composes a health endpoint through Tenchi's own route
+machinery. Checks receive the request context (so they can reach ports),
+may be sync or async, and fail by raising — failures surface as a 503
+`UNHEALTHY` envelope listing exception class names only, with full
+tracebacks in the log:
+
+```python
+from tenchi.health import health_route
+
+async def database_ready(context: AppContext) -> None:
+    await context.todos.list()
+
+routes = route_group(api_routes, health_route(checks={"database": database_ready}))
+```
+
+The route is tagged `health` so authentication hooks can exempt it via
+`info.contract.tags`.
+
+## Policies
+
+Business authorization lives in `features/<feature>/policy.py` as plain
+functions: an ability belongs to the feature that owns the *subject* it
+inspects, policies take their subjects as arguments (no I/O), and use
+cases fetch, then ask:
+
+```python
+# app/features/projects/policy.py
+def ensure_can_write_project(user: User, project: Project | None, *, project_id: str) -> Project:
+    if project is None:
+        raise AppError(project_not_found, details={"project_id": project_id})
+    if project.owner_id != user.id:
+        raise AppError(forbidden, details={"project_id": project_id})
+    return project
+
+# app/features/tasks/use_cases/create_task.py — the ability lives with projects
+project = await context.projects.get(request.project_id)
+ensure_can_write_project(user, project, project_id=request.project_id)
+```
+
+`tenchi doctor` enforces the discipline: policies may import schemas,
+domain types, and shared errors — never infrastructure, the app context,
+or the HTTP runtime.
+
 ## Errors
 
 Application errors carry a stable code, an HTTP status, and optional
@@ -359,11 +421,19 @@ async def test_create_todo() -> None:
     assert todo.title == "Buy milk"
 ```
 
-Integration tests exercise the full boundary with `httpx.ASGITransport`; see
-`examples/todos/tests/test_todos_http.py`. When the app uses a lifespan,
-wrap it in `asgi-lifespan`'s `LifespanManager` so startup and shutdown run
-(`ASGITransport` alone does not trigger lifespan events); see
-`examples/todos/tests/test_todos_lifespan.py`.
+Integration tests use `tenchi.testing`, which runs the app's lifespan
+around an in-process client (`httpx.ASGITransport` alone never triggers
+lifespan events):
+
+```python
+from tenchi.testing import open_client, open_http
+
+async with open_client(app, headers={"authorization": "Bearer ..."}) as client:
+    todo = await client.call(create_todo_contract, request=CreateTodo(title="x"))
+
+async with open_http(app) as http:          # raw httpx for envelope assertions
+    assert (await http.get("/nope")).status_code == 404
+```
 
 ## OpenAPI
 

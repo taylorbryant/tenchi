@@ -346,6 +346,13 @@ def feature_files(feature: str) -> dict[str, str]:
             'implemented in app/infra/."""\n'
         ),
         "contracts.py": f'"""HTTP contracts for the {feature} feature."""\n',
+        "policy.py": (
+            f'"""Authorization rules for the {feature} feature.\n'
+            "\n"
+            "An ability lives in the feature that owns the subject it\n"
+            "inspects. Policies take their subjects as arguments and raise\n"
+            'AppError; use cases fetch, then ask.\n"""\n'
+        ),
         "routes.py": _MAKE_FEATURE_ROUTES.replace("__FEATURE__", feature),
         "use_cases/__init__.py": "",
         "tests/__init__.py": "",

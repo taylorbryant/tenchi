@@ -172,6 +172,41 @@ def test_infra_may_import_ports_schemas_and_external_libraries(
     assert run_doctor(app_root) == []
 
 
+def test_policy_importing_infra_is_flagged(app_root: Path) -> None:
+    policy = app_root / "app/features/todos/policy.py"
+    policy.write_text(
+        'import app.infra.port_wiring  # noqa: F401\n"""Authorization rules."""\n'
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "policies must not import infrastructure" in m for m in messages(findings)
+    )
+
+
+def test_policy_importing_context_is_flagged(app_root: Path) -> None:
+    policy = app_root / "app/features/todos/policy.py"
+    policy.write_text("from app.server.context import AppContext  # noqa: F401\n")
+
+    findings = run_doctor(app_root)
+
+    assert any("take their subjects as arguments" in m for m in messages(findings))
+
+
+def test_use_cases_may_import_policies_across_features(app_root: Path) -> None:
+    (app_root / "app/features/todos/policy.py").write_text(
+        '"""Rules."""\n\nALLOW = True\n'
+    )
+    use_case = app_root / "app/features/todos/use_cases/list_todos.py"
+    use_case.write_text(
+        "from app.features.todos.policy import ALLOW  # noqa: F401\n"
+        + use_case.read_text()
+    )
+
+    assert run_doctor(app_root) == []
+
+
 def test_missing_prescribed_modules_are_flagged(app_root: Path) -> None:
     (app_root / "app/server/asgi.py").unlink()
 

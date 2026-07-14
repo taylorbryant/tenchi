@@ -5,6 +5,26 @@ All notable changes to Tenchi are documented here. The format follows
 [Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
 versions may change the public API.
 
+## [Unreleased]
+
+### Added
+
+- `tenchi.testing`: `open_client` and `open_http` — in-process test
+  clients that drive the app's ASGI lifespan themselves, removing the
+  need for `asgi-lifespan` in application test suites.
+- `tenchi.pagination`: generic `Page[Item]` response model, `PageQuery`
+  base for filterable list queries, and the `page()` constructor.
+- `tenchi.health`: `health_route(checks=...)` — a health endpoint served
+  through Tenchi's own route machinery; checks receive the app context,
+  and failures map to a 503 `UNHEALTHY` envelope exposing exception class
+  names only. Tagged `health` for hook exemption.
+- The policies convention: `features/<feature>/policy.py` holds business
+  authorization as plain functions taking their subjects as arguments;
+  abilities live with the feature owning the subject. `tenchi doctor`
+  gains a policy category enforcing that policies never import
+  infrastructure, the app context, or the HTTP runtime, and
+  `tenchi make feature` scaffolds `policy.py`.
+
 ## [0.3.0] - 2026-07-14
 
 ### Added
