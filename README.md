@@ -362,8 +362,12 @@ async def database_ready(context: AppContext) -> None:
 routes = route_group(api_routes, health_route(checks={"database": database_ready}))
 ```
 
+Async checks are capped by `check_timeout` (default 5 seconds) — a hung
+dependency produces the promised 503, never a hung health endpoint.
+
 The route is tagged `health` so authentication hooks can exempt it via
-`info.contract.tags`.
+`info.contract.tags` (the OpenAPI route is tagged `docs` for the same
+reason).
 
 ## Policies
 
@@ -485,6 +489,7 @@ async def test_create_todo() -> None:
 ```
 
 Integration tests use `tenchi.testing`, which runs the app's lifespan
+(with a timeout, so a stuck app fails loudly instead of hanging the suite)
 around an in-process client (`httpx.ASGITransport` alone never triggers
 lifespan events):
 
@@ -600,7 +605,7 @@ The stress-test application lives in
 [`examples/taskboard/`](examples/taskboard/): two related features
 (projects and tasks), bearer-token authentication with identity on the
 context, ownership rules in use cases, pagination, partial updates,
-SQLite adapters sharing one lifespan-managed connection, and the
+SQLite adapters on a per-request connection and transaction, and the
 transactional-outbox pattern from [`docs/events.md`](docs/events.md) —
 adding a project member enqueues a notification job in the same
 transaction, and `app/server/worker.py` delivers it. It is a standalone

@@ -86,9 +86,10 @@ Rules that keep the framework small enough to trust:
 Ordered by intent, not promise; each item still has to win its argument
 when its turn comes.
 
-- **API snapshot guard** — a test that snapshots the public API surface
-  so accidental signature changes fail CI instead of shipping in a minor
-  release. Matters now that real apps install from PyPI.
+- **API snapshot guard** — done in the 0.5.0 cycle:
+  `tests/api_snapshot.txt` records the public surface and
+  `tests/test_api_snapshot.py` fails on drift; intentional changes
+  regenerate the snapshot so the diff is reviewed.
 - **Events and background work, demonstrated** — done in the 0.5.0
   cycle: the taskboard's `member_added` flow proves the pattern
   (`docs/events.md`: effects as ports, transactional outbox, workers as

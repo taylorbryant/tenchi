@@ -44,8 +44,11 @@ framework code, the CLI, docs, or the example apps.
     function; `openapi_route` serves it through Tenchi's own machinery).
   - `doctor.py` — dependency-direction and structure checks.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
-- `tests/` — framework tests, one file per module plus `test_hooks.py`,
-  `test_lifespan.py`, and `test_cli.py`.
+- `tests/` — framework tests, roughly one file per module plus
+  cross-cutting files (`test_hooks.py`, `test_lifespan.py`,
+  `test_request_scope.py`, `test_request_ids.py`, `test_middleware.py`,
+  `test_cli.py`) and the API snapshot pair (`test_api_snapshot.py`,
+  `api_snapshot.txt`).
 - `examples/todos/` — the teaching app. Keep it minimal and aligned with
   the scaffold; it demonstrates each capability once.
 - `examples/taskboard/` — the stress-test app, a standalone uv project
@@ -125,7 +128,7 @@ Naming:
 - Declarations are lowercase factory functions returning frozen dataclasses:
   `contract()`, `route()`, `route_group()`.
 - Runtime constructors are `create_*` (`create_app`, `create_bearer_hook`).
-- Async-context-manager factories are `open_*` (`open_ports`,
+- Async-context-manager factories are `open_*` (`open_request_ports`,
   `open_sqlite_todo_repository`).
 - Application errors are `ErrorDef` module constants in `app/shared/errors.py`
   with stable `SCREAMING_SNAKE` codes.

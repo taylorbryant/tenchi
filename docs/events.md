@@ -69,12 +69,14 @@ class Outbox(Protocol):
 ```
 
 The use case calls `await context.outbox.enqueue(job="send_receipt",
-payload={"order_id": order.id})` — still a visible port call. The
-production adapter writes a row to an outbox table **on the same
-connection as the request's transaction**, which is exactly what the
-request-scoped context factory already provides. Commit persists the
-state change and the job atomically; rollback discards both. The test
-adapter is a list.
+payload={"order_id": order.id, "email": order.email})` — still a
+visible port call. Make the payload **self-contained**: it should carry
+the facts as they were when the event happened, because state may be
+renamed, changed, or deleted before the worker delivers. The production
+adapter writes a row to an outbox table **on the same connection as the
+request's transaction**, which is exactly what the request-scoped
+context factory already provides. Commit persists the state change and
+the job atomically; rollback discards both. The test adapter is a list.
 
 **3. A worker is an entrypoint, not a framework feature.** A worker
 process looks like `server/asgi.py`'s sibling: it opens the same

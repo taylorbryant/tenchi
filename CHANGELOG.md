@@ -35,6 +35,67 @@ versions may change the public API.
 
 - README status section now reflects the providers decision and points
   at the roadmap instead of promising provider-backed infrastructure.
+- `health_route` gained `check_timeout` (default 5 seconds): an async
+  check that hangs now fails as `TimeoutError` and produces the promised
+  503 instead of hanging the health endpoint.
+- `openapi_route` gained `tags` (default `("docs",)`) so authentication
+  hooks can exempt the document route by tag instead of hardcoding its
+  path.
+- `Client.call` now raises `TypeError` when passed an input the contract
+  does not declare (previously silently dropped), raises `TypeError`
+  for non-JSON request media types with non-`str`/`bytes` request types
+  (previously silently sent JSON), and rejects empty path parameter
+  values. Declared error headers (such as `Retry-After`) are now carried
+  on the raised `AppError`.
+- `route()` now fails at import time when a params model's fields do not
+  match the path template's parameters, or when a path declares
+  parameters without a params type — such routes could never succeed.
+- `route_group` rejects prefixes ending in `/` (they built double-slash
+  paths that never matched).
+- `openapi_schema` raises on duplicate method+path pairs and on
+  conflicting component schemas (two different models sharing a class
+  name, or one model whose validation and serialization schemas
+  diverge) instead of silently documenting the wrong schema.
+- `tenchi doctor` got stricter: every non-test module under `app/` is
+  parsed (syntax errors in server or unclassified files were previously
+  invisible), unrecognized feature modules are findings, shared code
+  may not import feature policies, the `# doctor: public` pragma only
+  counts as a real comment, only `context.user` (not any `.user`)
+  counts as an authorization reference, and `from app.server import
+  context` now resolves per imported name instead of being flagged.
+- CLI generators reject Python keywords as names (`tenchi make use-case
+  todos return` previously generated unparseable code) and validate the
+  feature argument.
+
+### Fixed
+
+- Request validation failures from models with custom validators now
+  return 422 as promised; previously the validator's exception object
+  leaked into the error details and crashed serialization into a 500.
+- A use-case result that fails response validation now raises through
+  the request-scoped context, so the request's transaction rolls back
+  instead of committing behind the 500.
+- Query models with sequence fields (`tags: list[str]`) now accept a
+  single occurrence (`?tags=a`); previously only zero or repeated
+  occurrences validated.
+- `AppError` details that are not JSON-native (datetimes, Decimals) are
+  coerced to JSON-safe values instead of crashing the error response
+  into an unhandled 500 without a request id.
+- 405 responses keep the `Allow` header; HTTPException headers from
+  middleware are preserved; the catch-all exception handler now carries
+  the request id.
+- `tenchi.testing` lifespan driver: startup failures chain the original
+  exception, and stuck apps fail after a timeout with a diagnostic
+  instead of hanging the suite.
+- Taskboard: task updates now require write ability (members could
+  previously modify tasks through the view policy), the task list shows
+  member-visible tasks (it disagreed with `get`), outbox claiming is a
+  single atomic UPDATE so concurrent workers cannot double-deliver, the
+  worker loop survives job failures, connections enforce foreign keys
+  and set a busy timeout with WAL enabled, and `member_added` payloads
+  are self-contained (delivery no longer re-reads state that may have
+  changed since enqueue). The todos API-key hook compares keys in
+  constant time.
 
 ## [0.4.0] - 2026-07-14
 
