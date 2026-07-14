@@ -30,6 +30,7 @@ crash_contract = contract(method="GET", path="/crash", response=str)
 echo_contract = contract(
     method="POST", path="/echo", request=dict[str, str], response=dict[str, str]
 )
+wrong_shape_contract = contract(method="GET", path="/wrong-shape", response=str)
 
 
 async def ok(context: Context) -> str:
@@ -44,6 +45,11 @@ async def fail(context: Context) -> str:
 
 async def crash(context: Context) -> str:
     raise RuntimeError("crash")
+
+
+async def wrong_shape(context: Context) -> str:
+    context.log.append("use case")
+    return 42  # type: ignore[return-value]
 
 
 async def echo(request: dict[str, str], context: Context) -> dict[str, str]:
@@ -67,6 +73,7 @@ def make_app(events: list[str], hooks: list[object] | None = None) -> Starlette:
             route(fail_contract, fail),
             route(crash_contract, crash),
             route(echo_contract, echo),
+            route(wrong_shape_contract, wrong_shape),
         ),
         context_factory=request_context,
         hooks=hooks or [],  # pyright: ignore[reportArgumentType]
@@ -114,6 +121,23 @@ async def test_unexpected_error_rolls_back(
 
     assert response.status_code == 500
     assert events == ["enter", "rollback"]
+
+
+async def test_response_contract_violation_rolls_back(
+    scope: tuple[Client, list[str]],
+) -> None:
+    _, events = scope
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=make_app(events)),
+        base_url="http://testserver",
+    )
+
+    async with http:
+        response = await http.get("/wrong-shape")
+
+    # The use case's writes must not commit behind the 500.
+    assert response.status_code == 500
+    assert events == ["enter", "use case", "rollback"]
 
 
 async def test_validation_failure_exits_cleanly(

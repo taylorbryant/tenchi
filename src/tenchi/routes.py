@@ -14,9 +14,12 @@ input types, and always ``context``.
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
+
+from pydantic import BaseModel
 
 from .contracts import Contract, ResponseT
 from .errors import ErrorDef
@@ -72,6 +75,8 @@ def route(
     if contract.request is not None:
         call_kwargs.append("request")
     call_kwargs.append("context")
+
+    _check_params_match_path(contract)
 
     signature = inspect.signature(use_case)
     parameters = signature.parameters
@@ -139,6 +144,10 @@ def route_group(
     """
     if prefix and not prefix.startswith("/"):
         raise ValueError(f"route_group prefix must start with '/', got {prefix!r}")
+    if prefix.endswith("/"):
+        # Contract paths start with "/", so a trailing slash would build
+        # double-slash paths that never match their intended URL.
+        raise ValueError(f"route_group prefix must not end with '/', got {prefix!r}")
 
     flattened: list[Route] = []
     for item in items:
@@ -169,6 +178,28 @@ def _amend(
         path=prefix + contract.path if prefix else contract.path,
         errors=merged,
     )
+
+
+def _check_params_match_path(contract: Contract[Any]) -> None:
+    """Fail at import time when a params model and the path template
+    disagree — such a route would 422 on every single request."""
+    placeholders = set(re.findall(r"{([^}:]+)[^}]*}", contract.path))
+    if contract.params is None:
+        if placeholders:
+            raise RouteBindingError(
+                f"route({contract.name!r}): path declares parameters "
+                f"{sorted(placeholders)} but the contract has no params type"
+            )
+        return
+    params_type: Any = contract.params
+    if not inspect.isclass(params_type) or not issubclass(params_type, BaseModel):
+        return  # non-model params types are validated only at runtime
+    fields = set(params_type.model_fields)
+    if fields != placeholders:
+        raise RouteBindingError(
+            f"route({contract.name!r}): params model fields {sorted(fields)} "
+            f"do not match path template parameters {sorted(placeholders)}"
+        )
 
 
 def _describe(use_case: object) -> str:

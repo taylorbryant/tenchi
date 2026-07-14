@@ -121,7 +121,7 @@ def test_route_group_errors_append_and_dedupe() -> None:
     unauthorized = ErrorDef(code="UNAUTHORIZED", status=401, message="Unauthorized")
     missing = ErrorDef(code="MISSING", status=404, message="Missing")
     declared = contract(
-        method="GET", path="/items/{item_id}", response=Item, errors=(missing,)
+        method="GET", path="/one-item", response=Item, errors=(missing,)
     )
 
     async def handler(context: object) -> Item:
@@ -148,3 +148,28 @@ def test_route_group_prefix_rewrites_paths() -> None:
 def test_route_group_rejects_relative_prefix() -> None:
     with pytest.raises(ValueError, match="prefix must start with '/'"):
         route_group(route(list_contract, list_items), prefix="api")
+
+
+def test_route_rejects_params_model_not_matching_path() -> None:
+    class WrongParams(BaseModel):
+        id: str
+
+    declared = contract(
+        method="GET", path="/items/{item_id}", params=WrongParams, response=Item
+    )
+
+    async def handler(params: WrongParams, context: object) -> Item:
+        return Item(name="x")
+
+    with pytest.raises(RouteBindingError, match="do not match path template"):
+        route(declared, handler)
+
+
+def test_route_rejects_placeholders_without_params_type() -> None:
+    declared = contract(method="GET", path="/items/{item_id}", response=Item)
+
+    async def handler(context: object) -> Item:
+        return Item(name="x")
+
+    with pytest.raises(RouteBindingError, match="no params type"):
+        route(declared, handler)

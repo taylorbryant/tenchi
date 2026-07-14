@@ -12,6 +12,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic_core import to_jsonable_python
+
 ERROR_SOURCE_HEADER = "x-tenchi-error-source"
 REQUEST_ID_HEADER = "x-request-id"
 
@@ -85,10 +87,15 @@ def error_body(
     details: Any = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build the standard Tenchi error response body."""
+    """Build the standard Tenchi error response body.
+
+    ``details`` is coerced to JSON-safe data (datetimes to ISO strings,
+    unknown objects via ``str``) so a declared error always renders as its
+    declared status rather than crashing serialization into a 500.
+    """
     body: dict[str, Any] = {"code": code, "message": message}
     if details is not None:
-        body["details"] = details
+        body["details"] = to_jsonable_python(details, fallback=str)
     if request_id is not None:
         body["request_id"] = request_id
     return body
