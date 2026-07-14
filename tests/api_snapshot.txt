@@ -69,10 +69,10 @@ HealthCheck = collections.abc.Callable[[typing.Any], typing.Any]
 class HealthReport(BaseModel)
     status: str = 'ok'
     checks: dict[str, str] = {}
-def health_route(*, path: 'str' = '/health', checks: 'Mapping[str, HealthCheck] | None' = None) -> 'Route'
+def health_route(*, path: 'str' = '/health', checks: 'Mapping[str, HealthCheck] | None' = None, check_timeout: 'float' = 5.0) -> 'Route'
 
 # tenchi.openapi
-def openapi_route(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, public_tags: 'Sequence[str]' = ('health',), path: 'str' = '/openapi.json') -> 'Route'
+def openapi_route(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, public_tags: 'Sequence[str]' = ('health',), path: 'str' = '/openapi.json', tags: 'Sequence[str]' = ('docs',)) -> 'Route'
 def openapi_schema(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, public_tags: 'Sequence[str]' = ('health',)) -> 'dict[str, Any]'
 
 # tenchi.pagination

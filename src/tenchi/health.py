@@ -19,6 +19,7 @@ The route is tagged ``health`` so authentication hooks can exempt it via
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from collections.abc import Callable, Mapping
@@ -51,13 +52,16 @@ def health_route(
     *,
     path: str = "/health",
     checks: Mapping[str, HealthCheck] | None = None,
+    check_timeout: float = 5.0,
 ) -> Route:
     """Build a route reporting service health.
 
     With no ``checks`` the route is a plain liveness endpoint. Each check
     receives the request context; a check that raises marks the service
     unhealthy and its exception class name (never the message) appears in
-    the response details.
+    the response details. An async check that exceeds ``check_timeout``
+    seconds fails as ``TimeoutError`` — a hung dependency must produce the
+    503 the contract promises, not a hung health endpoint.
     """
     health_contract = contract(
         method="GET",
@@ -76,7 +80,7 @@ def health_route(
             try:
                 outcome = check(context)
                 if inspect.isawaitable(outcome):
-                    await outcome
+                    await asyncio.wait_for(_ensure_future(outcome), check_timeout)
                 results[name] = "ok"
             except Exception as exc:
                 failed = True
@@ -87,3 +91,8 @@ def health_route(
         return HealthReport(checks=results)
 
     return route(health_contract, get_health)
+
+
+def _ensure_future(outcome: Any) -> Any:
+    """``asyncio.wait_for`` needs a real awaitable; wrap plain coroutines."""
+    return asyncio.ensure_future(outcome)

@@ -271,3 +271,62 @@ def test_client_constructor_validation() -> None:
 
     with pytest.raises(ValueError, match="mutually exclusive"):
         Client(headers={"a": "b"}, http=httpx.AsyncClient())
+
+
+throttled = ErrorDef(
+    code="THROTTLED", status=429, message="Slow down", headers=("Retry-After",)
+)
+limited_contract = contract(
+    method="GET", path="/limited", response=Item, errors=(throttled,)
+)
+
+
+async def test_declared_error_headers_reach_the_raised_error() -> None:
+    async def rate_limited(context: Context) -> Item:
+        raise AppError(throttled, headers={"Retry-After": "30"})
+
+    app = create_app(
+        routes=route_group(route(limited_contract, rate_limited)),
+        context_factory=Context,
+    )
+
+    async with Client(transport=httpx.ASGITransport(app=app)) as tenchi_client:
+        with pytest.raises(AppError) as excinfo:
+            await tenchi_client.call(limited_contract)
+
+    assert excinfo.value.headers["Retry-After"] == "30"
+
+
+async def test_undeclared_inputs_are_rejected_not_dropped(client: Client) -> None:
+    with pytest.raises(TypeError, match="does not declare request="):
+        await client.call(clear_contract, request=Item(name="x"))
+    with pytest.raises(TypeError, match="does not declare query="):
+        await client.call(create_item_contract, query={"term": "x"})
+
+
+async def test_empty_path_param_is_rejected(client: Client) -> None:
+    class OptionalParams(BaseModel):
+        item_id: str = ""
+
+    optional_contract = contract(
+        method="GET",
+        path="/items/{item_id}",
+        params=OptionalParams,
+        response=Item,
+    )
+
+    with pytest.raises(ValueError, match="must be a non-empty value"):
+        await client.call(optional_contract, params=OptionalParams())
+
+
+async def test_non_json_media_with_model_request_is_rejected(client: Client) -> None:
+    bad_contract = contract(
+        method="POST",
+        path="/items",
+        request=Item,
+        request_media_type="application/xml",
+        response=Item,
+    )
+
+    with pytest.raises(TypeError, match="cannot encode Item as application/xml"):
+        await client.call(bad_contract, request=Item(name="x"))

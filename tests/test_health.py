@@ -82,3 +82,23 @@ async def test_custom_path() -> None:
 
     async with open_http(app) as http:
         assert (await http.get("/status")).status_code == 200
+
+
+async def test_hung_check_times_out_to_503() -> None:
+    import asyncio
+
+    async def hangs(context: object) -> None:
+        await asyncio.sleep(60)
+
+    app = create_app(
+        routes=route_group(
+            health_route(checks={"upstream": hangs}, check_timeout=0.05)
+        ),
+        context_factory=Context,
+    )
+
+    async with open_http(app) as http:
+        response = await http.get("/health")
+
+    assert response.status_code == 503
+    assert response.json()["details"]["checks"]["upstream"] == "failed: TimeoutError"
