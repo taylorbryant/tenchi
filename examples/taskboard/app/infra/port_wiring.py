@@ -18,19 +18,26 @@ from .sqlite_repositories import (
 
 @dataclass(frozen=True, slots=True)
 class AppPorts:
-    """The concrete ports the lifespan hands to the context factory."""
+    """The concrete ports a request scope hands to the context factory."""
 
     projects: ProjectRepository
     tasks: TaskRepository
 
 
-@asynccontextmanager
-async def open_ports(database_path: str) -> AsyncGenerator[AppPorts]:
-    """Open the shared connection, ensure the schema, and close on exit."""
+async def ensure_schema(database_path: str) -> None:
+    """Create tables once at startup (called from the app lifespan)."""
     async with aiosqlite.connect(database_path) as connection:
         await connection.executescript(SCHEMA)
         await connection.commit()
+
+
+@asynccontextmanager
+async def open_request_ports(database_path: str) -> AsyncGenerator[AppPorts]:
+    """One request's unit of work: a connection whose transaction commits
+    on success; closing without a commit rolls back on error."""
+    async with aiosqlite.connect(database_path) as connection:
         yield AppPorts(
             projects=SqliteProjectRepository(connection),
             tasks=SqliteTaskRepository(connection),
         )
+        await connection.commit()

@@ -1,7 +1,9 @@
 """SQLite implementations of the taskboard ports.
 
-Both repositories share one connection owned by
-:func:`app.infra.port_wiring.open_ports`.
+Both repositories share the request-scoped connection owned by
+:func:`app.infra.port_wiring.open_request_ports`. Writes participate in
+the request transaction; the scope commits on success and the connection
+rolls back uncommitted work when closed after an error.
 """
 
 from typing import Any
@@ -37,7 +39,6 @@ class SqliteProjectRepository:
             "INSERT INTO projects (id, name, owner_id) VALUES (?, ?, ?)",
             (project.id, project.name, project.owner_id),
         )
-        await self._connection.commit()
         return project
 
     async def get(self, project_id: str) -> Project | None:
@@ -71,7 +72,6 @@ class SqliteTaskRepository:
             "INSERT INTO tasks (id, project_id, title, status) VALUES (?, ?, ?, ?)",
             (task.id, task.project_id, task.title, task.status.value),
         )
-        await self._connection.commit()
         return task
 
     async def get(self, task_id: str) -> Task | None:
@@ -87,7 +87,6 @@ class SqliteTaskRepository:
             "UPDATE tasks SET title = ?, status = ? WHERE id = ?",
             (task.title, task.status.value, task.id),
         )
-        await self._connection.commit()
         return task
 
     async def search(

@@ -9,6 +9,16 @@ versions may change the public API.
 
 ### Added
 
+- Request-scoped contexts: `create_app`'s context factory may return an
+  async context manager (typically an `@asynccontextmanager` function),
+  entered at request start and exited at request end. Hook and use-case
+  exceptions flow through `__aexit__` before the error response is built,
+  so per-request transactions commit on success and roll back on error.
+  The taskboard example now opens a connection and transaction per
+  request this way. `docs/providers.md` records the accompanying
+  decision: Tenchi documents ports + adapters + scoped resources as its
+  integration story instead of growing Beignet-style provider packages.
+
 - `Client` owns more of its transport: `Client(headers=...)` sends default
   headers on every request (the natural home for an `authorization`
   header), and `Client(transport=...)` constructs an owned client over any

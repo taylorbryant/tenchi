@@ -4,16 +4,18 @@ Run locally with:
 
     uv run tenchi dev
 
-The lifespan opens one SQLite connection shared by both repositories; the
-context wrapping them is rebuilt per request, and the bearer hook attaches
-the authenticated user. Demo tokens: ``alice-token`` and ``bob-token``.
+The lifespan ensures the schema once at startup; each request gets its own
+connection and transaction via the request-scoped context factory —
+committed when the use case succeeds, rolled back when it raises. The
+bearer hook attaches the authenticated user. Demo tokens: ``alice-token``
+and ``bob-token``.
 """
 
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from app.infra.port_wiring import AppPorts, open_ports
+from app.infra.port_wiring import ensure_schema, open_request_ports
 from app.infra.static_token_directory import StaticTokenDirectory
 from app.server.context import AppContext
 from app.server.hooks import create_bearer_hook
@@ -30,13 +32,15 @@ DEMO_TOKENS = {
 
 
 @asynccontextmanager
-async def lifespan() -> AsyncGenerator[AppPorts]:
-    async with open_ports(DATABASE_PATH) as ports:
-        yield ports
+async def lifespan() -> AsyncGenerator[str]:
+    await ensure_schema(DATABASE_PATH)
+    yield DATABASE_PATH
 
 
-def create_context(ports: AppPorts) -> AppContext:
-    return AppContext(projects=ports.projects, tasks=ports.tasks)
+@asynccontextmanager
+async def create_context(database_path: str) -> AsyncGenerator[AppContext]:
+    async with open_request_ports(database_path) as ports:
+        yield AppContext(projects=ports.projects, tasks=ports.tasks)
 
 
 app = create_app(
