@@ -5,3 +5,9 @@ todo_not_found = ErrorDef(
     status=404,
     message="Todo not found",
 )
+
+unauthorized = ErrorDef(
+    code="UNAUTHORIZED",
+    status=401,
+    message="Unauthorized",
+)

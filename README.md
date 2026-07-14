@@ -134,9 +134,12 @@ Contracts can also carry documentation metadata (`summary=`,
 OpenAPI document all follow (useful for webhook endpoints that need the
 raw body).
 
-Contracts can also declare path parameters (`params=`) and query parameters
-(`query=`), each validated into its own model and passed to the use case as
-a keyword argument of the same name:
+Contracts can also declare path parameters (`params=`), query parameters
+(`query=`), and request headers (`headers=`), each validated into its own
+model and passed to the use case as a keyword argument of the same name.
+Header names map to fields by lowercasing and swapping `-` for `_`
+(`X-Api-Key` → `x_api_key`); the client and OpenAPI document reverse the
+mapping. For example:
 
 ```python
 class ListTodosQuery(BaseModel):
@@ -205,6 +208,42 @@ uvicorn app.server.asgi:app --reload
 curl -X POST localhost:8000/todos -H 'content-type: application/json' \
   -d '{"title": "Buy milk"}'
 ```
+
+## Hooks and authentication
+
+Authentication belongs at the HTTP boundary; business authorization belongs
+in use cases. The boundary seam is `create_app(hooks=...)`: each hook
+receives a `RequestInfo` (method, path, lowercased headers, and the matched
+contract) plus the request context, runs before input validation, and
+either raises an `AppError` to reject or returns an enriched context to
+attach identity:
+
+```python
+# app/server/hooks.py
+from dataclasses import replace
+from tenchi.errors import AppError
+from tenchi.server import RequestInfo
+
+def require_api_key(info: RequestInfo, context: AppContext) -> AppContext | None:
+    if "public" in info.contract.tags:
+        return None
+    key = info.headers.get("x-api-key")
+    if key is None:
+        raise AppError(unauthorized)
+    return replace(context, user=lookup_user(key))
+```
+
+Hook-raised errors follow the same honesty rule as use-case errors: they
+must be declared to be exposed. Declare them once for a whole group — this
+also documents the 401 on every route in the OpenAPI document:
+
+```python
+# app/server/routes.py
+api_routes = route_group(todo_routes, errors=(unauthorized,))
+```
+
+The todos example wires an optional API-key hook this way; see
+`examples/todos/app/server/hooks.py`.
 
 ## Typed client
 

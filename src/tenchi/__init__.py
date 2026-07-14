@@ -10,7 +10,7 @@ from .contracts import Contract, contract
 from .errors import AppError, ErrorDef
 from .openapi import openapi_route, openapi_schema
 from .routes import Route, RouteGroup, route, route_group
-from .server import create_app
+from .server import RequestInfo, create_app
 
 __version__ = "0.2.0"
 
@@ -19,6 +19,7 @@ __all__ = [
     "Client",
     "Contract",
     "ErrorDef",
+    "RequestInfo",
     "Route",
     "RouteGroup",
     "UnexpectedResponseError",

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, overload
@@ -31,6 +31,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route as StarletteRoute
 
 from . import errors as tenchi_errors
+from .contracts import Contract
 from .errors import ERROR_SOURCE_HEADER, AppError, ErrorDef, error_body
 from .routes import Route, RouteGroup
 
@@ -40,6 +41,33 @@ ContextFactory = Callable[..., Any]
 Lifespan = Callable[[], AbstractAsyncContextManager[Any]]
 
 _UNSET = object()
+
+
+@dataclass(frozen=True, slots=True)
+class RequestInfo:
+    """What a hook may inspect about the incoming request.
+
+    ``headers`` keys are lowercased HTTP names (``x-api-key``). ``contract``
+    is the matched contract, so hooks can exempt routes via contract
+    metadata such as ``tags``.
+    """
+
+    method: str
+    path: str
+    headers: Mapping[str, str]
+    contract: Contract[Any]
+
+
+Hook = Callable[[RequestInfo, Any], Any]
+"""An application hook: ``(request_info, context) -> None | new_context``.
+
+Hooks run in order after the context is created and before inputs are
+validated. A hook authenticates or rejects at the HTTP boundary: raise
+:class:`~tenchi.errors.AppError` to reject (declare the error on contracts,
+typically via ``route_group(..., errors=...)``), or return a new context —
+usually ``dataclasses.replace(context, user=...)`` — to attach identity.
+Returning ``None`` keeps the current context. Hooks may be sync or async.
+"""
 
 
 class _LifespanState:
@@ -56,6 +84,7 @@ class _BoundRoute:
     route: Route
     params_adapter: TypeAdapter[Any] | None
     query_adapter: TypeAdapter[Any] | None
+    headers_adapter: TypeAdapter[Any] | None
     request_adapter: TypeAdapter[Any] | None
     response_adapter: TypeAdapter[Any] | None
 
@@ -66,6 +95,7 @@ def create_app(
     routes: RouteGroup,
     context_factory: Callable[[], object],
     lifespan: Callable[[], AbstractAsyncContextManager[object]] | None = None,
+    hooks: Sequence[Hook] = (),
 ) -> Starlette: ...
 
 
@@ -75,6 +105,7 @@ def create_app[StateT](
     routes: RouteGroup,
     context_factory: Callable[[StateT], object],
     lifespan: Callable[[], AbstractAsyncContextManager[StateT]],
+    hooks: Sequence[Hook] = (),
 ) -> Starlette: ...
 
 
@@ -83,6 +114,7 @@ def create_app(
     routes: RouteGroup,
     context_factory: ContextFactory,
     lifespan: Lifespan | None = None,
+    hooks: Sequence[Hook] = (),
 ) -> Starlette:
     """Build an ASGI application from bound routes and a context factory.
 
@@ -95,6 +127,10 @@ def create_app(
     ``context_factory`` on every request when the factory accepts one
     argument. A zero-argument factory may still be combined with a lifespan
     that only opens and closes module-scoped resources.
+
+    ``hooks`` run on every request after the context is created and before
+    inputs are validated; see :data:`Hook`. Authentication belongs here;
+    business authorization belongs in use cases.
     """
     takes_state = _context_factory_takes_state(context_factory)
     if takes_state and lifespan is None:
@@ -125,6 +161,11 @@ def create_app(
                 if item.contract.query is not None
                 else None
             ),
+            headers_adapter=(
+                TypeAdapter(item.contract.headers)
+                if item.contract.headers is not None
+                else None
+            ),
             request_adapter=(
                 TypeAdapter(item.contract.request)
                 if item.contract.request is not None
@@ -139,7 +180,9 @@ def create_app(
         starlette_routes.append(
             StarletteRoute(
                 item.contract.path,
-                _make_endpoint(bound, context_factory, takes_state, state),
+                _make_endpoint(
+                    bound, context_factory, takes_state, state, tuple(hooks)
+                ),
                 methods=[item.contract.method],
                 name=None,
             )
@@ -194,6 +237,19 @@ def _starlette_lifespan(
     return run
 
 
+def _header_dict(request: Request) -> dict[str, str]:
+    """Request headers keyed by lowercased HTTP name; repeats keep the last."""
+    return {key.lower(): value for key, value in request.headers.items()}
+
+
+def _header_fields(request: Request) -> dict[str, str]:
+    """Request headers keyed by Python field name (``x-api-key`` →
+    ``x_api_key``) for validation against a headers model."""
+    return {
+        key.lower().replace("-", "_"): value for key, value in request.headers.items()
+    }
+
+
 def _query_dict(query_params: QueryParams) -> dict[str, str | list[str]]:
     """Collapse a query multi-dict: single values stay scalar, repeats list."""
     raw: dict[str, str | list[str]] = {}
@@ -213,6 +269,7 @@ def _make_endpoint(
     context_factory: ContextFactory,
     takes_state: bool,
     state: _LifespanState,
+    hooks: tuple[Hook, ...],
 ) -> Callable[[Request], Awaitable[Response]]:
     contract = bound.route.contract
     use_case = bound.route.use_case
@@ -232,6 +289,42 @@ def _make_endpoint(
     async def endpoint(request: Request) -> Response:
         kwargs: dict[str, Any] = {}
 
+        # Context creation and hooks run before input validation, so an
+        # authentication rejection wins over a validation error.
+        try:
+            context = build_context()
+            if inspect.isawaitable(context):
+                context = await context
+
+            if hooks:
+                info = RequestInfo(
+                    method=request.method,
+                    path=request.url.path,
+                    headers=_header_dict(request),
+                    contract=contract,
+                )
+                for hook in hooks:
+                    outcome = hook(info, context)
+                    if inspect.isawaitable(outcome):
+                        outcome = await outcome
+                    if outcome is not None:
+                        context = outcome
+        except AppError as exc:
+            if contract.declares_error(exc.definition):
+                return _app_error_response(exc)
+            logger.exception(
+                "Undeclared AppError %r raised by a hook for %s; declare it "
+                "on the contract's errors (route_group(errors=...)) to "
+                "expose it",
+                exc.code,
+                contract.name,
+            )
+            return _framework_error_response(tenchi_errors.internal_server_error)
+        except Exception:
+            logger.exception("Unhandled exception preparing %s", contract.name)
+            return _framework_error_response(tenchi_errors.internal_server_error)
+        kwargs["context"] = context
+
         try:
             if bound.params_adapter is not None:
                 kwargs["params"] = bound.params_adapter.validate_python(
@@ -240,6 +333,10 @@ def _make_endpoint(
             if bound.query_adapter is not None:
                 kwargs["query"] = bound.query_adapter.validate_python(
                     _query_dict(request.query_params)
+                )
+            if bound.headers_adapter is not None:
+                kwargs["headers"] = bound.headers_adapter.validate_python(
+                    _header_fields(request)
                 )
             if bound.request_adapter is not None:
                 body = await request.body()
@@ -263,11 +360,6 @@ def _make_endpoint(
             )
 
         try:
-            context = build_context()
-            if inspect.isawaitable(context):
-                context = await context
-            kwargs["context"] = context
-
             result = await use_case(**kwargs)
         except AppError as exc:
             if contract.declares_error(exc.definition):
