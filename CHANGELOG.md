@@ -5,6 +5,23 @@ All notable changes to Tenchi are documented here. The format follows
 [Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
 versions may change the public API.
 
+## [Unreleased]
+
+### Added
+
+- `ROADMAP.md`: the lane statement, the anti-roadmap (what Tenchi will
+  never grow), and the complexity budget every proposal is measured
+  against.
+- `docs/events.md`: the design decision for events and background work —
+  direct effects are ports, deferred effects go through a transactional
+  outbox port, workers are ordinary entrypoints; no event bus or job
+  runtime in the framework.
+
+### Changed
+
+- README status section now reflects the providers decision and points
+  at the roadmap instead of promising provider-backed infrastructure.
+
 ## [0.4.0] - 2026-07-14
 
 ### Added
