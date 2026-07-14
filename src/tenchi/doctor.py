@@ -3,8 +3,10 @@
 Doctor enforces the dependency direction that keeps Tenchi apps honest:
 
 - Domain and schema code must not import infrastructure or the HTTP runtime.
-- Use cases may import schemas, ports, the app context, and shared errors —
-  never concrete infrastructure or server composition.
+- Use cases may import schemas, ports, policies, the app context, and
+  shared errors — never concrete infrastructure or server composition.
+- Policies take their subjects as arguments: they import schemas, domain
+  types, and shared errors, and nothing with I/O behind it.
 - Routes bind contracts to use cases but must not import infrastructure.
 - Shared code must not depend on features.
 - Infrastructure implements ports; it must not import use cases, routes,
@@ -42,6 +44,7 @@ _FEATURE_KINDS: dict[str, Category] = {
     "contracts": "contracts",
     "routes": "routes",
     "use_cases": "use_cases",
+    "policy": "policy",
     "tests": "tests",
 }
 
@@ -70,6 +73,16 @@ _RULES: dict[Category, dict[Category, str]] = {
         "context": "contracts must not import the app context",
         "use_cases": "contracts must not import use cases",
         **{k: f"contracts {v}" for k, v in _HTTP_RULES.items()},
+    },
+    "policy": {
+        "infra": "policies must not import infrastructure",
+        "server": "policies must not import server composition",
+        "context": "policies must not import the app context; they take "
+        "their subjects as arguments",
+        "use_cases": "policies must not import use cases",
+        "routes": "policies must not import routes",
+        "contracts": "policies must not import contracts",
+        **{k: f"policies {v}" for k, v in _HTTP_RULES.items()},
     },
     "use_cases": {
         "infra": "use cases must not import concrete infrastructure",
@@ -134,7 +147,68 @@ def run_doctor(root: Path) -> list[Finding]:
             continue
         findings.extend(_import_findings(root, relative, rules))
 
+    findings.extend(_authorization_findings(root))
     return findings
+
+
+_PUBLIC_PRAGMA = "# doctor: public"
+
+
+def _authorization_findings(root: Path) -> list[Finding]:
+    """Flag use cases that skip authorization in an app that uses it.
+
+    This is a consistency check, not a proof: if any use case references
+    authorization (``require_user``, ``context.user``, or a policy
+    import), every use case must do the same or carry the explicit
+    ``# doctor: public`` pragma. Apps with no authorization anywhere are
+    left alone.
+    """
+    surveyed: list[tuple[Path, bool, bool]] = []
+    for path in sorted((root / "app").rglob("*.py")):
+        relative = path.relative_to(root)
+        if relative.name == "__init__.py":
+            continue
+        if _classify_module(_module_parts(relative)) != "use_cases":
+            continue
+        source = path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue  # already reported by the import pass
+        guarded = _references_authorization(tree, relative)
+        surveyed.append((relative, guarded, _PUBLIC_PRAGMA in source))
+
+    if not any(guarded for _, guarded, _ in surveyed):
+        return []
+
+    return [
+        Finding(
+            relative.as_posix(),
+            0,
+            "use case makes no authorization reference while other use "
+            "cases in this app do; call require_user or a policy, read "
+            f"context.user, or mark deliberate exposure with {_PUBLIC_PRAGMA!r}",
+        )
+        for relative, guarded, has_pragma in surveyed
+        if not guarded and not has_pragma
+    ]
+
+
+def _references_authorization(tree: ast.Module, relative: Path) -> bool:
+    for _, target in _imports(tree, relative):
+        if _classify_module(target) == "policy":
+            return True
+        if target and target[-1] == "require_user":
+            return True
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in (
+            "user",
+            "require_user",
+        ):
+            return True
+        if isinstance(node, ast.Name) and node.id == "require_user":
+            return True
+    return False
 
 
 def _structure_findings(root: Path) -> list[Finding]:

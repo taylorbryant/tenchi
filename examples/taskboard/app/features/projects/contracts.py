@@ -1,7 +1,7 @@
-from app.shared.errors import project_not_found
+from app.shared.errors import forbidden, project_not_found
 from tenchi.contracts import contract
 
-from .schemas import CreateProject, GetProjectParams, Project
+from .schemas import AddProjectMember, CreateProject, GetProjectParams, Project
 
 create_project_contract = contract(
     method="POST",
@@ -28,5 +28,16 @@ list_projects_contract = contract(
     path="/projects",
     response=list[Project],
     summary="List projects owned by the current user",
+    tags=("projects",),
+)
+
+add_project_member_contract = contract(
+    method="POST",
+    path="/projects/{project_id}/members",
+    params=GetProjectParams,
+    request=AddProjectMember,
+    response=Project,
+    errors=(project_not_found, forbidden),
+    summary="Add a member to one of the current user's projects",
     tags=("projects",),
 )

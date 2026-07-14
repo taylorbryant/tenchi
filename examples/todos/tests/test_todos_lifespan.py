@@ -9,8 +9,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-import httpx
-from asgi_lifespan import LifespanManager
 from starlette.applications import Starlette
 
 from app.features.todos.ports import TodoRepository
@@ -18,6 +16,7 @@ from app.infra.port_wiring import open_todo_repository
 from app.server.context import AppContext
 from app.server.routes import routes
 from tenchi.server import create_app
+from tenchi.testing import open_http
 
 
 def make_app(database_path: str) -> Starlette:
@@ -33,12 +32,8 @@ def make_app(database_path: str) -> Starlette:
 
 
 async def _request(app: Starlette, method: str, path: str, **kwargs: Any) -> Any:
-    async with LifespanManager(app):
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
-            response = await client.request(method, path, **kwargs)
+    async with open_http(app) as client:
+        response = await client.request(method, path, **kwargs)
     response.raise_for_status()
     return response.json()
 

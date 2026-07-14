@@ -13,6 +13,7 @@ from tenchi.contracts import contract
 from tenchi.errors import AppError, ErrorDef
 from tenchi.routes import route, route_group
 from tenchi.server import RequestInfo, create_app
+from tenchi.testing import open_client
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,8 +204,6 @@ async def test_hook_enrichment_works_inside_the_scope() -> None:
 
 
 async def test_request_scope_composes_with_lifespan_state() -> None:
-    from asgi_lifespan import LifespanManager
-
     events: list[str] = []
 
     @asynccontextmanager
@@ -223,10 +222,7 @@ async def test_request_scope_composes_with_lifespan_state() -> None:
         lifespan=lifespan,
     )
 
-    async with (
-        LifespanManager(app),
-        Client(transport=httpx.ASGITransport(app=app)) as client,
-    ):
+    async with open_client(app) as client:
         assert await client.call(ok_contract) == "ok"
 
     assert events == ["enter:pool", "use case", "commit"]

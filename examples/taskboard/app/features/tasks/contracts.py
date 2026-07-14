@@ -1,12 +1,12 @@
 from app.shared.errors import forbidden, project_not_found, task_not_found
 from tenchi.contracts import contract
+from tenchi.pagination import Page
 
 from .schemas import (
     CreateTask,
     GetTaskParams,
     ListTasksQuery,
     Task,
-    TaskPage,
     UpdateTask,
 )
 
@@ -35,7 +35,7 @@ list_tasks_contract = contract(
     method="GET",
     path="/tasks",
     query=ListTasksQuery,
-    response=TaskPage,
+    response=Page[Task],
     summary="List the current user's tasks, filtered and paginated",
     tags=("tasks",),
 )

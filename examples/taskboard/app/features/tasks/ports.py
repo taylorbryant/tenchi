@@ -1,5 +1,7 @@
 from typing import Protocol
 
+from app.shared.users import OwnerScope
+
 from .schemas import Task, TaskStatus
 
 
@@ -13,7 +15,7 @@ class TaskRepository(Protocol):
     async def search(
         self,
         *,
-        owner_id: str,
+        owner: OwnerScope,
         project_id: str | None,
         status: TaskStatus | None,
         limit: int,

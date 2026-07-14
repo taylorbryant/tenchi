@@ -172,6 +172,102 @@ def test_infra_may_import_ports_schemas_and_external_libraries(
     assert run_doctor(app_root) == []
 
 
+def test_policy_importing_infra_is_flagged(app_root: Path) -> None:
+    policy = app_root / "app/features/todos/policy.py"
+    policy.write_text(
+        'import app.infra.port_wiring  # noqa: F401\n"""Authorization rules."""\n'
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "policies must not import infrastructure" in m for m in messages(findings)
+    )
+
+
+def test_policy_importing_context_is_flagged(app_root: Path) -> None:
+    policy = app_root / "app/features/todos/policy.py"
+    policy.write_text("from app.server.context import AppContext  # noqa: F401\n")
+
+    findings = run_doctor(app_root)
+
+    assert any("take their subjects as arguments" in m for m in messages(findings))
+
+
+def test_use_cases_may_import_policies_across_features(app_root: Path) -> None:
+    (app_root / "app/features/todos/policy.py").write_text(
+        '"""Rules."""\n\nALLOW = True\n'
+    )
+    use_case = app_root / "app/features/todos/use_cases/list_todos.py"
+    use_case.write_text(
+        "from app.features.todos.policy import ALLOW  # noqa: F401\n"
+        + use_case.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    # No dependency-direction finding for the policy import. (The
+    # authorization consistency check may flag the *other* use case; that
+    # behavior has its own tests.)
+    assert not any("must not import" in m for m in messages(findings))
+
+
+def test_unguarded_use_case_in_an_auth_using_app_is_flagged(
+    app_root: Path,
+) -> None:
+    # Make one use case authorization-aware; the other becomes suspicious.
+    create = app_root / "app/features/todos/use_cases/create_todo.py"
+    create.write_text(
+        create.read_text().replace(
+            "return await context.todos.create(title=request.title)",
+            "assert context.user is not None\n"
+            "    return await context.todos.create(title=request.title)",
+        )
+    )
+
+    findings = run_doctor(app_root)
+
+    assert len(findings) == 1
+    assert findings[0].path == "app/features/todos/use_cases/list_todos.py"
+    assert "no authorization reference" in findings[0].message
+
+
+def test_public_pragma_silences_the_authorization_check(app_root: Path) -> None:
+    create = app_root / "app/features/todos/use_cases/create_todo.py"
+    create.write_text(
+        create.read_text().replace(
+            "return await context.todos.create(title=request.title)",
+            "assert context.user is not None\n"
+            "    return await context.todos.create(title=request.title)",
+        )
+    )
+    listing = app_root / "app/features/todos/use_cases/list_todos.py"
+    listing.write_text("# doctor: public\n" + listing.read_text())
+
+    assert run_doctor(app_root) == []
+
+
+def test_apps_without_authorization_are_left_alone(app_root: Path) -> None:
+    # The fresh scaffold has no authorization anywhere: no findings.
+    assert run_doctor(app_root) == []
+
+
+def test_policy_import_counts_as_authorization(app_root: Path) -> None:
+    (app_root / "app/features/todos/policy.py").write_text(
+        '"""Rules."""\n\nALLOW = True\n'
+    )
+    create = app_root / "app/features/todos/use_cases/create_todo.py"
+    create.write_text(
+        "from app.features.todos.policy import ALLOW  # noqa: F401\n"
+        + create.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert len(findings) == 1
+    assert findings[0].path == "app/features/todos/use_cases/list_todos.py"
+
+
 def test_missing_prescribed_modules_are_flagged(app_root: Path) -> None:
     (app_root / "app/server/asgi.py").unlink()
 

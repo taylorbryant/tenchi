@@ -8,7 +8,7 @@ from app.infra.memory_repositories import (
 )
 from app.server.context import AppContext
 from app.shared.errors import task_not_found
-from app.shared.users import User
+from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
 
 ALICE = User(id="alice", name="Alice")
@@ -18,7 +18,7 @@ BOB = User(id="bob", name="Bob")
 async def make_context_with_task(user: User) -> tuple[AppContext, str]:
     projects = MemoryProjectRepository()
     tasks = MemoryTaskRepository(projects)
-    project = await projects.create(name="Launch", owner_id="alice")
+    project = await projects.create(name="Launch", owner=OwnerScope(owner_id="alice"))
     task = await tasks.create(project_id=project.id, title="original")
     return AppContext(projects=projects, tasks=tasks, user=user), task.id
 

@@ -4,22 +4,27 @@ from uuid import uuid4
 
 from app.features.projects.schemas import Project
 from app.features.tasks.schemas import Task, TaskStatus
+from app.shared.users import OwnerScope
 
 
 class MemoryProjectRepository:
     def __init__(self) -> None:
         self.projects: dict[str, Project] = {}
 
-    async def create(self, *, name: str, owner_id: str) -> Project:
-        project = Project(id=uuid4().hex, name=name, owner_id=owner_id)
+    async def create(self, *, name: str, owner: OwnerScope) -> Project:
+        project = Project(id=uuid4().hex, name=name, owner_id=owner.owner_id)
         self.projects[project.id] = project
         return project
 
     async def get(self, project_id: str) -> Project | None:
         return self.projects.get(project_id)
 
-    async def list_owned_by(self, owner_id: str) -> list[Project]:
-        return [p for p in self.projects.values() if p.owner_id == owner_id]
+    async def save(self, project: Project) -> Project:
+        self.projects[project.id] = project
+        return project
+
+    async def list_owned_by(self, owner: OwnerScope) -> list[Project]:
+        return [p for p in self.projects.values() if p.owner_id == owner.owner_id]
 
 
 class MemoryTaskRepository:
@@ -49,14 +54,16 @@ class MemoryTaskRepository:
     async def search(
         self,
         *,
-        owner_id: str,
+        owner: OwnerScope,
         project_id: str | None,
         status: TaskStatus | None,
         limit: int,
         offset: int,
     ) -> tuple[list[Task], int]:
         owned = {
-            p.id for p in self._projects.projects.values() if p.owner_id == owner_id
+            p.id
+            for p in self._projects.projects.values()
+            if p.owner_id == owner.owner_id
         }
         matches = [
             task

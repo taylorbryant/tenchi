@@ -7,9 +7,19 @@ from tenchi.openapi import openapi_schema
 
 
 def test_document_is_valid_and_documents_errors() -> None:
-    document = openapi_schema(api_routes, title="Taskboard", version="0.1.0")
+    document = openapi_schema(
+        api_routes,
+        title="Taskboard",
+        version="0.1.0",
+        security={"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    )
 
     validate(document)
+
+    assert document["security"] == [{"bearerAuth": []}]
+    assert document["components"]["securitySchemes"] == {
+        "bearerAuth": {"type": "http", "scheme": "bearer"}
+    }
 
     create_task = document["paths"]["/tasks"]["post"]
     assert "401" in create_task["responses"]

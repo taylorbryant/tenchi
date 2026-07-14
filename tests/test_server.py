@@ -201,7 +201,9 @@ async def test_declared_error_maps_to_its_status(
 
     assert response.status_code == 409
     assert response.headers[ERROR_SOURCE_HEADER] == "app"
-    assert response.json() == {
+    body = response.json()
+    assert body.pop("request_id") == response.headers["x-request-id"]
+    assert body == {
         "code": "BOOM",
         "message": "Boom",
         "details": {"why": "declared"},

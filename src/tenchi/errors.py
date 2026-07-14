@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 ERROR_SOURCE_HEADER = "x-tenchi-error-source"
+REQUEST_ID_HEADER = "x-request-id"
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,11 +78,19 @@ class AppError(Exception):
         return str(self)
 
 
-def error_body(*, code: str, message: str, details: Any = None) -> dict[str, Any]:
+def error_body(
+    *,
+    code: str,
+    message: str,
+    details: Any = None,
+    request_id: str | None = None,
+) -> dict[str, Any]:
     """Build the standard Tenchi error response body."""
     body: dict[str, Any] = {"code": code, "message": message}
     if details is not None:
         body["details"] = details
+    if request_id is not None:
+        body["request_id"] = request_id
     return body
 
 

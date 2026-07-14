@@ -31,6 +31,10 @@ framework code, the CLI, docs, or the example apps.
 - `src/tenchi/` is the framework package. One module per responsibility:
   - `contracts.py` — contract declarations (pure data; validation happens
     in consumers via `TypeAdapter`).
+  - `pagination.py` — `Page[Item]`, `PageQuery`, and `page()`.
+  - `health.py` — `health_route()` and the `UNHEALTHY` error definition.
+  - `testing.py` — `open_client`/`open_http`, in-process clients that run
+    the app lifespan.
   - `routes.py` — route/route-group binding with eager signature checks.
   - `errors.py` — `ErrorDef`, `AppError`, framework error definitions, the
     standard envelope.
@@ -81,6 +85,7 @@ app/
     contracts.py   # HTTP boundary: method, path, inputs, response, errors
     schemas.py     # Pydantic models shared by contracts, use cases, ports
     ports.py       # typing.Protocol interfaces the feature needs
+    policy.py      # authorization rules; abilities live with their subject
     routes.py      # binds contracts to use cases via route()/route_group()
     use_cases/     # one plain async function per module
     tests/         # use-case tests, no HTTP required
@@ -99,9 +104,12 @@ example and template:
 
 - Schemas, domain code, and ports never import infrastructure, server
   composition, or the HTTP runtime.
-- Use cases may import schemas, ports, `app.server.context`, and shared
-  code — never concrete infrastructure, other server modules, routes, or
-  the Starlette/Tenchi runtime.
+- Use cases may import schemas, ports, policies, `app.server.context`,
+  and shared code — never concrete infrastructure, other server modules,
+  routes, or the Starlette/Tenchi runtime.
+- Policies take their subjects as arguments (no I/O, no context); an
+  ability lives in the feature that owns the subject it inspects, and
+  read-path ownership failures surface as not-found, not forbidden.
 - Routes bind contracts to use cases; they never import infrastructure.
 - Shared code never depends on features.
 - Infrastructure implements ports; it never imports use cases, routes,
@@ -145,6 +153,14 @@ API shape:
   to hooks too. `route_group(errors=...)` declares across a group;
   `Client(errors=...)` is the client-side counterpart. Keep server and
   client error semantics symmetric.
+- Doctor's authorization consistency check: once any use case in an app
+  references authorization, every use case must (or carry the explicit
+  `# doctor: public` pragma). Keep example apps fully guarded.
+- Owner-scoped repository methods take a scope object derivable only from
+  the authenticated user (see taskboard's `OwnerScope`), never a raw id
+  string.
+- Membership-style rules stay in policies via fetch-then-ask: the use
+  case fetches the subject through a port, the pure policy decides.
 - Authentication lives in hooks at the HTTP boundary; hooks attach
   identity by returning an enriched (replaced) context. Business
   authorization lives in use cases, which still assert identity via an
@@ -166,9 +182,9 @@ starter intentionally omits.
 
 - pytest with `asyncio_mode = "auto"`; tests are plain async functions.
 - Use cases are tested without HTTP against memory adapters.
-- Integration tests go through `httpx.ASGITransport`, preferably via the
-  typed `Client`; apps with lifespans need `asgi-lifespan`'s
-  `LifespanManager`.
+- Integration tests go through `tenchi.testing` (`open_client` for the
+  typed client, `open_http` for raw envelope assertions); both run the
+  app lifespan.
 - Generated OpenAPI documents are validated with `openapi-spec-validator`.
 - Findings from the taskboard app become framework issues (fix in
   `src/tenchi/`), never local workarounds in the app.

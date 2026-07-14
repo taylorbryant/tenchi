@@ -311,6 +311,50 @@ def test_declared_error_headers_are_documented() -> None:
     assert response["headers"] == {"Retry-After": {"schema": {"type": "string"}}}
 
 
+def test_security_schemes_apply_globally() -> None:
+    document = openapi_schema(
+        make_group(),
+        title="Items",
+        version="1.2.3",
+        security={"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    )
+
+    assert document["security"] == [{"bearerAuth": []}]
+    assert document["components"]["securitySchemes"] == {
+        "bearerAuth": {"type": "http", "scheme": "bearer"}
+    }
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            assert "security" not in operation
+
+
+def test_public_tagged_operations_are_exempt_from_security() -> None:
+    open_contract = contract(
+        method="GET", path="/health", response=Item, tags=("health",)
+    )
+    closed_contract = contract(method="GET", path="/closed", response=Item)
+
+    async def handler(context: Context) -> Item:
+        return Item(name="x")
+
+    document = openapi_schema(
+        route_group(route(open_contract, handler), route(closed_contract, handler)),
+        title="X",
+        version="0",
+        security={"apiKeyAuth": {"type": "apiKey", "in": "header", "name": "x-key"}},
+    )
+
+    assert document["paths"]["/health"]["get"]["security"] == []
+    assert "security" not in document["paths"]["/closed"]["get"]
+
+
+def test_documents_without_security_are_unchanged() -> None:
+    document = make_document()
+
+    assert "security" not in document
+    assert "securitySchemes" not in document.get("components", {})
+
+
 async def test_openapi_route_serves_document_without_documenting_itself() -> None:
     group = make_group()
     app = create_app(

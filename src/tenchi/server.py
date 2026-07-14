@@ -21,18 +21,26 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequen
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, cast, overload
+from uuid import uuid4
 
 from pydantic import TypeAdapter, ValidationError
 from starlette.applications import Starlette
 from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route as StarletteRoute
 
 from . import errors as tenchi_errors
 from .contracts import Contract
-from .errors import ERROR_SOURCE_HEADER, AppError, ErrorDef, error_body
+from .errors import (
+    ERROR_SOURCE_HEADER,
+    REQUEST_ID_HEADER,
+    AppError,
+    ErrorDef,
+    error_body,
+)
 from .routes import Route, RouteGroup
 
 logger = logging.getLogger("tenchi.server")
@@ -56,6 +64,9 @@ class RequestInfo:
     path: str
     headers: Mapping[str, str]
     contract: Contract[Any]
+    request_id: str
+    """Correlation id: the inbound ``x-request-id`` or a generated one.
+    Echoed on every response header and in error envelopes."""
 
 
 Hook = Callable[[RequestInfo, Any], Any]
@@ -96,6 +107,7 @@ def create_app(
     context_factory: Callable[[], object],
     lifespan: Callable[[], AbstractAsyncContextManager[object]] | None = None,
     hooks: Sequence[Hook] = (),
+    middleware: Sequence[Middleware] = (),
 ) -> Starlette: ...
 
 
@@ -106,6 +118,7 @@ def create_app[StateT](
     context_factory: Callable[[StateT], object],
     lifespan: Callable[[], AbstractAsyncContextManager[StateT]],
     hooks: Sequence[Hook] = (),
+    middleware: Sequence[Middleware] = (),
 ) -> Starlette: ...
 
 
@@ -115,6 +128,7 @@ def create_app(
     context_factory: ContextFactory,
     lifespan: Lifespan | None = None,
     hooks: Sequence[Hook] = (),
+    middleware: Sequence[Middleware] = (),
 ) -> Starlette:
     """Build an ASGI application from bound routes and a context factory.
 
@@ -136,6 +150,15 @@ def create_app(
     ``hooks`` run on every request after the context is created and before
     inputs are validated; see :data:`Hook`. Authentication belongs here;
     business authorization belongs in use cases.
+
+    ``middleware`` is passed straight to Starlette — the seam for CORS,
+    compression, and other ASGI concerns::
+
+        from starlette.middleware import Middleware
+        from starlette.middleware.cors import CORSMiddleware
+
+        create_app(..., middleware=[Middleware(CORSMiddleware,
+                                               allow_origins=["https://app.example.com"])])
     """
     takes_state = _context_factory_takes_state(context_factory)
     if takes_state and lifespan is None:
@@ -195,6 +218,7 @@ def create_app(
 
     return Starlette(
         routes=starlette_routes,
+        middleware=list(middleware),
         lifespan=_starlette_lifespan(lifespan, state) if lifespan else None,
         exception_handlers={
             HTTPException: _handle_http_exception,
@@ -240,6 +264,14 @@ def _starlette_lifespan(
                 state.value = _UNSET
 
     return run
+
+
+def _request_id(request: Request) -> str:
+    """The inbound ``x-request-id`` when reasonable, else a generated id."""
+    inbound = request.headers.get(REQUEST_ID_HEADER, "")
+    if 0 < len(inbound) <= 200:
+        return inbound
+    return uuid4().hex
 
 
 def _header_dict(request: Request) -> dict[str, str]:
@@ -291,7 +323,7 @@ def _make_endpoint(
             )
         return context_factory(state.value)
 
-    async def dispatch(request: Request, context: Any) -> Response:
+    async def dispatch(request: Request, context: Any, request_id: str) -> Response:
         """Run hooks, validation, and the use case for one request.
 
         ``AppError`` and unexpected exceptions propagate to the caller so
@@ -308,6 +340,7 @@ def _make_endpoint(
                 path=request.url.path,
                 headers=_header_dict(request),
                 contract=contract,
+                request_id=request_id,
             )
             for hook in hooks:
                 outcome = hook(info, context)
@@ -344,17 +377,22 @@ def _make_endpoint(
             return _framework_error_response(
                 tenchi_errors.validation_error,
                 details=exc.errors(include_url=False, include_input=False),
+                request_id=request_id,
             )
         except UnicodeDecodeError:
             return _framework_error_response(
                 tenchi_errors.validation_error,
                 details=[{"msg": "Request body is not valid UTF-8 text"}],
+                request_id=request_id,
             )
 
         result = await use_case(**kwargs)
 
         if bound.response_adapter is None:
-            return Response(status_code=contract.status)
+            return Response(
+                status_code=contract.status,
+                headers={REQUEST_ID_HEADER: request_id},
+            )
 
         try:
             validated = bound.response_adapter.validate_python(result)
@@ -366,18 +404,24 @@ def _make_endpoint(
                 payload = bound.response_adapter.dump_json(validated)
         except ValidationError:
             logger.exception(
-                "Response from %s does not match the contract's response type",
+                "Response from %s does not match the contract's response "
+                "type [request_id=%s]",
                 contract.name,
+                request_id,
             )
-            return _framework_error_response(tenchi_errors.internal_server_error)
+            return _framework_error_response(
+                tenchi_errors.internal_server_error, request_id=request_id
+            )
 
         return Response(
             payload,
             status_code=contract.status,
             media_type=contract.response_media_type,
+            headers={REQUEST_ID_HEADER: request_id},
         )
 
     async def endpoint(request: Request) -> Response:
+        request_id = _request_id(request)
         try:
             raw = build_context()
             if inspect.isawaitable(raw):
@@ -388,54 +432,87 @@ def _make_endpoint(
                 # a transaction) before being mapped below.
                 scoped = cast(AbstractAsyncContextManager[Any], raw)
                 async with scoped as context:
-                    return await dispatch(request, context)
-            return await dispatch(request, raw)
+                    return await dispatch(request, context, request_id)
+            return await dispatch(request, raw, request_id)
         except AppError as exc:
             if contract.declares_error(exc.definition):
-                return _app_error_response(exc)
+                return _app_error_response(exc, request_id=request_id)
             logger.exception(
                 "Undeclared AppError %r raised handling %s; declare it on "
                 "the contract's errors (or route_group(errors=...)) to "
-                "expose it",
+                "expose it [request_id=%s]",
                 exc.code,
                 contract.name,
+                request_id,
             )
-            return _framework_error_response(tenchi_errors.internal_server_error)
+            return _framework_error_response(
+                tenchi_errors.internal_server_error, request_id=request_id
+            )
         except Exception:
-            logger.exception("Unhandled exception in %s", contract.name)
-            return _framework_error_response(tenchi_errors.internal_server_error)
+            logger.exception(
+                "Unhandled exception in %s [request_id=%s]",
+                contract.name,
+                request_id,
+            )
+            return _framework_error_response(
+                tenchi_errors.internal_server_error, request_id=request_id
+            )
 
     return endpoint
 
 
-def _app_error_response(exc: AppError) -> JSONResponse:
+def _app_error_response(exc: AppError, *, request_id: str) -> JSONResponse:
     return JSONResponse(
-        error_body(code=exc.code, message=exc.message, details=exc.details),
+        error_body(
+            code=exc.code,
+            message=exc.message,
+            details=exc.details,
+            request_id=request_id,
+        ),
         status_code=exc.status,
-        headers={**exc.headers, ERROR_SOURCE_HEADER: "app"},
+        headers={
+            **exc.headers,
+            ERROR_SOURCE_HEADER: "app",
+            REQUEST_ID_HEADER: request_id,
+        },
     )
 
 
 def _framework_error_response(
-    definition: ErrorDef, *, details: Any = None
+    definition: ErrorDef, *, details: Any = None, request_id: str | None = None
 ) -> JSONResponse:
+    headers = {ERROR_SOURCE_HEADER: "framework"}
+    if request_id is not None:
+        headers[REQUEST_ID_HEADER] = request_id
     return JSONResponse(
-        error_body(code=definition.code, message=definition.message, details=details),
+        error_body(
+            code=definition.code,
+            message=definition.message,
+            details=details,
+            request_id=request_id,
+        ),
         status_code=definition.status,
-        headers={ERROR_SOURCE_HEADER: "framework"},
+        headers=headers,
     )
 
 
 def _handle_http_exception(request: Request, exc: Exception) -> Response:
     assert isinstance(exc, HTTPException)
+    request_id = _request_id(request)
     if exc.status_code == 404:
-        return _framework_error_response(tenchi_errors.not_found)
+        return _framework_error_response(tenchi_errors.not_found, request_id=request_id)
     if exc.status_code == 405:
-        return _framework_error_response(tenchi_errors.method_not_allowed)
+        return _framework_error_response(
+            tenchi_errors.method_not_allowed, request_id=request_id
+        )
     return JSONResponse(
-        error_body(code=f"HTTP_{exc.status_code}", message=exc.detail),
+        error_body(
+            code=f"HTTP_{exc.status_code}",
+            message=exc.detail,
+            request_id=request_id,
+        ),
         status_code=exc.status_code,
-        headers={ERROR_SOURCE_HEADER: "framework"},
+        headers={ERROR_SOURCE_HEADER: "framework", REQUEST_ID_HEADER: request_id},
     )
 
 

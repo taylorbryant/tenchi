@@ -264,6 +264,31 @@ api_routes = route_group(todo_routes, errors=(unauthorized,))
 The todos example wires an optional API-key hook this way; see
 `examples/todos/app/server/hooks.py`.
 
+## Middleware
+
+Cross-cutting HTTP concerns that are not authentication — CORS,
+compression, trusted hosts — use Starlette middleware directly.
+`create_app(middleware=...)` passes the list straight through; Tenchi
+does not wrap or re-export anything:
+
+```python
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+
+app = create_app(
+    routes=routes,
+    context_factory=create_context,
+    middleware=[
+        Middleware(CORSMiddleware, allow_origins=["https://app.example.com"],
+                   allow_methods=["*"], allow_headers=["*"]),
+    ],
+)
+```
+
+Middleware runs outside Tenchi's dispatch: it never sees validated models
+or the app context, and hooks remain the seam for anything that needs
+them.
+
 ## Typed client
 
 The same contracts drive a typed `httpx`-based client — no code generation,
@@ -302,6 +327,97 @@ async with Client(
 
 A fully configured `httpx.AsyncClient` can still be supplied via
 `Client(http=...)`; the caller keeps ownership of it.
+
+## Pagination
+
+`tenchi.pagination` standardizes offset pagination: subclass `PageQuery`
+to add filters, use `Page[Item]` as the contract response, and build
+results with `page()`:
+
+```python
+from tenchi.pagination import Page, PageQuery, page
+
+class ListTasksQuery(PageQuery):          # limit/offset with sane bounds
+    status: TaskStatus | None = None
+
+async def list_tasks(query: ListTasksQuery, context: AppContext) -> Page[Task]:
+    items, total = await context.tasks.search(..., limit=query.limit, offset=query.offset)
+    return page(items, total=total, query=query)
+```
+
+## Health
+
+`health_route()` composes a health endpoint through Tenchi's own route
+machinery. Checks receive the request context (so they can reach ports),
+may be sync or async, and fail by raising — failures surface as a 503
+`UNHEALTHY` envelope listing exception class names only, with full
+tracebacks in the log:
+
+```python
+from tenchi.health import health_route
+
+async def database_ready(context: AppContext) -> None:
+    await context.todos.list()
+
+routes = route_group(api_routes, health_route(checks={"database": database_ready}))
+```
+
+The route is tagged `health` so authentication hooks can exempt it via
+`info.contract.tags`.
+
+## Policies
+
+Business authorization lives in `features/<feature>/policy.py` as plain
+functions: an ability belongs to the feature that owns the *subject* it
+inspects, policies take their subjects as arguments (no I/O), and use
+cases fetch, then ask:
+
+```python
+# app/features/projects/policy.py
+def ensure_can_write_project(user: User, project: Project | None, *, project_id: str) -> Project:
+    if project is None:
+        raise AppError(project_not_found, details={"project_id": project_id})
+    if project.owner_id != user.id:
+        raise AppError(forbidden, details={"project_id": project_id})
+    return project
+
+# app/features/tasks/use_cases/create_task.py — the ability lives with projects
+project = await context.projects.get(request.project_id)
+ensure_can_write_project(user, project, project_id=request.project_id)
+```
+
+`tenchi doctor` enforces the discipline three ways: policies may import
+schemas, domain types, and shared errors — never infrastructure, the app
+context, or the HTTP runtime; and once any use case in an app references
+authorization (`require_user`, `context.user`, or a policy import), every
+use case must do the same or carry an explicit `# doctor: public` pragma,
+so a forgotten check is a finding rather than an open endpoint.
+
+For confused-deputy protection, owner-scoped repository methods should
+accept a scope object derivable only from the authenticated user instead
+of a raw id string — so an id lifted from request input cannot be passed
+by accident:
+
+```python
+@dataclass(frozen=True, slots=True)
+class OwnerScope:
+    owner_id: str
+
+def require_owner_scope(user: User | None) -> OwnerScope: ...
+
+# ports.py
+async def list_owned_by(self, owner: OwnerScope) -> list[Project]: ...
+
+# use case
+owner = require_owner_scope(context.user)
+return await context.projects.list_owned_by(owner)
+```
+
+The taskboard example demonstrates the full story: `OwnerScope` on every
+owner-scoped port method, and a membership slice
+(`POST /projects/{id}/members`, owner-only) where policies grant members
+view access via fetch-then-ask — the use case fetches the subject through
+a port, then asks the pure policy.
 
 ## Errors
 
@@ -343,9 +459,18 @@ get_todo_contract = contract(
 )
 ```
 
-Error responses use a flat envelope, `{"code", "message", "details"?}`, and
-every error response carries an `x-tenchi-error-source` header set to `app`
-or `framework` so the two are always distinguishable.
+Error responses use a flat envelope,
+`{"code", "message", "details"?, "request_id"}`, and every error response
+carries an `x-tenchi-error-source` header set to `app` or `framework` so
+the two are always distinguishable.
+
+### Request ids
+
+Every response carries an `x-request-id` header: the inbound header when
+the client sends one (up to 200 characters), otherwise a generated UUID
+hex. The id appears in error envelopes as `request_id`, on
+`RequestInfo.request_id` for hooks, and in server-side error logs — so a
+failure a client reports can be matched to the log line that explains it.
 
 ## Testing
 
@@ -359,11 +484,19 @@ async def test_create_todo() -> None:
     assert todo.title == "Buy milk"
 ```
 
-Integration tests exercise the full boundary with `httpx.ASGITransport`; see
-`examples/todos/tests/test_todos_http.py`. When the app uses a lifespan,
-wrap it in `asgi-lifespan`'s `LifespanManager` so startup and shutdown run
-(`ASGITransport` alone does not trigger lifespan events); see
-`examples/todos/tests/test_todos_lifespan.py`.
+Integration tests use `tenchi.testing`, which runs the app's lifespan
+around an in-process client (`httpx.ASGITransport` alone never triggers
+lifespan events):
+
+```python
+from tenchi.testing import open_client, open_http
+
+async with open_client(app, headers={"authorization": "Bearer ..."}) as client:
+    todo = await client.call(create_todo_contract, request=CreateTodo(title="x"))
+
+async with open_http(app) as http:          # raw httpx for envelope assertions
+    assert (await http.get("/nope")).status_code == 404
+```
 
 ## OpenAPI
 
@@ -393,6 +526,20 @@ api_routes = route_group(todo_routes)
 routes = route_group(
     api_routes,
     openapi_route(api_routes, title="Todos", version="0.1.0"),
+)
+```
+
+If the app authenticates through a hook, declare the scheme so docs UIs
+render the auth box. Schemes apply globally; operations tagged with a
+`public_tags` entry (default `("health",)`) are exempted, matching the
+convention of hooks exempting routes by tag:
+
+```python
+openapi_route(
+    api_routes,
+    title="Todos",
+    version="0.1.0",
+    security={"bearerAuth": {"type": "http", "scheme": "bearer"}},
 )
 ```
 

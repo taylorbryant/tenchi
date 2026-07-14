@@ -9,7 +9,12 @@ class GetProjectParams(BaseModel):
     project_id: str
 
 
+class AddProjectMember(BaseModel):
+    user_id: str
+
+
 class Project(BaseModel):
     id: str
     name: str
     owner_id: str
+    member_ids: tuple[str, ...] = ()

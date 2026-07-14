@@ -5,7 +5,7 @@ from app.infra.memory_repositories import (
     MemoryTaskRepository,
 )
 from app.server.context import AppContext
-from app.shared.users import User
+from app.shared.users import OwnerScope, User
 
 ALICE = User(id="alice", name="Alice")
 
@@ -15,8 +15,8 @@ async def make_populated_context() -> AppContext:
     tasks = MemoryTaskRepository(projects)
     context = AppContext(projects=projects, tasks=tasks, user=ALICE)
 
-    mine = await projects.create(name="Mine", owner_id="alice")
-    other = await projects.create(name="Other", owner_id="bob")
+    mine = await projects.create(name="Mine", owner=OwnerScope(owner_id="alice"))
+    other = await projects.create(name="Other", owner=OwnerScope(owner_id="bob"))
     for index in range(5):
         await tasks.create(project_id=mine.id, title=f"task {index}")
     await tasks.create(project_id=other.id, title="not mine")

@@ -1,6 +1,6 @@
 [project]
 name = "tenchi"
-version = "0.3.0"
+version = "0.4.0"
 description = "A contract-first, Python-native framework for building REST APIs around use cases, ports, and explicit wiring."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -27,7 +27,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "aiosqlite>=0.20",
-    "asgi-lifespan>=2.1",
     "openapi-spec-validator>=0.7",
     "pyright>=1.1.390",
     "pytest>=8.0",

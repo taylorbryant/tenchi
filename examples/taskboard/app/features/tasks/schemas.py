@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from tenchi.pagination import PageQuery
+
 
 class TaskStatus(StrEnum):
     TODO = "todo"
@@ -25,11 +27,9 @@ class GetTaskParams(BaseModel):
     task_id: str
 
 
-class ListTasksQuery(BaseModel):
+class ListTasksQuery(PageQuery):
     project_id: str | None = None
     status: TaskStatus | None = None
-    limit: int = Field(default=20, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
 
 
 class Task(BaseModel):
@@ -37,10 +37,3 @@ class Task(BaseModel):
     project_id: str
     title: str
     status: TaskStatus
-
-
-class TaskPage(BaseModel):
-    items: list[Task]
-    total: int
-    limit: int
-    offset: int

@@ -20,7 +20,7 @@ def require_api_key(info: RequestInfo, context: AppContext) -> None:
     expected = os.environ.get("TODOS_API_KEY")
     if expected is None:
         return
-    if info.contract.path == "/openapi.json":
+    if info.contract.path == "/openapi.json" or "health" in info.contract.tags:
         return
     if info.headers.get("x-api-key") != expected:
         raise AppError(unauthorized)
