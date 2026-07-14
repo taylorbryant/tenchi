@@ -14,7 +14,7 @@ from .pagination import Page, PageQuery, page
 from .routes import Route, RouteGroup, route, route_group
 from .server import RequestInfo, create_app
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "AppError",
