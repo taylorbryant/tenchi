@@ -122,3 +122,40 @@ async def test_startup_failure_raises() -> None:
     with pytest.raises(RuntimeError, match="no database"):
         async with open_client(app):
             pass
+
+
+async def test_app_that_never_finishes_startup_fails_with_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tenchi import testing as tenchi_testing
+
+    monkeypatch.setattr(tenchi_testing, "_LIFESPAN_TIMEOUT", 0.05)
+
+    async def stuck_app(scope: dict, receive, send) -> None:  # type: ignore[no-untyped-def]
+        if scope["type"] == "lifespan":
+            while True:
+                await receive()  # accepts messages, never answers
+
+    with pytest.raises(RuntimeError, match="did not answer lifespan startup"):
+        async with open_http(stuck_app):  # type: ignore[arg-type]
+            pass
+
+
+async def test_startup_failure_chains_the_original_exception() -> None:
+    @asynccontextmanager
+    async def broken_lifespan() -> AsyncGenerator[None]:
+        raise RuntimeError("db unreachable")
+        yield
+
+    app = create_app(
+        routes=route_group(),
+        context_factory=lambda: None,
+        lifespan=broken_lifespan,
+    )
+
+    with pytest.raises(RuntimeError, match="startup failed") as excinfo:
+        async with open_http(app):
+            pass
+
+    cause = excinfo.value.__cause__
+    assert cause is not None and "db unreachable" in str(cause)

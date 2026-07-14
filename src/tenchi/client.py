@@ -130,6 +130,7 @@ class Client:
         models' defaults. Header field names are sent with underscores
         replaced by hyphens (``x_api_key`` → ``x-api-key``).
         """
+        self._reject_undeclared(contract, params, query, headers, request)
         url = self._build_path(contract, params)
         query_values = self._build_query(contract, query)
         content, content_headers = self._build_body(contract, request)
@@ -149,9 +150,37 @@ class Client:
             adapter = _adapter(contract.response)
             if contract.response_media_type == "application/json":
                 return adapter.validate_json(response.content)
+            if contract.response_media_type.startswith("text/"):
+                # Charset-aware: httpx decodes per the response headers,
+                # so a latin-1 text body validates instead of failing a
+                # strict UTF-8 decode of the raw bytes.
+                return adapter.validate_python(response.text)
             return adapter.validate_python(response.content)
 
         return self._raise_for_error(contract, response)
+
+    @staticmethod
+    def _reject_undeclared(
+        contract: Contract[Any],
+        params: Any,
+        query: Any,
+        headers: Any,
+        request: Any,
+    ) -> None:
+        """Supplying an input the contract has no slot for is a wiring
+        mistake; dropping it silently would hide contract drift."""
+        supplied = {
+            "params": (params, contract.params),
+            "query": (query, contract.query),
+            "headers": (headers, contract.headers),
+            "request": (request, contract.request),
+        }
+        for name, (value, declared) in supplied.items():
+            if value is not None and declared is None:
+                raise TypeError(
+                    f"{contract.name} does not declare {name}=; the value "
+                    "passed to call() would be silently dropped"
+                )
 
     def _build_path(self, contract: Contract[Any], params: Any) -> str:
         if contract.params is None:
@@ -165,6 +194,11 @@ class Client:
         values = adapter.dump_python(adapter.validate_python(params), mode="json")
         url = contract.path
         for key, value in values.items():
+            if value is None or str(value) == "":
+                raise ValueError(
+                    f"{contract.name}: path parameter {key!r} must be a "
+                    f"non-empty value, got {value!r}"
+                )
             url = url.replace("{" + key + "}", quote(str(value), safe=""))
         unfilled = _PLACEHOLDER.findall(url)
         if unfilled:
@@ -202,7 +236,14 @@ class Client:
         elif isinstance(validated, str):
             content = validated.encode("utf-8")
         else:
-            content = adapter.dump_json(validated)
+            # Silently sending JSON labeled as another media type would
+            # produce a body the server rejects with no hint why.
+            raise TypeError(
+                f"{contract.name}: cannot encode "
+                f"{type(validated).__name__} as "
+                f"{contract.request_media_type}; non-JSON request media "
+                "types require str or bytes request types"
+            )
         return content, {"content-type": contract.request_media_type}
 
     def _build_headers(
@@ -244,6 +285,13 @@ class Client:
                         definition,
                         message=envelope.get("message"),
                         details=envelope.get("details"),
+                        # Mirror the error contract's one header channel:
+                        # the values the definition says this error carries.
+                        headers={
+                            name: response.headers[name]
+                            for name in definition.headers
+                            if name in response.headers
+                        },
                     )
 
         raise UnexpectedResponseError(

@@ -40,7 +40,12 @@ async def lifespan() -> AsyncGenerator[str]:
 @asynccontextmanager
 async def create_context(database_path: str) -> AsyncGenerator[AppContext]:
     async with open_request_ports(database_path) as ports:
-        yield AppContext(projects=ports.projects, tasks=ports.tasks)
+        yield AppContext(
+            projects=ports.projects,
+            tasks=ports.tasks,
+            outbox=ports.outbox,
+            notifications=ports.notifications,
+        )
 
 
 app = create_app(

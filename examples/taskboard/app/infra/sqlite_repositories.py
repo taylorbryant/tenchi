@@ -7,6 +7,8 @@ rolls back uncommitted work when closed after an error.
 """
 
 import json
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
@@ -29,7 +31,86 @@ CREATE TABLE IF NOT EXISTS tasks (
     title TEXT NOT NULL,
     status TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    processed INTEGER NOT NULL DEFAULT 0,
+    error TEXT
+);
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    message TEXT NOT NULL
+);
 """
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxEntry:
+    """A claimed outbox row, as the worker sees it (payload still raw)."""
+
+    id: int
+    job: str
+    payload: str
+
+
+class SqliteOutbox:
+    """Transactional outbox: `enqueue` implements the Outbox port on the
+    request's connection; `claim_next`/`mark_failed` are the worker's
+    surface on its own connection.
+
+    Claiming is an atomic UPDATE inside the job's transaction, so it is
+    correct with several workers: a second worker's claim blocks until
+    the first commits, then picks the next row. Commit settles the row;
+    a crash rolls the claim back and the job becomes claimable again.
+    """
+
+    def __init__(self, connection: aiosqlite.Connection) -> None:
+        self._connection = connection
+
+    async def enqueue(self, *, job: str, payload: Mapping[str, Any]) -> None:
+        await self._connection.execute(
+            "INSERT INTO outbox (job, payload) VALUES (?, ?)",
+            (job, json.dumps(dict(payload))),
+        )
+
+    async def claim_next(self) -> OutboxEntry | None:
+        cursor = await self._connection.execute(
+            "UPDATE outbox SET processed = 1 WHERE id = ("
+            "SELECT id FROM outbox WHERE processed = 0 ORDER BY id LIMIT 1"
+            ") RETURNING id, job, payload"
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return OutboxEntry(id=int(row[0]), job=row[1], payload=row[2])
+
+    async def mark_failed(self, entry_id: int, *, error: str) -> None:
+        """Dead-letter a claimed row: the error is preserved and the row
+        is never retried (the claim already settled it)."""
+        await self._connection.execute(
+            "UPDATE outbox SET error = ? WHERE id = ?",
+            (error, entry_id),
+        )
+
+
+class SqliteNotificationLog:
+    def __init__(self, connection: aiosqlite.Connection) -> None:
+        self._connection = connection
+
+    async def record(self, *, user_id: str, message: str) -> None:
+        await self._connection.execute(
+            "INSERT INTO notifications (user_id, message) VALUES (?, ?)",
+            (user_id, message),
+        )
+
+    async def list_for(self, user_id: str) -> list[str]:
+        cursor = await self._connection.execute(
+            "SELECT message FROM notifications WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        )
+        return [row[0] for row in await cursor.fetchall()]
 
 
 class SqliteProjectRepository:
@@ -103,14 +184,18 @@ class SqliteTaskRepository:
     async def search(
         self,
         *,
-        owner: OwnerScope,
+        viewer: OwnerScope,
         project_id: str | None,
         status: TaskStatus | None,
         limit: int,
         offset: int,
     ) -> tuple[list[Task], int]:
-        conditions = ["projects.owner_id = ?"]
-        values: list[Any] = [owner.owner_id]
+        conditions = [
+            "(projects.owner_id = ? OR EXISTS ("
+            "SELECT 1 FROM json_each(projects.member_ids) "
+            "WHERE json_each.value = ?))"
+        ]
+        values: list[Any] = [viewer.owner_id, viewer.owner_id]
         if project_id is not None:
             conditions.append("tasks.project_id = ?")
             values.append(project_id)

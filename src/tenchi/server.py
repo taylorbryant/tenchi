@@ -20,10 +20,11 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, cast, overload
+from types import UnionType
+from typing import Any, Union, cast, get_args, get_origin, overload
 from uuid import uuid4
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from starlette.applications import Starlette
 from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
@@ -49,6 +50,16 @@ ContextFactory = Callable[..., Any]
 Lifespan = Callable[[], AbstractAsyncContextManager[Any]]
 
 _UNSET = object()
+
+
+class _ResponseContractViolation(Exception):
+    """Raised when a use-case result fails response validation.
+
+    Raised (not returned) so it propagates through a request-scoped
+    context manager's ``__aexit__`` — the request's transaction must roll
+    back, exactly as for any other internal error, before the 500 is
+    built.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +109,7 @@ class _BoundRoute:
     headers_adapter: TypeAdapter[Any] | None
     request_adapter: TypeAdapter[Any] | None
     response_adapter: TypeAdapter[Any] | None
+    query_sequence_fields: frozenset[str]
 
 
 @overload
@@ -204,6 +216,7 @@ def create_app(
                 if item.contract.response is not None
                 else None
             ),
+            query_sequence_fields=_sequence_query_fields(item.contract.query),
         )
         starlette_routes.append(
             StarletteRoute(
@@ -287,18 +300,54 @@ def _header_fields(request: Request) -> dict[str, str]:
     }
 
 
-def _query_dict(query_params: QueryParams) -> dict[str, str | list[str]]:
-    """Collapse a query multi-dict: single values stay scalar, repeats list."""
+def _query_dict(
+    query_params: QueryParams, sequence_fields: frozenset[str]
+) -> dict[str, str | list[str]]:
+    """Collapse a query multi-dict: single values stay scalar, repeats list.
+
+    Keys the query model declares as sequences are always lists, so
+    ``?tags=a`` validates against ``tags: list[str]`` the same way
+    ``?tags=a&tags=b`` does.
+    """
     raw: dict[str, str | list[str]] = {}
     for key, value in query_params.multi_items():
         existing = raw.get(key)
         if existing is None:
-            raw[key] = value
+            raw[key] = [value] if key in sequence_fields else value
         elif isinstance(existing, list):
             existing.append(value)
         else:
             raw[key] = [existing, value]
     return raw
+
+
+_SEQUENCE_ORIGINS = (list, set, frozenset, tuple)
+
+
+def _sequence_query_fields(annotation: Any) -> frozenset[str]:
+    """Field names of a query model whose annotations expect a sequence."""
+    if not (inspect.isclass(annotation) and issubclass(annotation, BaseModel)):
+        return frozenset()
+    return frozenset(
+        name
+        for name, field in annotation.model_fields.items()
+        if _expects_sequence(field.annotation)
+    )
+
+
+def _expects_sequence(annotation: Any) -> bool:
+    if annotation in _SEQUENCE_ORIGINS:
+        return True
+    origin = get_origin(annotation)
+    if origin in _SEQUENCE_ORIGINS:
+        return True
+    if origin is Union or origin is UnionType:
+        return any(
+            _expects_sequence(argument)
+            for argument in get_args(annotation)
+            if argument is not type(None)
+        )
+    return False
 
 
 def _make_endpoint(
@@ -357,7 +406,7 @@ def _make_endpoint(
                 )
             if bound.query_adapter is not None:
                 kwargs["query"] = bound.query_adapter.validate_python(
-                    _query_dict(request.query_params)
+                    _query_dict(request.query_params, bound.query_sequence_fields)
                 )
             if bound.headers_adapter is not None:
                 kwargs["headers"] = bound.headers_adapter.validate_python(
@@ -374,9 +423,13 @@ def _make_endpoint(
                 else:
                     kwargs["request"] = bound.request_adapter.validate_python(body)
         except ValidationError as exc:
+            # include_context=False: a custom validator's ctx holds the
+            # live exception object, which is not JSON-serializable.
             return _framework_error_response(
                 tenchi_errors.validation_error,
-                details=exc.errors(include_url=False, include_input=False),
+                details=exc.errors(
+                    include_url=False, include_input=False, include_context=False
+                ),
                 request_id=request_id,
             )
         except UnicodeDecodeError:
@@ -402,16 +455,16 @@ def _make_endpoint(
                 payload = validated
             else:
                 payload = bound.response_adapter.dump_json(validated)
-        except ValidationError:
+        except ValidationError as exc:
             logger.exception(
                 "Response from %s does not match the contract's response "
                 "type [request_id=%s]",
                 contract.name,
                 request_id,
             )
-            return _framework_error_response(
-                tenchi_errors.internal_server_error, request_id=request_id
-            )
+            # Raise, not return: the request scope must roll back — the
+            # use case's writes must not commit behind a 500.
+            raise _ResponseContractViolation from exc
 
         return Response(
             payload,
@@ -448,6 +501,12 @@ def _make_endpoint(
             return _framework_error_response(
                 tenchi_errors.internal_server_error, request_id=request_id
             )
+        except _ResponseContractViolation:
+            # Already logged where it was detected; the raise existed only
+            # to route the failure through the request scope's __aexit__.
+            return _framework_error_response(
+                tenchi_errors.internal_server_error, request_id=request_id
+            )
         except Exception:
             logger.exception(
                 "Unhandled exception in %s [request_id=%s]",
@@ -479,9 +538,13 @@ def _app_error_response(exc: AppError, *, request_id: str) -> JSONResponse:
 
 
 def _framework_error_response(
-    definition: ErrorDef, *, details: Any = None, request_id: str | None = None
+    definition: ErrorDef,
+    *,
+    details: Any = None,
+    request_id: str | None = None,
+    extra_headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
-    headers = {ERROR_SOURCE_HEADER: "framework"}
+    headers = {**(extra_headers or {}), ERROR_SOURCE_HEADER: "framework"}
     if request_id is not None:
         headers[REQUEST_ID_HEADER] = request_id
     return JSONResponse(
@@ -499,11 +562,18 @@ def _framework_error_response(
 def _handle_http_exception(request: Request, exc: Exception) -> Response:
     assert isinstance(exc, HTTPException)
     request_id = _request_id(request)
+    # Preserve headers the exception carries (Starlette's 405 sets Allow;
+    # middleware may set WWW-Authenticate); framework headers win.
+    extra = dict(exc.headers or {})
     if exc.status_code == 404:
-        return _framework_error_response(tenchi_errors.not_found, request_id=request_id)
+        return _framework_error_response(
+            tenchi_errors.not_found, request_id=request_id, extra_headers=extra
+        )
     if exc.status_code == 405:
         return _framework_error_response(
-            tenchi_errors.method_not_allowed, request_id=request_id
+            tenchi_errors.method_not_allowed,
+            request_id=request_id,
+            extra_headers=extra,
         )
     return JSONResponse(
         error_body(
@@ -512,10 +582,19 @@ def _handle_http_exception(request: Request, exc: Exception) -> Response:
             request_id=request_id,
         ),
         status_code=exc.status_code,
-        headers={ERROR_SOURCE_HEADER: "framework", REQUEST_ID_HEADER: request_id},
+        headers={
+            **extra,
+            ERROR_SOURCE_HEADER: "framework",
+            REQUEST_ID_HEADER: request_id,
+        },
     )
 
 
 def _handle_unexpected_exception(request: Request, exc: Exception) -> Response:
-    logger.exception("Unhandled exception outside route dispatch")
-    return _framework_error_response(tenchi_errors.internal_server_error)
+    request_id = _request_id(request)
+    logger.exception(
+        "Unhandled exception outside route dispatch [request_id=%s]", request_id
+    )
+    return _framework_error_response(
+        tenchi_errors.internal_server_error, request_id=request_id
+    )

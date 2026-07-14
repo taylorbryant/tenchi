@@ -32,6 +32,10 @@ ASGIApp = Callable[..., Awaitable[None]]
 
 _DEFAULT_BASE_URL = "http://testserver"
 
+_LIFESPAN_TIMEOUT = 30.0
+"""Ceiling on each lifespan phase, so a stuck app fails the test with a
+diagnostic instead of hanging the whole suite."""
+
 
 @asynccontextmanager
 async def open_client(
@@ -100,11 +104,20 @@ async def _run_lifespan(app: ASGIApp) -> AsyncGenerator[None]:
     scope = {"type": "lifespan", "asgi": {"version": "3.0", "spec_version": "2.0"}}
     runner = asyncio.ensure_future(app(scope, receive, send))
 
-    async def wait_for(event: asyncio.Event) -> None:
+    async def wait_for(event: asyncio.Event, phase: str) -> None:
         waiter = asyncio.ensure_future(event.wait())
         done, _ = await asyncio.wait(
-            {runner, waiter}, return_when=asyncio.FIRST_COMPLETED
+            {runner, waiter},
+            return_when=asyncio.FIRST_COMPLETED,
+            timeout=_LIFESPAN_TIMEOUT,
         )
+        if not done:
+            waiter.cancel()
+            runner.cancel()
+            raise RuntimeError(
+                f"ASGI app did not answer lifespan {phase} within "
+                f"{_LIFESPAN_TIMEOUT:g}s"
+            )
         if runner in done and not event.is_set():
             waiter.cancel()
             exception = runner.exception()
@@ -113,14 +126,22 @@ async def _run_lifespan(app: ASGIApp) -> AsyncGenerator[None]:
             raise RuntimeError("ASGI app exited during lifespan handling")
 
     await receive_queue.put({"type": "lifespan.startup"})
-    await wait_for(startup_complete)
+    await wait_for(startup_complete, "startup")
     if startup_failure:
-        runner.cancel()
-        raise RuntimeError(f"Application startup failed: {startup_failure[0]}")
+        # The app announced failure and (per the spec) re-raises; retrieve
+        # the runner's exception so the original traceback is chained
+        # instead of logged as "Task exception was never retrieved".
+        done, _ = await asyncio.wait({runner}, timeout=_LIFESPAN_TIMEOUT)
+        cause = runner.exception() if done else None
+        if not done:
+            runner.cancel()
+        raise RuntimeError(
+            f"Application startup failed: {startup_failure[0]}"
+        ) from cause
 
     try:
         yield
     finally:
         await receive_queue.put({"type": "lifespan.shutdown"})
-        await wait_for(shutdown_complete)
-        await runner
+        await wait_for(shutdown_complete, "shutdown")
+        await asyncio.wait_for(runner, _LIFESPAN_TIMEOUT)

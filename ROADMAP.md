@@ -67,6 +67,14 @@ Rules that keep the framework small enough to trust:
 5. **Update every surface** (AGENTS.md): a change is not done until
    framework, both examples, scaffold templates, doctor, README,
    changelog, and tests agree.
+6. **Adversarial review before each release.** A green checklist proves
+   the code does what its own tests say — it cannot catch what the test
+   author didn't imagine. Before a release is cut, the cycle's work gets
+   a fresh-eyes review that actively hunts for bugs (edge cases, wrong
+   documents, authorization holes, doc drift), and significant findings
+   are verified by repro before they are believed. The 0.5.0 cycle is
+   the precedent: every bug it found lived exactly where no test
+   looked, while ruff, pyright, and 224 tests stayed green.
 
 ## Shipped
 
@@ -86,13 +94,15 @@ Rules that keep the framework small enough to trust:
 Ordered by intent, not promise; each item still has to win its argument
 when its turn comes.
 
-- **API snapshot guard** — a test that snapshots the public API surface
-  so accidental signature changes fail CI instead of shipping in a minor
-  release. Matters now that real apps install from PyPI.
-- **Events and background work, demonstrated** — the pattern is decided
+- **API snapshot guard** — done in the 0.5.0 cycle:
+  `tests/api_snapshot.txt` records the public surface and
+  `tests/test_api_snapshot.py` fails on drift; intentional changes
+  regenerate the snapshot so the diff is reviewed.
+- **Events and background work, demonstrated** — done in the 0.5.0
+  cycle: the taskboard's `member_added` flow proves the pattern
   (`docs/events.md`: effects as ports, transactional outbox, workers as
-  entrypoints); the taskboard should grow one real deferred effect to
-  prove it, before any framework sugar is considered.
+  entrypoints) end to end. Framework sugar (a typed `job()` declaration)
+  stays parked until a second real use demands it.
 - **Docs site** — the README is carrying a lot; a small mkdocs-material
   site with a tutorial, the design notes, and a reference belongs before
   any adoption push.

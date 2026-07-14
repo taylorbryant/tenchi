@@ -30,6 +30,8 @@ from app.features.tasks.schemas import (
     UpdateTask,
 )
 from app.infra.memory_repositories import (
+    MemoryNotificationLog,
+    MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
 )
@@ -63,7 +65,12 @@ def make_app() -> Starlette:
     tasks = MemoryTaskRepository(projects)
     return create_app(
         routes=routes,
-        context_factory=lambda: AppContext(projects=projects, tasks=tasks),
+        context_factory=lambda: AppContext(
+            projects=projects,
+            tasks=tasks,
+            outbox=MemoryOutbox(),
+            notifications=MemoryNotificationLog(),
+        ),
         hooks=[create_bearer_hook(StaticTokenDirectory(TOKENS))],
     )
 

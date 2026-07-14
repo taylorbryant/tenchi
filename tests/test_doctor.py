@@ -55,7 +55,8 @@ def test_from_package_import_submodule_is_flagged(app_root: Path) -> None:
     findings = run_doctor(app_root)
 
     assert any(
-        "imports app.infra: use cases must not import concrete infrastructure" in m
+        "imports app.infra.memory_todo_repository: use cases must not "
+        "import concrete infrastructure" in m
         for m in messages(findings)
     )
 
@@ -317,3 +318,93 @@ def test_doctor_cli_requires_app_root(
 
     assert main(["doctor"]) == 1
     assert "run this from an application root" in capsys.readouterr().err
+
+
+def test_syntax_error_in_server_module_is_a_finding(app_root: Path) -> None:
+    (app_root / "app/server/asgi.py").write_text("def broken(:\n")
+
+    findings = run_doctor(app_root)
+
+    assert any("could not parse" in m for m in messages(findings))
+
+
+def test_from_app_server_import_context_is_allowed_in_use_cases(
+    app_root: Path,
+) -> None:
+    use_case = app_root / "app/features/todos/use_cases/create_todo.py"
+    source = use_case.read_text()
+    source = source.replace(
+        "from app.server.context import AppContext",
+        "from app.server import context",
+    ).replace("AppContext", "context.AppContext")
+    use_case.write_text(source)
+
+    assert run_doctor(app_root) == []
+
+
+def test_pragma_inside_a_docstring_does_not_exempt(app_root: Path) -> None:
+    guarded = app_root / "app/features/todos/use_cases/create_todo.py"
+    guarded.write_text(
+        "from app.server.context import AppContext\n\n\n"
+        "async def create_todo(context: AppContext) -> None:\n"
+        "    if context.user is None:\n"
+        "        raise ValueError\n"
+    )
+    unguarded = app_root / "app/features/todos/use_cases/delete_todo.py"
+    unguarded.write_text(
+        '"""Not really `# doctor: public` — just mentions it."""\n\n\n'
+        "async def delete_todo(context: object) -> None:\n"
+        "    return None\n"
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any("no authorization reference" in m for m in messages(findings))
+
+
+def test_domain_user_attribute_is_not_an_authorization_guard(
+    app_root: Path,
+) -> None:
+    guarded = app_root / "app/features/todos/use_cases/create_todo.py"
+    guarded.write_text(
+        "from app.server.context import AppContext\n\n\n"
+        "async def create_todo(context: AppContext) -> None:\n"
+        "    if context.user is None:\n"
+        "        raise ValueError\n"
+    )
+    # Reads .user off a domain object, never off the context: unguarded.
+    sneaky = app_root / "app/features/todos/use_cases/delete_todo.py"
+    sneaky.write_text(
+        "async def delete_todo(request: object, context: object) -> None:\n"
+        "    print(request.user)\n"
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "delete_todo" in m and "no authorization reference" in m
+        for m in messages(findings)
+    )
+
+
+def test_shared_importing_policy_is_flagged(app_root: Path) -> None:
+    (app_root / "app/features/todos/policy.py").write_text(
+        "def can_edit() -> bool:\n    return True\n"
+    )
+    (app_root / "app/shared/helpers.py").write_text(
+        "from app.features.todos.policy import can_edit\n"
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any("must not depend on features" in m for m in messages(findings))
+
+
+def test_unrecognized_feature_module_is_flagged(app_root: Path) -> None:
+    (app_root / "app/features/todos/helpers.py").write_text(
+        "from app.infra.memory_todo_repository import MemoryTodoRepository\n"
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any("unrecognized feature module" in m for m in messages(findings))

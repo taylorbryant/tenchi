@@ -2,15 +2,25 @@
 
 Tenchi's stress-test application: two related features (projects and
 tasks), bearer-token authentication with identity on the context,
-ownership rules enforced in use cases, pagination, partial updates, and
-SQLite adapters sharing one lifespan-managed connection. If a framework
-capability regresses, something here should break.
+ownership and membership rules enforced in use cases, pagination,
+partial updates, SQLite adapters on a per-request connection and
+transaction, and a transactional outbox with a worker entrypoint
+(`docs/events.md` in the tenchi repository). If a framework capability
+regresses, something here should break.
 
 ```sh
 uv sync
 uv run pytest
 uv run tenchi doctor
 uv run tenchi dev
+```
+
+Adding a project member enqueues a `member_added` notification job in
+the same transaction as the membership change. Jobs are delivered by
+the worker — run it alongside the server:
+
+```sh
+uv run python -m app.server.worker
 ```
 
 Demo tokens are wired in `app/server/asgi.py`: `alice-token` and

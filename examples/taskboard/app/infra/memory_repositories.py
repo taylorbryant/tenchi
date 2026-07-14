@@ -1,10 +1,28 @@
 """In-memory implementations of the taskboard ports, for tests."""
 
+from collections.abc import Mapping
+from typing import Any
 from uuid import uuid4
 
 from app.features.projects.schemas import Project
 from app.features.tasks.schemas import Task, TaskStatus
 from app.shared.users import OwnerScope
+
+
+class MemoryOutbox:
+    def __init__(self) -> None:
+        self.entries: list[tuple[str, dict[str, Any]]] = []
+
+    async def enqueue(self, *, job: str, payload: Mapping[str, Any]) -> None:
+        self.entries.append((job, dict(payload)))
+
+
+class MemoryNotificationLog:
+    def __init__(self) -> None:
+        self.records: list[tuple[str, str]] = []
+
+    async def record(self, *, user_id: str, message: str) -> None:
+        self.records.append((user_id, message))
 
 
 class MemoryProjectRepository:
@@ -54,21 +72,21 @@ class MemoryTaskRepository:
     async def search(
         self,
         *,
-        owner: OwnerScope,
+        viewer: OwnerScope,
         project_id: str | None,
         status: TaskStatus | None,
         limit: int,
         offset: int,
     ) -> tuple[list[Task], int]:
-        owned = {
+        visible = {
             p.id
             for p in self._projects.projects.values()
-            if p.owner_id == owner.owner_id
+            if p.owner_id == viewer.owner_id or viewer.owner_id in p.member_ids
         }
         matches = [
             task
             for task in self.tasks.values()
-            if task.project_id in owned
+            if task.project_id in visible
             and (project_id is None or task.project_id == project_id)
             and (status is None or task.status == status)
         ]

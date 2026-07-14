@@ -23,6 +23,8 @@ dependencies are findings.
 from __future__ import annotations
 
 import ast
+import io
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,6 +109,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "contracts": "shared code must not depend on features",
         "routes": "shared code must not depend on features",
         "use_cases": "shared code must not depend on features",
+        "policy": "shared code must not depend on features",
         **{k: f"shared code {v}" for k, v in _HTTP_RULES.items()},
     },
     "infra": {
@@ -139,16 +142,54 @@ def run_doctor(root: Path) -> list[Finding]:
 
     for path in sorted((root / "app").rglob("*.py")):
         relative = path.relative_to(root)
-        source_category = _classify_module(_module_parts(relative))
-        if source_category is None or source_category == "tests":
+        parts = _module_parts(relative)
+        source_category = _classify_module(parts)
+        if source_category == "tests":
             continue
-        rules = _RULES.get(source_category)
-        if not rules:
+
+        findings.extend(_placement_findings(relative, parts, source_category))
+
+        # Every non-test module is parsed, whatever its category — a file
+        # doctor has no rules for can still hide a syntax error.
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError as exc:
+            findings.append(
+                Finding(
+                    relative.as_posix(),
+                    exc.lineno or 0,
+                    f"could not parse: {exc.msg}",
+                )
+            )
             continue
-        findings.extend(_import_findings(root, relative, rules))
+
+        rules = _RULES.get(source_category) if source_category else None
+        if rules:
+            findings.extend(_import_findings(tree, relative, rules))
 
     findings.extend(_authorization_findings(root))
     return findings
+
+
+def _placement_findings(
+    relative: Path, parts: tuple[str, ...], category: Category | None
+) -> list[Finding]:
+    """Flag feature modules the prescribed structure has no place for —
+    otherwise a stray ``helpers.py`` (or a nested feature tree) would
+    silently escape every dependency rule."""
+    if parts[1:2] != ("features",) or category is not None:
+        return []
+    if len(parts) <= 2 or (relative.name == "__init__.py" and len(parts) == 3):
+        return []
+    return [
+        Finding(
+            relative.as_posix(),
+            0,
+            "unrecognized feature module: features contain schemas.py, "
+            "ports.py, contracts.py, routes.py, policy.py, use_cases/, "
+            "and tests/ only",
+        )
+    ]
 
 
 _PUBLIC_PRAGMA = "# doctor: public"
@@ -174,9 +215,9 @@ def _authorization_findings(root: Path) -> list[Finding]:
         try:
             tree = ast.parse(source)
         except SyntaxError:
-            continue  # already reported by the import pass
+            continue  # already reported by the parse pass
         guarded = _references_authorization(tree, relative)
-        surveyed.append((relative, guarded, _PUBLIC_PRAGMA in source))
+        surveyed.append((relative, guarded, _has_public_pragma(source)))
 
     if not any(guarded for _, guarded, _ in surveyed):
         return []
@@ -194,6 +235,23 @@ def _authorization_findings(root: Path) -> list[Finding]:
     ]
 
 
+def _has_public_pragma(source: str) -> bool:
+    """True when ``# doctor: public`` appears as an actual comment.
+
+    A substring match would also fire inside docstrings and string
+    literals — text that merely *mentions* the pragma must not exempt a
+    use case from the authorization check.
+    """
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+        return any(
+            token.type == tokenize.COMMENT and "doctor: public" in token.string
+            for token in tokens
+        )
+    except (tokenize.TokenError, SyntaxError):
+        return False
+
+
 def _references_authorization(tree: ast.Module, relative: Path) -> bool:
     for _, target in _imports(tree, relative):
         if _classify_module(target) == "policy":
@@ -201,11 +259,17 @@ def _references_authorization(tree: ast.Module, relative: Path) -> bool:
         if target and target[-1] == "require_user":
             return True
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and node.attr in (
-            "user",
-            "require_user",
-        ):
-            return True
+        if isinstance(node, ast.Attribute):
+            if node.attr == "require_user":
+                return True
+            # Only context.user counts — todo.user on a domain object is
+            # data access, not an authorization guard.
+            if (
+                node.attr == "user"
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "context"
+            ):
+                return True
         if isinstance(node, ast.Name) and node.id == "require_user":
             return True
     return False
@@ -220,19 +284,8 @@ def _structure_findings(root: Path) -> list[Finding]:
 
 
 def _import_findings(
-    root: Path, relative: Path, rules: dict[Category, str]
+    tree: ast.Module, relative: Path, rules: dict[Category, str]
 ) -> list[Finding]:
-    try:
-        tree = ast.parse((root / relative).read_text(encoding="utf-8"))
-    except SyntaxError as exc:
-        return [
-            Finding(
-                relative.as_posix(),
-                exc.lineno or 0,
-                f"could not parse: {exc.msg}",
-            )
-        ]
-
     findings: list[Finding] = []
     seen: set[tuple[int, str]] = set()
     for line, target in _imports(tree, relative):
@@ -269,13 +322,16 @@ def _imports(tree: ast.Module, relative: Path) -> list[tuple[int, tuple[str, ...
             else:
                 base = containing[: len(containing) - (node.level - 1)]
             module = tuple(node.module.split(".")) if node.module else ()
-            if _classify_module(base + module) is not None:
-                resolved.append((node.lineno, base + module))
-                continue
-            # `from package import submodule` targets a module the bare
-            # package path does not reveal; check each name instead.
+            # Resolve per imported name first: `from app.server import
+            # context` depends on app.server.context (allowed in use
+            # cases), not on server composition at large. Fall back to
+            # the module path when the name itself classifies nowhere.
             for alias in node.names:
-                resolved.append((node.lineno, base + module + (alias.name,)))
+                candidate = base + module + (alias.name,)
+                if _classify_module(candidate) is not None:
+                    resolved.append((node.lineno, candidate))
+                else:
+                    resolved.append((node.lineno, base + module))
     return resolved
 
 

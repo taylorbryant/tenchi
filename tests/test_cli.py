@@ -301,3 +301,18 @@ def test_routes_cli_entrypoint_runs_as_module() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "GET" in result.stdout
+
+
+def test_generators_reject_python_keywords(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "class"]) == 1
+    assert not (tmp_path / "class").exists()
+
+    assert main(["new", "my_app"]) == 0
+    monkeypatch.chdir(tmp_path / "my_app")
+    assert main(["make", "feature", "import"]) == 1
+    assert not (tmp_path / "my_app/app/features/import").exists()
+    assert main(["make", "use-case", "todos", "return"]) == 1
+    assert not (tmp_path / "my_app/app/features/todos/use_cases/return.py").exists()

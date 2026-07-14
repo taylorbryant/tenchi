@@ -6,6 +6,8 @@ from app.features.projects.use_cases.get_project import get_project
 from app.features.tasks.schemas import CreateTask
 from app.features.tasks.use_cases.create_task import create_task
 from app.infra.memory_repositories import (
+    MemoryNotificationLog,
+    MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
 )
@@ -27,8 +29,15 @@ def context_for(
     user: User,
     projects: MemoryProjectRepository,
     tasks: MemoryTaskRepository,
+    outbox: MemoryOutbox | None = None,
 ) -> AppContext:
-    return AppContext(projects=projects, tasks=tasks, user=user)
+    return AppContext(
+        projects=projects,
+        tasks=tasks,
+        outbox=outbox if outbox is not None else MemoryOutbox(),
+        notifications=MemoryNotificationLog(),
+        user=user,
+    )
 
 
 async def test_owner_adds_a_member_idempotently() -> None:
@@ -49,6 +58,31 @@ async def test_owner_adds_a_member_idempotently() -> None:
         alice,
     )
     assert again.member_ids == ("bob",)
+
+
+async def test_adding_a_member_enqueues_one_notification_job() -> None:
+    projects, tasks = make_repositories()
+    outbox = MemoryOutbox()
+    alice = context_for(ALICE, projects, tasks, outbox)
+    project = await projects.create(name="Launch", owner=OwnerScope(owner_id="alice"))
+
+    for _ in range(2):  # the idempotent re-add must not enqueue again
+        await add_project_member(
+            GetProjectParams(project_id=project.id),
+            AddProjectMember(user_id="bob"),
+            alice,
+        )
+
+    assert outbox.entries == [
+        (
+            "member_added",
+            {
+                "project_id": project.id,
+                "project_name": "Launch",
+                "user_id": "bob",
+            },
+        )
+    ]
 
 
 async def test_non_owner_cannot_add_members() -> None:

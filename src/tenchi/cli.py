@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import keyword
 import re
 import sys
 from collections.abc import Sequence
@@ -34,6 +35,13 @@ from .routes import RouteGroup
 from .scaffold import app_files, feature_files, use_case_files
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _valid_name(name: str) -> bool:
+    """Snake_case and not a Python keyword — generated code containing
+    ``async def return(...)`` or ``app/features/import/`` cannot work."""
+    return bool(_NAME.match(name)) and not keyword.iskeyword(name)
+
 
 _DEFAULT_ROUTES = "app.server.routes:routes"
 _DEFAULT_APP = "app.server.asgi:app"
@@ -139,7 +147,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _new(name: str) -> int:
-    if not _NAME.match(name):
+    if not _valid_name(name):
         _fail(
             f"tenchi new: {name!r} is not a valid application name; "
             "use snake_case, such as 'my_app'"
@@ -164,7 +172,7 @@ def _new(name: str) -> int:
 
 
 def _make_feature(name: str) -> int:
-    if not _NAME.match(name):
+    if not _valid_name(name):
         _fail(
             f"tenchi make feature: {name!r} is not a valid feature name; "
             "use snake_case, such as 'notes'"
@@ -198,10 +206,16 @@ def _make_feature(name: str) -> int:
 
 
 def _make_use_case(feature: str, name: str) -> int:
-    if not _NAME.match(name):
+    if not _valid_name(name):
         _fail(
             f"tenchi make use-case: {name!r} is not a valid use case name; "
             "use snake_case, such as 'create_note'"
+        )
+        return 1
+    if not _valid_name(feature):
+        _fail(
+            f"tenchi make use-case: {feature!r} is not a valid feature name; "
+            "use snake_case, such as 'notes'"
         )
         return 1
 
@@ -297,11 +311,14 @@ def _load_route_group(command: str, target: str) -> RouteGroup | None:
 
     try:
         module = importlib.import_module(module_name)
-    except ImportError as exc:
+    except Exception as exc:  # import-time app failures are user errors
         _fail(f"{command}: could not import {module_name!r}: {exc}")
         return None
 
-    group = getattr(module, attribute, None)
+    if not hasattr(module, attribute):
+        _fail(f"{command}: module {module_name!r} has no attribute {attribute!r}")
+        return None
+    group = getattr(module, attribute)
     if not isinstance(group, RouteGroup):
         _fail(
             f"{command}: {target!r} is not a tenchi RouteGroup "

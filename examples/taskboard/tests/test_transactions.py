@@ -50,7 +50,12 @@ def make_app(database_path: str) -> Starlette:
     @asynccontextmanager
     async def create_context(path: str) -> AsyncGenerator[AppContext]:
         async with open_request_ports(path) as ports:
-            yield AppContext(projects=ports.projects, tasks=ports.tasks)
+            yield AppContext(
+                projects=ports.projects,
+                tasks=ports.tasks,
+                outbox=ports.outbox,
+                notifications=ports.notifications,
+            )
 
     return create_app(
         routes=route_group(
