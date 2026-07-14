@@ -1,7 +1,9 @@
 """The middleware seam passes straight through to Starlette."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
+from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
@@ -23,11 +25,11 @@ async def ping(context: Context) -> str:
     return "pong"
 
 
-def make_app(**kwargs: object):
+def make_app(middleware: Sequence[Middleware] = ()) -> Starlette:
     return create_app(
         routes=route_group(route(ping_contract, ping)),
         context_factory=Context,
-        **kwargs,  # pyright: ignore[reportArgumentType]
+        middleware=middleware,
     )
 
 
