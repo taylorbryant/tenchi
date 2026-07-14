@@ -28,6 +28,7 @@ _ERROR_SCHEMA: dict[str, Any] = {
         "code": {"type": "string"},
         "message": {"type": "string"},
         "details": {},
+        "request_id": {"type": "string"},
     },
     "required": ["code", "message"],
 }

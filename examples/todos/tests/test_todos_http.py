@@ -114,7 +114,9 @@ async def test_get_todo_maps_expected_error(client: httpx.AsyncClient) -> None:
 
     assert response.status_code == 404
     assert response.headers[ERROR_SOURCE_HEADER] == "app"
-    assert response.json() == {
+    body = response.json()
+    assert body.pop("request_id") == response.headers["x-request-id"]
+    assert body == {
         "code": "TODO_NOT_FOUND",
         "message": "Todo not found",
         "details": {"todo_id": "missing"},
