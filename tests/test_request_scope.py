@@ -26,7 +26,9 @@ boom = ErrorDef(code="BOOM", status=409, message="Boom")
 ok_contract = contract(method="GET", path="/ok", response=str)
 fail_contract = contract(method="GET", path="/fail", response=str, errors=(boom,))
 crash_contract = contract(method="GET", path="/crash", response=str)
-echo_contract = contract(method="POST", path="/echo", request=dict, response=dict)
+echo_contract = contract(
+    method="POST", path="/echo", request=dict[str, str], response=dict[str, str]
+)
 
 
 async def ok(context: Context) -> str:
@@ -43,8 +45,8 @@ async def crash(context: Context) -> str:
     raise RuntimeError("crash")
 
 
-async def echo(request: dict, context: Context) -> dict:  # pyright: ignore[reportMissingTypeArgument, reportUnknownParameterType]
-    return request  # pyright: ignore[reportUnknownVariableType]
+async def echo(request: dict[str, str], context: Context) -> dict[str, str]:
+    return request
 
 
 def make_app(events: list[str], hooks: list[object] | None = None) -> Starlette:

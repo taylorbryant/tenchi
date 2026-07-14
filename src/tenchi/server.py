@@ -20,7 +20,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, overload
+from typing import Any, cast, overload
 
 from pydantic import TypeAdapter, ValidationError
 from starlette.applications import Starlette
@@ -386,7 +386,8 @@ def _make_endpoint(
                 # Request-scoped context: entered per request; a use-case
                 # or hook exception flows through __aexit__ (rolling back
                 # a transaction) before being mapped below.
-                async with raw as context:
+                scoped = cast(AbstractAsyncContextManager[Any], raw)
+                async with scoped as context:
                     return await dispatch(request, context)
             return await dispatch(request, raw)
         except AppError as exc:
