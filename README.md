@@ -264,6 +264,31 @@ api_routes = route_group(todo_routes, errors=(unauthorized,))
 The todos example wires an optional API-key hook this way; see
 `examples/todos/app/server/hooks.py`.
 
+## Middleware
+
+Cross-cutting HTTP concerns that are not authentication — CORS,
+compression, trusted hosts — use Starlette middleware directly.
+`create_app(middleware=...)` passes the list straight through; Tenchi
+does not wrap or re-export anything:
+
+```python
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+
+app = create_app(
+    routes=routes,
+    context_factory=create_context,
+    middleware=[
+        Middleware(CORSMiddleware, allow_origins=["https://app.example.com"],
+                   allow_methods=["*"], allow_headers=["*"]),
+    ],
+)
+```
+
+Middleware runs outside Tenchi's dispatch: it never sees validated models
+or the app context, and hooks remain the seam for anything that needs
+them.
+
 ## Typed client
 
 The same contracts drive a typed `httpx`-based client — no code generation,
@@ -434,9 +459,18 @@ get_todo_contract = contract(
 )
 ```
 
-Error responses use a flat envelope, `{"code", "message", "details"?}`, and
-every error response carries an `x-tenchi-error-source` header set to `app`
-or `framework` so the two are always distinguishable.
+Error responses use a flat envelope,
+`{"code", "message", "details"?, "request_id"}`, and every error response
+carries an `x-tenchi-error-source` header set to `app` or `framework` so
+the two are always distinguishable.
+
+### Request ids
+
+Every response carries an `x-request-id` header: the inbound header when
+the client sends one (up to 200 characters), otherwise a generated UUID
+hex. The id appears in error envelopes as `request_id`, on
+`RequestInfo.request_id` for hooks, and in server-side error logs — so a
+failure a client reports can be matched to the log line that explains it.
 
 ## Testing
 
@@ -492,6 +526,20 @@ api_routes = route_group(todo_routes)
 routes = route_group(
     api_routes,
     openapi_route(api_routes, title="Todos", version="0.1.0"),
+)
+```
+
+If the app authenticates through a hook, declare the scheme so docs UIs
+render the auth box. Schemes apply globally; operations tagged with a
+`public_tags` entry (default `("health",)`) are exempted, matching the
+convention of hooks exempting routes by tag:
+
+```python
+openapi_route(
+    api_routes,
+    title="Todos",
+    version="0.1.0",
+    security={"bearerAuth": {"type": "http", "scheme": "bearer"}},
 )
 ```
 

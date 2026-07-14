@@ -22,6 +22,11 @@ async def database_ready(context: AppContext) -> None:
 
 routes = route_group(
     api_routes,
-    openapi_route(api_routes, title="Taskboard", version="0.1.0"),
+    openapi_route(
+        api_routes,
+        title="Taskboard",
+        version="0.1.0",
+        security={"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    ),
     health_route(checks={"database": database_ready}),
 )

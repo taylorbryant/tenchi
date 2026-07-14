@@ -30,6 +30,22 @@ versions may change the public API.
   gains a policy category enforcing that policies never import
   infrastructure, the app context, or the HTTP runtime, and
   `tenchi make feature` scaffolds `policy.py`.
+- `create_app(middleware=...)`: a passthrough seam for Starlette
+  middleware (CORS, compression, trusted hosts) — Tenchi composes the
+  list into the underlying Starlette application without wrapping or
+  re-exporting anything.
+- Request ids: every response carries an `x-request-id` header — the
+  inbound header when the client sends one (up to 200 characters),
+  otherwise a generated UUID hex. Error envelopes include the id as
+  `request_id`, hooks see it on `RequestInfo.request_id`, and server-side
+  error logs are stamped with it, so a client-reported failure can be
+  matched to its log line.
+- OpenAPI security schemes: `openapi_schema` and `openapi_route` accept
+  `security={"bearerAuth": {"type": "http", "scheme": "bearer"}}`-style
+  declarations. Schemes land in `components.securitySchemes` and apply
+  globally; operations whose tags intersect `public_tags`
+  (default `("health",)`) are exempted with an empty security list,
+  matching the hook-exemption convention.
 
 ## [0.3.0] - 2026-07-14
 

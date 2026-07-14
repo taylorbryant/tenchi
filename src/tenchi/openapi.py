@@ -10,6 +10,7 @@ document is served by the same machinery it describes.
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -40,15 +41,29 @@ def openapi_schema(
     title: str,
     version: str,
     description: str | None = None,
+    security: Mapping[str, Mapping[str, Any]] | None = None,
+    public_tags: Sequence[str] = ("health",),
 ) -> dict[str, Any]:
-    """Build an OpenAPI 3.1 document for every route in the group."""
+    """Build an OpenAPI 3.1 document for every route in the group.
+
+    ``security`` maps scheme names to OpenAPI security scheme objects, for
+    example ``{"bearerAuth": {"type": "http", "scheme": "bearer"}}`` or
+    ``{"apiKeyAuth": {"type": "apiKey", "in": "header", "name":
+    "x-api-key"}}``. When given, every scheme is required globally and
+    operations whose contract tags intersect ``public_tags`` are exempted
+    with an empty per-operation security list — matching the convention of
+    hooks exempting routes by tag.
+    """
     components: dict[str, Any] = {}
     paths: dict[str, dict[str, Any]] = {}
     operation_ids: dict[str, int] = {}
+    public = set(public_tags)
 
     for item in routes:
         declared = item.contract
         operation = _operation(item, components, operation_ids)
+        if security and public & set(declared.tags):
+            operation["security"] = []
         paths.setdefault(declared.path, {})[declared.method.lower()] = operation
 
     info: dict[str, Any] = {"title": title, "version": version}
@@ -60,8 +75,16 @@ def openapi_schema(
         "info": info,
         "paths": paths,
     }
-    if components:
-        document["components"] = {"schemas": components}
+    if security:
+        document["security"] = [{name: []} for name in security]
+    if components or security:
+        document["components"] = {}
+        if components:
+            document["components"]["schemas"] = components
+        if security:
+            document["components"]["securitySchemes"] = {
+                name: dict(scheme) for name, scheme in security.items()
+            }
     return document
 
 
@@ -71,6 +94,8 @@ def openapi_route(
     title: str,
     version: str,
     description: str | None = None,
+    security: Mapping[str, Mapping[str, Any]] | None = None,
+    public_tags: Sequence[str] = ("health",),
     path: str = "/openapi.json",
 ) -> Route:
     """Build a route serving the OpenAPI document for ``routes``.
@@ -83,7 +108,12 @@ def openapi_route(
         routes = route_group(api_routes, openapi_route(api_routes, ...))
     """
     document = openapi_schema(
-        routes, title=title, version=version, description=description
+        routes,
+        title=title,
+        version=version,
+        description=description,
+        security=security,
+        public_tags=public_tags,
     )
 
     async def get_openapi(context: object) -> dict[str, Any]:
