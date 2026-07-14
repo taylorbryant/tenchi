@@ -503,6 +503,30 @@ async with open_http(app) as http:          # raw httpx for envelope assertions
     assert (await http.get("/nope")).status_code == 404
 ```
 
+## Use cases outside HTTP
+
+HTTP is one caller of a use case, not its owner. Workers, scripts, and
+schedulers invoke the same functions through `tenchi.execution`, which
+provides the server's boundary guarantees at any entrypoint: input
+validated against the use case's own `request` annotation, and the same
+context scoping as `create_app` (values, factories, or async context
+managers with commit-on-success / rollback-on-error):
+
+```python
+from tenchi.execution import execute
+
+# In a queue worker: payload arrives as raw JSON, gets validated
+# against MemberAdded (the use case's request annotation), and the
+# use case runs inside the given context.
+await execute(notify_member_added, request_json=payload, context=context)
+```
+
+Validation happens before the context opens, so invalid input never
+starts a unit of work; failures raise for the entrypoint to translate
+(the taskboard's worker dead-letters them). See
+[`docs/execution.md`](docs/execution.md) for what this deliberately
+does not do.
+
 ## OpenAPI
 
 Contracts carry everything an OpenAPI document needs, so generation is a

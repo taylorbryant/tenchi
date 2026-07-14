@@ -24,6 +24,7 @@ PUBLIC_MODULES = (
     "tenchi.client",
     "tenchi.contracts",
     "tenchi.errors",
+    "tenchi.execution",
     "tenchi.health",
     "tenchi.openapi",
     "tenchi.pagination",

@@ -21,7 +21,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequen
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from types import UnionType
-from typing import Any, Union, cast, get_args, get_origin, overload
+from typing import Any, Union, get_args, get_origin, overload
 from uuid import uuid4
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -42,6 +42,7 @@ from .errors import (
     ErrorDef,
     error_body,
 )
+from .execution import open_context
 from .routes import Route, RouteGroup
 
 logger = logging.getLogger("tenchi.server")
@@ -476,17 +477,13 @@ def _make_endpoint(
     async def endpoint(request: Request) -> Response:
         request_id = _request_id(request)
         try:
-            raw = build_context()
-            if inspect.isawaitable(raw):
-                raw = await raw
-            if isinstance(raw, AbstractAsyncContextManager):
-                # Request-scoped context: entered per request; a use-case
-                # or hook exception flows through __aexit__ (rolling back
-                # a transaction) before being mapped below.
-                scoped = cast(AbstractAsyncContextManager[Any], raw)
-                async with scoped as context:
-                    return await dispatch(request, context, request_id)
-            return await dispatch(request, raw, request_id)
+            # open_context handles plain values, async factories, and
+            # request-scoped context managers (a use-case or hook
+            # exception flows through __aexit__ — rolling back a
+            # transaction — before being mapped below), so the semantics
+            # are identical to tenchi.execution.execute.
+            async with open_context(build_context) as context:
+                return await dispatch(request, context, request_id)
         except AppError as exc:
             if contract.declares_error(exc.definition):
                 return _app_error_response(exc, request_id=request_id)

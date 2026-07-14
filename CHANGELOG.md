@@ -9,6 +9,26 @@ versions may change the public API.
 
 ### Added
 
+- `tenchi.execution`: `execute()` runs a use case from any entrypoint —
+  worker, script, scheduler, test — with the server's boundary
+  guarantees: input validated against the use case's own `request`
+  annotation (Python data or raw JSON), undeclared inputs rejected, and
+  the same context scoping as `create_app`. `open_context()` exposes
+  that scoping directly, and the server now uses it too, so
+  commit-on-success / rollback-on-error semantics are defined once.
+  `docs/execution.md` records what was deliberately left out.
+
+### Changed
+
+- The taskboard worker validates payloads through `execute()`; its job
+  registry is now just names to use cases.
+- `tenchi doctor` treats `tenchi.execution` as runtime: domain code and
+  use cases must not import it — running use cases is entrypoint work.
+
+## [0.5.0] - 2026-07-14
+
+### Added
+
 - `ROADMAP.md`: the lane statement, the anti-roadmap (what Tenchi will
   never grow), and the complexity budget every proposal is measured
   against.

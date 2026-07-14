@@ -348,7 +348,11 @@ def _classify_module(parts: tuple[str, ...]) -> Category | None:
     if parts[0] != "app":
         if parts[0] in ("starlette", "uvicorn"):
             return "http_runtime"
-        if parts[0] == "tenchi" and parts[1:2] in (("server",), ("client",)):
+        if parts[0] == "tenchi" and parts[1:2] in (
+            ("server",),
+            ("client",),
+            ("execution",),
+        ):
             return "tenchi_runtime"
         return None
     if parts[1:2] == ("infra",):

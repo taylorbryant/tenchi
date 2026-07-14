@@ -1,6 +1,6 @@
 [project]
 name = "tenchi"
-version = "0.5.0"
+version = "0.6.0"
 description = "A contract-first, Python-native framework for building REST APIs around use cases, ports, and explicit wiring."
 readme = "README.md"
 requires-python = ">=3.12"
