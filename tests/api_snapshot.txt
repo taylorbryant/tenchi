@@ -1,0 +1,121 @@
+# tenchi
+AppError (re-export of tenchi.errors.AppError)
+Client (re-export of tenchi.client.Client)
+Contract (re-export of tenchi.contracts.Contract)
+ErrorDef (re-export of tenchi.errors.ErrorDef)
+Page (re-export of tenchi.pagination.Page)
+PageQuery (re-export of tenchi.pagination.PageQuery)
+RequestInfo (re-export of tenchi.server.RequestInfo)
+Route (re-export of tenchi.routes.Route)
+RouteGroup (re-export of tenchi.routes.RouteGroup)
+UnexpectedResponseError (re-export of tenchi.client.UnexpectedResponseError)
+contract (re-export of tenchi.contracts.contract)
+create_app (re-export of tenchi.server.create_app)
+health_route (re-export of tenchi.health.health_route)
+openapi_route (re-export of tenchi.openapi.openapi_route)
+openapi_schema (re-export of tenchi.openapi.openapi_schema)
+page (re-export of tenchi.pagination.page)
+route (re-export of tenchi.routes.route)
+route_group (re-export of tenchi.routes.route_group)
+
+# tenchi.client
+class Client
+    def __init__(self, *, base_url: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, http: 'httpx.AsyncClient | None' = None, errors: 'Sequence[ErrorDef]' = ()) -> 'None'
+    def aclose(self) -> 'None'
+    def call(self, contract: 'Contract[ResponseT]', *, params: 'Any' = None, query: 'Any' = None, headers: 'Any' = None, request: 'Any' = None) -> 'ResponseT'
+class UnexpectedResponseError(Exception)
+    def __init__(self, *, contract_name: 'str', status_code: 'int', body: 'Any') -> 'None'
+
+# tenchi.contracts
+class Contract(Generic)
+    method: str
+    path: str
+    request: type[Any] | None = None
+    params: type[Any] | None = None
+    query: type[Any] | None = None
+    headers: type[Any] | None = None
+    response: type[ResponseT] | None = None
+    status: int = 200
+    errors: tuple[ErrorDef, ...] = ()
+    name: str = ''
+    request_media_type: str = 'application/json'
+    response_media_type: str = 'application/json'
+    summary: str | None = None
+    description: str | None = None
+    tags: tuple[str, ...] = ()
+    deprecated: bool = False
+    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), deprecated: 'bool' = False) -> None
+    def declares_error(self, definition: 'ErrorDef') -> 'bool'
+def contract(*, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), deprecated: 'bool' = False) -> 'Contract[ResponseT]'
+
+# tenchi.errors
+class AppError(Exception)
+    def __init__(self, definition: 'ErrorDef', *, message: 'str | None' = None, details: 'Any' = None, headers: 'Mapping[str, str] | None' = None) -> 'None'
+    property code(self) -> 'str'
+    property message(self) -> 'str'
+    property status(self) -> 'int'
+ERROR_SOURCE_HEADER = 'x-tenchi-error-source'
+class ErrorDef
+    code: str
+    status: int
+    message: str
+    headers: tuple[str, ...] = ()
+    def __init__(self, code: 'str', status: 'int', message: 'str', headers: 'tuple[str, ...]' = ()) -> None
+REQUEST_ID_HEADER = 'x-request-id'
+def error_body(*, code: 'str', message: 'str', details: 'Any' = None, request_id: 'str | None' = None) -> 'dict[str, Any]'
+
+# tenchi.health
+HealthCheck = collections.abc.Callable[[typing.Any], typing.Any]
+class HealthReport(BaseModel)
+    status: str = 'ok'
+    checks: dict[str, str] = {}
+def health_route(*, path: 'str' = '/health', checks: 'Mapping[str, HealthCheck] | None' = None) -> 'Route'
+
+# tenchi.openapi
+def openapi_route(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, public_tags: 'Sequence[str]' = ('health',), path: 'str' = '/openapi.json') -> 'Route'
+def openapi_schema(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, public_tags: 'Sequence[str]' = ('health',)) -> 'dict[str, Any]'
+
+# tenchi.pagination
+class Page(BaseModel, Generic)
+    items: list[ItemT]
+    total: int
+    limit: int
+    offset: int
+class PageQuery(BaseModel)
+    limit: int = 20
+    offset: int = 0
+def page(items: collections.abc.Sequence[ItemT], *, total: int, query: tenchi.pagination.PageQuery) -> tenchi.pagination.Page[TypeVar]
+
+# tenchi.routes
+class Route
+    contract: Contract[Any]
+    use_case: UseCase
+    call_kwargs: tuple[str, ...]
+    def __init__(self, contract: 'Contract[Any]', use_case: 'UseCase', call_kwargs: 'tuple[str, ...]') -> None
+class RouteBindingError(TypeError)
+class RouteGroup
+    routes: tuple[Route, ...]
+    def __init__(self, routes: 'tuple[Route, ...]') -> None
+UseCase = collections.abc.Callable[..., collections.abc.Awaitable[typing.Any]]
+def route(contract: 'Contract[ResponseT]', use_case: 'Callable[..., Awaitable[ResponseT]]') -> 'Route'
+def route_group(*items: 'Route | RouteGroup | Sequence[Route]', prefix: 'str' = '', errors: 'Sequence[ErrorDef]' = ()) -> 'RouteGroup'
+
+# tenchi.server
+ContextFactory = collections.abc.Callable[..., typing.Any]
+ERROR_SOURCE_HEADER = 'x-tenchi-error-source'
+Hook = collections.abc.Callable[[tenchi.server.RequestInfo, typing.Any], typing.Any]
+Lifespan = collections.abc.Callable[[], contextlib.AbstractAsyncContextManager[typing.Any]]
+REQUEST_ID_HEADER = 'x-request-id'
+class RequestInfo
+    method: str
+    path: str
+    headers: Mapping[str, str]
+    contract: Contract[Any]
+    request_id: str
+    def __init__(self, method: 'str', path: 'str', headers: 'Mapping[str, str]', contract: 'Contract[Any]', request_id: 'str') -> None
+def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifespan: 'Lifespan | None' = None, hooks: 'Sequence[Hook]' = (), middleware: 'Sequence[Middleware]' = ()) -> 'Starlette'
+
+# tenchi.testing
+ASGIApp = collections.abc.Callable[..., collections.abc.Awaitable[None]]
+def open_client(app: 'ASGIApp', *, headers: 'Mapping[str, str] | None' = None, errors: 'Sequence[ErrorDef]' = (), base_url: 'str' = 'http://testserver') -> 'AsyncGenerator[Client]'
+def open_http(app: 'ASGIApp', *, headers: 'Mapping[str, str] | None' = None, base_url: 'str' = 'http://testserver') -> 'AsyncGenerator[httpx.AsyncClient]'

@@ -16,6 +16,13 @@ versions may change the public API.
   direct effects are ports, deferred effects go through a transactional
   outbox port, workers are ordinary entrypoints; no event bus or job
   runtime in the framework.
+- API snapshot guard: `tests/api_snapshot.txt` records every public
+  module, signature, field, and constant, and
+  `tests/test_api_snapshot.py` fails when the surface drifts from it.
+  Intentional changes regenerate the snapshot
+  (`TENCHI_UPDATE_API_SNAPSHOT=1 uv run pytest
+  tests/test_api_snapshot.py`) so API changes are always visible in
+  review.
 
 ### Changed
 

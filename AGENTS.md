@@ -220,3 +220,10 @@ uv run --directory examples/taskboard tenchi doctor
 For changes to the CLI or scaffold, also generate a fresh app plus a
 feature and use case in a temporary directory and confirm all of the above
 pass inside it.
+
+Changes to the public API surface fail `tests/test_api_snapshot.py` by
+design. If the change is intentional, regenerate the snapshot with
+`TENCHI_UPDATE_API_SNAPSHOT=1 uv run pytest tests/test_api_snapshot.py`,
+review the diff of `tests/api_snapshot.txt` as part of the change, and
+describe the API change in the changelog. Never regenerate to silence a
+failure you did not intend to cause.
