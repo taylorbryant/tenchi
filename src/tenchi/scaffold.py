@@ -53,6 +53,7 @@ uv run pytest           # run tests
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
 uv run tenchi openapi   # print the OpenAPI document
+uv run tenchi doctor    # check dependency direction and structure
 ```
 """
 
