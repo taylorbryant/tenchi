@@ -16,6 +16,7 @@ carrying that definition; anything else raises
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import Any, Self, cast
 from urllib.parse import quote
@@ -24,7 +25,7 @@ import httpx
 from pydantic import TypeAdapter
 
 from .contracts import Contract, ResponseT
-from .errors import AppError
+from .errors import AppError, ErrorDef
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
@@ -45,22 +46,57 @@ class UnexpectedResponseError(Exception):
 class Client:
     """Contract-driven HTTP client over ``httpx.AsyncClient``.
 
-    Construct with either ``base_url`` (the client owns an internal
-    ``httpx.AsyncClient`` and closes it on ``aclose``) or ``http`` (bring
-    your own configured client — for example one using
-    ``httpx.ASGITransport`` in tests — which the caller keeps ownership of).
+    The common constructions own their transport — the client closes it on
+    ``aclose`` (or on exiting ``async with``):
+
+        Client(base_url="http://localhost:8000")
+        Client(base_url=..., headers={"authorization": "Bearer ..."})
+        Client(transport=httpx.ASGITransport(app=app))  # in-process tests
+
+    ``headers`` are sent on every request (per-call ``headers=`` models
+    override them per name). When only ``transport`` is given, ``base_url``
+    defaults to ``http://testserver``.
+
+    Alternatively pass a fully configured ``http=httpx.AsyncClient``; the
+    caller keeps ownership and ``aclose`` leaves it open. ``http`` is
+    mutually exclusive with ``base_url``, ``headers``, and ``transport``.
+
+    ``errors`` declares expected errors for every call — the client-side
+    counterpart of ``route_group(errors=...)`` for errors the server's
+    hooks may raise on any route, such as an authentication failure.
     """
 
     def __init__(
         self,
         *,
         base_url: str | None = None,
+        headers: Mapping[str, str] | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
         http: httpx.AsyncClient | None = None,
+        errors: Sequence[ErrorDef] = (),
     ) -> None:
-        if (base_url is None) == (http is None):
-            raise ValueError("Client requires exactly one of base_url= or http=")
-        self._owns_http = http is None
-        self._http = http or httpx.AsyncClient(base_url=base_url or "")
+        if http is not None:
+            if base_url is not None or headers is not None or transport is not None:
+                raise ValueError(
+                    "Client: http= is mutually exclusive with base_url=, "
+                    "headers=, and transport=; configure the httpx client "
+                    "you pass in instead"
+                )
+            self._owns_http = False
+            self._http = http
+        else:
+            if base_url is None and transport is None:
+                raise ValueError(
+                    "Client requires base_url= (optionally with transport= "
+                    "and headers=), or a caller-owned http="
+                )
+            self._owns_http = True
+            self._http = httpx.AsyncClient(
+                base_url=base_url or "http://testserver",
+                transport=transport,
+                headers=dict(headers) if headers else None,
+            )
+        self._errors = tuple(errors)
 
     async def aclose(self) -> None:
         if self._owns_http:
@@ -199,7 +235,7 @@ class Client:
         if isinstance(body, dict):
             envelope = cast(dict[str, Any], body)
             code = envelope.get("code")
-            for definition in contract.errors:
+            for definition in (*contract.errors, *self._errors):
                 if (
                     definition.code == code
                     and definition.status == response.status_code

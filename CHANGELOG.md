@@ -5,6 +5,39 @@ All notable changes to Tenchi are documented here. The format follows
 [Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
 versions may change the public API.
 
+## [0.3.0] - 2026-07-14
+
+### Added
+
+- Request-scoped contexts: `create_app`'s context factory may return an
+  async context manager (typically an `@asynccontextmanager` function),
+  entered at request start and exited at request end. Hook and use-case
+  exceptions flow through `__aexit__` before the error response is built,
+  so per-request transactions commit on success and roll back on error.
+  The taskboard example now opens a connection and transaction per
+  request this way. `docs/providers.md` records the accompanying
+  decision: Tenchi documents ports + adapters + scoped resources as its
+  integration story instead of growing Beignet-style provider packages.
+
+- `Client` owns more of its transport: `Client(headers=...)` sends default
+  headers on every request (the natural home for an `authorization`
+  header), and `Client(transport=...)` constructs an owned client over any
+  httpx transport — `Client(transport=httpx.ASGITransport(app=app))` makes
+  in-process test clients one-liners with no separate httpx lifecycle to
+  manage. `http=` remains for fully caller-configured clients and is now
+  mutually exclusive with the other transport options.
+
+- `Client(errors=...)`: client-level expected errors, the counterpart of
+  `route_group(errors=...)` for errors the server's hooks may raise on
+  any route. Discovered by the taskboard stress-test app: group-declared
+  errors exist on amended contract copies inside the group, so a client
+  calling with the original contract constants had no way to type them.
+- `examples/taskboard/`: the stress-test application — projects and tasks
+  with cross-feature validation, bearer-token authentication, ownership
+  rules in use cases, pagination, partial updates, and SQLite adapters
+  sharing one lifespan-managed connection. Runs as a standalone uv
+  project with its own CI checks.
+
 ## [0.2.0] - 2026-07-14
 
 ### Added

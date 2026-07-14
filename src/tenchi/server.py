@@ -20,7 +20,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, overload
+from typing import Any, cast, overload
 
 from pydantic import TypeAdapter, ValidationError
 from starlette.applications import Starlette
@@ -119,7 +119,12 @@ def create_app(
     """Build an ASGI application from bound routes and a context factory.
 
     ``context_factory`` is called once per request, so the context it
-    returns is request-scoped.
+    returns is request-scoped. It may also return an async context
+    manager (typically an ``@asynccontextmanager`` function) — then it is
+    entered at request start and exited at request end, and a hook or
+    use-case exception flows through ``__aexit__`` before being mapped to
+    a response, so ``async with connection.transaction():``-style
+    commit-on-success / rollback-on-error resources compose naturally.
 
     ``lifespan`` owns process-scoped resources: an async context manager
     factory entered at startup and exited at shutdown. Whatever it yields —
@@ -286,45 +291,32 @@ def _make_endpoint(
             )
         return context_factory(state.value)
 
-    async def endpoint(request: Request) -> Response:
-        kwargs: dict[str, Any] = {}
+    async def dispatch(request: Request, context: Any) -> Response:
+        """Run hooks, validation, and the use case for one request.
 
-        # Context creation and hooks run before input validation, so an
-        # authentication rejection wins over a validation error.
-        try:
-            context = build_context()
-            if inspect.isawaitable(context):
-                context = await context
-
-            if hooks:
-                info = RequestInfo(
-                    method=request.method,
-                    path=request.url.path,
-                    headers=_header_dict(request),
-                    contract=contract,
-                )
-                for hook in hooks:
-                    outcome = hook(info, context)
-                    if inspect.isawaitable(outcome):
-                        outcome = await outcome
-                    if outcome is not None:
-                        context = outcome
-        except AppError as exc:
-            if contract.declares_error(exc.definition):
-                return _app_error_response(exc)
-            logger.exception(
-                "Undeclared AppError %r raised by a hook for %s; declare it "
-                "on the contract's errors (route_group(errors=...)) to "
-                "expose it",
-                exc.code,
-                contract.name,
+        ``AppError`` and unexpected exceptions propagate to the caller so
+        they pass through a request-scoped context manager's ``__aexit__``
+        (rolling back a transaction) before being mapped to a response.
+        Validation failures return early: no application work has run, so
+        a request-scoped context exits cleanly.
+        """
+        # Hooks run before input validation, so an authentication
+        # rejection wins over a validation error.
+        if hooks:
+            info = RequestInfo(
+                method=request.method,
+                path=request.url.path,
+                headers=_header_dict(request),
+                contract=contract,
             )
-            return _framework_error_response(tenchi_errors.internal_server_error)
-        except Exception:
-            logger.exception("Unhandled exception preparing %s", contract.name)
-            return _framework_error_response(tenchi_errors.internal_server_error)
-        kwargs["context"] = context
+            for hook in hooks:
+                outcome = hook(info, context)
+                if inspect.isawaitable(outcome):
+                    outcome = await outcome
+                if outcome is not None:
+                    context = outcome
 
+        kwargs: dict[str, Any] = {"context": context}
         try:
             if bound.params_adapter is not None:
                 kwargs["params"] = bound.params_adapter.validate_python(
@@ -359,21 +351,7 @@ def _make_endpoint(
                 details=[{"msg": "Request body is not valid UTF-8 text"}],
             )
 
-        try:
-            result = await use_case(**kwargs)
-        except AppError as exc:
-            if contract.declares_error(exc.definition):
-                return _app_error_response(exc)
-            logger.exception(
-                "Undeclared AppError %r raised by %s; declare it on the "
-                "contract's errors to expose it",
-                exc.code,
-                contract.name,
-            )
-            return _framework_error_response(tenchi_errors.internal_server_error)
-        except Exception:
-            logger.exception("Unhandled exception in %s", contract.name)
-            return _framework_error_response(tenchi_errors.internal_server_error)
+        result = await use_case(**kwargs)
 
         if bound.response_adapter is None:
             return Response(status_code=contract.status)
@@ -398,6 +376,34 @@ def _make_endpoint(
             status_code=contract.status,
             media_type=contract.response_media_type,
         )
+
+    async def endpoint(request: Request) -> Response:
+        try:
+            raw = build_context()
+            if inspect.isawaitable(raw):
+                raw = await raw
+            if isinstance(raw, AbstractAsyncContextManager):
+                # Request-scoped context: entered per request; a use-case
+                # or hook exception flows through __aexit__ (rolling back
+                # a transaction) before being mapped below.
+                scoped = cast(AbstractAsyncContextManager[Any], raw)
+                async with scoped as context:
+                    return await dispatch(request, context)
+            return await dispatch(request, raw)
+        except AppError as exc:
+            if contract.declares_error(exc.definition):
+                return _app_error_response(exc)
+            logger.exception(
+                "Undeclared AppError %r raised handling %s; declare it on "
+                "the contract's errors (or route_group(errors=...)) to "
+                "expose it",
+                exc.code,
+                contract.name,
+            )
+            return _framework_error_response(tenchi_errors.internal_server_error)
+        except Exception:
+            logger.exception("Unhandled exception in %s", contract.name)
+            return _framework_error_response(tenchi_errors.internal_server_error)
 
     return endpoint
 

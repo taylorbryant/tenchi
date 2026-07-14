@@ -12,7 +12,7 @@ from .openapi import openapi_route, openapi_schema
 from .routes import Route, RouteGroup, route, route_group
 from .server import RequestInfo, create_app
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "AppError",

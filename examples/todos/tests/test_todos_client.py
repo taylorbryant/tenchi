@@ -32,12 +32,8 @@ async def client() -> AsyncIterator[Client]:
         routes=routes,
         context_factory=lambda: AppContext(todos=repository),
     )
-    http = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-    )
-    async with Client(http=http) as tenchi_client:
+    async with Client(transport=httpx.ASGITransport(app=app)) as tenchi_client:
         yield tenchi_client
-    await http.aclose()
 
 
 async def test_full_flow_through_typed_client(client: Client) -> None:

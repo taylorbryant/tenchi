@@ -201,6 +201,25 @@ For apps without real resources, `lifespan` is optional and the context
 factory can take zero arguments and close over module-scoped objects (see
 the memory-backed fixtures in the example tests).
 
+The context factory may itself be an async context manager — then it is
+entered at request start and exited at request end, and a use-case or
+hook exception flows through `__aexit__` before the error response is
+built. That is the home for a per-request unit of work: commit on
+success, roll back on error.
+
+```python
+@asynccontextmanager
+async def create_context(pool: Pool) -> AsyncGenerator[AppContext]:
+    async with pool.connection() as conn, conn.transaction():
+        yield AppContext(todos=SqlTodoRepository(conn))
+```
+
+The taskboard example wires exactly this with SQLite (see
+`examples/taskboard/app/server/asgi.py` and its transaction tests), and
+`docs/providers.md` records why this — ports, adapters, and scoped
+resources — is Tenchi's whole integration story rather than a tier of
+provider packages.
+
 Run it with any ASGI server:
 
 ```sh
@@ -269,8 +288,20 @@ except AppError as err:
     assert err.definition == todo_not_found
 ```
 
-For tests, pass your own `httpx.AsyncClient` with an `ASGITransport` via
-`Client(http=...)` to call the app in-process.
+The client owns its transport: pass `headers=` for defaults sent on every
+request (such as an `authorization` header), and `transport=` to call an
+app in-process in tests:
+
+```python
+async with Client(
+    transport=httpx.ASGITransport(app=app),
+    headers={"authorization": "Bearer ..."},
+) as client:
+    ...
+```
+
+A fully configured `httpx.AsyncClient` can still be supplied via
+`Client(http=...)`; the caller keeps ownership of it.
 
 ## Errors
 
@@ -417,6 +448,14 @@ A complete todos application using the prescribed structure lives in
 port: the SQLite repository (aiosqlite) wired into the running app through
 the lifespan, and the memory repository used by unit tests — swapping them
 touches only `infra/` and `server/`.
+
+The stress-test application lives in
+[`examples/taskboard/`](examples/taskboard/): two related features
+(projects and tasks), bearer-token authentication with identity on the
+context, ownership rules in use cases, pagination, partial updates, and
+SQLite adapters sharing one lifespan-managed connection. It is a
+standalone uv project consuming tenchi as a dependency — if a framework
+capability regresses, something there should break.
 
 ## Status
 

@@ -1,6 +1,6 @@
 [project]
 name = "tenchi"
-version = "0.2.0"
+version = "0.3.0"
 description = "A contract-first, Python-native framework for building REST APIs around use cases, ports, and explicit wiring."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -58,13 +58,16 @@ pythonpath = ["examples/todos"]
 
 [tool.ruff]
 line-length = 88
-src = ["src", "tests", "examples/todos"]
+src = ["src", "tests", "examples/todos", "examples/taskboard"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.pyright]
-include = ["src", "tests", "examples"]
+# The taskboard example is a standalone project (its own `app` package
+# would collide with the todos example); it is checked by its own pyright
+# run in CI.
+include = ["src", "tests", "examples/todos"]
 extraPaths = ["examples/todos"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
