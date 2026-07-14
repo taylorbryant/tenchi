@@ -20,14 +20,20 @@ versions may change the public API.
 
 - Request body size limits: `create_app(max_request_bytes=...)` caps
   bodies app-wide (default 1 MiB) and `contract(max_request_bytes=...)`
-  overrides per route. Oversized bodies — by declared `Content-Length`
-  or by actual stream size — are rejected with the framework's 413
-  `REQUEST_TOO_LARGE` before validation, and operations with request
-  bodies document the 413 in OpenAPI.
-- Route lifecycle on the wire: `contract(deprecated=True)` now sends a
-  `Deprecation: true` header on every response from the route, and the
-  new `contract(sunset=...)` (aware datetime) sends an RFC 8594
-  `Sunset` header and an `x-sunset` OpenAPI extension.
+  overrides per route with a finite ceiling. Oversized bodies — by
+  declared `Content-Length` or by actual stream size — are rejected
+  with the framework's 413 `REQUEST_TOO_LARGE` before validation, and
+  operations with request bodies document the 413 in OpenAPI.
+  **Behavior change on upgrade**: existing apps gain the 1 MiB default
+  cap; pass `max_request_bytes=None` to keep unlimited bodies. Clients
+  that abandon an upload mid-stream now log at info (499), not as
+  unhandled 500s.
+- Route lifecycle on the wire: `contract(deprecated=...)` accepts an
+  aware datetime and sends an RFC 9745 `Deprecation: @<unix-timestamp>`
+  header (plain `True` sends the legacy `Deprecation: true` form), and
+  the new `contract(sunset=...)` (aware datetime) sends an RFC 8594
+  `Sunset` header and an `x-sunset` OpenAPI extension, both normalized
+  to UTC.
 - `tenchi routes --json`: the route table as a machine-readable app map
   (method, path, status, use case, errors, tags, lifecycle).
 - `ExecutionError` (a `TypeError` subclass): every way an `execute()`

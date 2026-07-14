@@ -45,12 +45,12 @@ class Contract(Generic)
     summary: str | None = None
     description: str | None = None
     tags: tuple[str, ...] = ()
-    deprecated: bool = False
+    deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
-    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), deprecated: 'bool' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> None
+    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> None
     def declares_error(self, definition: 'ErrorDef') -> 'bool'
-def contract(*, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), deprecated: 'bool' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> 'Contract[ResponseT]'
+def contract(*, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> 'Contract[ResponseT]'
 
 # tenchi.errors
 class AppError(Exception)

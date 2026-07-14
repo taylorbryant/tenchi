@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Mapping, Sequence
+from datetime import UTC
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -53,6 +54,12 @@ def openapi_schema(
     operations whose contract tags intersect ``public_tags`` are exempted
     with an empty per-operation security list — matching the convention of
     hooks exempting routes by tag.
+
+    Operations with request bodies document the framework's 413, because
+    body caps are on by default. This is a pure function of the route
+    group — it cannot see ``create_app(max_request_bytes=None)`` — so an
+    app that disables caps entirely (and sets no per-contract ceilings)
+    over-documents that one response.
     """
     components: dict[str, Any] = {}
     paths: dict[str, dict[str, Any]] = {}
@@ -155,7 +162,9 @@ def _operation(
     if declared.deprecated:
         operation["deprecated"] = True
     if declared.sunset is not None:
-        operation["x-sunset"] = declared.sunset.isoformat()
+        # Normalized to UTC so the extension and the Sunset header
+        # describe the instant identically.
+        operation["x-sunset"] = declared.sunset.astimezone(UTC).isoformat()
 
     parameters: list[dict[str, Any]] = []
     if declared.params is not None:

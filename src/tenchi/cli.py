@@ -27,6 +27,7 @@ import keyword
 import re
 import sys
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 
 from .doctor import run_doctor
@@ -296,8 +297,15 @@ def route_map(group: RouteGroup) -> list[dict[str, object]]:
                 ],
                 "tags": list(declared.tags),
                 "summary": declared.summary,
-                "deprecated": declared.deprecated,
-                "sunset": (declared.sunset.isoformat() if declared.sunset else None),
+                "deprecated": (
+                    declared.deprecated.isoformat()
+                    if isinstance(declared.deprecated, datetime)
+                    else declared.deprecated
+                ),
+                "sunset": (
+                    declared.sunset.isoformat() if declared.sunset is not None else None
+                ),
+                "max_request_bytes": declared.max_request_bytes,
             }
         )
     return entries

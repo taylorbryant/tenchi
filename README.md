@@ -309,11 +309,13 @@ upload_contract = contract(
 )
 ```
 
-Routes also carry their lifecycle on the wire: `deprecated=True` sends a
-`Deprecation: true` header on every response from the route, and
-`sunset=datetime(..., tzinfo=UTC)` sends an RFC 8594 `Sunset` header and
-an `x-sunset` extension in the OpenAPI document, so clients hear about a
-route's retirement from the route itself.
+Routes also carry their lifecycle on the wire: `deprecated=` with an
+aware datetime sends an RFC 9745 `Deprecation: @<unix-timestamp>`
+header on every response from the route (plain `True` sends the legacy
+`Deprecation: true`), and `sunset=datetime(..., tzinfo=UTC)` sends an
+RFC 8594 `Sunset` header and an `x-sunset` extension in the OpenAPI
+document — so clients hear about a route's retirement from the route
+itself.
 
 ## Typed client
 

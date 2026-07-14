@@ -46,7 +46,7 @@ class Contract(Generic[ResponseT]):
     summary: str | None = None
     description: str | None = None
     tags: tuple[str, ...] = ()
-    deprecated: bool = False
+    deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
 
@@ -72,7 +72,7 @@ def contract(
     summary: str | None = None,
     description: str | None = None,
     tags: Sequence[str] = (),
-    deprecated: bool = False,
+    deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
 ) -> Contract[ResponseT]:
@@ -114,19 +114,23 @@ def contract(
         description: Longer documentation text. When omitted, OpenAPI
             generation falls back to the bound use case's docstring.
         tags: Documentation tags grouping related operations.
-        deprecated: Mark the operation as deprecated. Deprecated routes
-            send a ``Deprecation: true`` response header on every
-            response, and OpenAPI documents the operation as deprecated.
+        deprecated: Mark the operation as deprecated. Pass an aware
+            datetime (the instant deprecation took effect) to send an
+            RFC 9745 ``Deprecation: @<unix-timestamp>`` response header;
+            ``True`` sends the legacy ``Deprecation: true`` form. Either
+            way OpenAPI documents the operation as deprecated.
         sunset: The instant the route is scheduled for removal (an
             aware datetime). Emitted as an RFC 8594 ``Sunset`` response
             header and as ``x-sunset`` in the OpenAPI document. Implies
-            nothing by itself — pair it with ``deprecated=True`` when
-            the route is already discouraged.
+            nothing by itself — pair it with ``deprecated`` when the
+            route is already discouraged.
         max_request_bytes: Per-route ceiling on the request body size,
-            overriding ``create_app(max_request_bytes=...)``. Bodies over
-            the ceiling are rejected with the framework's 413 before
-            validation runs. Use for upload routes that need more than
-            the app-wide default.
+            overriding ``create_app(max_request_bytes=...)`` with a
+            finite ceiling (there is no per-route "unlimited"; to
+            uncap everything pass ``max_request_bytes=None`` to
+            ``create_app``). Bodies over the ceiling are rejected with
+            the framework's 413 before validation runs. Only meaningful
+            on contracts that declare a ``request`` type.
     """
     normalized_method = method.upper()
     if normalized_method not in _METHODS:
@@ -142,10 +146,21 @@ def contract(
             f"contract(path={path!r}): sunset must be timezone-aware so the "
             "Sunset header is unambiguous"
         )
+    if isinstance(deprecated, datetime) and deprecated.tzinfo is None:
+        raise ValueError(
+            f"contract(path={path!r}): a deprecated datetime must be "
+            "timezone-aware so the Deprecation header is unambiguous"
+        )
     if max_request_bytes is not None and max_request_bytes <= 0:
         raise ValueError(
             f"contract(path={path!r}): max_request_bytes must be positive, "
             f"got {max_request_bytes}"
+        )
+    if max_request_bytes is not None and request is None:
+        raise ValueError(
+            f"contract(path={path!r}): max_request_bytes is set but the "
+            "contract declares no request type; the ceiling would never "
+            "apply"
         )
     return Contract(
         method=normalized_method,

@@ -20,7 +20,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, datetime
 from email.utils import format_datetime
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, overload
@@ -31,7 +31,7 @@ from starlette.applications import Starlette
 from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
 from starlette.middleware import Middleware
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route as StarletteRoute
 
@@ -205,6 +205,11 @@ def create_app(
             "create_app: context_factory accepts a lifespan state argument "
             "but no lifespan= was provided"
         )
+    if max_request_bytes is not None and max_request_bytes <= 0:
+        raise ValueError(
+            "create_app: max_request_bytes must be positive (or None to "
+            f"disable the app-wide cap), got {max_request_bytes}"
+        )
 
     state = _LifespanState()
     starlette_routes: list[StarletteRoute] = []
@@ -336,12 +341,30 @@ def _header_fields(request: Request) -> dict[str, str]:
 def _lifecycle_headers(contract: Contract[Any]) -> tuple[tuple[str, str], ...]:
     """Static response headers a contract's lifecycle metadata implies."""
     headers: list[tuple[str, str]] = []
-    if contract.deprecated:
-        headers.append(("deprecation", "true"))
+    if isinstance(contract.deprecated, datetime):
+        # RFC 9745: a structured-field Date of when deprecation applied.
+        headers.append(("deprecation", f"@{int(contract.deprecated.timestamp())}"))
+    elif contract.deprecated:
+        headers.append(("deprecation", "true"))  # pre-RFC legacy form
     if contract.sunset is not None:
         as_utc = contract.sunset.astimezone(UTC)
         headers.append(("sunset", format_datetime(as_utc, usegmt=True)))
     return tuple(headers)
+
+
+def _declared_content_length(value: str | None) -> int | None:
+    """Parse a Content-Length declaration defensively.
+
+    ``isdecimal`` + ``isascii`` rejects Unicode digit lookalikes that
+    ``int()`` refuses, and the length cap avoids CPython's int-digit
+    limit — a malformed declaration must fall back to counted-stream
+    enforcement, never crash into a 500.
+    """
+    if value is None or len(value) > 19 or not value.isascii():
+        return None
+    if not value.isdecimal():
+        return None
+    return int(value)
 
 
 async def _read_body(request: Request, limit: int | None) -> bytes:
@@ -354,8 +377,8 @@ async def _read_body(request: Request, limit: int | None) -> bytes:
     if limit is None:
         return await request.body()
 
-    declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > limit:
+    declared = _declared_content_length(request.headers.get("content-length"))
+    if declared is not None and declared > limit:
         raise _BodyTooLarge(limit)
 
     chunks: list[bytes] = []
@@ -593,6 +616,18 @@ def _make_endpoint(
             return _framework_error_response(
                 tenchi_errors.internal_server_error, request_id=request_id
             )
+        except ClientDisconnect:
+            # The client went away mid-request (commonly an abandoned
+            # upload). Nothing to deliver and nobody to deliver it to —
+            # this is routine traffic, not an application error, so no
+            # error-level log. 499 is the conventional code for it; the
+            # response is never actually sent.
+            logger.info(
+                "Client disconnected during %s [request_id=%s]",
+                contract.name,
+                request_id,
+            )
+            return Response(status_code=499)
         except Exception:
             logger.exception(
                 "Unhandled exception in %s [request_id=%s]",
