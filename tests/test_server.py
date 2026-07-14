@@ -23,6 +23,11 @@ class SearchQuery(BaseModel):
     tags: list[str] = []
 
 
+class ClientHeaders(BaseModel):
+    x_api_key: str
+    accept_language: str = "en"
+
+
 @dataclass(frozen=True, slots=True)
 class Context:
     request_id: int
@@ -80,6 +85,9 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 
     async def rate_limited(context: Context) -> Item:
         raise AppError(throttled, headers={"Retry-After": "30"})
+
+    async def read_headers(headers: ClientHeaders, context: Context) -> str:
+        return f"{headers.x_api_key}/{headers.accept_language}"
 
     routes = route_group(
         route(
@@ -144,6 +152,15 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         route(
             contract(method="GET", path="/limited", response=Item, errors=(throttled,)),
             rate_limited,
+        ),
+        route(
+            contract(
+                method="GET",
+                path="/headers",
+                headers=ClientHeaders,
+                response=str,
+            ),
+            read_headers,
         ),
     )
     async with await make_client(routes) as client:
@@ -282,6 +299,38 @@ async def test_app_error_headers_reach_the_response(
     assert response.headers["Retry-After"] == "30"
     assert response.headers[ERROR_SOURCE_HEADER] == "app"
     assert response.json()["code"] == "THROTTLED"
+
+
+async def test_headers_validate_with_normalized_names(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get(
+        "/headers",
+        headers={"X-Api-Key": "abc", "Accept-Language": "fr"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == "abc/fr"
+
+
+async def test_header_defaults_apply_when_absent(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get("/headers", headers={"x-api-key": "abc"})
+
+    assert response.json() == "abc/en"
+
+
+async def test_missing_required_header_maps_to_422(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get("/headers")
+
+    assert response.status_code == 422
+    assert response.headers[ERROR_SOURCE_HEADER] == "framework"
+    body = response.json()
+    assert body["code"] == "VALIDATION_ERROR"
+    assert body["details"][0]["loc"] == ["x_api_key"]
 
 
 async def test_context_factory_runs_per_request(

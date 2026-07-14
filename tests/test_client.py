@@ -66,6 +66,16 @@ checksum_contract = contract(
 )
 
 
+class ClientHeaders(BaseModel):
+    x_api_key: str
+    accept_language: str = "en"
+
+
+headers_contract = contract(
+    method="GET", path="/headers", headers=ClientHeaders, response=str
+)
+
+
 @pytest.fixture
 async def client() -> AsyncIterator[Client]:
     async def create_item(request: Item, context: Context) -> Item:
@@ -90,6 +100,9 @@ async def client() -> AsyncIterator[Client]:
     async def checksum(request: bytes, context: Context) -> bytes:
         return bytes([sum(request) % 256])
 
+    async def read_headers(headers: ClientHeaders, context: Context) -> str:
+        return f"{headers.x_api_key}/{headers.accept_language}"
+
     app = create_app(
         routes=route_group(
             route(create_item_contract, create_item),
@@ -98,6 +111,7 @@ async def client() -> AsyncIterator[Client]:
             route(clear_contract, clear),
             route(shout_contract, shout),
             route(checksum_contract, checksum),
+            route(headers_contract, read_headers),
         ),
         context_factory=Context,
     )
@@ -136,6 +150,15 @@ async def test_call_omits_query_to_use_defaults(client: Client) -> None:
 
 async def test_call_returns_none_for_empty_response(client: Client) -> None:
     assert await client.call(clear_contract) is None
+
+
+async def test_call_sends_headers_with_hyphenated_names(client: Client) -> None:
+    result = await client.call(
+        headers_contract,
+        headers=ClientHeaders(x_api_key="abc", accept_language="fr"),
+    )
+
+    assert result == "abc/fr"
 
 
 async def test_call_round_trips_text_media_type(client: Client) -> None:

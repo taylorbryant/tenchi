@@ -119,6 +119,8 @@ def _operation(
         parameters.extend(_parameters(declared.params, "path", components))
     if declared.query is not None:
         parameters.extend(_parameters(declared.query, "query", components))
+    if declared.headers is not None:
+        parameters.extend(_parameters(declared.headers, "header", components))
     if parameters:
         operation["parameters"] = parameters
 
@@ -162,6 +164,7 @@ def _responses(declared: Contract[Any], components: dict[str, Any]) -> dict[str,
         declared.request is not None
         or declared.params is not None
         or declared.query is not None
+        or declared.headers is not None
     )
     validation_status = str(tenchi_errors.validation_error.status)
     if has_validated_input and validation_status not in responses:
@@ -206,7 +209,7 @@ def _parameters(
     for name, property_schema in schema.get("properties", {}).items():
         parameters.append(
             {
-                "name": name,
+                "name": name.replace("_", "-") if location == "header" else name,
                 "in": location,
                 "required": location == "path" or name in required,
                 "schema": property_schema,

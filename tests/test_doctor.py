@@ -1,0 +1,223 @@
+from pathlib import Path
+
+import pytest
+
+from tenchi.cli import main
+from tenchi.doctor import Finding, run_doctor
+
+EXAMPLE_DIR = Path(__file__).parent.parent / "examples" / "todos"
+
+
+@pytest.fixture
+def app_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+    return root
+
+
+def messages(findings: list[Finding]) -> list[str]:
+    return [finding.render() for finding in findings]
+
+
+def test_example_app_is_clean() -> None:
+    assert run_doctor(EXAMPLE_DIR) == []
+
+
+def test_fresh_scaffold_is_clean(app_root: Path) -> None:
+    assert run_doctor(app_root) == []
+
+
+def test_use_case_importing_infra_is_flagged(app_root: Path) -> None:
+    use_case = app_root / "app/features/todos/use_cases/create_todo.py"
+    use_case.write_text(
+        "from app.infra.memory_todo_repository import MemoryTodoRepository\n"
+        + use_case.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert len(findings) == 1
+    assert findings[0].path == "app/features/todos/use_cases/create_todo.py"
+    assert findings[0].line == 1
+    assert "use cases must not import concrete infrastructure" in findings[0].message
+    assert "app.infra.memory_todo_repository" in findings[0].message
+
+
+def test_from_package_import_submodule_is_flagged(app_root: Path) -> None:
+    use_case = app_root / "app/features/todos/use_cases/list_todos.py"
+    use_case.write_text(
+        "from app.infra import memory_todo_repository  # noqa: F401\n"
+        + use_case.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "imports app.infra: use cases must not import concrete infrastructure" in m
+        for m in messages(findings)
+    )
+
+
+def test_relative_import_into_infra_is_flagged(app_root: Path) -> None:
+    use_case = app_root / "app/features/todos/use_cases/list_todos.py"
+    use_case.write_text(
+        "from ....infra.memory_todo_repository import MemoryTodoRepository\n"
+        + use_case.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "app.infra.memory_todo_repository" in m
+        and "use cases must not import concrete infrastructure" in m
+        for m in messages(findings)
+    )
+
+
+def test_schemas_importing_http_runtime_is_flagged(app_root: Path) -> None:
+    schemas = app_root / "app/features/todos/schemas.py"
+    schemas.write_text(
+        "from starlette.requests import Request  # noqa: F401\n" + schemas.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "starlette.requests" in m and "HTTP runtime" in m for m in messages(findings)
+    )
+
+
+def test_use_case_importing_tenchi_server_is_flagged(app_root: Path) -> None:
+    use_case = app_root / "app/features/todos/use_cases/list_todos.py"
+    use_case.write_text(
+        "from tenchi.server import create_app  # noqa: F401\n" + use_case.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "tenchi.server" in m and "Tenchi server or client runtime" in m
+        for m in messages(findings)
+    )
+
+
+def test_use_case_may_import_app_context_but_not_other_server_modules(
+    app_root: Path,
+) -> None:
+    use_case = app_root / "app/features/todos/use_cases/list_todos.py"
+    original = use_case.read_text()
+    assert "from app.server.context import AppContext" in original
+    use_case.write_text("import app.server.routes  # noqa: F401\n" + original)
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "app.server.routes" in m and "no other server composition" in m
+        for m in messages(findings)
+    )
+    # The context import present in the original file is never flagged.
+    assert not any("imports app.server.context:" in m for m in messages(findings))
+
+
+def test_feature_routes_importing_infra_is_flagged(app_root: Path) -> None:
+    routes = app_root / "app/features/todos/routes.py"
+    routes.write_text(
+        "import app.infra.port_wiring  # noqa: F401\n" + routes.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "routes must not import concrete infrastructure" in m
+        for m in messages(findings)
+    )
+
+
+def test_shared_importing_features_is_flagged(app_root: Path) -> None:
+    errors = app_root / "app/shared/errors.py"
+    errors.write_text(
+        "from app.features.todos.schemas import Todo  # noqa: F401\n"
+        + errors.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "shared code must not depend on features" in m for m in messages(findings)
+    )
+
+
+def test_infra_importing_use_cases_is_flagged(app_root: Path) -> None:
+    wiring = app_root / "app/infra/port_wiring.py"
+    wiring.write_text(
+        "from app.features.todos.use_cases.create_todo import create_todo\n"
+        + wiring.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any("infrastructure implements ports" in m for m in messages(findings))
+
+
+def test_infra_may_import_ports_schemas_and_external_libraries(
+    app_root: Path,
+) -> None:
+    # The scaffold's port_wiring already imports ports and a sibling
+    # adapter; add an external library import as well.
+    wiring = app_root / "app/infra/port_wiring.py"
+    wiring.write_text("import uuid  # noqa: F401\n" + wiring.read_text())
+
+    assert run_doctor(app_root) == []
+
+
+def test_missing_prescribed_modules_are_flagged(app_root: Path) -> None:
+    (app_root / "app/server/asgi.py").unlink()
+
+    findings = run_doctor(app_root)
+
+    assert messages(findings) == [
+        "app/server/asgi.py  missing (expected by the prescribed structure)"
+    ]
+
+
+def test_feature_tests_are_exempt(app_root: Path) -> None:
+    feature_test = app_root / "app/features/todos/tests/test_create_todo.py"
+    assert "from app.infra" in feature_test.read_text()
+
+    assert run_doctor(app_root) == []
+
+
+def test_unparseable_module_is_reported_not_crashed(app_root: Path) -> None:
+    (app_root / "app/features/todos/schemas.py").write_text("def broken(:\n")
+
+    findings = run_doctor(app_root)
+
+    assert any("could not parse" in m for m in messages(findings))
+
+
+def test_doctor_cli_reports_and_exits_nonzero(
+    app_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["doctor"]) == 0
+    assert "no problems found" in capsys.readouterr().out
+
+    use_case = app_root / "app/features/todos/use_cases/create_todo.py"
+    use_case.write_text("import app.infra.port_wiring\n" + use_case.read_text())
+
+    assert main(["doctor"]) == 1
+    out = capsys.readouterr().out
+    assert "app/features/todos/use_cases/create_todo.py:1" in out
+    assert "1 problem(s) found" in out
+
+
+def test_doctor_cli_requires_app_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["doctor"]) == 1
+    assert "run this from an application root" in capsys.readouterr().err

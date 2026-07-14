@@ -7,8 +7,8 @@ never wait for a request to surface.
 
 Use cases are plain async functions. The server calls them with keyword
 arguments derived from the contract: ``request`` when the contract declares
-a request type, ``params`` when it declares path parameters, ``query`` when
-it declares a query type, and always ``context``.
+a request type, ``params``/``query``/``headers`` when it declares those
+input types, and always ``context``.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from .contracts import Contract, ResponseT
+from .errors import ErrorDef
 
 UseCase = Callable[..., Awaitable[Any]]
 
@@ -66,6 +67,8 @@ def route(
         call_kwargs.append("params")
     if contract.query is not None:
         call_kwargs.append("query")
+    if contract.headers is not None:
+        call_kwargs.append("headers")
     if contract.request is not None:
         call_kwargs.append("request")
     call_kwargs.append("context")
@@ -122,11 +125,17 @@ def route(
 def route_group(
     *items: Route | RouteGroup | Sequence[Route],
     prefix: str = "",
+    errors: Sequence[ErrorDef] = (),
 ) -> RouteGroup:
     """Compose routes and route groups into one flat group.
 
     ``prefix`` is prepended to every contained contract path, so feature
     groups can be mounted under a common segment in ``server/routes.py``.
+
+    ``errors`` declares expected errors on every contained contract — the
+    ergonomic way to declare errors an app-level hook may raise (such as an
+    authentication failure) without repeating them contract by contract.
+    Declarations are appended and deduplicated.
     """
     if prefix and not prefix.startswith("/"):
         raise ValueError(f"route_group prefix must start with '/', got {prefix!r}")
@@ -140,15 +149,26 @@ def route_group(
         else:
             flattened.extend(item)
 
-    if prefix:
+    if prefix or errors:
         flattened = [
-            replace(
-                item, contract=replace(item.contract, path=prefix + item.contract.path)
-            )
+            replace(item, contract=_amend(item.contract, prefix, errors))
             for item in flattened
         ]
 
     return RouteGroup(routes=tuple(flattened))
+
+
+def _amend(
+    contract: Contract[Any], prefix: str, errors: Sequence[ErrorDef]
+) -> Contract[Any]:
+    merged = contract.errors + tuple(
+        definition for definition in errors if definition not in contract.errors
+    )
+    return replace(
+        contract,
+        path=prefix + contract.path if prefix else contract.path,
+        errors=merged,
+    )
 
 
 def _describe(use_case: object) -> str:

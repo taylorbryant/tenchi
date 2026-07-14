@@ -10,6 +10,7 @@ Commands are intentionally few and reliable:
   existing modules, because dependency wiring stays explicit and app-owned.
 - ``tenchi routes`` prints the application's bound route table.
 - ``tenchi openapi`` prints (or writes) the application's OpenAPI document.
+- ``tenchi doctor`` checks dependency direction and prescribed structure.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
 The ``routes``, ``openapi``, and ``dev`` commands rely on the structural
@@ -27,6 +28,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from .doctor import run_doctor
 from .openapi import openapi_schema
 from .routes import RouteGroup
 from .scaffold import app_files, feature_files, use_case_files
@@ -51,6 +53,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _routes(args.target)
     if args.command == "openapi":
         return _openapi(args.target, args.title, args.version, args.output)
+    if args.command == "doctor":
+        return _doctor()
     return _dev(args.app, args.host, args.port, reload=not args.no_reload)
 
 
@@ -110,6 +114,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "-o",
         default=None,
         help="Write the document to this file instead of stdout",
+    )
+
+    subparsers.add_parser(
+        "doctor",
+        help="Check dependency direction and the prescribed structure",
     )
 
     dev_parser = subparsers.add_parser(
@@ -219,6 +228,24 @@ def _make_use_case(feature: str, name: str) -> int:
     print(f"  1. Implement {name} and its test")
     print(f"  2. Bind it to a contract in {feature_root}/routes.py")
     return 0
+
+
+def _doctor() -> int:
+    root = Path.cwd()
+    if not (root / "app").is_dir():
+        _fail("tenchi doctor: app/ not found; run this from an application root")
+        return 1
+
+    findings = run_doctor(root)
+    if not findings:
+        print("doctor: no problems found")
+        return 0
+
+    for finding in findings:
+        print(finding.render())
+    print()
+    print(f"doctor: {len(findings)} problem(s) found")
+    return 1
 
 
 def _routes(target: str) -> int:

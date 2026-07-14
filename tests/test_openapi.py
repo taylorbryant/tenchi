@@ -179,6 +179,44 @@ def test_duplicate_use_case_names_get_unique_operation_ids() -> None:
     assert document["paths"]["/b"]["get"]["operationId"] == "handler_2"
 
 
+def test_header_parameters_use_hyphenated_names() -> None:
+    class AuthHeaders(BaseModel):
+        x_api_key: str
+
+    declared = contract(
+        method="GET", path="/secure", headers=AuthHeaders, response=Item
+    )
+
+    async def handler(headers: AuthHeaders, context: Context) -> Item:
+        return Item(name="x")
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="0"
+    )
+    operation = document["paths"]["/secure"]["get"]
+
+    assert operation["parameters"] == [
+        {
+            "name": "x-api-key",
+            "in": "header",
+            "required": True,
+            "schema": {"title": "X Api Key", "type": "string"},
+        }
+    ]
+    assert "422" in operation["responses"]
+
+
+def test_group_level_errors_are_documented_on_every_route() -> None:
+    unauthorized = ErrorDef(code="UNAUTHORIZED", status=401, message="Unauthorized")
+    group = route_group(make_group(), errors=(unauthorized,))
+
+    document = openapi_schema(group, title="X", version="0")
+
+    for path, operations in document["paths"].items():
+        for operation in operations.values():
+            assert "401" in operation["responses"], path
+
+
 def test_operation_metadata_flows_from_the_contract() -> None:
     declared = contract(
         method="GET",

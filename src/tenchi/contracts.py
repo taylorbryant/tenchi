@@ -35,6 +35,7 @@ class Contract(Generic[ResponseT]):
     request: type[Any] | None = None
     params: type[Any] | None = None
     query: type[Any] | None = None
+    headers: type[Any] | None = None
     response: type[ResponseT] | None = None
     status: int = 200
     errors: tuple[ErrorDef, ...] = ()
@@ -58,6 +59,7 @@ def contract(
     request: type[Any] | None = None,
     params: type[Any] | None = None,
     query: type[Any] | None = None,
+    headers: type[Any] | None = None,
     response: type[ResponseT] | None = None,
     status: int = 200,
     errors: Sequence[ErrorDef] = (),
@@ -84,6 +86,11 @@ def contract(
             model whose fields have defaults. Passed to the use case as its
             ``query`` argument. Values arrive as strings (or lists of
             strings for repeated keys) and are coerced by Pydantic.
+        headers: Type validated from the request headers, passed to the use
+            case as its ``headers`` argument. HTTP names map to field names
+            by lowercasing and replacing ``-`` with ``_``, so ``X-Api-Key``
+            validates into a field named ``x_api_key``. Repeated headers
+            keep the last value.
         response: Type the use case result is validated against before
             serialization. ``None`` means an empty response body.
         status: Success status code. Defaults to 200.
@@ -119,6 +126,7 @@ def contract(
         request=request,
         params=params,
         query=query,
+        headers=headers,
         response=response,
         status=status,
         errors=tuple(errors),

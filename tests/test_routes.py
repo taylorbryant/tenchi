@@ -4,6 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from tenchi.contracts import contract
+from tenchi.errors import ErrorDef
 from tenchi.routes import Route, RouteBindingError, route, route_group
 
 
@@ -100,6 +101,40 @@ def test_route_group_flattens_nested_groups() -> None:
         "GET /items",
         "POST /items",
     ]
+
+
+def test_route_computes_headers_kwarg() -> None:
+    headers_contract = contract(
+        method="GET", path="/h", headers=ItemParams, response=Item
+    )
+
+    async def with_headers(headers: ItemParams, context: object) -> Item:
+        return Item(name=headers.item_id)
+
+    assert route(headers_contract, with_headers).call_kwargs == (
+        "headers",
+        "context",
+    )
+
+
+def test_route_group_errors_append_and_dedupe() -> None:
+    unauthorized = ErrorDef(code="UNAUTHORIZED", status=401, message="Unauthorized")
+    missing = ErrorDef(code="MISSING", status=404, message="Missing")
+    declared = contract(
+        method="GET", path="/items/{item_id}", response=Item, errors=(missing,)
+    )
+
+    async def handler(context: object) -> Item:
+        return Item(name="x")
+
+    group = route_group(
+        route(declared, handler),
+        errors=(unauthorized, missing),
+    )
+
+    assert group.routes[0].contract.errors == (missing, unauthorized)
+    # The original contract is untouched.
+    assert declared.errors == (missing,)
 
 
 def test_route_group_prefix_rewrites_paths() -> None:

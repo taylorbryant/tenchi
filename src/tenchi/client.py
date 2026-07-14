@@ -83,25 +83,28 @@ class Client:
         *,
         params: Any = None,
         query: Any = None,
+        headers: Any = None,
         request: Any = None,
     ) -> ResponseT:
         """Send one request described by ``contract`` and return the
         validated response value.
 
         ``params`` and ``request`` are required when the contract declares
-        them; ``query`` may be omitted to rely on the query model's
-        defaults.
+        them; ``query`` and ``headers`` may be omitted to rely on their
+        models' defaults. Header field names are sent with underscores
+        replaced by hyphens (``x_api_key`` → ``x-api-key``).
         """
         url = self._build_path(contract, params)
         query_values = self._build_query(contract, query)
-        content, headers = self._build_body(contract, request)
+        content, content_headers = self._build_body(contract, request)
+        header_values = self._build_headers(contract, headers, content_headers)
 
         response = await self._http.request(
             contract.method,
             url,
             params=query_values,
             content=content,
-            headers=headers,
+            headers=header_values,
         )
 
         if response.status_code == contract.status:
@@ -165,6 +168,25 @@ class Client:
         else:
             content = adapter.dump_json(validated)
         return content, {"content-type": contract.request_media_type}
+
+    def _build_headers(
+        self,
+        contract: Contract[Any],
+        headers: Any,
+        content_headers: dict[str, str] | None,
+    ) -> dict[str, str] | None:
+        merged = dict(content_headers or {})
+        if contract.headers is not None and headers is not None:
+            adapter = _adapter(contract.headers)
+            values = cast(
+                dict[str, Any],
+                adapter.dump_python(
+                    adapter.validate_python(headers), mode="json", exclude_none=True
+                ),
+            )
+            for field, value in values.items():
+                merged[field.replace("_", "-")] = str(value)
+        return merged or None
 
     def _raise_for_error(
         self, contract: Contract[Any], response: httpx.Response

@@ -134,9 +134,12 @@ Contracts can also carry documentation metadata (`summary=`,
 OpenAPI document all follow (useful for webhook endpoints that need the
 raw body).
 
-Contracts can also declare path parameters (`params=`) and query parameters
-(`query=`), each validated into its own model and passed to the use case as
-a keyword argument of the same name:
+Contracts can also declare path parameters (`params=`), query parameters
+(`query=`), and request headers (`headers=`), each validated into its own
+model and passed to the use case as a keyword argument of the same name.
+Header names map to fields by lowercasing and swapping `-` for `_`
+(`X-Api-Key` → `x_api_key`); the client and OpenAPI document reverse the
+mapping. For example:
 
 ```python
 class ListTodosQuery(BaseModel):
@@ -205,6 +208,42 @@ uvicorn app.server.asgi:app --reload
 curl -X POST localhost:8000/todos -H 'content-type: application/json' \
   -d '{"title": "Buy milk"}'
 ```
+
+## Hooks and authentication
+
+Authentication belongs at the HTTP boundary; business authorization belongs
+in use cases. The boundary seam is `create_app(hooks=...)`: each hook
+receives a `RequestInfo` (method, path, lowercased headers, and the matched
+contract) plus the request context, runs before input validation, and
+either raises an `AppError` to reject or returns an enriched context to
+attach identity:
+
+```python
+# app/server/hooks.py
+from dataclasses import replace
+from tenchi.errors import AppError
+from tenchi.server import RequestInfo
+
+def require_api_key(info: RequestInfo, context: AppContext) -> AppContext | None:
+    if "public" in info.contract.tags:
+        return None
+    key = info.headers.get("x-api-key")
+    if key is None:
+        raise AppError(unauthorized)
+    return replace(context, user=lookup_user(key))
+```
+
+Hook-raised errors follow the same honesty rule as use-case errors: they
+must be declared to be exposed. Declare them once for a whole group — this
+also documents the 401 on every route in the OpenAPI document:
+
+```python
+# app/server/routes.py
+api_routes = route_group(todo_routes, errors=(unauthorized,))
+```
+
+The todos example wires an optional API-key hook this way; see
+`examples/todos/app/server/hooks.py`.
 
 ## Typed client
 
@@ -334,12 +373,23 @@ tenchi make feature notes              # generate a feature skeleton
 tenchi make use-case notes create_note # generate a use-case stub and test
 tenchi routes                          # print the bound route table
 tenchi openapi [-o openapi.json]       # print or write the OpenAPI document
+tenchi doctor                          # check dependency direction and structure
 tenchi dev                             # serve app.server.asgi:app with reload
 ```
 
 Generators create files and print wiring instructions — they never edit
 existing modules, because dependency wiring stays explicit and app-owned.
-Everything they generate passes Ruff, Pyright strict, and pytest as-is.
+Everything they generate passes Ruff, Pyright strict, pytest, and
+`tenchi doctor` as-is.
+
+`tenchi doctor` statically enforces the dependency direction: use cases
+that import concrete infrastructure, schemas that import the HTTP runtime,
+shared code that depends on features, and similar violations are reported
+with file, line, and the rule broken:
+
+```txt
+app/features/todos/use_cases/create_todo.py:1  imports app.infra.port_wiring: use cases must not import concrete infrastructure
+```
 
 `tenchi new` generates the todos starter — feature, ports, memory adapter,
 wiring, and passing tests — so a new project starts from a working vertical
@@ -373,6 +423,6 @@ touches only `infra/` and `server/`.
 Tenchi is an early vertical slice: contracts (body, path, and query
 validation), route binding, ASGI dispatch, lifespan-managed resources with
 request-scoped context, ports, expected-error mapping, a contract-driven
-typed client, OpenAPI 3.1 generation, and a CLI (`new`, `make feature`,
-`make use-case`, `routes`, `openapi`, `dev`). `tenchi doctor` and
-provider-backed infrastructure are planned but intentionally not started.
+typed client, OpenAPI 3.1 generation, and the full CLI (`new`,
+`make feature`, `make use-case`, `routes`, `openapi`, `doctor`, `dev`).
+Provider-backed infrastructure is planned but intentionally not started.

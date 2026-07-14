@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from app.features.todos.ports import TodoRepository
 from app.infra.port_wiring import open_todo_repository
 from app.server.context import AppContext
+from app.server.hooks import require_api_key
 from app.server.routes import routes
 from tenchi.server import create_app
 
@@ -32,4 +33,9 @@ def create_context(todos: TodoRepository) -> AppContext:
     return AppContext(todos=todos)
 
 
-app = create_app(routes=routes, context_factory=create_context, lifespan=lifespan)
+app = create_app(
+    routes=routes,
+    context_factory=create_context,
+    lifespan=lifespan,
+    hooks=[require_api_key],
+)
