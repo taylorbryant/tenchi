@@ -15,11 +15,13 @@ class TaskRepository(Protocol):
     async def search(
         self,
         *,
-        owner: OwnerScope,
+        viewer: OwnerScope,
         project_id: str | None,
         status: TaskStatus | None,
         limit: int,
         offset: int,
     ) -> tuple[list[Task], int]:
-        """Return one page of the owner's tasks and the total match count."""
+        """One page of tasks visible to the viewer — tasks in projects the
+        viewer owns or is a member of — plus the total match count. Listing
+        must agree with ``get``: anything fetchable is listable."""
         ...

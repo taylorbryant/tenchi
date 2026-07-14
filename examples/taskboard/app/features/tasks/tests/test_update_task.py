@@ -9,7 +9,7 @@ from app.infra.memory_repositories import (
     MemoryTaskRepository,
 )
 from app.server.context import AppContext
-from app.shared.errors import task_not_found
+from app.shared.errors import forbidden, task_not_found
 from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
 
@@ -80,3 +80,28 @@ async def test_update_task_reports_missing_tasks() -> None:
         )
 
     assert excinfo.value.definition == task_not_found
+
+
+async def test_members_may_view_but_not_update() -> None:
+    projects = MemoryProjectRepository()
+    tasks = MemoryTaskRepository(projects)
+    project = await projects.create(name="Launch", owner=OwnerScope(owner_id="alice"))
+    await projects.save(project.model_copy(update={"member_ids": ("bob",)}))
+    task = await tasks.create(project_id=project.id, title="original")
+
+    bob = AppContext(
+        projects=projects,
+        tasks=tasks,
+        outbox=MemoryOutbox(),
+        notifications=MemoryNotificationLog(),
+        user=BOB,
+    )
+
+    with pytest.raises(AppError) as excinfo:
+        await update_task(
+            GetTaskParams(task_id=task.id), UpdateTask(title="renamed"), bob
+        )
+
+    # Visible (no 404 masking) but not writable: updating takes the same
+    # ability as creating.
+    assert excinfo.value.definition == forbidden

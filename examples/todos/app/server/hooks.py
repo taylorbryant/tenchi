@@ -3,6 +3,7 @@
 Authentication lives here; business authorization belongs in use cases.
 """
 
+import hmac
 import os
 
 from app.server.context import AppContext
@@ -15,12 +16,15 @@ def require_api_key(info: RequestInfo, context: AppContext) -> None:
     """Reject requests that lack the configured API key.
 
     Disabled when ``TODOS_API_KEY`` is unset, so local quickstarts stay
-    open. The OpenAPI document stays public either way.
+    open. The OpenAPI document and health route stay public either way,
+    exempted by their tags.
     """
     expected = os.environ.get("TODOS_API_KEY")
     if expected is None:
         return
-    if info.contract.path == "/openapi.json" or "health" in info.contract.tags:
+    if {"docs", "health"} & set(info.contract.tags):
         return
-    if info.headers.get("x-api-key") != expected:
+    provided = info.headers.get("x-api-key", "")
+    # Constant-time comparison: a plain != leaks key prefixes via timing.
+    if not hmac.compare_digest(provided, expected):
         raise AppError(unauthorized)

@@ -28,9 +28,21 @@ class AppPorts:
     notifications: NotificationLog
 
 
+async def configure_connection(connection: aiosqlite.Connection) -> None:
+    """Per-connection pragmas every consumer needs: enforce the declared
+    foreign keys (SQLite ignores them by default) and wait for locks
+    instead of failing immediately when the server and the outbox worker
+    write concurrently."""
+    await connection.execute("PRAGMA foreign_keys = ON")
+    await connection.execute("PRAGMA busy_timeout = 5000")
+
+
 async def ensure_schema(database_path: str) -> None:
     """Create tables once at startup (called from the app lifespan)."""
     async with aiosqlite.connect(database_path) as connection:
+        # WAL is persistent per database file; readers stop blocking the
+        # writer, which matters once the worker runs beside the server.
+        await connection.execute("PRAGMA journal_mode = WAL")
         await connection.executescript(SCHEMA)
         await connection.commit()
 
@@ -40,6 +52,7 @@ async def open_request_ports(database_path: str) -> AsyncGenerator[AppPorts]:
     """One request's unit of work: a connection whose transaction commits
     on success; closing without a commit rolls back on error."""
     async with aiosqlite.connect(database_path) as connection:
+        await configure_connection(connection)
         yield AppPorts(
             projects=SqliteProjectRepository(connection),
             tasks=SqliteTaskRepository(connection),

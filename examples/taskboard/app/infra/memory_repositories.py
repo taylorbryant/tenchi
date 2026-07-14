@@ -72,21 +72,21 @@ class MemoryTaskRepository:
     async def search(
         self,
         *,
-        owner: OwnerScope,
+        viewer: OwnerScope,
         project_id: str | None,
         status: TaskStatus | None,
         limit: int,
         offset: int,
     ) -> tuple[list[Task], int]:
-        owned = {
+        visible = {
             p.id
             for p in self._projects.projects.values()
-            if p.owner_id == owner.owner_id
+            if p.owner_id == viewer.owner_id or viewer.owner_id in p.member_ids
         }
         matches = [
             task
             for task in self.tasks.values()
-            if task.project_id in owned
+            if task.project_id in visible
             and (project_id is None or task.project_id == project_id)
             and (status is None or task.status == status)
         ]

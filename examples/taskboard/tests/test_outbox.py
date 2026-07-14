@@ -91,7 +91,11 @@ async def test_the_job_commits_with_the_membership_change(tmp_path: Path) -> Non
     assert len(rows) == 1
     job, payload, processed, error = rows[0]
     assert job == "member_added"
-    assert json.loads(payload) == {"project_id": project_id, "user_id": "bob"}
+    assert json.loads(payload) == {
+        "project_id": project_id,
+        "project_name": "Launch",
+        "user_id": "bob",
+    }
     assert processed == 0 and error is None
 
 

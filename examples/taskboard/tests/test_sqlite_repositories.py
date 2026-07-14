@@ -40,7 +40,7 @@ async def test_task_search_joins_ownership_and_paginates(tmp_path: Path) -> None
         await ports.tasks.create(project_id=other.id, title="not mine")
 
         items, total = await ports.tasks.search(
-            owner=OwnerScope(owner_id="alice"),
+            viewer=OwnerScope(owner_id="alice"),
             project_id=None,
             status=None,
             limit=2,
@@ -51,7 +51,7 @@ async def test_task_search_joins_ownership_and_paginates(tmp_path: Path) -> None
 
         first = (
             await ports.tasks.search(
-                owner=OwnerScope(owner_id="alice"),
+                viewer=OwnerScope(owner_id="alice"),
                 project_id=mine.id,
                 status=None,
                 limit=1,
@@ -61,7 +61,7 @@ async def test_task_search_joins_ownership_and_paginates(tmp_path: Path) -> None
         await ports.tasks.save(first.model_copy(update={"status": TaskStatus.DONE}))
 
         done_items, done_total = await ports.tasks.search(
-            owner=OwnerScope(owner_id="alice"),
+            viewer=OwnerScope(owner_id="alice"),
             project_id=None,
             status=TaskStatus.DONE,
             limit=10,

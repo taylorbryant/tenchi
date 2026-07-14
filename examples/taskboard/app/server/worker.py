@@ -4,16 +4,19 @@ Run alongside the HTTP server with:
 
     uv run python -m app.server.worker
 
-Each job is one unit of work on its own connection: claim the oldest
-pending outbox row, validate its payload against the job's declared
+Each job is one unit of work on its own connection: atomically claim the
+oldest pending outbox row (the claim is safe with several workers — see
+``SqliteOutbox``), validate its payload against the job's declared
 model — the same boundary discipline as HTTP; undeclared jobs and
 malformed payloads are dead-lettered, never retried and never allowed
-near a use case — then run an ordinary use case and settle the row.
-Everything commits together; a crash mid-job rolls back and the job is
-claimed again on the next pass.
+near a use case — then run an ordinary use case. Everything commits
+together; a crash mid-job rolls the claim back and the job is claimed
+again on a later pass (the loop survives job failures, backing off so a
+deterministically failing job cannot hot-spin the process).
 """
 
 import asyncio
+import logging
 import os
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -23,7 +26,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from app.features.projects.schemas import MemberAdded
 from app.features.projects.use_cases.notify_member_added import notify_member_added
-from app.infra.port_wiring import ensure_schema
+from app.infra.port_wiring import configure_connection, ensure_schema
 from app.infra.sqlite_repositories import (
     SqliteNotificationLog,
     SqliteOutbox,
@@ -31,6 +34,8 @@ from app.infra.sqlite_repositories import (
     SqliteTaskRepository,
 )
 from app.server.context import AppContext
+
+logger = logging.getLogger("taskboard.worker")
 
 JobHandler = tuple[type[Any], Callable[[Any, AppContext], Awaitable[None]]]
 
@@ -45,6 +50,7 @@ async def process_next(database_path: str) -> bool:
     """Process the oldest pending job. Returns False when the outbox is
     empty, True when a row was settled (delivered or dead-lettered)."""
     async with aiosqlite.connect(database_path) as connection:
+        await configure_connection(connection)
         outbox = SqliteOutbox(connection)
         entry = await outbox.claim_next()
         if entry is None:
@@ -67,7 +73,6 @@ async def process_next(database_path: str) -> bool:
                     notifications=SqliteNotificationLog(connection),
                 )
                 await use_case(request, context)
-                await outbox.mark_processed(entry.id)
 
         await connection.commit()
         return True
@@ -85,9 +90,18 @@ async def main() -> None:
     database_path = os.environ.get("TASKBOARD_DATABASE", "taskboard.db")
     await ensure_schema(database_path)
     while True:
-        if not await process_next(database_path):
+        try:
+            busy = await process_next(database_path)
+        except Exception:
+            # The failed job's transaction rolled back, so it will be
+            # retried; the worker must outlive individual job failures.
+            logger.exception("outbox job failed; retrying after backoff")
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            continue
+        if not busy:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())

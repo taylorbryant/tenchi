@@ -60,3 +60,24 @@ async def test_list_tasks_filters_by_status() -> None:
 
     assert done.total == 1
     assert done.items[0].id == first.id
+
+
+async def test_members_see_shared_project_tasks_in_the_list() -> None:
+    projects = MemoryProjectRepository()
+    tasks = MemoryTaskRepository(projects)
+    shared = await projects.create(name="Shared", owner=OwnerScope(owner_id="bob"))
+    await projects.save(shared.model_copy(update={"member_ids": ("alice",)}))
+    await tasks.create(project_id=shared.id, title="shared task")
+
+    alice = AppContext(
+        projects=projects,
+        tasks=tasks,
+        outbox=MemoryOutbox(),
+        notifications=MemoryNotificationLog(),
+        user=ALICE,
+    )
+
+    page = await list_tasks(ListTasksQuery(), alice)
+
+    # Listing agrees with get: what a member can fetch, a member can list.
+    assert [task.title for task in page.items] == ["shared task"]

@@ -18,10 +18,14 @@ class MemberAdded(BaseModel):
 
     Enqueuer (``add_project_member``) and worker share this one
     declaration; the worker validates inbound payloads against it before
-    any use case runs, mirroring HTTP boundary validation.
+    any use case runs, mirroring HTTP boundary validation. The payload is
+    self-contained — it carries the facts as they were when the event
+    happened, so delivery does not re-read state that may have changed
+    (or vanished) since enqueue time.
     """
 
     project_id: str
+    project_name: str
     user_id: str
 
 

@@ -57,8 +57,14 @@ class OutboxEntry:
 
 class SqliteOutbox:
     """Transactional outbox: `enqueue` implements the Outbox port on the
-    request's connection; the remaining methods are the worker's claim and
-    settle surface on its own connection."""
+    request's connection; `claim_next`/`mark_failed` are the worker's
+    surface on its own connection.
+
+    Claiming is an atomic UPDATE inside the job's transaction, so it is
+    correct with several workers: a second worker's claim blocks until
+    the first commits, then picks the next row. Commit settles the row;
+    a crash rolls the claim back and the job becomes claimable again.
+    """
 
     def __init__(self, connection: aiosqlite.Connection) -> None:
         self._connection = connection
@@ -71,23 +77,20 @@ class SqliteOutbox:
 
     async def claim_next(self) -> OutboxEntry | None:
         cursor = await self._connection.execute(
-            "SELECT id, job, payload FROM outbox WHERE processed = 0 "
-            "ORDER BY id LIMIT 1"
+            "UPDATE outbox SET processed = 1 WHERE id = ("
+            "SELECT id FROM outbox WHERE processed = 0 ORDER BY id LIMIT 1"
+            ") RETURNING id, job, payload"
         )
         row = await cursor.fetchone()
         if row is None:
             return None
         return OutboxEntry(id=int(row[0]), job=row[1], payload=row[2])
 
-    async def mark_processed(self, entry_id: int) -> None:
-        await self._connection.execute(
-            "UPDATE outbox SET processed = 1 WHERE id = ?", (entry_id,)
-        )
-
     async def mark_failed(self, entry_id: int, *, error: str) -> None:
-        """Dead-letter: settled so it is never retried, error preserved."""
+        """Dead-letter a claimed row: the error is preserved and the row
+        is never retried (the claim already settled it)."""
         await self._connection.execute(
-            "UPDATE outbox SET processed = 1, error = ? WHERE id = ?",
+            "UPDATE outbox SET error = ? WHERE id = ?",
             (error, entry_id),
         )
 
@@ -181,14 +184,18 @@ class SqliteTaskRepository:
     async def search(
         self,
         *,
-        owner: OwnerScope,
+        viewer: OwnerScope,
         project_id: str | None,
         status: TaskStatus | None,
         limit: int,
         offset: int,
     ) -> tuple[list[Task], int]:
-        conditions = ["projects.owner_id = ?"]
-        values: list[Any] = [owner.owner_id]
+        conditions = [
+            "(projects.owner_id = ? OR EXISTS ("
+            "SELECT 1 FROM json_each(projects.member_ids) "
+            "WHERE json_each.value = ?))"
+        ]
+        values: list[Any] = [viewer.owner_id, viewer.owner_id]
         if project_id is not None:
             conditions.append("tasks.project_id = ?")
             values.append(project_id)

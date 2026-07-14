@@ -7,7 +7,6 @@ from app.infra.memory_repositories import (
     MemoryTaskRepository,
 )
 from app.server.context import AppContext
-from app.shared.users import OwnerScope
 
 
 def make_context() -> tuple[AppContext, MemoryNotificationLog]:
@@ -24,20 +23,24 @@ def make_context() -> tuple[AppContext, MemoryNotificationLog]:
 
 async def test_notification_names_the_project() -> None:
     context, notifications = make_context()
-    project = await context.projects.create(
-        name="Launch", owner=OwnerScope(owner_id="alice")
-    )
 
     await notify_member_added(
-        MemberAdded(project_id=project.id, user_id="bob"), context
+        MemberAdded(project_id="p1", project_name="Launch", user_id="bob"),
+        context,
     )
 
     assert notifications.records == [("bob", "You were added to project 'Launch'")]
 
 
-async def test_vanished_project_falls_back_to_its_id() -> None:
+async def test_delivery_does_not_depend_on_current_project_state() -> None:
+    # The payload is self-contained: the project was renamed (or deleted)
+    # after enqueue, and the notification still reports the enqueue-time
+    # facts without reading the repository.
     context, notifications = make_context()
 
-    await notify_member_added(MemberAdded(project_id="gone", user_id="bob"), context)
+    await notify_member_added(
+        MemberAdded(project_id="gone", project_name="Old Name", user_id="bob"),
+        context,
+    )
 
-    assert notifications.records == [("bob", "You were added to project 'gone'")]
+    assert notifications.records == [("bob", "You were added to project 'Old Name'")]

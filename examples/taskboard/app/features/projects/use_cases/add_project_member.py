@@ -23,6 +23,10 @@ async def add_project_member(
     # as the membership change, so both commit or roll back together.
     await context.outbox.enqueue(
         job="member_added",
-        payload={"project_id": saved.id, "user_id": request.user_id},
+        payload={
+            "project_id": saved.id,
+            "project_name": saved.name,
+            "user_id": request.user_id,
+        },
     )
     return saved

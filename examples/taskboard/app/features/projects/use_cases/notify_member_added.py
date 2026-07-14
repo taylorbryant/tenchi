@@ -6,10 +6,12 @@ from ..schemas import MemberAdded
 
 
 async def notify_member_added(request: MemberAdded, context: AppContext) -> None:
-    """Deliver the notification announced by a ``member_added`` job."""
-    project = await context.projects.get(request.project_id)
-    project_name = project.name if project is not None else request.project_id
+    """Deliver the notification announced by a ``member_added`` job.
+
+    The payload is self-contained, so delivery does not depend on the
+    project still existing or still having the same name.
+    """
     await context.notifications.record(
         user_id=request.user_id,
-        message=f"You were added to project {project_name!r}",
+        message=f"You were added to project {request.project_name!r}",
     )

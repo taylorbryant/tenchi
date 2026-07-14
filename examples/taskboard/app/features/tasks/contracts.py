@@ -36,7 +36,7 @@ list_tasks_contract = contract(
     path="/tasks",
     query=ListTasksQuery,
     response=Page[Task],
-    summary="List the current user's tasks, filtered and paginated",
+    summary="List tasks the current user can view, filtered and paginated",
     tags=("tasks",),
 )
 
