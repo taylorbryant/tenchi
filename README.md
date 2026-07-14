@@ -255,9 +255,15 @@ def require_api_key(info: RequestInfo, context: AppContext) -> AppContext | None
     return replace(context, user=lookup_user(key))
 ```
 
-Hook-raised errors follow the same honesty rule as use-case errors: they
-must be declared to be exposed. Declare them once for a whole group — this
-also documents the 401 on every route in the OpenAPI document:
+(Illustrative: it assumes your `AppContext` carries a `user` field and
+you supply `unauthorized` and `lookup_user`; the taskboard example wires
+the full version.)
+
+Hook-raised errors follow the same honesty rule as use-case errors — an
+error must be declared on the contract to be exposed; anything
+undeclared becomes a framework 500 (see [Errors](#errors)). Declare
+hook errors once for a whole group — this also documents the 401 on
+every route in the OpenAPI document:
 
 ```python
 # app/server/routes.py
@@ -421,7 +427,8 @@ project = await context.projects.get(request.project_id)
 ensure_can_write_project(user, project, project_id=request.project_id)
 ```
 
-`tenchi doctor` enforces the discipline three ways: policies may import
+`tenchi doctor` — the framework's static architecture checker, covered
+in [CLI](#cli) — enforces the discipline three ways: policies may import
 schemas, domain types, and shared errors — never infrastructure, the app
 context, or the HTTP runtime; and once any use case in an app references
 authorization (`require_user`, `context.user`, or a policy import), every
@@ -611,7 +618,7 @@ openapi_route(
 tenchi new my_app                      # scaffold a new application
 tenchi make feature notes              # generate a feature skeleton
 tenchi make use-case notes create_note # generate a use-case stub and test
-tenchi routes                          # print the bound route table
+tenchi routes [--json]                 # print the bound route table (or a JSON app map)
 tenchi openapi [-o openapi.json]       # print or write the OpenAPI document
 tenchi doctor                          # check dependency direction and structure
 tenchi dev                             # serve app.server.asgi:app with reload

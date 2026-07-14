@@ -69,12 +69,12 @@ Rules that keep the framework small enough to trust:
    changelog, and tests agree.
 6. **Adversarial review before each release.** A green checklist proves
    the code does what its own tests say — it cannot catch what the test
-   author didn't imagine. Before a release is cut, the cycle's work gets
-   a fresh-eyes review that actively hunts for bugs (edge cases, wrong
+   author didn't imagine. Before a release is cut, the new work gets a
+   fresh-eyes review that actively hunts for bugs (edge cases, wrong
    documents, authorization holes, doc drift), and significant findings
-   are verified by repro before they are believed. The 0.5.0 cycle is
-   the precedent: every bug it found lived exactly where no test
-   looked, while ruff, pyright, and 224 tests stayed green.
+   are verified by reproduction before they are believed. Every bug
+   this practice has caught so far lived exactly where no test looked,
+   while the full checklist stayed green.
 
 ## Shipped
 
@@ -88,24 +88,34 @@ Rules that keep the framework small enough to trust:
 - **0.4.0** — `tenchi.testing`, `tenchi.pagination`, `tenchi.health`,
   the policies convention, doctor's authorization consistency check,
   the middleware seam, request ids, OpenAPI security schemes.
+- **0.5.0** — this roadmap and the events design note; the API snapshot
+  guard; the transactional outbox demonstrated end to end in the
+  taskboard; a framework-wide correctness pass from the first
+  adversarial review (transaction honesty on 500s, custom-validator
+  422s, OpenAPI collision refusal, doctor hardening).
+- **0.6.0** — `tenchi.execution` (`execute`/`open_context`: the
+  server's boundary guarantees at any entrypoint); HTTP boundary
+  hardening (request body caps with a framework 413, RFC 9745/8594
+  deprecation and sunset headers from contract metadata,
+  `tenchi routes --json`).
 
 ## Ahead
 
 Ordered by intent, not promise; each item still has to win its argument
 when its turn comes.
 
-- **API snapshot guard** — done in the 0.5.0 cycle:
-  `tests/api_snapshot.txt` records the public surface and
-  `tests/test_api_snapshot.py` fails on drift; intentional changes
-  regenerate the snapshot so the diff is reviewed.
-- **Events and background work, demonstrated** — done in the 0.5.0
-  cycle: the taskboard's `member_added` flow proves the pattern
-  (`docs/events.md`: effects as ports, transactional outbox, workers as
-  entrypoints) end to end. Framework sugar (a typed `job()` declaration)
-  stays parked until a second real use demands it.
+- **TypeScript client recipe** — Tenchi's OpenAPI documents are
+  standard 3.1, so best-in-class generators should consume them as-is;
+  the work is a CI conformance test that generates and typechecks a
+  client, plus a documented recipe. A Tenchi-owned generator only if
+  the recipe hits a real gap.
 - **Docs site** — the README is carrying a lot; a small mkdocs-material
   site with a tutorial, the design notes, and a reference belongs before
   any adoption push.
+- **Idempotency keys** — a design note first: the outbox makes effects
+  exactly-once outward; idempotency keys would make writes exactly-once
+  inward, and the request-scoped transaction already makes
+  check-and-record atomic. Decide on paper, prove in the taskboard.
 - **Comparison document** — "Tenchi vs FastAPI / Django / Litestar",
   written from the lane statement: what you give up, what you get.
 - **On demonstrated demand only** — `tenchi make adapter`, integration
