@@ -606,9 +606,17 @@ capability regresses, something there should break.
 
 ## Status
 
-Tenchi is an early vertical slice: contracts (body, path, and query
-validation), route binding, ASGI dispatch, lifespan-managed resources with
-request-scoped context, ports, expected-error mapping, a contract-driven
-typed client, OpenAPI 3.1 generation, and the full CLI (`new`,
+Tenchi is a young but complete vertical slice: contracts (body, path,
+query, and header validation), route binding, ASGI dispatch,
+lifespan-managed resources with request-scoped context, ports,
+expected-error mapping, hooks, middleware, request ids, a
+contract-driven typed client, OpenAPI 3.1 generation with security
+schemes, testing/pagination/health rails, and the full CLI (`new`,
 `make feature`, `make use-case`, `routes`, `openapi`, `doctor`, `dev`).
-Provider-backed infrastructure is planned but intentionally not started.
+
+Where it goes next — and, just as important, what it will never grow —
+is written down in [ROADMAP.md](ROADMAP.md). Integration questions are
+answered by design notes: [`docs/providers.md`](docs/providers.md)
+(ports + adapters over provider packages) and
+[`docs/events.md`](docs/events.md) (effects as ports, outbox over event
+bus, workers as entrypoints).
