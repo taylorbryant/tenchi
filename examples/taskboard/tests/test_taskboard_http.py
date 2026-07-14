@@ -55,7 +55,6 @@ class Harness:
     alice: Client
     bob: Client
     anonymous: Client
-    transports: tuple[httpx.AsyncClient, ...]
 
 
 def make_app() -> Starlette:
@@ -68,31 +67,26 @@ def make_app() -> Starlette:
     )
 
 
-def make_http(app: Starlette, token: str | None) -> httpx.AsyncClient:
-    headers = {"authorization": f"Bearer {token}"} if token else {}
-    return httpx.AsyncClient(
+def make_client(app: Starlette, token: str | None) -> Client:
+    # unauthorized is declared client-side once, mirroring the server's
+    # group-level route_group(errors=...) declaration.
+    return Client(
         transport=httpx.ASGITransport(app=app),
-        base_url="http://testserver",
-        headers=headers,
+        headers={"authorization": f"Bearer {token}"} if token else None,
+        errors=(unauthorized,),
     )
 
 
 @pytest.fixture
 async def harness() -> AsyncIterator[Harness]:
     app = make_app()
-    transports = tuple(
-        make_http(app, token) for token in ("alice-token", "bob-token", None)
+    clients = tuple(
+        make_client(app, token) for token in ("alice-token", "bob-token", None)
     )
-    # unauthorized is declared client-side once, mirroring the server's
-    # group-level route_group(errors=...) declaration.
-    alice, bob, anonymous = (
-        Client(http=http, errors=(unauthorized,)) for http in transports
-    )
-    yield Harness(
-        app=app, alice=alice, bob=bob, anonymous=anonymous, transports=transports
-    )
-    for http in transports:
-        await http.aclose()
+    alice, bob, anonymous = clients
+    yield Harness(app=app, alice=alice, bob=bob, anonymous=anonymous)
+    for client in clients:
+        await client.aclose()
 
 
 async def test_full_project_and_task_flow(harness: Harness) -> None:
@@ -137,8 +131,7 @@ async def test_requests_without_a_token_are_unauthorized(
 
 
 async def test_unknown_tokens_are_unauthorized(harness: Harness) -> None:
-    async with make_http(harness.app, "wrong-token") as http:
-        intruder = Client(http=http, errors=(unauthorized,))
+    async with make_client(harness.app, "wrong-token") as intruder:
         with pytest.raises(AppError) as excinfo:
             await intruder.call(list_projects_contract)
 

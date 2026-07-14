@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import httpx
 import pytest
 from pydantic import BaseModel
+from starlette.applications import Starlette
 
 from tenchi.client import Client, UnexpectedResponseError
 from tenchi.contracts import contract
@@ -222,9 +223,51 @@ async def test_client_level_errors_cover_undeclared_hook_errors() -> None:
     assert excinfo.value.definition == throttled
 
 
-def test_client_requires_exactly_one_transport_source() -> None:
-    with pytest.raises(ValueError, match="exactly one"):
+def make_app() -> Starlette:
+    async def read_headers(headers: ClientHeaders, context: Context) -> str:
+        return f"{headers.x_api_key}/{headers.accept_language}"
+
+    return create_app(
+        routes=route_group(route(headers_contract, read_headers)),
+        context_factory=Context,
+    )
+
+
+async def test_owned_client_with_transport_and_default_headers() -> None:
+    app = make_app()
+
+    async with Client(
+        transport=httpx.ASGITransport(app=app),
+        headers={"x-api-key": "from-default"},
+    ) as client:
+        result = await client.call(headers_contract)
+
+    assert result == "from-default/en"
+
+
+async def test_per_call_headers_override_client_defaults() -> None:
+    app = make_app()
+
+    async with Client(
+        transport=httpx.ASGITransport(app=app),
+        headers={"x-api-key": "from-default", "accept-language": "de"},
+    ) as client:
+        result = await client.call(
+            headers_contract, headers=ClientHeaders(x_api_key="per-call")
+        )
+
+    # The per-call model wins for every field it defines — including its
+    # defaulted accept_language — because the model fully describes the
+    # contract's header inputs.
+    assert result == "per-call/en"
+
+
+def test_client_constructor_validation() -> None:
+    with pytest.raises(ValueError, match="requires base_url="):
         Client()
 
-    with pytest.raises(ValueError, match="exactly one"):
+    with pytest.raises(ValueError, match="mutually exclusive"):
         Client(base_url="http://x", http=httpx.AsyncClient())
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        Client(headers={"a": "b"}, http=httpx.AsyncClient())

@@ -269,8 +269,20 @@ except AppError as err:
     assert err.definition == todo_not_found
 ```
 
-For tests, pass your own `httpx.AsyncClient` with an `ASGITransport` via
-`Client(http=...)` to call the app in-process.
+The client owns its transport: pass `headers=` for defaults sent on every
+request (such as an `authorization` header), and `transport=` to call an
+app in-process in tests:
+
+```python
+async with Client(
+    transport=httpx.ASGITransport(app=app),
+    headers={"authorization": "Bearer ..."},
+) as client:
+    ...
+```
+
+A fully configured `httpx.AsyncClient` can still be supplied via
+`Client(http=...)`; the caller keeps ownership of it.
 
 ## Errors
 
