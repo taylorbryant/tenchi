@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
-from pydantic import BaseModel
+import pytest
+from pydantic import BaseModel, create_model
 
 from tenchi.contracts import contract
 from tenchi.errors import ErrorDef
@@ -309,6 +311,65 @@ def test_declared_error_headers_are_documented() -> None:
     response = document["paths"]["/limited"]["get"]["responses"]["429"]
 
     assert response["headers"] == {"Retry-After": {"schema": {"type": "string"}}}
+
+
+def test_conflicting_component_names_are_rejected() -> None:
+    class First(BaseModel):
+        a: int
+
+    # A second, different model with the same class name — as happens
+    # when two features each define e.g. an ``Item``.
+    conflicting = create_model("First", b=(str, ...))
+
+    async def one(context: Context) -> list[First]:
+        return [First(a=1)]
+
+    async def two(context: Context) -> Any:
+        raise NotImplementedError
+
+    group = route_group(
+        route(contract(method="GET", path="/one", response=list[First]), one),
+        route(contract(method="GET", path="/two", response=list[conflicting]), two),
+    )
+
+    with pytest.raises(ValueError, match="conflicting schemas for component 'First'"):
+        openapi_schema(group, title="X", version="0")
+
+
+def test_declared_422_merges_with_framework_validation_error() -> None:
+    unprocessable = ErrorDef(code="UNPROCESSABLE", status=422, message="Nope")
+    declared = contract(
+        method="POST",
+        path="/strict",
+        request=Item,
+        response=Item,
+        errors=(unprocessable,),
+    )
+
+    async def handler(request: Item, context: Context) -> Item:
+        return request
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="0"
+    )
+    description = document["paths"]["/strict"]["post"]["responses"]["422"][
+        "description"
+    ]
+
+    assert "UNPROCESSABLE" in description
+    assert "VALIDATION_ERROR" in description
+
+
+def test_duplicate_routes_are_rejected() -> None:
+    declared = contract(method="GET", path="/dup", response=Item)
+
+    async def handler(context: Context) -> Item:
+        return Item(name="x")
+
+    group = route_group(route(declared, handler), route(declared, handler))
+
+    with pytest.raises(ValueError, match="duplicate route GET /dup"):
+        openapi_schema(group, title="X", version="0")
 
 
 def test_security_schemes_apply_globally() -> None:

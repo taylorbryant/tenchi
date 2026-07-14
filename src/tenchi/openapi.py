@@ -61,10 +61,15 @@ def openapi_schema(
 
     for item in routes:
         declared = item.contract
+        operations = paths.setdefault(declared.path, {})
+        if declared.method.lower() in operations:
+            raise ValueError(
+                f"openapi_schema: duplicate route {declared.method} {declared.path}"
+            )
         operation = _operation(item, components, operation_ids)
         if security and public & set(declared.tags):
             operation["security"] = []
-        paths.setdefault(declared.path, {})[declared.method.lower()] = operation
+        operations[declared.method.lower()] = operation
 
     info: dict[str, Any] = {"title": title, "version": version}
     if description is not None:
@@ -97,6 +102,7 @@ def openapi_route(
     security: Mapping[str, Mapping[str, Any]] | None = None,
     public_tags: Sequence[str] = ("health",),
     path: str = "/openapi.json",
+    tags: Sequence[str] = ("docs",),
 ) -> Route:
     """Build a route serving the OpenAPI document for ``routes``.
 
@@ -106,6 +112,10 @@ def openapi_route(
 
         api_routes = route_group(todo_routes)
         routes = route_group(api_routes, openapi_route(api_routes, ...))
+
+    The serving route's contract carries ``tags`` (default ``("docs",)``)
+    so authentication hooks can exempt it the same way they exempt health
+    routes — by tag, not by hardcoded path.
     """
     document = openapi_schema(
         routes,
@@ -120,7 +130,7 @@ def openapi_route(
         return document
 
     return route(
-        contract(method="GET", path=path, response=dict[str, Any]),
+        contract(method="GET", path=path, response=dict[str, Any], tags=tuple(tags)),
         get_openapi,
     )
 
@@ -188,8 +198,6 @@ def _responses(declared: Contract[Any], components: dict[str, Any]) -> dict[str,
     errors_by_status: dict[int, list[ErrorDef]] = {}
     for definition in declared.errors:
         errors_by_status.setdefault(definition.status, []).append(definition)
-    for status, definitions in errors_by_status.items():
-        responses[str(status)] = _error_response(definitions, components)
 
     has_validated_input = (
         declared.request is not None
@@ -197,11 +205,15 @@ def _responses(declared: Contract[Any], components: dict[str, Any]) -> dict[str,
         or declared.query is not None
         or declared.headers is not None
     )
-    validation_status = str(tenchi_errors.validation_error.status)
-    if has_validated_input and validation_status not in responses:
-        responses[validation_status] = _error_response(
-            [tenchi_errors.validation_error], components
-        )
+    if has_validated_input:
+        # The framework can return VALIDATION_ERROR regardless of what the
+        # contract declares at 422, so merge rather than suppress.
+        at_422 = errors_by_status.setdefault(tenchi_errors.validation_error.status, [])
+        if tenchi_errors.validation_error not in at_422:
+            at_422.append(tenchi_errors.validation_error)
+
+    for status, definitions in errors_by_status.items():
+        responses[str(status)] = _error_response(definitions, components)
 
     return responses
 
@@ -260,6 +272,16 @@ def _json_schema(
         ref_template="#/components/schemas/{model}",
     )
     for name, definition in schema.pop("$defs", {}).items():
+        existing = components.get(name)
+        if existing is not None and existing != definition:
+            # Same component name, different schema: either two distinct
+            # models share a class name, or one model's validation and
+            # serialization schemas diverge (computed fields, validation
+            # aliases). Refusing beats silently documenting the wrong one.
+            raise ValueError(
+                f"openapi: conflicting schemas for component {name!r}; "
+                "rename one of the models so both can be documented"
+            )
         components.setdefault(name, definition)
     return schema
 
