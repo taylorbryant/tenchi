@@ -66,6 +66,9 @@ versions may change the public API.
 - CLI generators reject Python keywords as names (`tenchi make use-case
   todos return` previously generated unparseable code) and validate the
   feature argument.
+- The roadmap's complexity budget gained a sixth rule: adversarial
+  review before each release, with findings verified by repro before
+  they are believed.
 
 ### Fixed
 

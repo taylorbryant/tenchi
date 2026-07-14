@@ -67,6 +67,14 @@ Rules that keep the framework small enough to trust:
 5. **Update every surface** (AGENTS.md): a change is not done until
    framework, both examples, scaffold templates, doctor, README,
    changelog, and tests agree.
+6. **Adversarial review before each release.** A green checklist proves
+   the code does what its own tests say — it cannot catch what the test
+   author didn't imagine. Before a release is cut, the cycle's work gets
+   a fresh-eyes review that actively hunts for bugs (edge cases, wrong
+   documents, authorization holes, doc drift), and significant findings
+   are verified by repro before they are believed. The 0.5.0 cycle is
+   the precedent: every bug it found lived exactly where no test
+   looked, while ruff, pyright, and 224 tests stayed green.
 
 ## Shipped
 
