@@ -46,9 +46,11 @@ class Contract(Generic)
     description: str | None = None
     tags: tuple[str, ...] = ()
     deprecated: bool = False
-    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), deprecated: 'bool' = False) -> None
+    sunset: datetime | None = None
+    max_request_bytes: int | None = None
+    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), deprecated: 'bool' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> None
     def declares_error(self, definition: 'ErrorDef') -> 'bool'
-def contract(*, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), deprecated: 'bool' = False) -> 'Contract[ResponseT]'
+def contract(*, method: 'str', path: 'str', request: 'type[Any] | None' = None, params: 'type[Any] | None' = None, query: 'type[Any] | None' = None, headers: 'type[Any] | None' = None, response: 'type[ResponseT] | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), deprecated: 'bool' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> 'Contract[ResponseT]'
 
 # tenchi.errors
 class AppError(Exception)
@@ -109,6 +111,7 @@ def route_group(*items: 'Route | RouteGroup | Sequence[Route]', prefix: 'str' = 
 
 # tenchi.server
 ContextFactory = collections.abc.Callable[..., typing.Any]
+DEFAULT_MAX_REQUEST_BYTES = 1048576
 ERROR_SOURCE_HEADER = 'x-tenchi-error-source'
 Hook = collections.abc.Callable[[tenchi.server.RequestInfo, typing.Any], typing.Any]
 Lifespan = collections.abc.Callable[[], contextlib.AbstractAsyncContextManager[typing.Any]]
@@ -120,7 +123,7 @@ class RequestInfo
     contract: Contract[Any]
     request_id: str
     def __init__(self, method: 'str', path: 'str', headers: 'Mapping[str, str]', contract: 'Contract[Any]', request_id: 'str') -> None
-def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifespan: 'Lifespan | None' = None, hooks: 'Sequence[Hook]' = (), middleware: 'Sequence[Middleware]' = ()) -> 'Starlette'
+def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifespan: 'Lifespan | None' = None, hooks: 'Sequence[Hook]' = (), middleware: 'Sequence[Middleware]' = (), max_request_bytes: 'int | None' = 1048576) -> 'Starlette'
 
 # tenchi.testing
 ASGIApp = collections.abc.Callable[..., collections.abc.Awaitable[None]]

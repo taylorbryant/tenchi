@@ -122,6 +122,12 @@ method_not_allowed = ErrorDef(
     message="Method not allowed",
 )
 
+request_too_large = ErrorDef(
+    code="REQUEST_TOO_LARGE",
+    status=413,
+    message="Request body too large",
+)
+
 internal_server_error = ErrorDef(
     code="INTERNAL_SERVER_ERROR",
     status=500,

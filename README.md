@@ -289,6 +289,32 @@ Middleware runs outside Tenchi's dispatch: it never sees validated models
 or the app context, and hooks remain the seam for anything that needs
 them.
 
+## Body limits and route lifecycle
+
+Request bodies are capped at 1 MiB by default; oversized bodies are
+rejected with a framework-owned 413 (`REQUEST_TOO_LARGE`) before
+validation runs — enforced against both the declared `Content-Length`
+and the actual stream, so chunked uploads cannot dodge it. Tune the
+app-wide cap with `create_app(max_request_bytes=...)` (or `None` to
+disable), and give individual routes their own ceiling on the contract:
+
+```python
+upload_contract = contract(
+    method="POST",
+    path="/imports",
+    request=bytes,
+    request_media_type="application/octet-stream",
+    response=ImportReport,
+    max_request_bytes=50 * 1024 * 1024,
+)
+```
+
+Routes also carry their lifecycle on the wire: `deprecated=True` sends a
+`Deprecation: true` header on every response from the route, and
+`sunset=datetime(..., tzinfo=UTC)` sends an RFC 8594 `Sunset` header and
+an `x-sunset` extension in the OpenAPI document, so clients hear about a
+route's retirement from the route itself.
+
 ## Typed client
 
 The same contracts drive a typed `httpx`-based client — no code generation,

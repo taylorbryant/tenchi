@@ -18,6 +18,18 @@ versions may change the public API.
   commit-on-success / rollback-on-error semantics are defined once.
   `docs/execution.md` records what was deliberately left out.
 
+- Request body size limits: `create_app(max_request_bytes=...)` caps
+  bodies app-wide (default 1 MiB) and `contract(max_request_bytes=...)`
+  overrides per route. Oversized bodies — by declared `Content-Length`
+  or by actual stream size — are rejected with the framework's 413
+  `REQUEST_TOO_LARGE` before validation, and operations with request
+  bodies document the 413 in OpenAPI.
+- Route lifecycle on the wire: `contract(deprecated=True)` now sends a
+  `Deprecation: true` header on every response from the route, and the
+  new `contract(sunset=...)` (aware datetime) sends an RFC 8594
+  `Sunset` header and an `x-sunset` OpenAPI extension.
+- `tenchi routes --json`: the route table as a machine-readable app map
+  (method, path, status, use case, errors, tags, lifecycle).
 - `ExecutionError` (a `TypeError` subclass): every way an `execute()`
   call can be miswired — missing or positional-only parameters, extra
   required parameters, unannotated or unresolvable `request`

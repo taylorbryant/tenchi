@@ -20,6 +20,8 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC
+from email.utils import format_datetime
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, overload
 from uuid import uuid4
@@ -61,6 +63,19 @@ class _ResponseContractViolation(Exception):
     back, exactly as for any other internal error, before the 500 is
     built.
     """
+
+
+class _BodyTooLarge(Exception):
+    """The request body exceeded the route's byte ceiling."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"request body exceeds {limit} bytes")
+        self.limit = limit
+
+
+DEFAULT_MAX_REQUEST_BYTES = 1_048_576  # 1 MiB
+"""App-wide request body ceiling unless ``create_app(max_request_bytes=...)``
+or a contract's ``max_request_bytes`` says otherwise."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +126,8 @@ class _BoundRoute:
     request_adapter: TypeAdapter[Any] | None
     response_adapter: TypeAdapter[Any] | None
     query_sequence_fields: frozenset[str]
+    body_limit: int | None
+    lifecycle_headers: tuple[tuple[str, str], ...]
 
 
 @overload
@@ -121,6 +138,7 @@ def create_app(
     lifespan: Callable[[], AbstractAsyncContextManager[object]] | None = None,
     hooks: Sequence[Hook] = (),
     middleware: Sequence[Middleware] = (),
+    max_request_bytes: int | None = DEFAULT_MAX_REQUEST_BYTES,
 ) -> Starlette: ...
 
 
@@ -132,6 +150,7 @@ def create_app[StateT](
     lifespan: Callable[[], AbstractAsyncContextManager[StateT]],
     hooks: Sequence[Hook] = (),
     middleware: Sequence[Middleware] = (),
+    max_request_bytes: int | None = DEFAULT_MAX_REQUEST_BYTES,
 ) -> Starlette: ...
 
 
@@ -142,6 +161,7 @@ def create_app(
     lifespan: Lifespan | None = None,
     hooks: Sequence[Hook] = (),
     middleware: Sequence[Middleware] = (),
+    max_request_bytes: int | None = DEFAULT_MAX_REQUEST_BYTES,
 ) -> Starlette:
     """Build an ASGI application from bound routes and a context factory.
 
@@ -172,6 +192,12 @@ def create_app(
 
         create_app(..., middleware=[Middleware(CORSMiddleware,
                                                allow_origins=["https://app.example.com"])])
+
+    ``max_request_bytes`` caps request body size app-wide (default 1
+    MiB); bodies over the cap are rejected with the framework's 413
+    before validation. A contract's own ``max_request_bytes`` overrides
+    the app default per route; pass ``None`` here to disable the app
+    default entirely (per-contract ceilings still apply).
     """
     takes_state = _context_factory_takes_state(context_factory)
     if takes_state and lifespan is None:
@@ -218,6 +244,12 @@ def create_app(
                 else None
             ),
             query_sequence_fields=_sequence_query_fields(item.contract.query),
+            body_limit=(
+                item.contract.max_request_bytes
+                if item.contract.max_request_bytes is not None
+                else max_request_bytes
+            ),
+            lifecycle_headers=_lifecycle_headers(item.contract),
         )
         starlette_routes.append(
             StarletteRoute(
@@ -299,6 +331,41 @@ def _header_fields(request: Request) -> dict[str, str]:
     return {
         key.lower().replace("-", "_"): value for key, value in request.headers.items()
     }
+
+
+def _lifecycle_headers(contract: Contract[Any]) -> tuple[tuple[str, str], ...]:
+    """Static response headers a contract's lifecycle metadata implies."""
+    headers: list[tuple[str, str]] = []
+    if contract.deprecated:
+        headers.append(("deprecation", "true"))
+    if contract.sunset is not None:
+        as_utc = contract.sunset.astimezone(UTC)
+        headers.append(("sunset", format_datetime(as_utc, usegmt=True)))
+    return tuple(headers)
+
+
+async def _read_body(request: Request, limit: int | None) -> bytes:
+    """Read the request body, enforcing the route's byte ceiling.
+
+    The declared ``Content-Length`` is checked first so oversized
+    uploads are refused without reading them; the stream is counted as
+    well because the declaration may be absent (chunked) or dishonest.
+    """
+    if limit is None:
+        return await request.body()
+
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise _BodyTooLarge(limit)
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            raise _BodyTooLarge(limit)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _query_dict(
@@ -414,7 +481,7 @@ def _make_endpoint(
                     _header_fields(request)
                 )
             if bound.request_adapter is not None:
-                body = await request.body()
+                body = await _read_body(request, bound.body_limit)
                 if contract.request_media_type == "application/json":
                     kwargs["request"] = bound.request_adapter.validate_json(body)
                 elif contract.request_media_type.startswith("text/"):
@@ -437,6 +504,14 @@ def _make_endpoint(
             return _framework_error_response(
                 tenchi_errors.validation_error,
                 details=[{"msg": "Request body is not valid UTF-8 text"}],
+                request_id=request_id,
+            )
+        except _BodyTooLarge as exc:
+            # Like a validation failure: no application work has run, so
+            # a request-scoped context exits cleanly.
+            return _framework_error_response(
+                tenchi_errors.request_too_large,
+                details={"limit_bytes": exc.limit},
                 request_id=request_id,
             )
 
@@ -475,6 +550,16 @@ def _make_endpoint(
         )
 
     async def endpoint(request: Request) -> Response:
+        response = await respond(request)
+        # Lifecycle headers accompany every response from this route —
+        # success and error alike — so deprecation is visible however
+        # the call went.
+        for key, value in bound.lifecycle_headers:
+            if key not in response.headers:
+                response.headers[key] = value
+        return response
+
+    async def respond(request: Request) -> Response:
         request_id = _request_id(request)
         try:
             # open_context handles plain values, async factories, and

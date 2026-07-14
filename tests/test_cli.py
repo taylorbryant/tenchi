@@ -316,3 +316,21 @@ def test_generators_reject_python_keywords(
     assert not (tmp_path / "my_app/app/features/import").exists()
     assert main(["make", "use-case", "todos", "return"]) == 1
     assert not (tmp_path / "my_app/app/features/todos/use_cases/return.py").exists()
+
+
+def test_routes_json_emits_a_machine_readable_map(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+    from typing import Any, cast
+
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert main(["routes", "--json"]) == 0
+
+    entries = cast(list[dict[str, Any]], json.loads(capsys.readouterr().out))
+    assert isinstance(entries, list) and entries
+    create = next(e for e in entries if e["method"] == "POST" and e["path"] == "/todos")
+    assert create["status"] == 201
+    assert str(create["use_case"]).endswith("create_todo")
+    assert "deprecated" in create and "sunset" in create

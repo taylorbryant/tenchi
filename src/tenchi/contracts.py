@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Generic
 
 from typing_extensions import TypeVar
@@ -46,6 +47,8 @@ class Contract(Generic[ResponseT]):
     description: str | None = None
     tags: tuple[str, ...] = ()
     deprecated: bool = False
+    sunset: datetime | None = None
+    max_request_bytes: int | None = None
 
     def declares_error(self, definition: ErrorDef) -> bool:
         """Whether this contract declares the given error as expected."""
@@ -70,6 +73,8 @@ def contract(
     description: str | None = None,
     tags: Sequence[str] = (),
     deprecated: bool = False,
+    sunset: datetime | None = None,
+    max_request_bytes: int | None = None,
 ) -> Contract[ResponseT]:
     """Declare an HTTP contract.
 
@@ -109,7 +114,19 @@ def contract(
         description: Longer documentation text. When omitted, OpenAPI
             generation falls back to the bound use case's docstring.
         tags: Documentation tags grouping related operations.
-        deprecated: Mark the operation as deprecated in documentation.
+        deprecated: Mark the operation as deprecated. Deprecated routes
+            send a ``Deprecation: true`` response header on every
+            response, and OpenAPI documents the operation as deprecated.
+        sunset: The instant the route is scheduled for removal (an
+            aware datetime). Emitted as an RFC 8594 ``Sunset`` response
+            header and as ``x-sunset`` in the OpenAPI document. Implies
+            nothing by itself — pair it with ``deprecated=True`` when
+            the route is already discouraged.
+        max_request_bytes: Per-route ceiling on the request body size,
+            overriding ``create_app(max_request_bytes=...)``. Bodies over
+            the ceiling are rejected with the framework's 413 before
+            validation runs. Use for upload routes that need more than
+            the app-wide default.
     """
     normalized_method = method.upper()
     if normalized_method not in _METHODS:
@@ -120,6 +137,16 @@ def contract(
         raise ValueError(f"contract(path={path!r}): invalid status {status}")
     if not request_media_type or not response_media_type:
         raise ValueError(f"contract(path={path!r}): media types must be non-empty")
+    if sunset is not None and sunset.tzinfo is None:
+        raise ValueError(
+            f"contract(path={path!r}): sunset must be timezone-aware so the "
+            "Sunset header is unambiguous"
+        )
+    if max_request_bytes is not None and max_request_bytes <= 0:
+        raise ValueError(
+            f"contract(path={path!r}): max_request_bytes must be positive, "
+            f"got {max_request_bytes}"
+        )
     return Contract(
         method=normalized_method,
         path=path,
@@ -137,4 +164,6 @@ def contract(
         description=description,
         tags=tuple(tags),
         deprecated=deprecated,
+        sunset=sunset,
+        max_request_bytes=max_request_bytes,
     )

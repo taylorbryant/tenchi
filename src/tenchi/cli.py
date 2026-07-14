@@ -58,7 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _make_feature(args.name)
         return _make_use_case(args.feature, args.name)
     if args.command == "routes":
-        return _routes(args.target)
+        return _routes(args.target, as_json=args.json)
     if args.command == "openapi":
         return _openapi(args.target, args.title, args.version, args.output)
     if args.command == "doctor":
@@ -98,6 +98,11 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="target",
         default=_DEFAULT_ROUTES,
         help="module:attribute of the RouteGroup (default: %(default)s)",
+    )
+    routes_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the route table as JSON (a machine-readable app map)",
     )
 
     openapi_parser = subparsers.add_parser(
@@ -262,14 +267,40 @@ def _doctor() -> int:
     return 1
 
 
-def _routes(target: str) -> int:
+def _routes(target: str, *, as_json: bool = False) -> int:
     group = _load_route_group("tenchi routes", target)
     if group is None:
         return 1
 
+    if as_json:
+        print(json.dumps(route_map(group), indent=2))
+        return 0
     for line in format_routes(group):
         print(line)
     return 0
+
+
+def route_map(group: RouteGroup) -> list[dict[str, object]]:
+    """The route table as data: one entry per bound route, stable keys."""
+    entries: list[dict[str, object]] = []
+    for item in group:
+        declared = item.contract
+        entries.append(
+            {
+                "method": declared.method,
+                "path": declared.path,
+                "status": declared.status,
+                "use_case": f"{item.use_case.__module__}.{item.use_case.__qualname__}",
+                "errors": [
+                    {"code": e.code, "status": e.status} for e in declared.errors
+                ],
+                "tags": list(declared.tags),
+                "summary": declared.summary,
+                "deprecated": declared.deprecated,
+                "sunset": (declared.sunset.isoformat() if declared.sunset else None),
+            }
+        )
+    return entries
 
 
 def _openapi(target: str, title: str | None, version: str, output: str | None) -> int:
