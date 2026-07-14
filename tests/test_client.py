@@ -197,6 +197,31 @@ async def test_call_requires_declared_params_and_request(
         await client.call(create_item_contract)
 
 
+async def test_client_level_errors_cover_undeclared_hook_errors() -> None:
+    """Client(errors=...) types errors the contract itself never declared."""
+    throttled = ErrorDef(code="THROTTLED", status=429, message="Slow down")
+    plain_contract = contract(method="GET", path="/plain", response=Item)
+
+    async def always_throttled(context: Context) -> Item:
+        raise AppError(throttled)
+
+    app = create_app(
+        routes=route_group(
+            route(plain_contract, always_throttled), errors=(throttled,)
+        ),
+        context_factory=Context,
+    )
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    )
+    async with Client(http=http, errors=(throttled,)) as tenchi_client:
+        with pytest.raises(AppError) as excinfo:
+            await tenchi_client.call(plain_contract)
+    await http.aclose()
+
+    assert excinfo.value.definition == throttled
+
+
 def test_client_requires_exactly_one_transport_source() -> None:
     with pytest.raises(ValueError, match="exactly one"):
         Client()

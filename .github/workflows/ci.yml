@@ -18,3 +18,8 @@ jobs:
       - run: uv run ruff check .
       - run: uv run pyright
       - run: uv run pytest
+      # The taskboard example is a standalone project consuming tenchi as
+      # a path dependency; it gets its own environment and checks.
+      - run: uv run --directory examples/taskboard pytest
+      - run: uv run --directory examples/taskboard pyright
+      - run: uv run --directory examples/taskboard tenchi doctor

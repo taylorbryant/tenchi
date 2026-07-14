@@ -418,6 +418,14 @@ port: the SQLite repository (aiosqlite) wired into the running app through
 the lifespan, and the memory repository used by unit tests — swapping them
 touches only `infra/` and `server/`.
 
+The stress-test application lives in
+[`examples/taskboard/`](examples/taskboard/): two related features
+(projects and tasks), bearer-token authentication with identity on the
+context, ownership rules in use cases, pagination, partial updates, and
+SQLite adapters sharing one lifespan-managed connection. It is a
+standalone uv project consuming tenchi as a dependency — if a framework
+capability regresses, something there should break.
+
 ## Status
 
 Tenchi is an early vertical slice: contracts (body, path, and query

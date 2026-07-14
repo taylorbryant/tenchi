@@ -5,6 +5,21 @@ All notable changes to Tenchi are documented here. The format follows
 [Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
 versions may change the public API.
 
+## [Unreleased]
+
+### Added
+
+- `Client(errors=...)`: client-level expected errors, the counterpart of
+  `route_group(errors=...)` for errors the server's hooks may raise on
+  any route. Discovered by the taskboard stress-test app: group-declared
+  errors exist on amended contract copies inside the group, so a client
+  calling with the original contract constants had no way to type them.
+- `examples/taskboard/`: the stress-test application — projects and tasks
+  with cross-feature validation, bearer-token authentication, ownership
+  rules in use cases, pagination, partial updates, and SQLite adapters
+  sharing one lifespan-managed connection. Runs as a standalone uv
+  project with its own CI checks.
+
 ## [0.2.0] - 2026-07-14
 
 ### Added
