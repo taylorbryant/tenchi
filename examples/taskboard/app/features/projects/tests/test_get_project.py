@@ -8,7 +8,7 @@ from app.infra.memory_repositories import (
 )
 from app.server.context import AppContext
 from app.shared.errors import project_not_found
-from app.shared.users import User
+from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
 
 ALICE = User(id="alice", name="Alice")
@@ -24,7 +24,9 @@ def make_context(user: User) -> AppContext:
 
 async def test_get_project_returns_an_owned_project() -> None:
     context = make_context(ALICE)
-    created = await context.projects.create(name="Launch", owner_id="alice")
+    created = await context.projects.create(
+        name="Launch", owner=OwnerScope(owner_id="alice")
+    )
 
     found = await get_project(GetProjectParams(project_id=created.id), context)
 
@@ -33,7 +35,9 @@ async def test_get_project_returns_an_owned_project() -> None:
 
 async def test_get_project_hides_other_owners_projects() -> None:
     context = make_context(BOB)
-    created = await context.projects.create(name="Launch", owner_id="alice")
+    created = await context.projects.create(
+        name="Launch", owner=OwnerScope(owner_id="alice")
+    )
 
     with pytest.raises(AppError) as excinfo:
         await get_project(GetProjectParams(project_id=created.id), context)

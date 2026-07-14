@@ -14,14 +14,17 @@ from .schemas import Project
 
 
 def can_view_project(user: User, project: Project | None) -> bool:
-    return project is not None and project.owner_id == user.id
+    """Owners and members may view; everyone else sees nothing."""
+    if project is None:
+        return False
+    return project.owner_id == user.id or user.id in project.member_ids
 
 
 def ensure_can_view_project(
     user: User, project: Project | None, *, project_id: str
 ) -> Project:
-    """Missing and unowned projects look identical, so ids cannot be probed."""
-    if project is None or project.owner_id != user.id:
+    """Missing and unviewable projects look identical, so ids cannot be probed."""
+    if project is None or not can_view_project(user, project):
         raise AppError(project_not_found, details={"project_id": project_id})
     return project
 

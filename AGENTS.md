@@ -153,6 +153,14 @@ API shape:
   to hooks too. `route_group(errors=...)` declares across a group;
   `Client(errors=...)` is the client-side counterpart. Keep server and
   client error semantics symmetric.
+- Doctor's authorization consistency check: once any use case in an app
+  references authorization, every use case must (or carry the explicit
+  `# doctor: public` pragma). Keep example apps fully guarded.
+- Owner-scoped repository methods take a scope object derivable only from
+  the authenticated user (see taskboard's `OwnerScope`), never a raw id
+  string.
+- Membership-style rules stay in policies via fetch-then-ask: the use
+  case fetches the subject through a port, the pure policy decides.
 - Authentication lives in hooks at the HTTP boundary; hooks attach
   identity by returning an enriched (replaced) context. Business
   authorization lives in use cases, which still assert identity via an

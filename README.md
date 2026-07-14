@@ -361,9 +361,38 @@ project = await context.projects.get(request.project_id)
 ensure_can_write_project(user, project, project_id=request.project_id)
 ```
 
-`tenchi doctor` enforces the discipline: policies may import schemas,
-domain types, and shared errors — never infrastructure, the app context,
-or the HTTP runtime.
+`tenchi doctor` enforces the discipline three ways: policies may import
+schemas, domain types, and shared errors — never infrastructure, the app
+context, or the HTTP runtime; and once any use case in an app references
+authorization (`require_user`, `context.user`, or a policy import), every
+use case must do the same or carry an explicit `# doctor: public` pragma,
+so a forgotten check is a finding rather than an open endpoint.
+
+For confused-deputy protection, owner-scoped repository methods should
+accept a scope object derivable only from the authenticated user instead
+of a raw id string — so an id lifted from request input cannot be passed
+by accident:
+
+```python
+@dataclass(frozen=True, slots=True)
+class OwnerScope:
+    owner_id: str
+
+def require_owner_scope(user: User | None) -> OwnerScope: ...
+
+# ports.py
+async def list_owned_by(self, owner: OwnerScope) -> list[Project]: ...
+
+# use case
+owner = require_owner_scope(context.user)
+return await context.projects.list_owned_by(owner)
+```
+
+The taskboard example demonstrates the full story: `OwnerScope` on every
+owner-scoped port method, and a membership slice
+(`POST /projects/{id}/members`, owner-only) where policies grant members
+view access via fetch-then-ask — the use case fetches the subject through
+a port, then asks the pure policy.
 
 ## Errors
 

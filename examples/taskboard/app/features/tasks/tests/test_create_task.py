@@ -8,7 +8,7 @@ from app.infra.memory_repositories import (
 )
 from app.server.context import AppContext
 from app.shared.errors import forbidden, project_not_found
-from app.shared.users import User
+from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
 
 ALICE = User(id="alice", name="Alice")
@@ -24,7 +24,9 @@ def make_context(user: User) -> AppContext:
 
 async def test_create_task_in_an_owned_project() -> None:
     context = make_context(ALICE)
-    project = await context.projects.create(name="Launch", owner_id="alice")
+    project = await context.projects.create(
+        name="Launch", owner=OwnerScope(owner_id="alice")
+    )
 
     task = await create_task(
         CreateTask(project_id=project.id, title="Ship it"), context
@@ -46,7 +48,9 @@ async def test_create_task_rejects_missing_project() -> None:
 
 async def test_create_task_in_another_owners_project_is_forbidden() -> None:
     context = make_context(BOB)
-    project = await context.projects.create(name="Launch", owner_id="alice")
+    project = await context.projects.create(
+        name="Launch", owner=OwnerScope(owner_id="alice")
+    )
 
     with pytest.raises(AppError) as excinfo:
         await create_task(CreateTask(project_id=project.id, title="x"), context)

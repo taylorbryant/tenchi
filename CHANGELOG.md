@@ -18,6 +18,12 @@ versions may change the public API.
   through Tenchi's own route machinery; checks receive the app context,
   and failures map to a 503 `UNHEALTHY` envelope exposing exception class
   names only. Tagged `health` for hook exemption.
+- `tenchi doctor` authorization consistency check: in an app where any
+  use case references authorization (`require_user`, `context.user`, or a
+  policy import), use cases that reference none are flagged unless marked
+  with `# doctor: public` — a forgotten authorization check becomes a
+  finding instead of an open endpoint. Apps with no authorization anywhere
+  are left alone.
 - The policies convention: `features/<feature>/policy.py` holds business
   authorization as plain functions taking their subjects as arguments;
   abilities live with the feature owning the subject. `tenchi doctor`

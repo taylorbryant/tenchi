@@ -4,7 +4,7 @@ from app.infra.memory_repositories import (
     MemoryTaskRepository,
 )
 from app.server.context import AppContext
-from app.shared.users import User
+from app.shared.users import OwnerScope, User
 
 ALICE = User(id="alice", name="Alice")
 
@@ -14,7 +14,7 @@ async def test_list_projects_returns_only_the_current_users() -> None:
     context = AppContext(
         projects=projects, tasks=MemoryTaskRepository(projects), user=ALICE
     )
-    mine = await projects.create(name="Mine", owner_id="alice")
-    await projects.create(name="Theirs", owner_id="bob")
+    mine = await projects.create(name="Mine", owner=OwnerScope(owner_id="alice"))
+    await projects.create(name="Theirs", owner=OwnerScope(owner_id="bob"))
 
     assert await list_projects(context) == [mine]

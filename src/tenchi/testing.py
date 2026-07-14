@@ -43,12 +43,15 @@ async def open_client(
 ) -> AsyncGenerator[Client]:
     """A typed :class:`~tenchi.client.Client` calling ``app`` in-process,
     with the app lifespan running around it."""
-    async with _run_lifespan(app), Client(
-        transport=httpx.ASGITransport(app=app),
-        base_url=base_url,
-        headers=headers,
-        errors=errors,
-    ) as client:
+    async with (
+        _run_lifespan(app),
+        Client(
+            transport=httpx.ASGITransport(app=app),
+            base_url=base_url,
+            headers=headers,
+            errors=errors,
+        ) as client,
+    ):
         yield client
 
 
@@ -62,11 +65,14 @@ async def open_http(
     """A raw ``httpx.AsyncClient`` calling ``app`` in-process, with the app
     lifespan running around it. Use this to assert on raw status codes,
     headers, and error envelopes."""
-    async with _run_lifespan(app), httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url=base_url,
-        headers=dict(headers) if headers else None,
-    ) as http:
+    async with (
+        _run_lifespan(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url=base_url,
+            headers=dict(headers) if headers else None,
+        ) as http,
+    ):
         yield http
 
 

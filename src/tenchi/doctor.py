@@ -147,7 +147,68 @@ def run_doctor(root: Path) -> list[Finding]:
             continue
         findings.extend(_import_findings(root, relative, rules))
 
+    findings.extend(_authorization_findings(root))
     return findings
+
+
+_PUBLIC_PRAGMA = "# doctor: public"
+
+
+def _authorization_findings(root: Path) -> list[Finding]:
+    """Flag use cases that skip authorization in an app that uses it.
+
+    This is a consistency check, not a proof: if any use case references
+    authorization (``require_user``, ``context.user``, or a policy
+    import), every use case must do the same or carry the explicit
+    ``# doctor: public`` pragma. Apps with no authorization anywhere are
+    left alone.
+    """
+    surveyed: list[tuple[Path, bool, bool]] = []
+    for path in sorted((root / "app").rglob("*.py")):
+        relative = path.relative_to(root)
+        if relative.name == "__init__.py":
+            continue
+        if _classify_module(_module_parts(relative)) != "use_cases":
+            continue
+        source = path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue  # already reported by the import pass
+        guarded = _references_authorization(tree, relative)
+        surveyed.append((relative, guarded, _PUBLIC_PRAGMA in source))
+
+    if not any(guarded for _, guarded, _ in surveyed):
+        return []
+
+    return [
+        Finding(
+            relative.as_posix(),
+            0,
+            "use case makes no authorization reference while other use "
+            "cases in this app do; call require_user or a policy, read "
+            f"context.user, or mark deliberate exposure with {_PUBLIC_PRAGMA!r}",
+        )
+        for relative, guarded, has_pragma in surveyed
+        if not guarded and not has_pragma
+    ]
+
+
+def _references_authorization(tree: ast.Module, relative: Path) -> bool:
+    for _, target in _imports(tree, relative):
+        if _classify_module(target) == "policy":
+            return True
+        if target and target[-1] == "require_user":
+            return True
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in (
+            "user",
+            "require_user",
+        ):
+            return True
+        if isinstance(node, ast.Name) and node.id == "require_user":
+            return True
+    return False
 
 
 def _structure_findings(root: Path) -> list[Finding]:

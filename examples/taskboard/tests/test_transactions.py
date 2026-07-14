@@ -15,6 +15,7 @@ from starlette.applications import Starlette
 from app.features.projects.schemas import Project
 from app.infra.port_wiring import ensure_schema, open_request_ports
 from app.server.context import AppContext
+from app.shared.users import OwnerScope
 from tenchi.contracts import contract
 from tenchi.errors import AppError, ErrorDef
 from tenchi.routes import route, route_group
@@ -30,11 +31,13 @@ glitch_contract = contract(
 
 
 async def write_project(context: AppContext) -> Project:
-    return await context.projects.create(name="kept", owner_id="alice")
+    return await context.projects.create(
+        name="kept", owner=OwnerScope(owner_id="alice")
+    )
 
 
 async def write_then_fail(context: AppContext) -> Project:
-    await context.projects.create(name="doomed", owner_id="alice")
+    await context.projects.create(name="doomed", owner=OwnerScope(owner_id="alice"))
     raise AppError(glitch)
 
 
@@ -72,7 +75,10 @@ async def test_commit_on_success_rollback_on_error(tmp_path: Path) -> None:
         assert failed.json()["code"] == "GLITCH"
 
     async with open_request_ports(database) as ports:
-        names = [p.name for p in await ports.projects.list_owned_by("alice")]
+        names = [
+            p.name
+            for p in await ports.projects.list_owned_by(OwnerScope(owner_id="alice"))
+        ]
 
     # The successful request committed; the failed one rolled back.
     assert names == ["kept"]
