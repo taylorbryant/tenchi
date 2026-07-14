@@ -89,10 +89,11 @@ when its turn comes.
 - **API snapshot guard** — a test that snapshots the public API surface
   so accidental signature changes fail CI instead of shipping in a minor
   release. Matters now that real apps install from PyPI.
-- **Events and background work, demonstrated** — the pattern is decided
+- **Events and background work, demonstrated** — done in the 0.5.0
+  cycle: the taskboard's `member_added` flow proves the pattern
   (`docs/events.md`: effects as ports, transactional outbox, workers as
-  entrypoints); the taskboard should grow one real deferred effect to
-  prove it, before any framework sugar is considered.
+  entrypoints) end to end. Framework sugar (a typed `job()` declaration)
+  stays parked until a second real use demands it.
 - **Docs site** — the README is carrying a lot; a small mkdocs-material
   site with a tutorial, the design notes, and a reference belongs before
   any adoption push.

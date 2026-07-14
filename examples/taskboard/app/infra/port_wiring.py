@@ -6,11 +6,13 @@ from dataclasses import dataclass
 
 import aiosqlite
 
-from app.features.projects.ports import ProjectRepository
+from app.features.projects.ports import NotificationLog, Outbox, ProjectRepository
 from app.features.tasks.ports import TaskRepository
 
 from .sqlite_repositories import (
     SCHEMA,
+    SqliteNotificationLog,
+    SqliteOutbox,
     SqliteProjectRepository,
     SqliteTaskRepository,
 )
@@ -22,6 +24,8 @@ class AppPorts:
 
     projects: ProjectRepository
     tasks: TaskRepository
+    outbox: Outbox
+    notifications: NotificationLog
 
 
 async def ensure_schema(database_path: str) -> None:
@@ -39,5 +43,7 @@ async def open_request_ports(database_path: str) -> AsyncGenerator[AppPorts]:
         yield AppPorts(
             projects=SqliteProjectRepository(connection),
             tasks=SqliteTaskRepository(connection),
+            outbox=SqliteOutbox(connection),
+            notifications=SqliteNotificationLog(connection),
         )
         await connection.commit()

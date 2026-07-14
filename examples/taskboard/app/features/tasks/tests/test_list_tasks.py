@@ -1,6 +1,8 @@
 from app.features.tasks.schemas import ListTasksQuery, TaskStatus
 from app.features.tasks.use_cases.list_tasks import list_tasks
 from app.infra.memory_repositories import (
+    MemoryNotificationLog,
+    MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
 )
@@ -13,7 +15,13 @@ ALICE = User(id="alice", name="Alice")
 async def make_populated_context() -> AppContext:
     projects = MemoryProjectRepository()
     tasks = MemoryTaskRepository(projects)
-    context = AppContext(projects=projects, tasks=tasks, user=ALICE)
+    context = AppContext(
+        projects=projects,
+        tasks=tasks,
+        outbox=MemoryOutbox(),
+        notifications=MemoryNotificationLog(),
+        user=ALICE,
+    )
 
     mine = await projects.create(name="Mine", owner=OwnerScope(owner_id="alice"))
     other = await projects.create(name="Other", owner=OwnerScope(owner_id="bob"))

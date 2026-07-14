@@ -13,6 +13,18 @@ class AddProjectMember(BaseModel):
     user_id: str
 
 
+class MemberAdded(BaseModel):
+    """Payload of the ``member_added`` outbox job.
+
+    Enqueuer (``add_project_member``) and worker share this one
+    declaration; the worker validates inbound payloads against it before
+    any use case runs, mirroring HTTP boundary validation.
+    """
+
+    project_id: str
+    user_id: str
+
+
 class Project(BaseModel):
     id: str
     name: str

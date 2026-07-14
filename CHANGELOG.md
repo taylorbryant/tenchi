@@ -23,6 +23,13 @@ versions may change the public API.
   (`TENCHI_UPDATE_API_SNAPSHOT=1 uv run pytest
   tests/test_api_snapshot.py`) so API changes are always visible in
   review.
+- The taskboard example demonstrates `docs/events.md` end to end:
+  `add_project_member` enqueues a `member_added` job through an
+  `Outbox` port on the request's transaction (commit persists state and
+  job atomically; rollback discards both), and the worker entrypoint
+  (`app/server/worker.py`) validates payloads at the boundary,
+  delivers notifications through an ordinary use case, and dead-letters
+  unknown or malformed jobs.
 
 ### Changed
 

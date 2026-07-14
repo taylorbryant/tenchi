@@ -3,6 +3,8 @@ import pytest
 from app.features.tasks.schemas import GetTaskParams, TaskStatus, UpdateTask
 from app.features.tasks.use_cases.update_task import update_task
 from app.infra.memory_repositories import (
+    MemoryNotificationLog,
+    MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
 )
@@ -20,7 +22,13 @@ async def make_context_with_task(user: User) -> tuple[AppContext, str]:
     tasks = MemoryTaskRepository(projects)
     project = await projects.create(name="Launch", owner=OwnerScope(owner_id="alice"))
     task = await tasks.create(project_id=project.id, title="original")
-    return AppContext(projects=projects, tasks=tasks, user=user), task.id
+    return AppContext(
+        projects=projects,
+        tasks=tasks,
+        outbox=MemoryOutbox(),
+        notifications=MemoryNotificationLog(),
+        user=user,
+    ), task.id
 
 
 async def test_update_task_changes_only_provided_fields() -> None:

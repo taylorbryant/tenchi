@@ -18,4 +18,11 @@ async def add_project_member(
     updated = project.model_copy(
         update={"member_ids": (*project.member_ids, request.user_id)}
     )
-    return await context.projects.save(updated)
+    saved = await context.projects.save(updated)
+    # Deferred effect: the notification is queued in the same unit of work
+    # as the membership change, so both commit or roll back together.
+    await context.outbox.enqueue(
+        job="member_added",
+        payload={"project_id": saved.id, "user_id": request.user_id},
+    )
+    return saved

@@ -599,10 +599,13 @@ touches only `infra/` and `server/`.
 The stress-test application lives in
 [`examples/taskboard/`](examples/taskboard/): two related features
 (projects and tasks), bearer-token authentication with identity on the
-context, ownership rules in use cases, pagination, partial updates, and
-SQLite adapters sharing one lifespan-managed connection. It is a
-standalone uv project consuming tenchi as a dependency — if a framework
-capability regresses, something there should break.
+context, ownership rules in use cases, pagination, partial updates,
+SQLite adapters sharing one lifespan-managed connection, and the
+transactional-outbox pattern from [`docs/events.md`](docs/events.md) —
+adding a project member enqueues a notification job in the same
+transaction, and `app/server/worker.py` delivers it. It is a standalone
+uv project consuming tenchi as a dependency — if a framework capability
+regresses, something there should break.
 
 ## Status
 

@@ -6,6 +6,13 @@ queued through a port using the transactional-outbox pattern; workers
 are ordinary entrypoints composing the same use cases. The framework
 adds nothing until two real uses demand it.
 
+Demonstrated end to end in `examples/taskboard`: `add_project_member`
+enqueues a `member_added` job through the `Outbox` port on the request's
+transaction, and `app/server/worker.py` validates payloads at the
+boundary and delivers notifications through an ordinary use case. The
+whole demonstration was a page of obvious code per piece — evidence the
+pattern needs no framework support yet.
+
 ## The question
 
 "After the todo is created, send an email." Every framework answers

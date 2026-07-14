@@ -1,10 +1,28 @@
 """In-memory implementations of the taskboard ports, for tests."""
 
+from collections.abc import Mapping
+from typing import Any
 from uuid import uuid4
 
 from app.features.projects.schemas import Project
 from app.features.tasks.schemas import Task, TaskStatus
 from app.shared.users import OwnerScope
+
+
+class MemoryOutbox:
+    def __init__(self) -> None:
+        self.entries: list[tuple[str, dict[str, Any]]] = []
+
+    async def enqueue(self, *, job: str, payload: Mapping[str, Any]) -> None:
+        self.entries.append((job, dict(payload)))
+
+
+class MemoryNotificationLog:
+    def __init__(self) -> None:
+        self.records: list[tuple[str, str]] = []
+
+    async def record(self, *, user_id: str, message: str) -> None:
+        self.records.append((user_id, message))
 
 
 class MemoryProjectRepository:

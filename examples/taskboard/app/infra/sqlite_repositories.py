@@ -7,6 +7,8 @@ rolls back uncommitted work when closed after an error.
 """
 
 import json
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
@@ -29,7 +31,83 @@ CREATE TABLE IF NOT EXISTS tasks (
     title TEXT NOT NULL,
     status TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    processed INTEGER NOT NULL DEFAULT 0,
+    error TEXT
+);
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    message TEXT NOT NULL
+);
 """
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxEntry:
+    """A claimed outbox row, as the worker sees it (payload still raw)."""
+
+    id: int
+    job: str
+    payload: str
+
+
+class SqliteOutbox:
+    """Transactional outbox: `enqueue` implements the Outbox port on the
+    request's connection; the remaining methods are the worker's claim and
+    settle surface on its own connection."""
+
+    def __init__(self, connection: aiosqlite.Connection) -> None:
+        self._connection = connection
+
+    async def enqueue(self, *, job: str, payload: Mapping[str, Any]) -> None:
+        await self._connection.execute(
+            "INSERT INTO outbox (job, payload) VALUES (?, ?)",
+            (job, json.dumps(dict(payload))),
+        )
+
+    async def claim_next(self) -> OutboxEntry | None:
+        cursor = await self._connection.execute(
+            "SELECT id, job, payload FROM outbox WHERE processed = 0 "
+            "ORDER BY id LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return OutboxEntry(id=int(row[0]), job=row[1], payload=row[2])
+
+    async def mark_processed(self, entry_id: int) -> None:
+        await self._connection.execute(
+            "UPDATE outbox SET processed = 1 WHERE id = ?", (entry_id,)
+        )
+
+    async def mark_failed(self, entry_id: int, *, error: str) -> None:
+        """Dead-letter: settled so it is never retried, error preserved."""
+        await self._connection.execute(
+            "UPDATE outbox SET processed = 1, error = ? WHERE id = ?",
+            (error, entry_id),
+        )
+
+
+class SqliteNotificationLog:
+    def __init__(self, connection: aiosqlite.Connection) -> None:
+        self._connection = connection
+
+    async def record(self, *, user_id: str, message: str) -> None:
+        await self._connection.execute(
+            "INSERT INTO notifications (user_id, message) VALUES (?, ?)",
+            (user_id, message),
+        )
+
+    async def list_for(self, user_id: str) -> list[str]:
+        cursor = await self._connection.execute(
+            "SELECT message FROM notifications WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        )
+        return [row[0] for row in await cursor.fetchall()]
 
 
 class SqliteProjectRepository:

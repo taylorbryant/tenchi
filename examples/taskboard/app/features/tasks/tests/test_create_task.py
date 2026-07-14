@@ -3,6 +3,8 @@ import pytest
 from app.features.tasks.schemas import CreateTask, TaskStatus
 from app.features.tasks.use_cases.create_task import create_task
 from app.infra.memory_repositories import (
+    MemoryNotificationLog,
+    MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
 )
@@ -18,7 +20,11 @@ BOB = User(id="bob", name="Bob")
 def make_context(user: User) -> AppContext:
     projects = MemoryProjectRepository()
     return AppContext(
-        projects=projects, tasks=MemoryTaskRepository(projects), user=user
+        projects=projects,
+        tasks=MemoryTaskRepository(projects),
+        outbox=MemoryOutbox(),
+        notifications=MemoryNotificationLog(),
+        user=user,
     )
 
 
