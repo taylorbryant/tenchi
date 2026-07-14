@@ -37,18 +37,38 @@ framework-wide execution layer; what is the Tenchi-sized version?
 
 `execute(use_case, *, context, request=... | request_json=...)`:
 
-- Input is validated against the ``request`` parameter's annotation —
-  Python data via ``validate_python``, raw JSON via ``validate_json`` —
-  before the context opens, so invalid input never starts a unit of
-  work. Inputs the use case has no parameter for are rejected, not
-  dropped (the same honesty rule as the typed client).
-- ``context`` accepts exactly what ``create_app(context_factory=...)``
-  accepts: a value, a factory, an async factory, or a factory returning
-  an async context manager. The scoping lives in ``open_context()``,
-  which the server now uses too — commit-on-success / rollback-on-error
-  is defined and tested once, not per entrypoint.
-- Errors propagate. How a failure is surfaced — dead-letter, exit code,
-  HTTP status — belongs to the entrypoint, so `execute` maps nothing.
+- The signature is checked eagerly with the same rules ``route()``
+  applies (keyword-addressable ``request``/``context``, no extra
+  required parameters, ``**kwargs`` accepted), and input is validated
+  against the ``request`` parameter's annotation — Python data via
+  ``validate_python``, raw JSON via ``validate_json`` — all before the
+  context opens, so neither a miswired call nor invalid input ever
+  starts a unit of work. Inputs the use case has no parameter for are
+  rejected, not dropped (the same honesty rule as the typed client).
+  Only the ``request`` annotation is resolved, so ``TYPE_CHECKING``-only
+  context annotations — an idiom the layering rules themselves push
+  toward — work fine.
+- Miswiring raises ``ExecutionError`` (a ``TypeError`` subclass):
+  deterministic, distinguishable from the use case's own exceptions, so
+  queue-style entrypoints can dead-letter it instead of retrying.
+- ``context`` accepts a ready value, a zero-argument factory, an async
+  factory, or a factory returning an async context manager. (Unlike
+  ``create_app``, a one-argument lifespan-state factory is not
+  supported — there is no lifespan here; wrap it in a closure.) Sync
+  context managers and bare async generators are rejected rather than
+  silently passed through unscoped. The scoping lives in
+  ``open_context()``, which the server now uses too — commit-on-success
+  / rollback-on-error is defined and tested once, not per entrypoint.
+- Errors from the use case propagate. How a failure is surfaced —
+  dead-letter, exit code, HTTP status — belongs to the entrypoint, so
+  `execute` maps nothing.
+
+One deliberate asymmetry with HTTP, stated so nobody discovers it the
+hard way: the server opens the request scope *before* validation
+(hooks need a context to authenticate against), so a malformed HTTP
+request enters and cleanly exits the scope; ``execute`` validates
+first, so malformed input never opens the scope at all. Scoping
+semantics are identical; ordering is not.
 
 The taskboard worker is the proof: its job registry dropped from
 ``{name: (payload_type, use_case)}`` to ``{name: use_case}``, and its

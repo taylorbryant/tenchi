@@ -3,6 +3,7 @@ AppError (re-export of tenchi.errors.AppError)
 Client (re-export of tenchi.client.Client)
 Contract (re-export of tenchi.contracts.Contract)
 ErrorDef (re-export of tenchi.errors.ErrorDef)
+ExecutionError (re-export of tenchi.execution.ExecutionError)
 Page (re-export of tenchi.pagination.Page)
 PageQuery (re-export of tenchi.pagination.PageQuery)
 RequestInfo (re-export of tenchi.server.RequestInfo)
@@ -66,6 +67,7 @@ REQUEST_ID_HEADER = 'x-request-id'
 def error_body(*, code: 'str', message: 'str', details: 'Any' = None, request_id: 'str | None' = None) -> 'dict[str, Any]'
 
 # tenchi.execution
+class ExecutionError(TypeError)
 def execute(use_case: 'Callable[..., Awaitable[ResultT]]', *, context: 'Any', request: 'Any' = UNSET, request_json: 'bytes | str | None' = None) -> 'ResultT'
 def open_context(source: 'Any') -> 'AsyncGenerator[Any]'
 

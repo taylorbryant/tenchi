@@ -18,12 +18,32 @@ versions may change the public API.
   commit-on-success / rollback-on-error semantics are defined once.
   `docs/execution.md` records what was deliberately left out.
 
+- `ExecutionError` (a `TypeError` subclass): every way an `execute()`
+  call can be miswired — missing or positional-only parameters, extra
+  required parameters, unannotated or unresolvable `request`
+  annotations, unusable context sources — raises one deterministic,
+  distinctly catchable type, so queue entrypoints can dead-letter
+  miswiring instead of retrying it.
+
 ### Changed
 
 - The taskboard worker validates payloads through `execute()`; its job
-  registry is now just names to use cases.
+  registry is now just names to use cases. Deterministic failures —
+  invalid payloads, miswired handlers, `AppError` rejections — are
+  dead-lettered after rolling back the job's transaction, so a poison
+  job can neither starve the queue behind it nor commit partial writes
+  alongside its dead-letter record.
+- `execute()` checks signatures eagerly with the same rules as
+  `route()` (`**kwargs` use cases now accepted, positional-only and
+  extra-required parameters rejected before the context opens),
+  resolves only the `request` annotation (so `TYPE_CHECKING`-only
+  context annotations work), honors a defaulted `request` parameter,
+  and rejects sync context managers and bare async generators as
+  context sources instead of passing them through unscoped.
 - `tenchi doctor` treats `tenchi.execution` as runtime: domain code and
   use cases must not import it — running use cases is entrypoint work.
+  Root re-exports (`from tenchi import execute` / `create_app` /
+  `Client`) are now caught the same as their submodule spellings.
 
 ## [0.5.0] - 2026-07-14
 

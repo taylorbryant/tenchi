@@ -8,7 +8,7 @@ Canonical imports use the submodules — ``tenchi.contracts``,
 from .client import Client, UnexpectedResponseError
 from .contracts import Contract, contract
 from .errors import AppError, ErrorDef
-from .execution import execute
+from .execution import ExecutionError, execute
 from .health import health_route
 from .openapi import openapi_route, openapi_schema
 from .pagination import Page, PageQuery, page
@@ -22,6 +22,7 @@ __all__ = [
     "Client",
     "Contract",
     "ErrorDef",
+    "ExecutionError",
     "Page",
     "PageQuery",
     "RequestInfo",

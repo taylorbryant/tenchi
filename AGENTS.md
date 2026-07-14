@@ -39,6 +39,8 @@ framework code, the CLI, docs, or the example apps.
   - `errors.py` — `ErrorDef`, `AppError`, framework error definitions, the
     standard envelope.
   - `server.py` — `create_app`, lifespan/state, hooks, request dispatch.
+  - `execution.py` — `execute`/`open_context`: run use cases with the
+    server's boundary guarantees from any entrypoint (workers, scripts).
   - `client.py` — the contract-driven typed httpx client.
   - `openapi.py` — OpenAPI 3.1 generation (`openapi_schema` is a pure
     function; `openapi_route` serves it through Tenchi's own machinery).

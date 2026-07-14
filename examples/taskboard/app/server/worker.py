@@ -8,12 +8,24 @@ Each job is one unit of work on its own connection: atomically claim the
 oldest pending outbox row (the claim is safe with several workers — see
 ``SqliteOutbox``), then hand the raw payload to ``tenchi.execution``'s
 ``execute``, which validates it against the use case's own request
-annotation — the same boundary discipline as HTTP. Undeclared jobs and
-malformed payloads are dead-lettered, never retried and never allowed
-near a use case. Everything commits together; a crash mid-job rolls the
-claim back and the job is claimed again on a later pass (the loop
-survives job failures, backing off so a deterministically failing job
-cannot hot-spin the process).
+annotation — the same boundary validation as HTTP applies.
+
+Every job ends in exactly one of three ways:
+
+- **Delivered** — the use case ran; its writes and the settled row
+  commit together.
+- **Dead-lettered** — deterministic failures: unknown job names,
+  payloads that fail validation, miswired handlers (``ExecutionError``),
+  and business rejections (``AppError``). The job's transaction is
+  rolled back first, so partial writes never commit, then the row is
+  settled with the error preserved. Never retried: retrying a
+  deterministic failure would starve every job queued behind it.
+- **Retried** — everything else (infrastructure errors: the database is
+  locked, a network dependency is down). The transaction rolls back,
+  the claim with it, and the row is claimed again on a later pass. The
+  loop logs and backs off; note a *persistently* failing dependency
+  keeps the queue's head blocked until it recovers — the correct
+  behavior for a transient outage, worth alerting on if it lasts.
 """
 
 import asyncio
@@ -32,7 +44,8 @@ from app.infra.sqlite_repositories import (
     SqliteTaskRepository,
 )
 from app.server.context import AppContext
-from tenchi.execution import execute
+from tenchi.errors import AppError
+from tenchi.execution import ExecutionError, execute
 from tenchi.routes import UseCase
 
 logger = logging.getLogger("taskboard.worker")
@@ -68,11 +81,23 @@ async def process_next(database_path: str) -> bool:
             )
             try:
                 await execute(use_case, request_json=entry.payload, context=context)
-            except ValidationError as error:
-                await outbox.mark_failed(entry.id, error=str(error))
+            except (ValidationError, ExecutionError, AppError) as error:
+                # Deterministic failures — bad payload, miswired handler,
+                # business rejection — dead-letter instead of retrying;
+                # retrying would starve every job behind this one. Roll
+                # back first so partial writes never commit alongside
+                # the dead-letter record.
+                await connection.rollback()
+                await outbox.mark_failed(entry.id, error=_failure_text(error))
 
         await connection.commit()
         return True
+
+
+def _failure_text(error: Exception) -> str:
+    if isinstance(error, AppError):
+        return f"{error.code}: {error}"
+    return str(error)
 
 
 async def drain(database_path: str) -> int:

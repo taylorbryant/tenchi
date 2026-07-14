@@ -480,8 +480,12 @@ def _make_endpoint(
             # open_context handles plain values, async factories, and
             # request-scoped context managers (a use-case or hook
             # exception flows through __aexit__ — rolling back a
-            # transaction — before being mapped below), so the semantics
-            # are identical to tenchi.execution.execute.
+            # transaction — before being mapped below). Scoping matches
+            # tenchi.execution.execute exactly; ordering deliberately
+            # does not: HTTP opens the scope first because hooks need a
+            # context before validation, so a validation failure here
+            # exits the scope cleanly, while execute() validates before
+            # any scope exists.
             async with open_context(build_context) as context:
                 return await dispatch(request, context, request_id)
         except AppError as exc:

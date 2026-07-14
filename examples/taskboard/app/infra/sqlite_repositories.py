@@ -87,10 +87,12 @@ class SqliteOutbox:
         return OutboxEntry(id=int(row[0]), job=row[1], payload=row[2])
 
     async def mark_failed(self, entry_id: int, *, error: str) -> None:
-        """Dead-letter a claimed row: the error is preserved and the row
-        is never retried (the claim already settled it)."""
+        """Dead-letter a row: settled with the error preserved, never
+        retried. Also re-marks ``processed`` because the worker rolls
+        back the job's transaction (discarding the claim along with any
+        partial writes) before dead-lettering in a fresh one."""
         await self._connection.execute(
-            "UPDATE outbox SET error = ? WHERE id = ?",
+            "UPDATE outbox SET processed = 1, error = ? WHERE id = ?",
             (error, entry_id),
         )
 

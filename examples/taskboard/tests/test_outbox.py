@@ -11,13 +11,17 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
+import pytest
 from starlette.applications import Starlette
 
 from app.features.projects.routes import routes as project_routes
+from app.features.projects.schemas import MemberAdded
 from app.infra.port_wiring import ensure_schema, open_request_ports
 from app.infra.sqlite_repositories import SqliteNotificationLog, SqliteOutbox
+from app.server import worker
 from app.server.context import AppContext
 from app.server.worker import drain
+from app.shared.errors import forbidden
 from app.shared.users import User
 from tenchi.contracts import contract
 from tenchi.errors import AppError, ErrorDef
@@ -149,5 +153,84 @@ async def test_malformed_payloads_are_dead_lettered(tmp_path: Path) -> None:
 
     (row,) = await outbox_rows(database)
     assert row[2] == 1 and row[3] is not None and "validation error" in row[3]
+    async with aiosqlite.connect(database) as connection:
+        assert await SqliteNotificationLog(connection).list_for("bob") == []
+
+
+async def test_deterministic_failures_dead_letter_instead_of_starving(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A poison job must not block the jobs queued behind it."""
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+
+    async def rejects(request: MemberAdded, context: AppContext) -> None:
+        raise AppError(forbidden)
+
+    monkeypatch.setitem(worker.JOB_HANDLERS, "poison", rejects)
+    payload = {"project_id": "p", "project_name": "P", "user_id": "bob"}
+    async with aiosqlite.connect(database) as connection:
+        outbox = SqliteOutbox(connection)
+        await outbox.enqueue(job="poison", payload=payload)
+        await outbox.enqueue(job="member_added", payload=payload)
+        await connection.commit()
+
+    assert await drain(database) == 2
+
+    rows = await outbox_rows(database)
+    assert [row[2] for row in rows] == [1, 1]  # both settled
+    assert rows[0][3] is not None and "FORBIDDEN" in rows[0][3]
+    assert rows[1][3] is None  # the job behind the poison one delivered
+    async with aiosqlite.connect(database) as connection:
+        assert await SqliteNotificationLog(connection).list_for("bob") == [
+            "You were added to project 'P'"
+        ]
+
+
+async def test_miswired_handlers_dead_letter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+
+    async def no_request_param(context: AppContext) -> None:
+        return None
+
+    monkeypatch.setitem(worker.JOB_HANDLERS, "miswired", no_request_param)
+    async with aiosqlite.connect(database) as connection:
+        await SqliteOutbox(connection).enqueue(job="miswired", payload={"x": 1})
+        await connection.commit()
+
+    assert await drain(database) == 1
+
+    (row,) = await outbox_rows(database)
+    assert row[2] == 1 and row[3] is not None
+    assert "request" in row[3]
+
+
+async def test_dead_lettering_rolls_back_partial_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A use case that writes and then fails deterministically must not
+    commit the write alongside the dead-letter record."""
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+
+    async def writes_then_rejects(request: MemberAdded, context: AppContext) -> None:
+        await context.notifications.record(user_id="bob", message="half-done")
+        raise AppError(forbidden)
+
+    monkeypatch.setitem(worker.JOB_HANDLERS, "half", writes_then_rejects)
+    async with aiosqlite.connect(database) as connection:
+        await SqliteOutbox(connection).enqueue(
+            job="half",
+            payload={"project_id": "p", "project_name": "P", "user_id": "bob"},
+        )
+        await connection.commit()
+
+    assert await drain(database) == 1
+
+    (row,) = await outbox_rows(database)
+    assert row[2] == 1 and row[3] is not None
     async with aiosqlite.connect(database) as connection:
         assert await SqliteNotificationLog(connection).list_for("bob") == []

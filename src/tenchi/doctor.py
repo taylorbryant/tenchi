@@ -55,6 +55,12 @@ _HTTP_RULES: dict[Category, str] = {
     "tenchi_runtime": "must not import the Tenchi server or client runtime",
 }
 
+# Names re-exported from the tenchi package root that belong to the
+# runtime; importing them from the root is the same dependency.
+_RUNTIME_REEXPORTS = frozenset(
+    {"create_app", "execute", "Client", "UnexpectedResponseError", "RequestInfo"}
+)
+
 # Forbidden import targets per source category, with the rule each enforces.
 _RULES: dict[Category, dict[Category, str]] = {
     "schemas": {
@@ -353,6 +359,11 @@ def _classify_module(parts: tuple[str, ...]) -> Category | None:
             ("client",),
             ("execution",),
         ):
+            return "tenchi_runtime"
+        # Root re-exports reach the same runtime: `from tenchi import
+        # execute` must not slip past what `from tenchi.execution import
+        # execute` is denied.
+        if parts[0] == "tenchi" and parts[1:2] and parts[1] in _RUNTIME_REEXPORTS:
             return "tenchi_runtime"
         return None
     if parts[1:2] == ("infra",):

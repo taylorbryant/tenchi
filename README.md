@@ -521,11 +521,13 @@ from tenchi.execution import execute
 await execute(notify_member_added, request_json=payload, context=context)
 ```
 
-Validation happens before the context opens, so invalid input never
-starts a unit of work; failures raise for the entrypoint to translate
-(the taskboard's worker dead-letters them). See
-[`docs/execution.md`](docs/execution.md) for what this deliberately
-does not do.
+The signature is checked and input validated before the context opens,
+so neither a miswired call nor invalid input ever starts a unit of
+work. Miswiring raises `ExecutionError` — deterministic and distinctly
+catchable, so queue entrypoints dead-letter it instead of retrying (the
+taskboard's worker does exactly that, for invalid payloads and
+`AppError` rejections too). See [`docs/execution.md`](docs/execution.md)
+for what this deliberately does not do.
 
 ## OpenAPI
 
