@@ -1,13 +1,22 @@
-"""Wires app ports to concrete adapters for the selected runtime."""
+"""Wires app ports to concrete adapters for the selected runtime.
+
+This is the one file that knows the taskboard talks to two database
+connections per request: a primary (writes and strong reads, wrapped in
+the request transaction) and a read-only connection serving the
+staleness-tolerant ``TaskSearch`` port. With SQLite the "replica" is a
+second connection to the same file locked into query-only mode; against
+Postgres it would be a connection from a replica pool — the wiring
+shape is identical (``docs/read-replicas.md`` in the tenchi repository).
+"""
 
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 
 import aiosqlite
 
 from app.features.projects.ports import NotificationLog, Outbox, ProjectRepository
-from app.features.tasks.ports import TaskRepository
+from app.features.tasks.ports import TaskRepository, TaskSearch
 
 from .sqlite_repositories import (
     SCHEMA,
@@ -15,6 +24,7 @@ from .sqlite_repositories import (
     SqliteOutbox,
     SqliteProjectRepository,
     SqliteTaskRepository,
+    SqliteTaskSearch,
 )
 
 
@@ -24,6 +34,7 @@ class AppPorts:
 
     projects: ProjectRepository
     tasks: TaskRepository
+    task_search: TaskSearch
     outbox: Outbox
     notifications: NotificationLog
 
@@ -35,6 +46,23 @@ async def configure_connection(connection: aiosqlite.Connection) -> None:
     write concurrently."""
     await connection.execute("PRAGMA foreign_keys = ON")
     await connection.execute("PRAGMA busy_timeout = 5000")
+
+
+@asynccontextmanager
+async def open_read_connection(
+    database_path: str,
+) -> AsyncGenerator[aiosqlite.Connection]:
+    """The read side: a connection that cannot write.
+
+    ``query_only`` makes SQLite reject every write on this connection,
+    so a wiring mistake (a write-path adapter handed the read
+    connection) fails loudly instead of silently writing to what should
+    be a replica. In production this is where a replica DSN would go.
+    """
+    async with aiosqlite.connect(database_path) as connection:
+        await configure_connection(connection)
+        await connection.execute("PRAGMA query_only = ON")
+        yield connection
 
 
 async def ensure_schema(database_path: str) -> None:
@@ -49,14 +77,23 @@ async def ensure_schema(database_path: str) -> None:
 
 @asynccontextmanager
 async def open_request_ports(database_path: str) -> AsyncGenerator[AppPorts]:
-    """One request's unit of work: a connection whose transaction commits
-    on success; closing without a commit rolls back on error."""
-    async with aiosqlite.connect(database_path) as connection:
-        await configure_connection(connection)
+    """One request's unit of work plus its read side.
+
+    The primary connection carries the request transaction — commit on
+    success, roll back on error. The read connection is autocommit and
+    read-only; it participates in no transaction, exactly as a replica
+    would not. AsyncExitStack keeps the acquisitions flat and unwinds
+    them in reverse on exit or error.
+    """
+    async with AsyncExitStack() as stack:
+        primary = await stack.enter_async_context(aiosqlite.connect(database_path))
+        await configure_connection(primary)
+        reader = await stack.enter_async_context(open_read_connection(database_path))
         yield AppPorts(
-            projects=SqliteProjectRepository(connection),
-            tasks=SqliteTaskRepository(connection),
-            outbox=SqliteOutbox(connection),
-            notifications=SqliteNotificationLog(connection),
+            projects=SqliteProjectRepository(primary),
+            tasks=SqliteTaskRepository(primary),
+            task_search=SqliteTaskSearch(reader),
+            outbox=SqliteOutbox(primary),
+            notifications=SqliteNotificationLog(primary),
         )
-        await connection.commit()
+        await primary.commit()

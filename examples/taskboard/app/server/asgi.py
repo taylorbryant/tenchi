@@ -43,6 +43,7 @@ async def create_context(database_path: str) -> AsyncGenerator[AppContext]:
         yield AppContext(
             projects=ports.projects,
             tasks=ports.tasks,
+            task_search=ports.task_search,
             outbox=ports.outbox,
             notifications=ports.notifications,
         )

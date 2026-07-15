@@ -52,6 +52,7 @@ def make_app(database_path: str) -> Starlette:
             yield AppContext(
                 projects=ports.projects,
                 tasks=ports.tasks,
+                task_search=ports.task_search,
                 outbox=ports.outbox,
                 notifications=ports.notifications,
                 user=ALICE,

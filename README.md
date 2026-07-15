@@ -688,7 +688,9 @@ schemes, testing/pagination/health rails, and the full CLI (`new`,
 
 Where it goes next — and, just as important, what it will never grow —
 is written down in [ROADMAP.md](ROADMAP.md). Integration questions are
-answered by design notes: [`docs/providers.md`](docs/providers.md)
-(ports + adapters over provider packages) and
-[`docs/events.md`](docs/events.md) (effects as ports, outbox over event
-bus, workers as entrypoints).
+answered by design notes and recipes: [`docs/providers.md`](docs/providers.md)
+(ports + adapters over provider packages), [`docs/events.md`](docs/events.md)
+(effects as ports, outbox over event bus, workers as entrypoints),
+[`docs/execution.md`](docs/execution.md) (use cases outside HTTP), and
+[`docs/read-replicas.md`](docs/read-replicas.md) (read/write splitting
+as a port-level contract).

@@ -4,6 +4,7 @@ from app.infra.memory_repositories import (
     MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
+    MemoryTaskSearch,
 )
 from app.server.context import AppContext
 from app.shared.users import OwnerScope, User
@@ -15,7 +16,8 @@ async def test_list_projects_returns_only_the_current_users() -> None:
     projects = MemoryProjectRepository()
     context = AppContext(
         projects=projects,
-        tasks=MemoryTaskRepository(projects),
+        tasks=(tasks := MemoryTaskRepository(projects)),
+        task_search=MemoryTaskSearch(projects, tasks),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=ALICE,

@@ -42,6 +42,7 @@ from app.infra.sqlite_repositories import (
     SqliteOutbox,
     SqliteProjectRepository,
     SqliteTaskRepository,
+    SqliteTaskSearch,
 )
 from app.server.context import AppContext
 from tenchi.errors import AppError
@@ -76,6 +77,7 @@ async def process_next(database_path: str) -> bool:
             context = AppContext(
                 projects=SqliteProjectRepository(connection),
                 tasks=SqliteTaskRepository(connection),
+                task_search=SqliteTaskSearch(connection),
                 outbox=outbox,
                 notifications=SqliteNotificationLog(connection),
             )

@@ -34,6 +34,7 @@ from app.infra.memory_repositories import (
     MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
+    MemoryTaskSearch,
 )
 from app.infra.static_token_directory import StaticTokenDirectory
 from app.server.context import AppContext
@@ -68,6 +69,7 @@ def make_app() -> Starlette:
         context_factory=lambda: AppContext(
             projects=projects,
             tasks=tasks,
+            task_search=MemoryTaskSearch(projects, tasks),
             outbox=MemoryOutbox(),
             notifications=MemoryNotificationLog(),
         ),

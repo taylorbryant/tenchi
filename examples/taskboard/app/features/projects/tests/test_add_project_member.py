@@ -10,6 +10,7 @@ from app.infra.memory_repositories import (
     MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
+    MemoryTaskSearch,
 )
 from app.server.context import AppContext
 from app.shared.errors import forbidden
@@ -34,6 +35,7 @@ def context_for(
     return AppContext(
         projects=projects,
         tasks=tasks,
+        task_search=MemoryTaskSearch(projects, tasks),
         outbox=outbox if outbox is not None else MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,

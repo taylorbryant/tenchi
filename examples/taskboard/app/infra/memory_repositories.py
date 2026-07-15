@@ -69,6 +69,16 @@ class MemoryTaskRepository:
         self.tasks[task.id] = task
         return task
 
+
+class MemoryTaskSearch:
+    """Read-side counterpart of MemoryTaskRepository, over the same stores."""
+
+    def __init__(
+        self, projects: MemoryProjectRepository, tasks: MemoryTaskRepository
+    ) -> None:
+        self._projects = projects
+        self._tasks = tasks
+
     async def search(
         self,
         *,
@@ -85,7 +95,7 @@ class MemoryTaskRepository:
         }
         matches = [
             task
-            for task in self.tasks.values()
+            for task in self._tasks.tasks.values()
             if task.project_id in visible
             and (project_id is None or task.project_id == project_id)
             and (status is None or task.status == status)

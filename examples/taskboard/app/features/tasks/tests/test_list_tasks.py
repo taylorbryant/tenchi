@@ -5,6 +5,7 @@ from app.infra.memory_repositories import (
     MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
+    MemoryTaskSearch,
 )
 from app.server.context import AppContext
 from app.shared.users import OwnerScope, User
@@ -18,6 +19,7 @@ async def make_populated_context() -> AppContext:
     context = AppContext(
         projects=projects,
         tasks=tasks,
+        task_search=MemoryTaskSearch(projects, tasks),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=ALICE,
@@ -72,6 +74,7 @@ async def test_members_see_shared_project_tasks_in_the_list() -> None:
     alice = AppContext(
         projects=projects,
         tasks=tasks,
+        task_search=MemoryTaskSearch(projects, tasks),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=ALICE,
