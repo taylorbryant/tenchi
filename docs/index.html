@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A one-page guide to building typed JSON APIs with Tenchi."
+    />
+    <meta name="theme-color" content="#f4f1e9" />
+    <title>Tenchi — typed APIs, plain Python</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+
+    <header class="topbar">
+      <a class="wordmark" href="#top" aria-label="Tenchi documentation home">
+        <span class="wordmark-mark" aria-hidden="true">天</span>
+        <span>tenchi</span>
+      </a>
+      <nav class="top-links" aria-label="Project links">
+        <a href="https://pypi.org/project/tenchi/">PyPI</a>
+        <a href="https://github.com/taylorbryant/tenchi">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page" id="top">
+      <aside class="rail">
+        <p class="rail-label">On this page</p>
+        <nav aria-label="Documentation sections">
+          <a href="#start">Start</a>
+          <a href="#contracts">Contracts</a>
+          <a href="#use-cases">Use cases &amp; ports</a>
+          <a href="#application">Application wiring</a>
+          <a href="#errors">Errors &amp; auth</a>
+          <a href="#client">Client &amp; OpenAPI</a>
+          <a href="#operations">Workers &amp; pagination</a>
+          <a href="#testing">Testing</a>
+          <a href="#cli">CLI</a>
+        </nav>
+        <p class="rail-note">Python 3.12+ · pre-1.0</p>
+      </aside>
+
+      <main id="content">
+        <section class="hero" id="start">
+          <p class="eyebrow">Contract-first JSON APIs</p>
+          <h1>Typed boundaries.<br />Plain Python.</h1>
+          <p class="lede">
+            Tenchi puts contracts at the HTTP boundary and ordinary async
+            functions at the center. Pydantic validates the wire. Protocols and
+            frozen dataclasses keep dependencies explicit.
+          </p>
+          <div class="hero-actions">
+            <code>uv add tenchi</code>
+            <a class="button" href="#contracts">Build an endpoint</a>
+          </div>
+
+          <div class="flow" aria-label="Tenchi request flow">
+            <span>contract</span><b aria-hidden="true">→</b>
+            <span>route</span><b aria-hidden="true">→</b>
+            <span>use case</span><b aria-hidden="true">→</b>
+            <span>context</span>
+          </div>
+
+          <div class="quickstart">
+            <div>
+              <p class="kicker">A working app in four lines</p>
+              <p>
+                The scaffold includes a feature, an in-memory adapter, server
+                wiring, and tests.
+              </p>
+            </div>
+            <pre data-language="shell"><code>uvx tenchi new my_app
+cd my_app
+uv sync
+uv run tenchi dev</code></pre>
+          </div>
+        </section>
+
+        <section class="doc-section" id="contracts">
+          <div class="section-heading">
+            <span>01</span>
+            <div>
+              <p class="kicker">Define the wire once</p>
+              <h2>Contracts</h2>
+            </div>
+          </div>
+          <p>
+            A contract declares the HTTP method, path, boundary types, response,
+            status, and possible application errors. Any type Pydantic can
+            validate can sit at the boundary.
+          </p>
+          <pre data-language="python"><code>from pydantic import BaseModel, Field
+from tenchi.contracts import contract
+
+class CreateTodo(BaseModel):
+    title: str = Field(min_length=1)
+
+class Todo(BaseModel):
+    id: str
+    title: str
+    completed: bool
+
+create_todo_contract = contract(
+    method="POST",
+    path="/todos",
+    request=CreateTodo,
+    response=Todo,
+    status=201,
+    summary="Create a todo",
+    tags=("todos",),
+)</code></pre>
+          <div class="note">
+            <strong>Composition-time checks.</strong> Route parameters and the
+            return annotation must exactly match the contract, so broken wiring
+            fails before the server starts.
+          </div>
+        </section>
+
+        <section class="doc-section" id="use-cases">
+          <div class="section-heading">
+            <span>02</span>
+            <div>
+              <p class="kicker">Keep the center boring</p>
+              <h2>Use cases &amp; ports</h2>
+            </div>
+          </div>
+          <p>
+            Use cases are plain async functions. Ports are protocols. A frozen
+            context carries the implementations chosen by the application.
+          </p>
+          <div class="code-pair">
+            <pre data-language="python · ports.py"><code>from typing import Protocol
+
+class TodoRepository(Protocol):
+    async def create(
+        self, *, title: str
+    ) -&gt; Todo: ...</code></pre>
+            <pre data-language="python · context.py"><code>from dataclasses import dataclass
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    todos: TodoRepository</code></pre>
+          </div>
+          <pre data-language="python · create_todo.py"><code>async def create_todo(
+    request: CreateTodo,
+    context: AppContext,
+) -&gt; Todo:
+    return await context.todos.create(title=request.title)</code></pre>
+          <p class="quiet">
+            Use-case tests can pass a memory adapter directly. No HTTP client,
+            framework base class, or dependency container is required.
+          </p>
+        </section>
+
+        <section class="doc-section" id="application">
+          <div class="section-heading">
+            <span>03</span>
+            <div>
+              <p class="kicker">Bind, compose, run</p>
+              <h2>Application wiring</h2>
+            </div>
+          </div>
+          <p>
+            Routes bind contracts to use cases. Route groups compose features,
+            shared errors, the OpenAPI document, and health checks. The server
+            receives concrete wiring at the composition root.
+          </p>
+          <pre data-language="python"><code>from tenchi.health import health_route
+from tenchi.openapi import openapi_route
+from tenchi.routes import route, route_group
+from tenchi.server import create_app
+
+todo_routes = route_group(
+    route(create_todo_contract, create_todo),
+)
+
+routes = route_group(
+    todo_routes,
+    openapi_route(todo_routes, title="Todos", version="1.0.0"),
+    health_route(),
+)
+
+app = create_app(
+    routes=routes,
+    context_factory=lambda: AppContext(todos=repository),
+)</code></pre>
+          <div class="feature-grid">
+            <article>
+              <h3>Lifespan resources</h3>
+              <p>
+                Pass an async context manager as <code>lifespan</code>; its value
+                is supplied to the context factory.
+              </p>
+            </article>
+            <article>
+              <h3>Request scope</h3>
+              <p>
+                Make the context factory an async context manager for
+                commit-on-success and rollback-on-error semantics.
+              </p>
+            </article>
+            <article>
+              <h3>Boundary hooks</h3>
+              <p>
+                Hooks receive <code>RequestInfo</code> and context before the use
+                case—ideal for authentication.
+              </p>
+            </article>
+            <article>
+              <h3>Middleware</h3>
+              <p>
+                Pass ordinary Starlette middleware without wrapping or hiding
+                the ASGI runtime.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="doc-section" id="errors">
+          <div class="section-heading">
+            <span>04</span>
+            <div>
+              <p class="kicker">Errors are part of the contract</p>
+              <h2>Errors &amp; auth</h2>
+            </div>
+          </div>
+          <p>
+            Define stable application errors once and declare them on the
+            contract or route group. An undeclared <code>AppError</code> becomes a
+            framework-owned 500 rather than leaking an undocumented response.
+          </p>
+          <pre data-language="python"><code>from tenchi.errors import AppError, ErrorDef
+
+todo_not_found = ErrorDef(
+    code="TODO_NOT_FOUND",
+    status=404,
+    message="Todo not found",
+)
+
+get_todo_contract = contract(
+    method="GET",
+    path="/todos/{todo_id}",
+    params=GetTodoParams,
+    response=Todo,
+    errors=(todo_not_found,),
+)
+
+async def get_todo(params: GetTodoParams, context: AppContext) -&gt; Todo:
+    todo = await context.todos.get(params.todo_id)
+    if todo is None:
+        raise AppError(todo_not_found, details={"todo_id": params.todo_id})
+    return todo</code></pre>
+          <div class="note">
+            <strong>Authentication in hooks; authorization in use cases.</strong>
+            Hooks attach identity to a replaced context. Pure policy functions
+            decide what that identity may do with a domain subject.
+          </div>
+        </section>
+
+        <section class="doc-section" id="client">
+          <div class="section-heading">
+            <span>05</span>
+            <div>
+              <p class="kicker">The contract travels</p>
+              <h2>Typed client &amp; OpenAPI</h2>
+            </div>
+          </div>
+          <p>
+            The async client serializes inputs and validates responses from the
+            same contract. Declared error envelopes return as
+            <code>AppError</code>; everything else is an
+            <code>UnexpectedResponseError</code>.
+          </p>
+          <pre data-language="python"><code>from tenchi.client import Client
+
+async with Client(base_url="https://api.example.com") as client:
+    todo = await client.call(
+        create_todo_contract,
+        request=CreateTodo(title="Buy milk"),
+    )
+
+assert isinstance(todo, Todo)</code></pre>
+          <p>
+            <code>openapi_route(...)</code> serves an OpenAPI 3.1 document from
+            the same declarations. Schema names, aliases, path converters,
+            media types, errors, deprecation, and sunset metadata stay aligned
+            with the server and client.
+          </p>
+        </section>
+
+        <section class="doc-section" id="operations">
+          <div class="section-heading">
+            <span>06</span>
+            <div>
+              <p class="kicker">Use the same boundary off HTTP</p>
+              <h2>Workers &amp; pagination</h2>
+            </div>
+          </div>
+          <div class="split-feature">
+            <div>
+              <h3>Execute a use case anywhere</h3>
+              <p>
+                <code>execute()</code> validates raw job data against the use
+                case’s request annotation and applies the same context scoping
+                used by the server.
+              </p>
+              <pre data-language="python"><code>from tenchi.execution import execute
+
+await execute(
+    notify_member_added,
+    request_json=job.payload,
+    context=context,
+)</code></pre>
+            </div>
+            <div>
+              <h3>Return typed pages</h3>
+              <p>
+                Subclass <code>PageQuery</code> for filters, declare
+                <code>Page[Item]</code>, and preserve the requested window with
+                <code>page()</code>.
+              </p>
+              <pre data-language="python"><code>class ListTodosQuery(PageQuery):
+    completed: bool | None = None
+
+return page(
+    items,
+    total=total,
+    query=query,
+)</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="doc-section" id="testing">
+          <div class="section-heading">
+            <span>07</span>
+            <div>
+              <p class="kicker">No server process required</p>
+              <h2>Testing</h2>
+            </div>
+          </div>
+          <p>
+            <code>open_client</code> provides the typed client in-process;
+            <code>open_http</code> exposes raw httpx responses. Both run the app
+            lifespan around the test.
+          </p>
+          <pre data-language="python"><code>from tenchi.testing import open_client, open_http
+
+async with open_client(app) as client:
+    todo = await client.call(
+        create_todo_contract,
+        request=CreateTodo(title="Buy milk"),
+    )
+
+async with open_http(app) as http:
+    response = await http.get("/health")
+    assert response.status_code == 200</code></pre>
+        </section>
+
+        <section class="doc-section" id="cli">
+          <div class="section-heading">
+            <span>08</span>
+            <div>
+              <p class="kicker">Scaffold, inspect, enforce</p>
+              <h2>CLI</h2>
+            </div>
+          </div>
+          <div class="cli-block">
+            <pre data-language="shell"><code>tenchi new my_app
+tenchi make feature notes
+tenchi make use-case notes create_note
+tenchi routes
+tenchi openapi
+tenchi doctor
+tenchi dev</code></pre>
+            <div>
+              <p>
+                <strong><code>routes</code></strong> prints the application map.
+                <strong><code>openapi</code></strong> emits the schema.
+                <strong><code>doctor</code></strong> checks dependency direction
+                and authorization consistency.
+              </p>
+              <p>
+                Generated applications pass Ruff, Pyright strict, pytest, and
+                <code>tenchi doctor</code> without edits.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <footer>
+          <span>Tenchi is MIT licensed.</span>
+          <a href="https://github.com/taylorbryant/tenchi/tree/main/examples/todos">
+            Read the todos example →
+          </a>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>
