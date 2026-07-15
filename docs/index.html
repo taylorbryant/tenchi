@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A one-page guide to building typed JSON APIs with Tenchi."
+    />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Tenchi</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --green: #087a45;
+        --muted: #666666;
+        --soft: #f5f5f3;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: #ffffff;
+        color: #111111;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 16px;
+        line-height: 1.6;
+      }
+
+      header,
+      main,
+      footer {
+        width: min(40rem, calc(100% - 2rem));
+        margin: 0 auto;
+      }
+
+      header {
+        display: flex;
+        justify-content: space-between;
+        padding-top: 1rem;
+        font-size: 0.9rem;
+      }
+
+      nav {
+        display: flex;
+        gap: 0.75rem;
+      }
+
+      a {
+        color: var(--green);
+        text-decoration: underline;
+        text-underline-offset: 0.16em;
+      }
+
+      a:hover {
+        text-decoration: none;
+      }
+
+      .brand {
+        color: #111111;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--green);
+        outline-offset: 3px;
+      }
+
+      .skip-link {
+        position: fixed;
+        top: 0.75rem;
+        left: 0.75rem;
+        padding: 0.4rem 0.65rem;
+        background: #ffffff;
+        border: 1px solid #111111;
+        transform: translateY(-160%);
+      }
+
+      .skip-link:focus {
+        transform: translateY(0);
+      }
+
+      main {
+        padding-top: 5rem;
+      }
+
+      section {
+        margin-bottom: 4rem;
+        scroll-margin-top: 1rem;
+      }
+
+      h1,
+      h2 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 400;
+        line-height: 1.25;
+      }
+
+      h1 {
+        margin: 0 0 1rem;
+        font-size: 2rem;
+      }
+
+      h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1.35rem;
+      }
+
+      p {
+        margin: 0 0 1rem;
+      }
+
+      code {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo,
+          monospace;
+        font-size: 0.85em;
+      }
+
+      pre {
+        overflow-x: auto;
+        margin: 1.25rem 0;
+        padding: 1rem;
+        background: var(--soft);
+        line-height: 1.55;
+        tab-size: 4;
+      }
+
+      pre code {
+        font-size: 0.8rem;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      footer {
+        padding: 2rem 0 4rem;
+        border-top: 1px solid #dddddd;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+
+      @media (max-width: 520px) {
+        main {
+          padding-top: 3.5rem;
+        }
+
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+
+    <header id="top">
+      <a class="brand" href="#top">tenchi</a>
+      <nav aria-label="Project links">
+        <a href="https://pypi.org/project/tenchi/">pypi</a>
+        <a href="https://github.com/taylorbryant/tenchi">github</a>
+      </nav>
+    </header>
+
+    <main id="content">
+      <section id="start">
+        <h1>Tenchi</h1>
+        <p>
+          Tenchi is a small, contract-first Python framework for typed JSON
+          APIs. Contracts define the HTTP boundary, plain async functions
+          implement use cases, and frozen dataclasses carry explicitly wired
+          dependencies.
+        </p>
+        <p><code>uv add tenchi</code></p>
+        <pre data-language="shell"><code>uvx tenchi new my_app
+cd my_app
+uv sync
+uv run tenchi dev</code></pre>
+      </section>
+
+      <section id="contracts">
+        <h2>Contracts</h2>
+        <p>
+          A contract declares the method, path, inputs, response, status, and
+          application errors for an endpoint.
+        </p>
+        <pre data-language="python"><code>from pydantic import BaseModel, Field
+from tenchi.contracts import contract
+
+class CreateTodo(BaseModel):
+    title: str = Field(min_length=1)
+
+class Todo(BaseModel):
+    id: str
+    title: str
+    completed: bool
+
+create_todo_contract = contract(
+    method="POST",
+    path="/todos",
+    request=CreateTodo,
+    response=Todo,
+    status=201,
+)</code></pre>
+      </section>
+
+      <section id="use-cases">
+        <h2>Use cases and ports</h2>
+        <p>
+          Ports are protocols. A frozen context carries their implementations.
+          Use cases are ordinary async functions.
+        </p>
+        <pre data-language="python"><code>from dataclasses import dataclass
+from typing import Protocol
+
+class TodoRepository(Protocol):
+    async def create(self, *, title: str) -&gt; Todo: ...
+    async def list(self) -&gt; list[Todo]: ...
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    todos: TodoRepository
+
+async def create_todo(request: CreateTodo, context: AppContext) -&gt; Todo:
+    return await context.todos.create(title=request.title)</code></pre>
+      </section>
+
+      <section id="application">
+        <h2>Application wiring</h2>
+        <p>
+          Bind contracts to use cases, compose the routes, and provide concrete
+          dependencies at the application root.
+        </p>
+        <pre data-language="python"><code>from tenchi.health import health_route
+from tenchi.openapi import openapi_route
+from tenchi.routes import route, route_group
+from tenchi.server import create_app
+
+todo_routes = route_group(
+    route(create_todo_contract, create_todo),
+)
+
+routes = route_group(
+    todo_routes,
+    openapi_route(todo_routes, title="Todos", version="1.0.0"),
+    health_route(),
+)
+
+app = create_app(
+    routes=routes,
+    context_factory=lambda: AppContext(todos=repository),
+)</code></pre>
+        <p class="muted">
+          <code>create_app()</code> also accepts lifespan resources, hooks,
+          middleware, and request-body limits.
+        </p>
+      </section>
+
+      <section id="errors">
+        <h2>Errors</h2>
+        <p>
+          Define stable application errors and declare them on a contract or
+          route group. Undeclared application errors become framework-owned
+          500s.
+        </p>
+        <pre data-language="python"><code>from tenchi.errors import AppError, ErrorDef
+
+todo_not_found = ErrorDef(
+    code="TODO_NOT_FOUND",
+    status=404,
+    message="Todo not found",
+)
+
+get_todo_contract = contract(
+    method="GET",
+    path="/todos/{todo_id}",
+    params=GetTodoParams,
+    response=Todo,
+    errors=(todo_not_found,),
+)
+
+async def get_todo(params: GetTodoParams, context: AppContext) -&gt; Todo:
+    todo = await context.todos.get(params.todo_id)
+    if todo is None:
+        raise AppError(todo_not_found, details={"todo_id": params.todo_id})
+    return todo</code></pre>
+        <p class="muted">
+          Authentication belongs in boundary hooks. Authorization stays in use
+          cases and pure policy functions.
+        </p>
+      </section>
+
+      <section id="client">
+        <h2>Client and OpenAPI</h2>
+        <p>
+          The async client serializes inputs and validates responses using the
+          same contract.
+        </p>
+        <pre data-language="python"><code>from tenchi.client import Client
+
+async with Client(base_url="https://api.example.com") as client:
+    todo = await client.call(
+        create_todo_contract,
+        request=CreateTodo(title="Buy milk"),
+    )</code></pre>
+        <p>
+          <code>openapi_route()</code> serves an OpenAPI 3.1 document from the
+          same declarations.
+        </p>
+      </section>
+
+      <section id="workers">
+        <h2>Workers and scripts</h2>
+        <p>
+          <code>execute()</code> validates job data against a use case’s request
+          annotation and applies the same context scoping as the server.
+        </p>
+        <pre data-language="python"><code>from tenchi.execution import execute
+
+await execute(
+    notify_member_added,
+    request_json=job.payload,
+    context=context,
+)</code></pre>
+      </section>
+
+      <section id="pagination">
+        <h2>Pagination</h2>
+        <p>
+          Subclass <code>PageQuery</code> for filters, return
+          <code>Page[Item]</code>, and build the result with <code>page()</code>.
+        </p>
+        <pre data-language="python"><code>from tenchi.pagination import Page, PageQuery, page
+
+class ListTodosQuery(PageQuery):
+    completed: bool | None = None
+
+async def list_todos(
+    query: ListTodosQuery,
+    context: AppContext,
+) -&gt; Page[Todo]:
+    items = await context.todos.list()
+    start = query.offset
+    window = items[start : start + query.limit]
+    return page(window, total=len(items), query=query)</code></pre>
+      </section>
+
+      <section id="testing">
+        <h2>Testing</h2>
+        <p>
+          <code>open_client</code> provides the typed client in-process;
+          <code>open_http</code> exposes raw httpx responses. Both run the app
+          lifespan.
+        </p>
+        <pre data-language="python"><code>from tenchi.testing import open_client, open_http
+
+async with open_client(app) as client:
+    todo = await client.call(
+        create_todo_contract,
+        request=CreateTodo(title="Buy milk"),
+    )
+
+async with open_http(app) as http:
+    response = await http.get("/health")
+    assert response.status_code == 200</code></pre>
+      </section>
+
+      <section id="cli">
+        <h2>CLI</h2>
+        <pre data-language="shell"><code>tenchi new my_app
+tenchi make feature notes
+tenchi make use-case notes create_note
+tenchi routes
+tenchi openapi
+tenchi doctor
+tenchi dev</code></pre>
+      </section>
+    </main>
+
+    <footer>
+      made by <a href="https://taylor.page">taylor bryant</a>
+    </footer>
+  </body>
+</html>

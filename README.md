@@ -7,6 +7,10 @@ and frozen dataclasses carry explicitly wired dependencies.
 Tenchi uses Pydantic for validation, Starlette for ASGI, and httpx for its typed
 client. It requires Python 3.12 or newer and is currently pre-1.0.
 
+Read the [one-page guide](https://taylorbryant.github.io/tenchi/) for examples
+of contracts, use cases, application wiring, errors, the typed client, workers,
+pagination, testing, and the CLI.
+
 ## Quick start
 
 Create and run a working application:
