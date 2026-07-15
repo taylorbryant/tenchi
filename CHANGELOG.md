@@ -5,7 +5,65 @@ All notable changes to Tenchi are documented here. The format follows
 [Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
 versions may change the public API.
 
-## [Unreleased]
+## [0.6.0] - 2026-07-14
+
+### Added
+
+- `tenchi.execution`: `execute()` runs a use case from any entrypoint —
+  worker, script, scheduler, test — with the server's boundary
+  guarantees: input validated against the use case's own `request`
+  annotation (Python data or raw JSON), undeclared inputs rejected, and
+  the same context scoping as `create_app`. `open_context()` exposes
+  that scoping directly, and the server now uses it too, so
+  commit-on-success / rollback-on-error semantics are defined once.
+  `docs/execution.md` records what was deliberately left out.
+
+- Request body size limits: `create_app(max_request_bytes=...)` caps
+  bodies app-wide (default 1 MiB) and `contract(max_request_bytes=...)`
+  overrides per route with a finite ceiling. Oversized bodies — by
+  declared `Content-Length` or by actual stream size — are rejected
+  with the framework's 413 `REQUEST_TOO_LARGE` before validation, and
+  operations with request bodies document the 413 in OpenAPI.
+  **Behavior change on upgrade**: existing apps gain the 1 MiB default
+  cap; pass `max_request_bytes=None` to keep unlimited bodies. Clients
+  that abandon an upload mid-stream now log at info (499), not as
+  unhandled 500s.
+- Route lifecycle on the wire: `contract(deprecated=...)` accepts an
+  aware datetime and sends an RFC 9745 `Deprecation: @<unix-timestamp>`
+  header (plain `True` sends the legacy `Deprecation: true` form), and
+  the new `contract(sunset=...)` (aware datetime) sends an RFC 8594
+  `Sunset` header and an `x-sunset` OpenAPI extension, both normalized
+  to UTC.
+- `tenchi routes --json`: the route table as a machine-readable app map
+  (method, path, status, use case, errors, tags, lifecycle).
+- `ExecutionError` (a `TypeError` subclass): every way an `execute()`
+  call can be miswired — missing or positional-only parameters, extra
+  required parameters, unannotated or unresolvable `request`
+  annotations, unusable context sources — raises one deterministic,
+  distinctly catchable type, so queue entrypoints can dead-letter
+  miswiring instead of retrying it.
+
+### Changed
+
+- The taskboard worker validates payloads through `execute()`; its job
+  registry is now just names to use cases. Deterministic failures —
+  invalid payloads, miswired handlers, `AppError` rejections — are
+  dead-lettered after rolling back the job's transaction, so a poison
+  job can neither starve the queue behind it nor commit partial writes
+  alongside its dead-letter record.
+- `execute()` checks signatures eagerly with the same rules as
+  `route()` (`**kwargs` use cases now accepted, positional-only and
+  extra-required parameters rejected before the context opens),
+  resolves only the `request` annotation (so `TYPE_CHECKING`-only
+  context annotations work), honors a defaulted `request` parameter,
+  and rejects sync context managers and bare async generators as
+  context sources instead of passing them through unscoped.
+- `tenchi doctor` treats `tenchi.execution` as runtime: domain code and
+  use cases must not import it — running use cases is entrypoint work.
+  Root re-exports (`from tenchi import execute` / `create_app` /
+  `Client`) are now caught the same as their submodule spellings.
+
+## [0.5.0] - 2026-07-14
 
 ### Added
 
@@ -154,7 +212,7 @@ versions may change the public API.
   The taskboard example now opens a connection and transaction per
   request this way. `docs/providers.md` records the accompanying
   decision: Tenchi documents ports + adapters + scoped resources as its
-  integration story instead of growing Beignet-style provider packages.
+  integration story instead of growing a provider-package tier.
 
 - `Client` owns more of its transport: `Client(headers=...)` sends default
   headers on every request (the natural home for an `authorization`

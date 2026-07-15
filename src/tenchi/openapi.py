@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Mapping, Sequence
+from datetime import UTC
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -53,6 +54,12 @@ def openapi_schema(
     operations whose contract tags intersect ``public_tags`` are exempted
     with an empty per-operation security list — matching the convention of
     hooks exempting routes by tag.
+
+    Operations with request bodies document the framework's 413, because
+    body caps are on by default. This is a pure function of the route
+    group — it cannot see ``create_app(max_request_bytes=None)`` — so an
+    app that disables caps entirely (and sets no per-contract ceilings)
+    over-documents that one response.
     """
     components: dict[str, Any] = {}
     paths: dict[str, dict[str, Any]] = {}
@@ -154,6 +161,10 @@ def _operation(
         operation["tags"] = list(declared.tags)
     if declared.deprecated:
         operation["deprecated"] = True
+    if declared.sunset is not None:
+        # Normalized to UTC so the extension and the Sunset header
+        # describe the instant identically.
+        operation["x-sunset"] = declared.sunset.astimezone(UTC).isoformat()
 
     parameters: list[dict[str, Any]] = []
     if declared.params is not None:
@@ -211,6 +222,13 @@ def _responses(declared: Contract[Any], components: dict[str, Any]) -> dict[str,
         at_422 = errors_by_status.setdefault(tenchi_errors.validation_error.status, [])
         if tenchi_errors.validation_error not in at_422:
             at_422.append(tenchi_errors.validation_error)
+
+    if declared.request is not None:
+        # Request bodies are size-capped by default, so the framework's
+        # 413 is part of the operation's honest surface.
+        at_413 = errors_by_status.setdefault(tenchi_errors.request_too_large.status, [])
+        if tenchi_errors.request_too_large not in at_413:
+            at_413.append(tenchi_errors.request_too_large)
 
     for status, definitions in errors_by_status.items():
         responses[str(status)] = _error_response(definitions, components)

@@ -24,6 +24,7 @@ PUBLIC_MODULES = (
     "tenchi.client",
     "tenchi.contracts",
     "tenchi.errors",
+    "tenchi.execution",
     "tenchi.health",
     "tenchi.openapi",
     "tenchi.pagination",
@@ -61,8 +62,8 @@ def _public_names(module: ModuleType) -> list[str]:
             if value.__module__ == module.__name__:
                 names.append(name)
         elif name[0].isupper():  # constants and type aliases
-            if type(value).__module__ == "typing":
-                continue  # TypeVar, Self, ...: generic machinery, not API
+            if type(value).__module__ in ("typing", "datetime"):
+                continue  # imported machinery (TypeVar, Self, UTC), not API
             names.append(name)
     return names
 

@@ -1,12 +1,15 @@
 # Tenchi
 
-Tenchi is a contract-first, Python-native framework for building REST APIs
-around use cases, ports, and explicit dependency wiring. It is the Python
-sibling of Beignet: the same architecture — contracts at the HTTP boundary,
-use cases at the center, protocol-based ports, infrastructure adapters, and
-explicit server composition — expressed with plain functions, dataclasses,
-`typing.Protocol`, Pydantic v2, and Starlette instead of TypeScript
-machinery.
+Tenchi is a contract-first Python framework for building typed JSON APIs
+around use cases, ports, and explicit dependency wiring. Its one opinion,
+applied everywhere: **declare the boundary, validate at the boundary, and
+keep everything inside it plain.** Contracts at the HTTP boundary, use
+cases at the center, protocol-based ports, infrastructure adapters, and
+explicit server composition — all expressed with plain functions, frozen
+dataclasses, `typing.Protocol`, Pydantic v2, and Starlette. No decorators
+to register, no DI container to configure, no metaclasses to excavate:
+the whole framework is an afternoon's read, and it intends to stay that
+way ([ROADMAP.md](ROADMAP.md)).
 
 ## Installation
 
@@ -252,9 +255,15 @@ def require_api_key(info: RequestInfo, context: AppContext) -> AppContext | None
     return replace(context, user=lookup_user(key))
 ```
 
-Hook-raised errors follow the same honesty rule as use-case errors: they
-must be declared to be exposed. Declare them once for a whole group — this
-also documents the 401 on every route in the OpenAPI document:
+(Illustrative: it assumes your `AppContext` carries a `user` field and
+you supply `unauthorized` and `lookup_user`; the taskboard example wires
+the full version.)
+
+Hook-raised errors follow the same honesty rule as use-case errors — an
+error must be declared on the contract to be exposed; anything
+undeclared becomes a framework 500 (see [Errors](#errors)). Declare
+hook errors once for a whole group — this also documents the 401 on
+every route in the OpenAPI document:
 
 ```python
 # app/server/routes.py
@@ -288,6 +297,34 @@ app = create_app(
 Middleware runs outside Tenchi's dispatch: it never sees validated models
 or the app context, and hooks remain the seam for anything that needs
 them.
+
+## Body limits and route lifecycle
+
+Request bodies are capped at 1 MiB by default; oversized bodies are
+rejected with a framework-owned 413 (`REQUEST_TOO_LARGE`) before
+validation runs — enforced against both the declared `Content-Length`
+and the actual stream, so chunked uploads cannot dodge it. Tune the
+app-wide cap with `create_app(max_request_bytes=...)` (or `None` to
+disable), and give individual routes their own ceiling on the contract:
+
+```python
+upload_contract = contract(
+    method="POST",
+    path="/imports",
+    request=bytes,
+    request_media_type="application/octet-stream",
+    response=ImportReport,
+    max_request_bytes=50 * 1024 * 1024,
+)
+```
+
+Routes also carry their lifecycle on the wire: `deprecated=` with an
+aware datetime sends an RFC 9745 `Deprecation: @<unix-timestamp>`
+header on every response from the route (plain `True` sends the legacy
+`Deprecation: true`), and `sunset=datetime(..., tzinfo=UTC)` sends an
+RFC 8594 `Sunset` header and an `x-sunset` extension in the OpenAPI
+document — so clients hear about a route's retirement from the route
+itself.
 
 ## Typed client
 
@@ -390,7 +427,8 @@ project = await context.projects.get(request.project_id)
 ensure_can_write_project(user, project, project_id=request.project_id)
 ```
 
-`tenchi doctor` enforces the discipline three ways: policies may import
+`tenchi doctor` — the framework's static architecture checker, covered
+in [CLI](#cli) — enforces the discipline three ways: policies may import
 schemas, domain types, and shared errors — never infrastructure, the app
 context, or the HTTP runtime; and once any use case in an app references
 authorization (`require_user`, `context.user`, or a policy import), every
@@ -503,6 +541,32 @@ async with open_http(app) as http:          # raw httpx for envelope assertions
     assert (await http.get("/nope")).status_code == 404
 ```
 
+## Use cases outside HTTP
+
+HTTP is one caller of a use case, not its owner. Workers, scripts, and
+schedulers invoke the same functions through `tenchi.execution`, which
+provides the server's boundary guarantees at any entrypoint: input
+validated against the use case's own `request` annotation, and the same
+context scoping as `create_app` (values, factories, or async context
+managers with commit-on-success / rollback-on-error):
+
+```python
+from tenchi.execution import execute
+
+# In a queue worker: payload arrives as raw JSON, gets validated
+# against MemberAdded (the use case's request annotation), and the
+# use case runs inside the given context.
+await execute(notify_member_added, request_json=payload, context=context)
+```
+
+The signature is checked and input validated before the context opens,
+so neither a miswired call nor invalid input ever starts a unit of
+work. Miswiring raises `ExecutionError` — deterministic and distinctly
+catchable, so queue entrypoints dead-letter it instead of retrying (the
+taskboard's worker does exactly that, for invalid payloads and
+`AppError` rejections too). See [`docs/execution.md`](docs/execution.md)
+for what this deliberately does not do.
+
 ## OpenAPI
 
 Contracts carry everything an OpenAPI document needs, so generation is a
@@ -554,7 +618,7 @@ openapi_route(
 tenchi new my_app                      # scaffold a new application
 tenchi make feature notes              # generate a feature skeleton
 tenchi make use-case notes create_note # generate a use-case stub and test
-tenchi routes                          # print the bound route table
+tenchi routes [--json]                 # print the bound route table (or a JSON app map)
 tenchi openapi [-o openapi.json]       # print or write the OpenAPI document
 tenchi doctor                          # check dependency direction and structure
 tenchi dev                             # serve app.server.asgi:app with reload

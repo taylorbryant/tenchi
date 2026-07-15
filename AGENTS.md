@@ -1,17 +1,19 @@
 # Tenchi repository guide
 
-Tenchi is a contract-first, Python-native framework for building REST APIs
-around use cases, ports, and explicit dependency wiring. It is the Python
-sibling of Beignet: the same architecture, expressed with plain functions,
-frozen dataclasses, `typing.Protocol`, Pydantic v2, and Starlette.
+Tenchi is a contract-first, Python-native framework for building typed
+JSON APIs around use cases, ports, and explicit dependency wiring: one
+architecture — contracts at the boundary, plain use cases at the center —
+expressed with plain functions, frozen dataclasses, `typing.Protocol`,
+Pydantic v2, and Starlette.
 
 This file is the root instruction set for the repo. Follow it when changing
 framework code, the CLI, docs, or the example apps.
 
 ## Operating principles
 
-- Python-native ergonomics beat API parity with Beignet. Port concepts, not
-  spellings. When Python's constraints justify a departure, make it
+- Python-native ergonomics beat parity with any other framework's API.
+  When adopting an idea from elsewhere, port the concept, not the
+  spelling. When Python's constraints justify a departure, make it
   deliberately and record it (README, docstrings, this file).
 - Prefer plain functions, frozen dataclasses, protocols, type annotations,
   and ordinary imports over builders, decorators, metaclasses, or
@@ -39,6 +41,8 @@ framework code, the CLI, docs, or the example apps.
   - `errors.py` — `ErrorDef`, `AppError`, framework error definitions, the
     standard envelope.
   - `server.py` — `create_app`, lifespan/state, hooks, request dispatch.
+  - `execution.py` — `execute`/`open_context`: run use cases with the
+    server's boundary guarantees from any entrypoint (workers, scripts).
   - `client.py` — the contract-driven typed httpx client.
   - `openapi.py` — OpenAPI 3.1 generation (`openapi_schema` is a pure
     function; `openapi_route` serves it through Tenchi's own machinery).

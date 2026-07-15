@@ -5,7 +5,7 @@ tasks), bearer-token authentication with identity on the context,
 ownership and membership rules enforced in use cases, pagination,
 partial updates, SQLite adapters on a per-request connection and
 transaction, and a transactional outbox with a worker entrypoint
-(`docs/events.md` in the tenchi repository). If a framework capability
+([`docs/events.md`](../../docs/events.md)). If a framework capability
 regresses, something here should break.
 
 ```sh

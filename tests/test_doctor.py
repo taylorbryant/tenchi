@@ -408,3 +408,38 @@ def test_unrecognized_feature_module_is_flagged(app_root: Path) -> None:
     findings = run_doctor(app_root)
 
     assert any("unrecognized feature module" in m for m in messages(findings))
+
+
+def test_use_case_importing_tenchi_execution_is_flagged(app_root: Path) -> None:
+    use_case = app_root / "app/features/todos/use_cases/create_todo.py"
+    use_case.write_text("from tenchi.execution import execute\n" + use_case.read_text())
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "must not import the Tenchi server or client runtime" in m
+        for m in messages(findings)
+    )
+
+
+def test_root_reexport_of_runtime_names_is_flagged(app_root: Path) -> None:
+    use_case = app_root / "app/features/todos/use_cases/list_todos.py"
+    use_case.write_text(
+        "from tenchi import execute  # noqa: F401\n" + use_case.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        "tenchi.execute" in m and "Tenchi server or client runtime" in m
+        for m in messages(findings)
+    )
+
+
+def test_root_reexport_of_declaration_names_is_allowed(app_root: Path) -> None:
+    contracts = app_root / "app/features/todos/contracts.py"
+    contracts.write_text(
+        "from tenchi import contract  # noqa: F401\n" + contracts.read_text()
+    )
+
+    assert run_doctor(app_root) == []

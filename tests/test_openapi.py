@@ -433,3 +433,60 @@ async def test_openapi_route_serves_document_without_documenting_itself() -> Non
     document = response.json()
     assert document["info"] == {"title": "Items", "version": "1.2.3"}
     assert "/openapi.json" not in document["paths"]
+
+
+def test_request_bodies_document_the_413() -> None:
+    document = make_document()
+
+    assert "413" in document["paths"]["/items"]["post"]["responses"]
+    # No request body: nothing to cap.
+    assert "413" not in document["paths"]["/search"]["get"]["responses"]
+
+
+def test_sunset_becomes_a_vendor_extension() -> None:
+    from datetime import UTC, datetime
+
+    declared = contract(
+        method="GET",
+        path="/old",
+        response=Item,
+        deprecated=True,
+        sunset=datetime(2027, 1, 1, tzinfo=UTC),
+    )
+
+    async def handler(context: Context) -> Item:
+        return Item(name="x")
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="0"
+    )
+    operation = document["paths"]["/old"]["get"]
+
+    assert operation["deprecated"] is True
+    assert operation["x-sunset"] == "2027-01-01T00:00:00+00:00"
+
+
+def test_document_with_lifecycle_metadata_is_valid_openapi() -> None:
+    from datetime import UTC, datetime
+
+    from openapi_spec_validator import validate
+
+    declared = contract(
+        method="POST",
+        path="/old",
+        request=Item,
+        response=Item,
+        deprecated=datetime(2026, 6, 1, tzinfo=UTC),
+        sunset=datetime(2027, 1, 1, tzinfo=UTC),
+        max_request_bytes=1024,
+    )
+
+    async def handler(request: Item, context: Context) -> Item:
+        return request
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="0"
+    )
+
+    validate(document)  # x-sunset and the 413 must not break OAS 3.1
+    assert document["paths"]["/old"]["post"]["x-sunset"] == "2027-01-01T00:00:00+00:00"

@@ -250,3 +250,47 @@ async def test_request_scope_composes_with_lifespan_state() -> None:
         assert await client.call(ok_contract) == "ok"
 
     assert events == ["enter:pool", "use case", "commit"]
+
+
+async def test_context_factory_raising_declared_error_maps_to_it() -> None:
+    def refuses() -> Context:
+        raise AppError(boom)
+
+    app = create_app(
+        routes=route_group(route(ok_contract, ok), errors=(boom,)),
+        context_factory=refuses,
+    )
+
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    )
+    async with http:
+        response = await http.get("/ok")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "BOOM"
+
+
+async def test_state_taking_factory_without_lifespan_run_is_a_500() -> None:
+    def needs_state(state: str) -> Context:
+        return Context(log=[])
+
+    @asynccontextmanager
+    async def lifespan() -> AsyncGenerator[str]:
+        yield "pool"
+
+    app = create_app(
+        routes=route_group(route(ok_contract, ok)),
+        context_factory=needs_state,
+        lifespan=lifespan,
+    )
+
+    # Call without driving the lifespan: state was never populated.
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    )
+    async with http:
+        response = await http.get("/ok")
+
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_SERVER_ERROR"

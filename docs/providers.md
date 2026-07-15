@@ -1,13 +1,16 @@
 # Design note: providers in Tenchi
 
-Status: decided (2026-07). Tenchi does **not** adopt Beignet-style provider
+Status: decided (2026-07). Tenchi does **not** ship a tier of provider
 packages. Ports + adapters + scoped resources are the whole story.
 
 ## The question
 
-Beignet ships a tier of `provider-<capability>-<implementation>` packages
-(`provider-db-drizzle`, `provider-mail-resend`, ...) that adapt external
-systems to framework primitives. Should Python Tenchi grow the same tier?
+Batteries-included frameworks often grow a tier of
+`provider-<capability>-<implementation>` packages (database drivers, mail
+senders, cache backends, ...) that adapt external systems to framework
+primitives — Laravel's first-party ecosystem is the fullest expression,
+and several TypeScript frameworks follow the same pattern. Should Tenchi
+grow one?
 
 ## The decision
 
@@ -20,11 +23,12 @@ from building two real apps (`examples/todos`, `examples/taskboard`):
    factories, and `create_app(lifespan=...)`. No framework primitive was
    missing; nothing about the wiring felt like boilerplate a package
    could remove.
-2. **Beignet's provider tier solves a TypeScript-ecosystem problem.**
-   Vendor SDKs there need adapting into framework-owned lifecycles and
-   instrumentation. Python libraries (aiosqlite, SQLAlchemy, redis-py,
-   httpx) already expose context-managed lifecycles and well-typed
-   clients; an adapter class over a port is a page of obvious code.
+2. **Provider tiers mostly solve other ecosystems' problems.** Where
+   vendor SDKs need adapting into framework-owned lifecycles and
+   instrumentation, a package tier earns its keep. Python libraries
+   (aiosqlite, SQLAlchemy, redis-py, httpx) already expose
+   context-managed lifecycles and well-typed clients; an adapter class
+   over a port is a page of obvious code.
 3. **A package tier has real costs**: release trains, version matrices,
    and — worst — the gravitational pull to design app conventions around
    what providers expose rather than what use cases need.

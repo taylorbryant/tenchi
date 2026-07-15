@@ -20,8 +20,10 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import format_datetime
 from types import UnionType
-from typing import Any, Union, cast, get_args, get_origin, overload
+from typing import Any, Union, get_args, get_origin, overload
 from uuid import uuid4
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -29,7 +31,7 @@ from starlette.applications import Starlette
 from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
 from starlette.middleware import Middleware
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route as StarletteRoute
 
@@ -42,6 +44,7 @@ from .errors import (
     ErrorDef,
     error_body,
 )
+from .execution import open_context
 from .routes import Route, RouteGroup
 
 logger = logging.getLogger("tenchi.server")
@@ -60,6 +63,19 @@ class _ResponseContractViolation(Exception):
     back, exactly as for any other internal error, before the 500 is
     built.
     """
+
+
+class _BodyTooLarge(Exception):
+    """The request body exceeded the route's byte ceiling."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"request body exceeds {limit} bytes")
+        self.limit = limit
+
+
+DEFAULT_MAX_REQUEST_BYTES = 1_048_576  # 1 MiB
+"""App-wide request body ceiling unless ``create_app(max_request_bytes=...)``
+or a contract's ``max_request_bytes`` says otherwise."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +126,8 @@ class _BoundRoute:
     request_adapter: TypeAdapter[Any] | None
     response_adapter: TypeAdapter[Any] | None
     query_sequence_fields: frozenset[str]
+    body_limit: int | None
+    lifecycle_headers: tuple[tuple[str, str], ...]
 
 
 @overload
@@ -120,6 +138,7 @@ def create_app(
     lifespan: Callable[[], AbstractAsyncContextManager[object]] | None = None,
     hooks: Sequence[Hook] = (),
     middleware: Sequence[Middleware] = (),
+    max_request_bytes: int | None = DEFAULT_MAX_REQUEST_BYTES,
 ) -> Starlette: ...
 
 
@@ -131,6 +150,7 @@ def create_app[StateT](
     lifespan: Callable[[], AbstractAsyncContextManager[StateT]],
     hooks: Sequence[Hook] = (),
     middleware: Sequence[Middleware] = (),
+    max_request_bytes: int | None = DEFAULT_MAX_REQUEST_BYTES,
 ) -> Starlette: ...
 
 
@@ -141,6 +161,7 @@ def create_app(
     lifespan: Lifespan | None = None,
     hooks: Sequence[Hook] = (),
     middleware: Sequence[Middleware] = (),
+    max_request_bytes: int | None = DEFAULT_MAX_REQUEST_BYTES,
 ) -> Starlette:
     """Build an ASGI application from bound routes and a context factory.
 
@@ -171,12 +192,23 @@ def create_app(
 
         create_app(..., middleware=[Middleware(CORSMiddleware,
                                                allow_origins=["https://app.example.com"])])
+
+    ``max_request_bytes`` caps request body size app-wide (default 1
+    MiB); bodies over the cap are rejected with the framework's 413
+    before validation. A contract's own ``max_request_bytes`` overrides
+    the app default per route; pass ``None`` here to disable the app
+    default entirely (per-contract ceilings still apply).
     """
     takes_state = _context_factory_takes_state(context_factory)
     if takes_state and lifespan is None:
         raise ValueError(
             "create_app: context_factory accepts a lifespan state argument "
             "but no lifespan= was provided"
+        )
+    if max_request_bytes is not None and max_request_bytes <= 0:
+        raise ValueError(
+            "create_app: max_request_bytes must be positive (or None to "
+            f"disable the app-wide cap), got {max_request_bytes}"
         )
 
     state = _LifespanState()
@@ -217,6 +249,12 @@ def create_app(
                 else None
             ),
             query_sequence_fields=_sequence_query_fields(item.contract.query),
+            body_limit=(
+                item.contract.max_request_bytes
+                if item.contract.max_request_bytes is not None
+                else max_request_bytes
+            ),
+            lifecycle_headers=_lifecycle_headers(item.contract),
         )
         starlette_routes.append(
             StarletteRoute(
@@ -298,6 +336,59 @@ def _header_fields(request: Request) -> dict[str, str]:
     return {
         key.lower().replace("-", "_"): value for key, value in request.headers.items()
     }
+
+
+def _lifecycle_headers(contract: Contract[Any]) -> tuple[tuple[str, str], ...]:
+    """Static response headers a contract's lifecycle metadata implies."""
+    headers: list[tuple[str, str]] = []
+    if isinstance(contract.deprecated, datetime):
+        # RFC 9745: a structured-field Date of when deprecation applied.
+        headers.append(("deprecation", f"@{int(contract.deprecated.timestamp())}"))
+    elif contract.deprecated:
+        headers.append(("deprecation", "true"))  # pre-RFC legacy form
+    if contract.sunset is not None:
+        as_utc = contract.sunset.astimezone(UTC)
+        headers.append(("sunset", format_datetime(as_utc, usegmt=True)))
+    return tuple(headers)
+
+
+def _declared_content_length(value: str | None) -> int | None:
+    """Parse a Content-Length declaration defensively.
+
+    ``isdecimal`` + ``isascii`` rejects Unicode digit lookalikes that
+    ``int()`` refuses, and the length cap avoids CPython's int-digit
+    limit — a malformed declaration must fall back to counted-stream
+    enforcement, never crash into a 500.
+    """
+    if value is None or len(value) > 19 or not value.isascii():
+        return None
+    if not value.isdecimal():
+        return None
+    return int(value)
+
+
+async def _read_body(request: Request, limit: int | None) -> bytes:
+    """Read the request body, enforcing the route's byte ceiling.
+
+    The declared ``Content-Length`` is checked first so oversized
+    uploads are refused without reading them; the stream is counted as
+    well because the declaration may be absent (chunked) or dishonest.
+    """
+    if limit is None:
+        return await request.body()
+
+    declared = _declared_content_length(request.headers.get("content-length"))
+    if declared is not None and declared > limit:
+        raise _BodyTooLarge(limit)
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            raise _BodyTooLarge(limit)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _query_dict(
@@ -413,7 +504,7 @@ def _make_endpoint(
                     _header_fields(request)
                 )
             if bound.request_adapter is not None:
-                body = await request.body()
+                body = await _read_body(request, bound.body_limit)
                 if contract.request_media_type == "application/json":
                     kwargs["request"] = bound.request_adapter.validate_json(body)
                 elif contract.request_media_type.startswith("text/"):
@@ -436,6 +527,14 @@ def _make_endpoint(
             return _framework_error_response(
                 tenchi_errors.validation_error,
                 details=[{"msg": "Request body is not valid UTF-8 text"}],
+                request_id=request_id,
+            )
+        except _BodyTooLarge as exc:
+            # Like a validation failure: no application work has run, so
+            # a request-scoped context exits cleanly.
+            return _framework_error_response(
+                tenchi_errors.request_too_large,
+                details={"limit_bytes": exc.limit},
                 request_id=request_id,
             )
 
@@ -474,19 +573,29 @@ def _make_endpoint(
         )
 
     async def endpoint(request: Request) -> Response:
+        response = await respond(request)
+        # Lifecycle headers accompany every response from this route —
+        # success and error alike — so deprecation is visible however
+        # the call went.
+        for key, value in bound.lifecycle_headers:
+            if key not in response.headers:
+                response.headers[key] = value
+        return response
+
+    async def respond(request: Request) -> Response:
         request_id = _request_id(request)
         try:
-            raw = build_context()
-            if inspect.isawaitable(raw):
-                raw = await raw
-            if isinstance(raw, AbstractAsyncContextManager):
-                # Request-scoped context: entered per request; a use-case
-                # or hook exception flows through __aexit__ (rolling back
-                # a transaction) before being mapped below.
-                scoped = cast(AbstractAsyncContextManager[Any], raw)
-                async with scoped as context:
-                    return await dispatch(request, context, request_id)
-            return await dispatch(request, raw, request_id)
+            # open_context handles plain values, async factories, and
+            # request-scoped context managers (a use-case or hook
+            # exception flows through __aexit__ — rolling back a
+            # transaction — before being mapped below). Scoping matches
+            # tenchi.execution.execute exactly; ordering deliberately
+            # does not: HTTP opens the scope first because hooks need a
+            # context before validation, so a validation failure here
+            # exits the scope cleanly, while execute() validates before
+            # any scope exists.
+            async with open_context(build_context) as context:
+                return await dispatch(request, context, request_id)
         except AppError as exc:
             if contract.declares_error(exc.definition):
                 return _app_error_response(exc, request_id=request_id)
@@ -507,6 +616,18 @@ def _make_endpoint(
             return _framework_error_response(
                 tenchi_errors.internal_server_error, request_id=request_id
             )
+        except ClientDisconnect:
+            # The client went away mid-request (commonly an abandoned
+            # upload). Nothing to deliver and nobody to deliver it to —
+            # this is routine traffic, not an application error, so no
+            # error-level log. 499 is the conventional code for it; the
+            # response is never actually sent.
+            logger.info(
+                "Client disconnected during %s [request_id=%s]",
+                contract.name,
+                request_id,
+            )
+            return Response(status_code=499)
         except Exception:
             logger.exception(
                 "Unhandled exception in %s [request_id=%s]",
