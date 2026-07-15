@@ -5,6 +5,18 @@ All notable changes to Tenchi are documented here. The format follows
 [Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
 versions may change the public API.
 
+## [Unreleased]
+
+### Added
+
+- `docs/read-replicas.md`: the read/write-splitting recipe — staleness
+  tolerance as a port-level contract, `AsyncExitStack` wiring for
+  multi-resource request scopes, structural read-your-writes, and
+  hook-based post-write stickiness. Demonstrated in the taskboard: the
+  new `TaskSearch` port runs on a read-only second connection, with
+  tests pinning that the read side sees only committed data and
+  rejects writes.
+
 ## [0.6.0] - 2026-07-14
 
 ### Added
@@ -36,13 +48,6 @@ versions may change the public API.
   to UTC.
 - `tenchi routes --json`: the route table as a machine-readable app map
   (method, path, status, use case, errors, tags, lifecycle).
-- `docs/read-replicas.md`: the read/write-splitting recipe — staleness
-  tolerance as a port-level contract, `AsyncExitStack` wiring for
-  multi-resource request scopes, structural read-your-writes, and
-  hook-based post-write stickiness. Demonstrated in the taskboard: the
-  new `TaskSearch` port runs on a read-only second connection, with
-  tests pinning that the read side sees only committed data and
-  rejects writes.
 - `ExecutionError` (a `TypeError` subclass): every way an `execute()`
   call can be miswired — missing or positional-only parameters, extra
   required parameters, unannotated or unresolvable `request`
