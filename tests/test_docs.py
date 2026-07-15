@@ -72,7 +72,8 @@ def test_docs_page_covers_the_framework_workflow() -> None:
         "application",
         "errors",
         "client",
-        "operations",
+        "workers",
+        "pagination",
         "testing",
         "cli",
     } <= set(page.ids)
