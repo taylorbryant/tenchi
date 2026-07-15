@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from tenchi.contracts import contract
-from tenchi.errors import ErrorDef
+from tenchi.errors import ConfigurationError, ErrorDef
 from tenchi.routes import Route, RouteBindingError, route, route_group
 
 
@@ -82,15 +82,124 @@ def test_route_rejects_extra_required_parameter() -> None:
         route(create_contract, needs_more)
 
 
-def test_route_allows_extra_defaulted_parameter_and_kwargs() -> None:
+def test_route_allows_extra_defaulted_parameter_and_context_through_kwargs() -> None:
     async def with_default(request: Item, context: object, flag: bool = False) -> Item:
         return request
 
-    async def with_kwargs(**kwargs: Any) -> Item:
-        return Item(name="x")
+    async def with_kwargs(**kwargs: Any) -> list[Item]:
+        assert "context" in kwargs
+        return []
 
     assert isinstance(route(create_contract, with_default), Route)
-    assert isinstance(route(create_contract, with_kwargs), Route)
+    assert isinstance(route(list_contract, with_kwargs), Route)
+
+
+def test_route_requires_declared_inputs_to_be_explicit_parameters() -> None:
+    async def with_kwargs(**kwargs: Any) -> Item:
+        return Item(name=str(kwargs["request"]))
+
+    with pytest.raises(RouteBindingError, match="explicit annotated 'request'"):
+        route(create_contract, with_kwargs)
+
+
+@pytest.mark.parametrize("argument", ["params", "query", "headers", "request"])
+def test_route_rejects_boundary_annotation_mismatches(argument: str) -> None:
+    declared = contract(
+        method="POST",
+        path="/items/{item_id}",
+        params=ItemParams,
+        query=ItemParams,
+        headers=ItemParams,
+        request=Item,
+        response=Item,
+    )
+
+    async def handler(
+        params: ItemParams,
+        query: ItemParams,
+        headers: ItemParams,
+        request: Item,
+        context: object,
+    ) -> Item:
+        return request
+
+    handler.__annotations__[argument] = str
+
+    with pytest.raises(
+        RouteBindingError, match=rf"parameter '{argument}' annotation.*contract"
+    ):
+        route(declared, handler)
+
+
+def test_route_rejects_unannotated_boundary_parameter() -> None:
+    async def handler(request, context: object) -> Item:  # type: ignore[no-untyped-def]
+        return request  # pyright: ignore[reportUnknownVariableType]
+
+    with pytest.raises(
+        RouteBindingError, match="parameter 'request' must be annotated"
+    ):
+        route(create_contract, handler)  # pyright: ignore[reportUnknownArgumentType]
+
+
+def test_route_rejects_reserved_parameter_absent_from_contract() -> None:
+    async def handler(context: object, request: Item | None = None) -> list[Item]:
+        return [request] if request is not None else []
+
+    with pytest.raises(RouteBindingError, match="contract declares no 'request'"):
+        route(list_contract, handler)
+
+
+def test_route_rejects_response_annotation_mismatch() -> None:
+    async def handler(context: object) -> str:
+        return "wrong"
+
+    with pytest.raises(
+        RouteBindingError, match=r"return annotation.*contract response"
+    ):
+        route(list_contract, handler)  # type: ignore[arg-type]
+
+
+def test_route_requires_response_annotation() -> None:
+    async def handler(context: object) -> list[Any]:
+        return []
+
+    del handler.__annotations__["return"]
+
+    with pytest.raises(RouteBindingError, match="return value must be annotated"):
+        route(list_contract, handler)
+
+
+def test_route_resolves_boundary_annotations_without_resolving_context() -> None:
+    source = (
+        "from __future__ import annotations\n"
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    from nowhere import Ghost\n"
+        "async def handler(request: Item, context: Ghost) -> Item:\n"
+        "    return request\n"
+    )
+    namespace: dict[str, object] = {"Item": Item}
+    exec(source, namespace)
+
+    assert isinstance(
+        route(create_contract, namespace["handler"]),  # type: ignore[arg-type]
+        Route,
+    )
+
+
+def test_route_resolves_quoted_future_annotations() -> None:
+    source = (
+        "from __future__ import annotations\n"
+        "async def handler(request: 'Item', context: object) -> 'Item':\n"
+        "    return request\n"
+    )
+    namespace: dict[str, object] = {"Item": Item}
+    exec(source, namespace)
+
+    assert isinstance(
+        route(create_contract, namespace["handler"]),  # type: ignore[arg-type]
+        Route,
+    )
 
 
 def test_route_group_flattens_nested_groups() -> None:
@@ -137,17 +246,51 @@ def test_route_group_errors_append_and_dedupe() -> None:
     assert declared.errors == (missing,)
 
 
+def test_route_group_rejects_error_code_conflicts_with_contract() -> None:
+    original = ErrorDef(code="CONFLICT", status=409, message="Original")
+    conflicting = ErrorDef(code="CONFLICT", status=409, message="Conflicting")
+    declared = contract(
+        method="GET", path="/one-item", response=Item, errors=(original,)
+    )
+
+    async def handler(context: object) -> Item:
+        return Item(name="x")
+
+    with pytest.raises(ConfigurationError, match=r"conflicting ErrorDef.*CONFLICT"):
+        route_group(route(declared, handler), errors=(conflicting,))
+
+
 def test_route_group_prefix_rewrites_paths() -> None:
     group = route_group(route(list_contract, list_items), prefix="/api")
 
     assert [item.contract.path for item in group] == ["/api/items"]
+    assert [item.contract.name for item in group] == ["GET /api/items"]
     # The original contract is untouched.
     assert list_contract.path == "/items"
+    assert list_contract.name == "GET /items"
+
+
+def test_route_group_prefix_preserves_custom_contract_name() -> None:
+    declared = contract(
+        method="GET", path="/items", response=list[Item], name="items.list"
+    )
+
+    group = route_group(route(declared, list_items), prefix="/api")
+
+    assert group.routes[0].contract.name == "items.list"
 
 
 def test_route_group_rejects_relative_prefix() -> None:
     with pytest.raises(ValueError, match="prefix must start with '/'"):
         route_group(route(list_contract, list_items), prefix="api")
+
+
+def test_route_group_rejects_malformed_items_and_errors() -> None:
+    with pytest.raises(ConfigurationError, match=r"item\[0\].*Route"):
+        route_group(["not-a-route"])  # type: ignore[list-item]
+
+    with pytest.raises(ConfigurationError, match=r"errors\[0\].*ErrorDef"):
+        route_group(errors=("UNAUTHORIZED",))  # type: ignore[arg-type]
 
 
 def test_route_rejects_params_model_not_matching_path() -> None:
@@ -160,6 +303,21 @@ def test_route_rejects_params_model_not_matching_path() -> None:
 
     async def handler(params: WrongParams, context: object) -> Item:
         return Item(name="x")
+
+    with pytest.raises(RouteBindingError, match="do not match path template"):
+        route(declared, handler)
+
+
+def test_route_rejects_params_types_without_declared_path_fields() -> None:
+    declared = contract(
+        method="GET",
+        path="/items/{item_id}",
+        params=dict[str, str],
+        response=Item,
+    )
+
+    async def handler(params: dict[str, str], context: object) -> Item:
+        return Item(name=params["item_id"])
 
     with pytest.raises(RouteBindingError, match="do not match path template"):
         route(declared, handler)

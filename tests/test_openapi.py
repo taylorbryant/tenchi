@@ -3,10 +3,10 @@ from typing import Any
 
 import httpx
 import pytest
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, Field, create_model
 
 from tenchi.contracts import contract
-from tenchi.errors import ErrorDef
+from tenchi.errors import ConfigurationError, ErrorDef
 from tenchi.openapi import openapi_route, openapi_schema
 from tenchi.routes import route, route_group
 from tenchi.server import create_app
@@ -91,6 +91,44 @@ def test_document_skeleton() -> None:
     assert set(document["paths"]["/items"]) == {"post", "delete"}
 
 
+def test_openapi_rejects_bare_string_tag_sequences() -> None:
+    with pytest.raises(ConfigurationError, match="public_tags must be a sequence"):
+        openapi_schema(make_group(), title="Items", version="1", public_tags="health")
+
+    with pytest.raises(ConfigurationError, match="tags must be a sequence"):
+        openapi_route(make_group(), title="Items", version="1", tags="docs")
+
+
+def test_openapi_rejects_malformed_document_metadata_and_security() -> None:
+    with pytest.raises(ConfigurationError, match="title must be a non-empty string"):
+        openapi_schema(make_group(), title=42, version="1")  # type: ignore[arg-type]
+    with pytest.raises(ConfigurationError, match="version must be a non-empty string"):
+        openapi_schema(make_group(), title="Items", version="")
+    with pytest.raises(ConfigurationError, match="description must be a string"):
+        openapi_schema(
+            make_group(),
+            title="Items",
+            version="1",
+            description=42,  # pyright: ignore[reportArgumentType]
+        )
+    with pytest.raises(ConfigurationError, match="security must be a mapping"):
+        openapi_schema(
+            make_group(),
+            title="Items",
+            version="1",
+            security="bearer",  # pyright: ignore[reportArgumentType]
+        )
+    with pytest.raises(ConfigurationError, match="scheme 'bearer' must be a mapping"):
+        openapi_schema(
+            make_group(),
+            title="Items",
+            version="1",
+            security={  # pyright: ignore[reportArgumentType]
+                "bearer": "http"
+            },
+        )
+
+
 def test_request_body_and_success_response() -> None:
     operation = make_document()["paths"]["/items"]["post"]
 
@@ -152,6 +190,50 @@ def test_declared_errors_become_responses() -> None:
     }
 
 
+def test_starlette_path_converters_are_normalized_for_openapi() -> None:
+    class NumericParams(BaseModel):
+        item_id: int
+
+    declared = contract(
+        method="GET",
+        path="/items/{item_id:int}",
+        params=NumericParams,
+        response=Item,
+    )
+
+    async def handler(params: NumericParams, context: Context) -> Item:
+        return Item(name=str(params.item_id))
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="1"
+    )
+
+    assert "/items/{item_id}" in document["paths"]
+    assert "/items/{item_id:int}" not in document["paths"]
+
+
+def test_converter_routes_that_collide_in_openapi_are_rejected() -> None:
+    class Params(BaseModel):
+        item_id: str
+
+    first = contract(
+        method="GET", path="/items/{item_id:int}", params=Params, response=Item
+    )
+    second = contract(
+        method="GET", path="/items/{item_id:str}", params=Params, response=Item
+    )
+
+    async def handler(params: Params, context: Context) -> Item:
+        return Item(name=params.item_id)
+
+    group = route_group(route(first, handler), route(second, handler))
+
+    with pytest.raises(
+        ConfigurationError, match=r"duplicate route GET /items/\{item_id\}"
+    ):
+        openapi_schema(group, title="X", version="1")
+
+
 def test_validation_error_response_tracks_validated_inputs() -> None:
     document = make_document()
 
@@ -206,6 +288,79 @@ def test_header_parameters_use_hyphenated_names() -> None:
         }
     ]
     assert "422" in operation["responses"]
+
+
+def test_pydantic_aliases_are_documented_as_wire_names() -> None:
+    class AliasedParams(BaseModel):
+        item_id: str = Field(alias="id")
+
+    class AliasedItem(BaseModel):
+        title: str = Field(alias="wireTitle")
+
+    declared = contract(
+        method="POST",
+        path="/aliased/{id}",
+        params=AliasedParams,
+        request=AliasedItem,
+        response=AliasedItem,
+    )
+
+    async def handler(
+        params: AliasedParams, request: AliasedItem, context: Context
+    ) -> AliasedItem:
+        return request
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="1"
+    )
+    operation = document["paths"]["/aliased/{id}"]["post"]
+
+    assert operation["parameters"][0]["name"] == "id"
+    request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    response_schema = operation["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    assert set(request_schema["properties"]) == {"wireTitle"}
+    assert set(response_schema["properties"]) == {"wireTitle"}
+
+
+@pytest.mark.parametrize("slot", ["query", "headers"])
+def test_scalar_mapping_input_slots_are_rejected(slot: str) -> None:
+    declared = (
+        contract(method="GET", path="/scalar", query=int)
+        if slot == "query"
+        else contract(method="GET", path="/scalar", headers=int)
+    )
+
+    async def query_handler(query: int, context: Context) -> None:
+        return None
+
+    async def headers_handler(headers: int, context: Context) -> None:
+        return None
+
+    handler = query_handler if slot == "query" else headers_handler
+    group = route_group(route(declared, handler))
+
+    with pytest.raises(ConfigurationError, match="object-shaped"):
+        openapi_schema(group, title="X", version="1")
+
+
+def test_recursive_object_input_root_reference_is_resolved() -> None:
+    class RecursiveQuery(BaseModel):
+        term: str = ""
+        child: "RecursiveQuery | None" = None
+
+    declared = contract(method="GET", path="/recursive", query=RecursiveQuery)
+
+    async def handler(query: RecursiveQuery, context: Context) -> None:
+        return None
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="1"
+    )
+
+    parameters = document["paths"]["/recursive"]["get"]["parameters"]
+    assert [parameter["name"] for parameter in parameters] == ["term", "child"]
 
 
 def test_group_level_errors_are_documented_on_every_route() -> None:
@@ -313,6 +468,35 @@ def test_declared_error_headers_are_documented() -> None:
     assert response["headers"] == {"Retry-After": {"schema": {"type": "string"}}}
 
 
+def test_declared_error_headers_are_deduplicated_case_insensitively() -> None:
+    first = ErrorDef(
+        code="FIRST_LIMIT",
+        status=429,
+        message="First",
+        headers=("Retry-After",),
+    )
+    second = ErrorDef(
+        code="SECOND_LIMIT",
+        status=429,
+        message="Second",
+        headers=("retry-after",),
+    )
+    declared = contract(
+        method="GET", path="/limited", response=Item, errors=(first, second)
+    )
+
+    async def handler(context: Context) -> Item:
+        return Item(name="x")
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="1"
+    )
+
+    assert document["paths"]["/limited"]["get"]["responses"]["429"]["headers"] == {
+        "Retry-After": {"schema": {"type": "string"}}
+    }
+
+
 def test_conflicting_component_names_are_rejected() -> None:
     class First(BaseModel):
         a: int
@@ -327,6 +511,8 @@ def test_conflicting_component_names_are_rejected() -> None:
     async def two(context: Context) -> Any:
         raise NotImplementedError
 
+    two.__annotations__["return"] = list[conflicting]
+
     group = route_group(
         route(contract(method="GET", path="/one", response=list[First]), one),
         route(contract(method="GET", path="/two", response=list[conflicting]), two),
@@ -334,6 +520,86 @@ def test_conflicting_component_names_are_rejected() -> None:
 
     with pytest.raises(ValueError, match="conflicting schemas for component 'First'"):
         openapi_schema(group, title="X", version="0")
+
+
+def test_user_error_response_component_does_not_replace_framework_envelope() -> None:
+    class ErrorResponse(BaseModel):
+        value: int
+
+    declared = contract(
+        method="GET",
+        path="/collision",
+        response=list[ErrorResponse],
+        errors=(item_missing,),
+    )
+
+    async def handler(context: Context) -> list[ErrorResponse]:
+        return [ErrorResponse(value=1)]
+
+    document = openapi_schema(
+        route_group(route(declared, handler)), title="X", version="1"
+    )
+    components = document["components"]["schemas"]
+    success_schema = document["paths"]["/collision"]["get"]["responses"]["200"][
+        "content"
+    ]["application/json"]["schema"]
+    error_schema = document["paths"]["/collision"]["get"]["responses"]["404"][
+        "content"
+    ]["application/json"]["schema"]
+
+    assert success_schema["items"] == {"$ref": "#/components/schemas/ErrorResponse"}
+    assert set(components["ErrorResponse"]["properties"]) == {"value"}
+    assert error_schema["$ref"] != "#/components/schemas/ErrorResponse"
+    framework_component = error_schema["$ref"].rsplit("/", 1)[-1]
+    assert set(components[framework_component]["properties"]) == {
+        "code",
+        "message",
+        "details",
+        "request_id",
+    }
+
+
+def test_framework_error_component_allocation_is_route_order_independent() -> None:
+    class ErrorResponse(BaseModel):
+        first: int
+
+    class ErrorResponse_2(BaseModel):
+        second: int
+
+    first_contract = contract(
+        method="GET",
+        path="/first",
+        response=list[ErrorResponse],
+        errors=(item_missing,),
+    )
+    second_contract = contract(
+        method="GET",
+        path="/second",
+        response=list[ErrorResponse_2],
+    )
+
+    async def first(context: Context) -> list[ErrorResponse]:
+        return []
+
+    async def second(context: Context) -> list[ErrorResponse_2]:
+        return []
+
+    document = openapi_schema(
+        route_group(route(first_contract, first), route(second_contract, second)),
+        title="X",
+        version="1",
+    )
+    components = document["components"]["schemas"]
+    error_schema = document["paths"]["/first"]["get"]["responses"]["404"]["content"][
+        "application/json"
+    ]["schema"]
+
+    assert set(components["ErrorResponse"]["properties"]) == {"first"}
+    assert set(components["ErrorResponse_2"]["properties"]) == {"second"}
+    assert error_schema["$ref"] not in {
+        "#/components/schemas/ErrorResponse",
+        "#/components/schemas/ErrorResponse_2",
+    }
 
 
 def test_declared_422_merges_with_framework_validation_error() -> None:
@@ -387,6 +653,20 @@ def test_security_schemes_apply_globally() -> None:
     for operations in document["paths"].values():
         for operation in operations.values():
             assert "security" not in operation
+
+
+def test_multiple_security_schemes_are_all_required() -> None:
+    document = openapi_schema(
+        make_group(),
+        title="Items",
+        version="1.2.3",
+        security={
+            "bearerAuth": {"type": "http", "scheme": "bearer"},
+            "apiKeyAuth": {"type": "apiKey", "in": "header", "name": "x-key"},
+        },
+    )
+
+    assert document["security"] == [{"bearerAuth": [], "apiKeyAuth": []}]
 
 
 def test_public_tagged_operations_are_exempt_from_security() -> None:

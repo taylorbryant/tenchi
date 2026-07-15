@@ -42,8 +42,10 @@ from typing import Any, cast
 
 from pydantic import TypeAdapter
 
+from .errors import TenchiError
 
-class ExecutionError(TypeError):
+
+class ExecutionError(TenchiError, TypeError):
     """The execute() call is miswired: the use case's signature, the
     input, or the context source cannot work. Deterministic — a retry
     with the same arguments fails the same way — so queue-style callers
@@ -74,11 +76,13 @@ async def open_context(source: Any) -> AsyncGenerator[Any]:
     Callables are treated as factories, so pass instances, not classes
     (and note that a factory taking the lifespan state, as
     ``create_app`` supports, must be wrapped in a closure here — there
-    is no lifespan to draw state from). Sources that cannot provide the
-    promised scoping — sync context managers, bare async generators —
-    are rejected rather than silently passed through unscoped.
+    is no lifespan to draw state from). Factory arity is checked before
+    invocation; exceptions raised inside a valid factory propagate as-is.
+    Sources that cannot provide the promised scoping — sync context
+    managers, bare async generators — are rejected rather than silently
+    passed through unscoped.
     """
-    value = source() if callable(source) else source
+    value = _context_value(source)
     if inspect.isawaitable(value):
         value = await value
     if isinstance(value, AbstractAsyncContextManager):
@@ -128,6 +132,11 @@ def _validated_kwargs(
 ) -> dict[str, Any]:
     """Check the signature eagerly (the same rules route() applies) and
     validate the input, so every failure here precedes the context."""
+    if not inspect.iscoroutinefunction(use_case):
+        raise ExecutionError(
+            f"execute({_describe(use_case)}): use case must be an async function"
+        )
+
     try:
         parameters = inspect.signature(use_case).parameters
     except (TypeError, ValueError) as exc:
@@ -199,7 +208,14 @@ def _validated_kwargs(
             "'request' parameter; pass request= or request_json="
         )
 
-    adapter = _adapter(_request_annotation(use_case, declared))
+    annotation = _request_annotation(use_case, declared)
+    try:
+        adapter = _adapter(annotation)
+    except Exception as exc:
+        raise ExecutionError(
+            f"execute({_describe(use_case)}): Pydantic cannot validate request "
+            f"annotation {_type_name(annotation)}: {exc}"
+        ) from exc
     if request_json is not None:
         return {"request": adapter.validate_json(request_json)}
     return {"request": adapter.validate_python(request)}
@@ -219,20 +235,28 @@ def _request_annotation(use_case: Callable[..., Any], declared: Any) -> Any:
             f"execute({_describe(use_case)}): the 'request' parameter "
             "must be annotated so input can be validated"
         )
-    if not isinstance(annotation, str):
-        return annotation
     function: Any = use_case
     while isinstance(function, functools.partial):
         function = function.func
     function = inspect.unwrap(function)
     namespace = getattr(function, "__globals__", {})
-    try:
-        return eval(annotation, namespace)
-    except Exception as exc:
-        raise ExecutionError(
-            f"execute({_describe(use_case)}): could not resolve the "
-            f"'request' annotation {annotation!r}: {exc}"
-        ) from exc
+    original = annotation
+    seen: set[str] = set()
+    while isinstance(annotation, str):
+        if annotation in seen:
+            raise ExecutionError(
+                f"execute({_describe(use_case)}): could not resolve the "
+                f"'request' annotation {original!r}: cyclic forward reference"
+            )
+        seen.add(annotation)
+        try:
+            annotation = eval(annotation, namespace)
+        except Exception as exc:
+            raise ExecutionError(
+                f"execute({_describe(use_case)}): could not resolve the "
+                f"'request' annotation {original!r}: {exc}"
+            ) from exc
+    return annotation
 
 
 def _adapter(annotation: Any) -> TypeAdapter[Any]:
@@ -244,6 +268,40 @@ def _adapter(annotation: Any) -> TypeAdapter[Any]:
         cached = TypeAdapter(annotation)
         _adapters[annotation] = cached
     return cached
+
+
+def _type_name(annotation: Any) -> str:
+    return getattr(annotation, "__name__", repr(annotation))
+
+
+def _context_value(source: Any) -> Any:
+    """Return a ready context or invoke a valid zero-argument factory.
+
+    Checking the call shape before invocation keeps a missing lifespan-state
+    argument in the deterministic ``ExecutionError`` category without
+    misclassifying a real ``TypeError`` raised inside a valid factory.
+    """
+    if not callable(source):
+        return source
+    if inspect.isclass(source):
+        raise ExecutionError(
+            f"open_context({_describe(source)}): pass a context instance, not a class"
+        )
+    try:
+        signature = inspect.signature(source)
+    except (TypeError, ValueError) as exc:
+        raise ExecutionError(
+            f"open_context({_describe(source)}): could not inspect the context "
+            f"factory's signature: {exc}"
+        ) from exc
+    try:
+        signature.bind()
+    except TypeError as exc:
+        raise ExecutionError(
+            f"open_context({_describe(source)}): context factory must accept zero "
+            f"arguments: {exc}"
+        ) from exc
+    return source()
 
 
 def _describe(use_case: object) -> str:

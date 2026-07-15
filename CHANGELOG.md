@@ -17,6 +17,57 @@ versions may change the public API.
 
 - Consolidated the public documentation into a shorter root README and removed
   the separate design notes, roadmap, and example READMEs.
+- `route()` now requires explicit annotations for contract-declared boundary
+  inputs and the response, and verifies that they exactly match the contract at
+  composition time. Contract inputs cannot be hidden behind `**kwargs`, and
+  reserved input parameters that the contract does not declare are rejected.
+- `execute()` now rejects sync use cases before opening their context, and
+  `open_context()` validates that factories take no arguments before invoking
+  them. Invalid wiring raises `ExecutionError`; exceptions raised inside a
+  valid factory still propagate unchanged.
+- Added `TenchiError` and `ConfigurationError` as public exception roots.
+  Invalid contracts, route groups, client construction, app assembly, and
+  OpenAPI generation now share the configuration type instead of leaking
+  plain `ValueError` or Pydantic schema errors. `create_app()` also validates
+  lifespan and hook call shapes at composition time. Existing named errors
+  (`AppError`, `RouteBindingError`, `ExecutionError`, and
+  `UnexpectedResponseError`) now participate in the common hierarchy.
+  Error definitions and declaration collections are validated eagerly,
+  `AppError` rejects undeclared response headers, and prefixed routes keep
+  their default contract names aligned with their rewritten paths. Conflicting
+  definitions for one wire error code and unsafe error-header values are also
+  rejected before any response is sent. Client calls preflight every declared
+  boundary type, malformed schema builders are consistently framed, invalid
+  Starlette path syntax is reported as configuration, and contract text
+  metadata and OpenAPI document options are type-checked eagerly. The typed
+  client also requires the error source header before mapping an envelope to
+  `AppError`, so framework-owned failures cannot collide with application
+  error codes. Deferred Pydantic adapters are rebuilt during composition and
+  rejected there if their forward references remain unresolved. Starlette path
+  converters are now substituted by the typed client and normalized in
+  OpenAPI while malformed parameter syntax is rejected at declaration;
+  multi-scheme security correctly requires every scheme, malformed error
+  envelopes remain unexpected responses, and documented error headers are
+  deduplicated case-insensitively. Params, query, and header declarations must
+  describe object-shaped input across server, client, and OpenAPI; structured
+  `+json` media types use JSON encoding, and non-JSON response values that are
+  not text or bytes trigger rollback as response-contract violations instead
+  of being mislabeled as JSON. Pydantic aliases are now used consistently as
+  wire names by the typed client, server response serializer, and OpenAPI.
+
+### Fixed
+
+- `contract()` now accepts PEP 604 union annotation objects in its public
+  typing, and the typed client distinguishes an omitted request from
+  `request=None`, allowing nullable request types to send JSON `null`.
+- OpenAPI allocates the framework error-envelope component only after all
+  application schemas are known, keeping models named `ErrorResponse`,
+  `ErrorResponse_2`, and so on collision-free regardless of route order.
+- Repeated contract-declared request headers continue to use the last value,
+  including when the header field has a Pydantic alias.
+- `AppError` now frames malformed definitions and non-string message overrides
+  as `ConfigurationError` instead of leaking incidental attribute errors or
+  silently coercing values.
 
 ## [0.6.0] - 2026-07-14
 

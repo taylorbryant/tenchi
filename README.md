@@ -55,8 +55,9 @@ async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
     return await context.todos.create(title=request.title)
 ```
 
-A route binds them together. Tenchi checks the function signature immediately,
-so invalid wiring fails during application composition rather than on a request:
+A route binds them together. Tenchi immediately checks that every boundary
+parameter and the return annotation exactly match the contract, so invalid
+wiring fails during application composition rather than on a request:
 
 ```python
 routes = route_group(
@@ -78,10 +79,13 @@ tests/                  # HTTP integration tests
 The main pieces are:
 
 - Pydantic validation for request bodies, path parameters, query parameters,
-  headers, and responses.
+  headers, and responses; field aliases are the names used on the wire and in
+  OpenAPI, and nullable request types can send JSON `null` explicitly.
 - `typing.Protocol` ports and explicit dependency wiring instead of a DI
   container.
 - Declared application errors with a stable JSON envelope.
+- A named exception hierarchy that distinguishes configuration mistakes from
+  runtime application and transport failures.
 - A contract-driven async client and OpenAPI 3.1 generation.
 - Lifespan resources, request-scoped contexts, authentication hooks, middleware,
   pagination, health checks, and in-process testing helpers.

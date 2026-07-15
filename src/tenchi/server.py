@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from types import UnionType
-from typing import Any, Union, get_args, get_origin, overload
+from typing import Any, Union, cast, get_args, get_origin, overload
 from uuid import uuid4
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -36,11 +36,17 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route as StarletteRoute
 
 from . import errors as tenchi_errors
-from .contracts import Contract
+from .contracts import (
+    Contract,
+    _is_json_media_type,  # pyright: ignore[reportPrivateUsage]
+    _is_text_media_type,  # pyright: ignore[reportPrivateUsage]
+    _object_schema,  # pyright: ignore[reportPrivateUsage]
+)
 from .errors import (
     ERROR_SOURCE_HEADER,
     REQUEST_ID_HEADER,
     AppError,
+    ConfigurationError,
     ErrorDef,
     error_body,
 )
@@ -126,6 +132,7 @@ class _BoundRoute:
     request_adapter: TypeAdapter[Any] | None
     response_adapter: TypeAdapter[Any] | None
     query_sequence_fields: frozenset[str]
+    header_fields: tuple[str, ...]
     body_limit: int | None
     lifecycle_headers: tuple[tuple[str, str], ...]
 
@@ -199,18 +206,28 @@ def create_app(
     the app default per route; pass ``None`` here to disable the app
     default entirely (per-contract ceilings still apply).
     """
+    _validate_body_limit(max_request_bytes)
     takes_state = _context_factory_takes_state(context_factory)
+    if lifespan is not None:
+        _require_call_shape(
+            lifespan,
+            positional_arguments=0,
+            label="create_app: lifespan",
+            expectation="accept zero arguments",
+        )
+    hook_chain = tuple(hooks)
+    for index, hook in enumerate(hook_chain):
+        _require_call_shape(
+            hook,
+            positional_arguments=2,
+            label=f"create_app: hook[{index}]",
+            expectation="accept two positional arguments (request_info, context)",
+        )
     if takes_state and lifespan is None:
-        raise ValueError(
+        raise ConfigurationError(
             "create_app: context_factory accepts a lifespan state argument "
             "but no lifespan= was provided"
         )
-    if max_request_bytes is not None and max_request_bytes <= 0:
-        raise ValueError(
-            "create_app: max_request_bytes must be positive (or None to "
-            f"disable the app-wide cap), got {max_request_bytes}"
-        )
-
     state = _LifespanState()
     starlette_routes: list[StarletteRoute] = []
     seen: set[tuple[str, str]] = set()
@@ -218,37 +235,23 @@ def create_app(
     for item in routes:
         key = (item.contract.method, item.contract.path)
         if key in seen:
-            raise ValueError(f"create_app: duplicate route {key[0]} {key[1]}")
+            raise ConfigurationError(f"create_app: duplicate route {key[0]} {key[1]}")
         seen.add(key)
 
+        params_adapter = _contract_adapter(item.contract, "params")
+        query_adapter = _contract_adapter(item.contract, "query")
+        headers_adapter = _contract_adapter(item.contract, "headers")
+        request_adapter = _contract_adapter(item.contract, "request")
+        response_adapter = _contract_adapter(item.contract, "response")
         bound = _BoundRoute(
             route=item,
-            params_adapter=(
-                TypeAdapter(item.contract.params)
-                if item.contract.params is not None
-                else None
-            ),
-            query_adapter=(
-                TypeAdapter(item.contract.query)
-                if item.contract.query is not None
-                else None
-            ),
-            headers_adapter=(
-                TypeAdapter(item.contract.headers)
-                if item.contract.headers is not None
-                else None
-            ),
-            request_adapter=(
-                TypeAdapter(item.contract.request)
-                if item.contract.request is not None
-                else None
-            ),
-            response_adapter=(
-                TypeAdapter(item.contract.response)
-                if item.contract.response is not None
-                else None
-            ),
+            params_adapter=params_adapter,
+            query_adapter=query_adapter,
+            headers_adapter=headers_adapter,
+            request_adapter=request_adapter,
+            response_adapter=response_adapter,
             query_sequence_fields=_sequence_query_fields(item.contract.query),
+            header_fields=_header_field_names(headers_adapter),
             body_limit=(
                 item.contract.max_request_bytes
                 if item.contract.max_request_bytes is not None
@@ -256,16 +259,19 @@ def create_app(
             ),
             lifecycle_headers=_lifecycle_headers(item.contract),
         )
-        starlette_routes.append(
-            StarletteRoute(
+        try:
+            starlette_route = StarletteRoute(
                 item.contract.path,
-                _make_endpoint(
-                    bound, context_factory, takes_state, state, tuple(hooks)
-                ),
+                _make_endpoint(bound, context_factory, takes_state, state, hook_chain),
                 methods=[item.contract.method],
                 name=None,
             )
-        )
+        except (AssertionError, ValueError) as exc:
+            raise ConfigurationError(
+                f"create_app: route {item.contract.name!r} has invalid path "
+                f"{item.contract.path!r}: {exc}"
+            ) from exc
+        starlette_routes.append(starlette_route)
 
     return Starlette(
         routes=starlette_routes,
@@ -279,27 +285,89 @@ def create_app(
 
 
 def _context_factory_takes_state(context_factory: ContextFactory) -> bool:
+    signature = _callable_signature(
+        context_factory, label="create_app: context_factory"
+    )
     try:
-        signature = inspect.signature(context_factory)
-    except (TypeError, ValueError):
+        signature.bind()
+    except TypeError:
+        pass
+    else:
         return False
 
-    required = [
-        parameter
-        for parameter in signature.parameters.values()
-        if parameter.kind
-        in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    try:
+        signature.bind(object())
+    except TypeError as exc:
+        raise ConfigurationError(
+            "create_app: context_factory must accept zero arguments or a single "
+            f"positional lifespan state argument: {exc}"
+        ) from exc
+    return True
+
+
+def _validate_body_limit(value: object) -> None:
+    if value is None:
+        return
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ConfigurationError(
+            "create_app: max_request_bytes must be positive (a non-bool int, or "
+            f"None to disable the app-wide cap), got {value!r}"
         )
-        and parameter.default is inspect.Parameter.empty
-    ]
-    if len(required) > 1:
-        raise ValueError(
-            "create_app: context_factory must take zero arguments or a "
-            f"single lifespan state argument, not {len(required)}"
-        )
-    return len(required) == 1
+
+
+def _callable_signature(value: object, *, label: str) -> inspect.Signature:
+    try:
+        return inspect.signature(cast(Callable[..., object], value))
+    except (TypeError, ValueError) as exc:
+        raise ConfigurationError(
+            f"{label} has no inspectable signature: {exc}"
+        ) from exc
+
+
+def _require_call_shape(
+    value: object,
+    *,
+    positional_arguments: int,
+    label: str,
+    expectation: str,
+) -> None:
+    signature = _callable_signature(value, label=label)
+    try:
+        signature.bind(*(object() for _ in range(positional_arguments)))
+    except TypeError as exc:
+        raise ConfigurationError(f"{label} must {expectation}: {exc}") from exc
+
+
+def _contract_adapter(contract: Contract[Any], slot: str) -> TypeAdapter[Any] | None:
+    annotation = getattr(contract, slot)
+    if annotation is None:
+        return None
+    type_name = getattr(annotation, "__name__", repr(annotation))
+    try:
+        adapter = TypeAdapter(annotation)
+        if not adapter.pydantic_complete:
+            adapter.rebuild(raise_errors=True)
+        if not adapter.pydantic_complete:
+            raise TypeError("adapter remains incomplete after rebuilding")
+    except Exception as exc:
+        raise ConfigurationError(
+            f"create_app: route {contract.name!r} has a {slot} type {type_name} "
+            f"Pydantic cannot validate: {exc}"
+        ) from exc
+    if slot in {"params", "query", "headers"}:
+        try:
+            schema = adapter.json_schema(mode="validation")
+        except Exception as exc:
+            raise ConfigurationError(
+                f"create_app: route {contract.name!r} has a {slot} type "
+                f"{type_name} Pydantic cannot describe: {exc}"
+            ) from exc
+        if _object_schema(schema) is None:
+            raise ConfigurationError(
+                f"create_app: route {contract.name!r} has a {slot} type "
+                f"{type_name} that must describe object-shaped input"
+            )
+    return adapter
 
 
 def _starlette_lifespan(
@@ -330,12 +398,19 @@ def _header_dict(request: Request) -> dict[str, str]:
     return {key.lower(): value for key, value in request.headers.items()}
 
 
-def _header_fields(request: Request) -> dict[str, str]:
-    """Request headers keyed by Python field name (``x-api-key`` →
-    ``x_api_key``) for validation against a headers model."""
-    return {
-        key.lower().replace("-", "_"): value for key, value in request.headers.items()
-    }
+def _header_fields(request: Request, fields: tuple[str, ...]) -> dict[str, str]:
+    """Select declared headers under their exact Pydantic validation names.
+
+    Header lookup is case-insensitive, and underscores in Python-style names
+    map to hyphens on the wire. Keeping the exact declared key lets aliases
+    such as ``Field(alias="X-API-Key")`` validate correctly.
+    """
+    selected: dict[str, str] = {}
+    for field in fields:
+        values = request.headers.getlist(field.replace("_", "-"))
+        if values:
+            selected[field] = values[-1]
+    return selected
 
 
 def _lifecycle_headers(contract: Contract[Any]) -> tuple[tuple[str, str], ...]:
@@ -416,14 +491,26 @@ _SEQUENCE_ORIGINS = (list, set, frozenset, tuple)
 
 
 def _sequence_query_fields(annotation: Any) -> frozenset[str]:
-    """Field names of a query model whose annotations expect a sequence."""
+    """Wire names of query fields whose annotations expect a sequence."""
     if not (inspect.isclass(annotation) and issubclass(annotation, BaseModel)):
         return frozenset()
     return frozenset(
-        name
+        field.validation_alias if isinstance(field.validation_alias, str) else name
         for name, field in annotation.model_fields.items()
         if _expects_sequence(field.annotation)
     )
+
+
+def _header_field_names(adapter: TypeAdapter[Any] | None) -> tuple[str, ...]:
+    if adapter is None:
+        return ()
+    schema = _object_schema(adapter.json_schema(mode="validation", by_alias=True))
+    if schema is None:
+        return ()  # The adapter was already checked during composition.
+    properties = schema.get("properties", {})
+    if not isinstance(properties, Mapping):
+        return ()
+    return tuple(cast(Mapping[str, Any], properties))
 
 
 def _expects_sequence(annotation: Any) -> bool:
@@ -501,13 +588,13 @@ def _make_endpoint(
                 )
             if bound.headers_adapter is not None:
                 kwargs["headers"] = bound.headers_adapter.validate_python(
-                    _header_fields(request)
+                    _header_fields(request, bound.header_fields)
                 )
             if bound.request_adapter is not None:
                 body = await _read_body(request, bound.body_limit)
-                if contract.request_media_type == "application/json":
+                if _is_json_media_type(contract.request_media_type):
                     kwargs["request"] = bound.request_adapter.validate_json(body)
-                elif contract.request_media_type.startswith("text/"):
+                elif _is_text_media_type(contract.request_media_type):
                     kwargs["request"] = bound.request_adapter.validate_python(
                         body.decode("utf-8")
                     )
@@ -548,12 +635,23 @@ def _make_endpoint(
 
         try:
             validated = bound.response_adapter.validate_python(result)
-            if contract.response_media_type == "application/json":
-                payload: bytes | str = bound.response_adapter.dump_json(validated)
+            if _is_json_media_type(contract.response_media_type):
+                payload: bytes | str = bound.response_adapter.dump_json(
+                    validated, by_alias=True
+                )
             elif isinstance(validated, bytes | str):
                 payload = validated
             else:
-                payload = bound.response_adapter.dump_json(validated)
+                logger.error(
+                    "Response from %s validated as %s but cannot be encoded as %s; "
+                    "non-JSON response media types require str or bytes "
+                    "[request_id=%s]",
+                    contract.name,
+                    type(validated).__name__,
+                    contract.response_media_type,
+                    request_id,
+                )
+                raise _ResponseContractViolation
         except ValidationError as exc:
             logger.exception(
                 "Response from %s does not match the contract's response "

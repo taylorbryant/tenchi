@@ -12,13 +12,18 @@ from __future__ import annotations
 import inspect
 from collections.abc import Mapping, Sequence
 from datetime import UTC
-from typing import Any
+from typing import Any, cast
 
 from pydantic import TypeAdapter
 
 from . import errors as tenchi_errors
-from .contracts import Contract, contract
-from .errors import ErrorDef
+from .contracts import (
+    _PATH_PARAMETER,  # pyright: ignore[reportPrivateUsage]
+    Contract,
+    _object_schema,  # pyright: ignore[reportPrivateUsage]
+    contract,
+)
+from .errors import ConfigurationError, ErrorDef
 from .routes import Route, RouteGroup, route
 
 _ERROR_COMPONENT = "ErrorResponse"
@@ -61,22 +66,42 @@ def openapi_schema(
     app that disables caps entirely (and sets no per-contract ceilings)
     over-documents that one response.
     """
+    _validate_document_metadata(title=title, version=version, description=description)
+    security_schemes = _validated_security(security)
+    public = _validated_tag_set(public_tags, label="openapi_schema public_tags")
     components: dict[str, Any] = {}
     paths: dict[str, dict[str, Any]] = {}
     operation_ids: dict[str, int] = {}
-    public = set(public_tags)
+    error_schemas: list[dict[str, Any]] = []
 
     for item in routes:
         declared = item.contract
-        operations = paths.setdefault(declared.path, {})
+        document_path = _PATH_PARAMETER.sub(
+            lambda match: "{" + match.group(1) + "}", declared.path
+        )
+        operations = paths.setdefault(document_path, {})
         if declared.method.lower() in operations:
-            raise ValueError(
-                f"openapi_schema: duplicate route {declared.method} {declared.path}"
+            raise ConfigurationError(
+                f"openapi_schema: duplicate route {declared.method} {document_path}"
             )
-        operation = _operation(item, components, operation_ids)
-        if security and public & set(declared.tags):
+        try:
+            operation = _operation(item, components, operation_ids, error_schemas)
+        except ConfigurationError:
+            raise
+        except Exception as exc:
+            raise ConfigurationError(
+                f"openapi_schema: route {declared.name!r} has a type Pydantic "
+                f"cannot document: {exc}"
+            ) from exc
+        if security_schemes and public & set(declared.tags):
             operation["security"] = []
         operations[declared.method.lower()] = operation
+
+    if error_schemas:
+        component_name = _error_component_name(components)
+        reference = f"#/components/schemas/{component_name}"
+        for schema in error_schemas:
+            schema["$ref"] = reference
 
     info: dict[str, Any] = {"title": title, "version": version}
     if description is not None:
@@ -87,16 +112,14 @@ def openapi_schema(
         "info": info,
         "paths": paths,
     }
-    if security:
-        document["security"] = [{name: []} for name in security]
-    if components or security:
+    if security_schemes:
+        document["security"] = [{name: [] for name in security_schemes}]
+    if components or security_schemes:
         document["components"] = {}
         if components:
             document["components"]["schemas"] = components
-        if security:
-            document["components"]["securitySchemes"] = {
-                name: dict(scheme) for name, scheme in security.items()
-            }
+        if security_schemes:
+            document["components"]["securitySchemes"] = security_schemes
     return document
 
 
@@ -137,15 +160,60 @@ def openapi_route(
         return document
 
     return route(
-        contract(method="GET", path=path, response=dict[str, Any], tags=tuple(tags)),
+        contract(method="GET", path=path, response=dict[str, Any], tags=tags),
         get_openapi,
     )
+
+
+def _validated_tag_set(value: object, *, label: str) -> set[str]:
+    if isinstance(value, str | bytes) or not isinstance(value, Sequence):
+        raise ConfigurationError(f"{label} must be a sequence of strings")
+    validated: set[str] = set()
+    for index, tag in enumerate(cast(Sequence[object], value)):
+        if not isinstance(tag, str) or not tag.strip():
+            raise ConfigurationError(f"{label}[{index}] must be a non-empty string")
+        validated.add(tag)
+    return validated
+
+
+def _validate_document_metadata(
+    *, title: object, version: object, description: object
+) -> None:
+    for label, value in (("title", title), ("version", version)):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigurationError(
+                f"openapi_schema: {label} must be a non-empty string"
+            )
+    if description is not None and not isinstance(description, str):
+        raise ConfigurationError("openapi_schema: description must be a string or None")
+
+
+def _validated_security(value: object) -> dict[str, dict[str, Any]] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ConfigurationError(
+            "openapi_schema: security must be a mapping of scheme names to mappings"
+        )
+    validated: dict[str, dict[str, Any]] = {}
+    for name, scheme in cast(Mapping[object, object], value).items():
+        if not isinstance(name, str) or not name.strip():
+            raise ConfigurationError(
+                "openapi_schema: security scheme names must be non-empty strings"
+            )
+        if not isinstance(scheme, Mapping):
+            raise ConfigurationError(
+                f"openapi_schema: security scheme {name!r} must be a mapping"
+            )
+        validated[name] = dict(cast(Mapping[str, Any], scheme))
+    return validated
 
 
 def _operation(
     item: Route,
     components: dict[str, Any],
     operation_ids: dict[str, int],
+    error_schemas: list[dict[str, Any]],
 ) -> dict[str, Any]:
     declared = item.contract
     operation: dict[str, Any] = {
@@ -188,11 +256,15 @@ def _operation(
             },
         }
 
-    operation["responses"] = _responses(declared, components)
+    operation["responses"] = _responses(declared, components, error_schemas)
     return operation
 
 
-def _responses(declared: Contract[Any], components: dict[str, Any]) -> dict[str, Any]:
+def _responses(
+    declared: Contract[Any],
+    components: dict[str, Any],
+    error_schemas: list[dict[str, Any]],
+) -> dict[str, Any]:
     responses: dict[str, Any] = {}
 
     success: dict[str, Any] = {"description": "Successful response"}
@@ -231,43 +303,74 @@ def _responses(declared: Contract[Any], components: dict[str, Any]) -> dict[str,
             at_413.append(tenchi_errors.request_too_large)
 
     for status, definitions in errors_by_status.items():
-        responses[str(status)] = _error_response(definitions, components)
+        responses[str(status)] = _error_response(definitions, error_schemas)
 
     return responses
 
 
 def _error_response(
-    definitions: list[ErrorDef], components: dict[str, Any]
+    definitions: list[ErrorDef], error_schemas: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    components.setdefault(_ERROR_COMPONENT, dict(_ERROR_SCHEMA))
+    schema: dict[str, Any] = {}
+    error_schemas.append(schema)
     description = "; ".join(
         f"{definition.code}: {definition.message}" for definition in definitions
     )
     response: dict[str, Any] = {
         "description": description,
-        "content": {
-            "application/json": {
-                "schema": {"$ref": f"#/components/schemas/{_ERROR_COMPONENT}"}
-            }
-        },
+        "content": {"application/json": {"schema": schema}},
     }
-    header_names = [name for definition in definitions for name in definition.headers]
+    header_names: dict[str, str] = {}
+    for definition in definitions:
+        for name in definition.headers:
+            header_names.setdefault(name.casefold(), name)
     if header_names:
         response["headers"] = {
-            name: {"schema": {"type": "string"}} for name in header_names
+            name: {"schema": {"type": "string"}} for name in header_names.values()
         }
     return response
 
 
+def _error_component_name(components: dict[str, Any]) -> str:
+    """Reserve a component for the framework envelope without hiding a user model."""
+    suffix = 1
+    while True:
+        name = _ERROR_COMPONENT if suffix == 1 else f"{_ERROR_COMPONENT}_{suffix}"
+        schema = {**_ERROR_SCHEMA, "title": name}
+        existing = components.get(name)
+        if existing is None:
+            components[name] = schema
+            return name
+        if existing == schema:
+            return name
+        suffix += 1
+
+
 def _parameters(
-    annotation: type[Any],
+    annotation: Any,
     location: str,
     components: dict[str, Any],
 ) -> list[dict[str, Any]]:
     schema = _json_schema(annotation, components, mode="validation")
-    required = set(schema.get("required", []))
+    object_schema = _object_schema(schema)
+    reference = schema.get("$ref")
+    component_prefix = "#/components/schemas/"
+    if (
+        object_schema is None
+        and isinstance(reference, str)
+        and reference.startswith(component_prefix)
+    ):
+        component = components.get(reference.removeprefix(component_prefix))
+        if isinstance(component, Mapping):
+            object_schema = _object_schema(cast(Mapping[str, Any], component))
+    if object_schema is None:
+        type_name = getattr(annotation, "__name__", repr(annotation))
+        raise ConfigurationError(
+            f"openapi: {location} input type {type_name} must be object-shaped"
+        )
+    required = set(object_schema.get("required", []))
     parameters: list[dict[str, Any]] = []
-    for name, property_schema in schema.get("properties", {}).items():
+    for name, property_schema in object_schema.get("properties", {}).items():
         parameters.append(
             {
                 "name": name.replace("_", "-") if location == "header" else name,
@@ -280,13 +383,14 @@ def _parameters(
 
 
 def _json_schema(
-    annotation: type[Any],
+    annotation: Any,
     components: dict[str, Any],
     *,
     mode: str,
 ) -> dict[str, Any]:
     schema = TypeAdapter(annotation).json_schema(
         mode="serialization" if mode == "serialization" else "validation",
+        by_alias=True,
         ref_template="#/components/schemas/{model}",
     )
     for name, definition in schema.pop("$defs", {}).items():
@@ -296,7 +400,7 @@ def _json_schema(
             # models share a class name, or one model's validation and
             # serialization schemas diverge (computed fields, validation
             # aliases). Refusing beats silently documenting the wrong one.
-            raise ValueError(
+            raise ConfigurationError(
                 f"openapi: conflicting schemas for component {name!r}; "
                 "rename one of the models so both can be documented"
             )

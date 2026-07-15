@@ -167,6 +167,18 @@ async def test_type_checking_only_context_annotation_still_executes() -> None:
     assert await execute(namespace["uc"], request=41, context=object()) == 42  # type: ignore[arg-type]
 
 
+async def test_redundantly_quoted_future_request_annotation_executes() -> None:
+    source = (
+        "from __future__ import annotations\n"
+        "async def uc(request: 'int', context: object) -> int:\n"
+        "    return request + 1\n"
+    )
+    namespace: dict[str, object] = {}
+    exec(source, namespace)
+
+    assert await execute(namespace["uc"], request=41, context=object()) == 42  # type: ignore[arg-type]
+
+
 async def test_unresolvable_request_annotation_is_a_framed_error() -> None:
     source = (
         "from __future__ import annotations\n"
@@ -229,6 +241,52 @@ async def test_signature_problems_are_caught_before_the_context_opens() -> None:
         await execute(needy, request={"title": "x"}, context=unit_of_work)
 
     assert events == []  # a miswired call never starts a unit of work
+
+
+async def test_sync_use_case_is_rejected_before_the_context_opens() -> None:
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def unit_of_work() -> AsyncGenerator[Context]:
+        events.append("enter")
+        yield Context(events)
+
+    def sync_use_case(context: Context) -> str:
+        return "not awaitable"
+
+    with pytest.raises(ExecutionError, match="must be an async function"):
+        await execute(sync_use_case, context=unit_of_work)  # type: ignore[arg-type]
+
+    assert events == []
+
+
+async def test_context_factory_arity_is_rejected_before_calling_it() -> None:
+    called = False
+
+    def needs_state(state: str) -> Context:
+        nonlocal called
+        called = True
+        return Context([state])
+
+    with pytest.raises(ExecutionError, match="must accept zero arguments"):
+        await execute(ping, context=needs_state)
+
+    assert not called
+
+
+async def test_context_classes_are_rejected_as_ambiguous_factories() -> None:
+    with pytest.raises(ExecutionError, match="pass a context instance, not a class"):
+        await execute(ping, context=Context)
+
+
+async def test_context_factory_exception_is_not_misclassified() -> None:
+    def broken_factory() -> Context:
+        raise TypeError("factory bug")
+
+    with pytest.raises(TypeError, match="factory bug") as raised:
+        await execute(ping, context=broken_factory)
+
+    assert type(raised.value) is TypeError
 
 
 async def test_defaulted_request_parameter_uses_its_default() -> None:

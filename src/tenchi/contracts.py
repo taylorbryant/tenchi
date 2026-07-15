@@ -10,18 +10,27 @@ validate works as a request, params, or response type — models, dataclasses,
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Generic
+from types import UnionType
+from typing import Any, Generic, cast
 
 from typing_extensions import TypeVar
 
-from .errors import ErrorDef
+from .errors import (
+    ConfigurationError,
+    ErrorDef,
+    _validated_error_defs,  # pyright: ignore[reportPrivateUsage]
+)
 
 ResponseT = TypeVar("ResponseT", default=Any)
 
 _METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+_PATH_PARAMETER = re.compile(
+    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::[a-zA-Z_][a-zA-Z0-9_]*)?\}"
+)
 
 
 @dataclass(frozen=True)
@@ -33,11 +42,11 @@ class Contract(Generic[ResponseT]):
 
     method: str
     path: str
-    request: type[Any] | None = None
-    params: type[Any] | None = None
-    query: type[Any] | None = None
-    headers: type[Any] | None = None
-    response: type[ResponseT] | None = None
+    request: type[Any] | UnionType | None = None
+    params: type[Any] | UnionType | None = None
+    query: type[Any] | UnionType | None = None
+    headers: type[Any] | UnionType | None = None
+    response: type[ResponseT] | UnionType | None = None
     status: int = 200
     errors: tuple[ErrorDef, ...] = ()
     name: str = field(default="")
@@ -59,11 +68,11 @@ def contract(
     *,
     method: str,
     path: str,
-    request: type[Any] | None = None,
-    params: type[Any] | None = None,
-    query: type[Any] | None = None,
-    headers: type[Any] | None = None,
-    response: type[ResponseT] | None = None,
+    request: type[Any] | UnionType | None = None,
+    params: type[Any] | UnionType | None = None,
+    query: type[Any] | UnionType | None = None,
+    headers: type[Any] | UnionType | None = None,
+    response: type[ResponseT] | UnionType | None = None,
     status: int = 200,
     errors: Sequence[ErrorDef] = (),
     name: str | None = None,
@@ -92,10 +101,10 @@ def contract(
             ``query`` argument. Values arrive as strings (or lists of
             strings for repeated keys) and are coerced by Pydantic.
         headers: Type validated from the request headers, passed to the use
-            case as its ``headers`` argument. HTTP names map to field names
-            by lowercasing and replacing ``-`` with ``_``, so ``X-Api-Key``
-            validates into a field named ``x_api_key``. Repeated headers
-            keep the last value.
+            case as its ``headers`` argument. Underscores in field names map
+            to hyphens on the wire, so ``x_api_key`` reads ``X-Api-Key``;
+            Pydantic field aliases are also honored case-insensitively as
+            HTTP header names. Repeated headers keep the last value.
         response: Type the use case result is validated against before
             serialization. ``None`` means an empty response body.
         status: Success status code. Defaults to 200.
@@ -132,32 +141,55 @@ def contract(
             the framework's 413 before validation runs. Only meaningful
             on contracts that declare a ``request`` type.
     """
+    _validate_runtime_options(
+        method=method,
+        path=path,
+        status=status,
+        request_media_type=request_media_type,
+        response_media_type=response_media_type,
+        name=name,
+        summary=summary,
+        description=description,
+        deprecated=deprecated,
+        sunset=sunset,
+        max_request_bytes=max_request_bytes,
+    )
+    declared_errors = _validated_error_defs(
+        errors, label=f"contract(path={path!r}) errors"
+    )
+    declared_tags = _validated_tags(tags, path=path)
+
     normalized_method = method.upper()
     if normalized_method not in _METHODS:
-        raise ValueError(f"contract(path={path!r}): unsupported HTTP method {method!r}")
+        raise ConfigurationError(
+            f"contract(path={path!r}): unsupported HTTP method {method!r}"
+        )
     if not path.startswith("/"):
-        raise ValueError(f"contract path must start with '/', got {path!r}")
+        raise ConfigurationError(f"contract path must start with '/', got {path!r}")
+    _validate_path_template(path)
     if not 100 <= status <= 599:
-        raise ValueError(f"contract(path={path!r}): invalid status {status}")
-    if not request_media_type or not response_media_type:
-        raise ValueError(f"contract(path={path!r}): media types must be non-empty")
+        raise ConfigurationError(f"contract(path={path!r}): invalid status {status}")
+    if not request_media_type.strip() or not response_media_type.strip():
+        raise ConfigurationError(
+            f"contract(path={path!r}): media types must be non-empty"
+        )
     if sunset is not None and sunset.tzinfo is None:
-        raise ValueError(
+        raise ConfigurationError(
             f"contract(path={path!r}): sunset must be timezone-aware so the "
             "Sunset header is unambiguous"
         )
     if isinstance(deprecated, datetime) and deprecated.tzinfo is None:
-        raise ValueError(
+        raise ConfigurationError(
             f"contract(path={path!r}): a deprecated datetime must be "
             "timezone-aware so the Deprecation header is unambiguous"
         )
     if max_request_bytes is not None and max_request_bytes <= 0:
-        raise ValueError(
+        raise ConfigurationError(
             f"contract(path={path!r}): max_request_bytes must be positive, "
             f"got {max_request_bytes}"
         )
     if max_request_bytes is not None and request is None:
-        raise ValueError(
+        raise ConfigurationError(
             f"contract(path={path!r}): max_request_bytes is set but the "
             "contract declares no request type; the ceiling would never "
             "apply"
@@ -171,14 +203,142 @@ def contract(
         headers=headers,
         response=response,
         status=status,
-        errors=tuple(errors),
+        errors=declared_errors,
         name=name or f"{normalized_method} {path}",
         request_media_type=request_media_type,
         response_media_type=response_media_type,
         summary=summary,
         description=description,
-        tags=tuple(tags),
+        tags=declared_tags,
         deprecated=deprecated,
         sunset=sunset,
         max_request_bytes=max_request_bytes,
     )
+
+
+def _validate_runtime_options(
+    *,
+    method: object,
+    path: object,
+    status: object,
+    request_media_type: object,
+    response_media_type: object,
+    name: object,
+    summary: object,
+    description: object,
+    deprecated: object,
+    sunset: object,
+    max_request_bytes: object,
+) -> None:
+    """Frame malformed dynamically supplied options as configuration errors."""
+    if not isinstance(method, str):
+        raise ConfigurationError(
+            f"contract(path={path!r}): method must be a string, got "
+            f"{type(method).__name__}"
+        )
+    if not isinstance(path, str):
+        raise ConfigurationError(
+            f"contract: path must be a string, got {type(path).__name__}"
+        )
+    if not isinstance(status, int) or isinstance(status, bool):
+        raise ConfigurationError(
+            f"contract(path={path!r}): status must be an int, got "
+            f"{type(status).__name__}"
+        )
+    if not isinstance(request_media_type, str) or not isinstance(
+        response_media_type, str
+    ):
+        raise ConfigurationError(
+            f"contract(path={path!r}): media types must be strings"
+        )
+    for label, value in (
+        ("name", name),
+        ("summary", summary),
+        ("description", description),
+    ):
+        if value is not None and not isinstance(value, str):
+            raise ConfigurationError(
+                f"contract(path={path!r}): {label} must be a string or None, "
+                f"got {type(value).__name__}"
+            )
+    if sunset is not None and not isinstance(sunset, datetime):
+        raise ConfigurationError(
+            f"contract(path={path!r}): sunset must be a datetime or None, got "
+            f"{type(sunset).__name__}"
+        )
+    if not isinstance(deprecated, (bool, datetime)):
+        raise ConfigurationError(
+            f"contract(path={path!r}): deprecated must be a bool or datetime, got "
+            f"{type(deprecated).__name__}"
+        )
+    if max_request_bytes is not None and (
+        not isinstance(max_request_bytes, int) or isinstance(max_request_bytes, bool)
+    ):
+        raise ConfigurationError(
+            f"contract(path={path!r}): max_request_bytes must be an int or None, "
+            f"got {type(max_request_bytes).__name__}"
+        )
+
+
+def _validated_tags(value: object, *, path: str) -> tuple[str, ...]:
+    if isinstance(value, str | bytes) or not isinstance(value, Sequence):
+        raise ConfigurationError(
+            f"contract(path={path!r}): tags must be a sequence of strings"
+        )
+    tags: list[str] = []
+    for index, tag in enumerate(cast(Sequence[object], value)):
+        if not isinstance(tag, str) or not tag.strip():
+            raise ConfigurationError(
+                f"contract(path={path!r}): tags[{index}] must be a non-empty string"
+            )
+        tags.append(tag)
+    return tuple(tags)
+
+
+def _validate_path_template(path: str) -> None:
+    remainder = _PATH_PARAMETER.sub("", path)
+    if "{" in remainder or "}" in remainder:
+        raise ConfigurationError(
+            f"contract(path={path!r}): invalid path parameter syntax; use "
+            "'{name}' or Starlette's '{name:converter}' form"
+        )
+
+
+def _is_json_media_type(  # pyright: ignore[reportUnusedFunction]
+    value: str,
+) -> bool:
+    essence = value.partition(";")[0].strip().casefold()
+    return essence == "application/json" or essence.endswith("+json")
+
+
+def _is_text_media_type(  # pyright: ignore[reportUnusedFunction]
+    value: str,
+) -> bool:
+    return value.partition(";")[0].strip().casefold().startswith("text/")
+
+
+def _object_schema(  # pyright: ignore[reportUnusedFunction]
+    schema: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    """Resolve a local root reference and return an object-shaped schema."""
+    root = schema
+    current = schema
+    seen: set[str] = set()
+    while True:
+        if current.get("type") == "object" or "properties" in current:
+            return current
+        reference = current.get("$ref")
+        if not isinstance(reference, str) or not reference.startswith("#/"):
+            return None
+        if reference in seen:
+            return None
+        seen.add(reference)
+        target: object = root
+        for raw_part in reference[2:].split("/"):
+            part = raw_part.replace("~1", "/").replace("~0", "~")
+            if not isinstance(target, Mapping) or part not in target:
+                return None
+            target = cast(Mapping[object, object], target)[part]
+        if not isinstance(target, Mapping):
+            return None
+        current = cast(Mapping[str, Any], target)
