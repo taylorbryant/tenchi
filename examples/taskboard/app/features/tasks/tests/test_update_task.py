@@ -7,6 +7,7 @@ from app.infra.memory_repositories import (
     MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
+    MemoryTaskSearch,
 )
 from app.server.context import AppContext
 from app.shared.errors import forbidden, task_not_found
@@ -25,6 +26,7 @@ async def make_context_with_task(user: User) -> tuple[AppContext, str]:
     return AppContext(
         projects=projects,
         tasks=tasks,
+        task_search=MemoryTaskSearch(projects, tasks),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,
@@ -92,6 +94,7 @@ async def test_members_may_view_but_not_update() -> None:
     bob = AppContext(
         projects=projects,
         tasks=tasks,
+        task_search=MemoryTaskSearch(projects, tasks),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=BOB,

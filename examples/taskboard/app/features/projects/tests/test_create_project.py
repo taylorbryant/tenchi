@@ -7,6 +7,7 @@ from app.infra.memory_repositories import (
     MemoryOutbox,
     MemoryProjectRepository,
     MemoryTaskRepository,
+    MemoryTaskSearch,
 )
 from app.server.context import AppContext
 from app.shared.errors import unauthorized
@@ -20,7 +21,8 @@ def make_context(user: User | None = ALICE) -> AppContext:
     projects = MemoryProjectRepository()
     return AppContext(
         projects=projects,
-        tasks=MemoryTaskRepository(projects),
+        tasks=(tasks := MemoryTaskRepository(projects)),
+        task_search=MemoryTaskSearch(projects, tasks),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,

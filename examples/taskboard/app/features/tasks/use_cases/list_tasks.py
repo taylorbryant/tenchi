@@ -8,7 +8,7 @@ from ..schemas import ListTasksQuery, Task
 async def list_tasks(query: ListTasksQuery, context: AppContext) -> Page[Task]:
     viewer = require_owner_scope(context.user)
 
-    items, total = await context.tasks.search(
+    items, total = await context.task_search.search(
         viewer=viewer,
         project_id=query.project_id,
         status=query.status,

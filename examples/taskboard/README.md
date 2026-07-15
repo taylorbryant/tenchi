@@ -4,9 +4,11 @@ Tenchi's stress-test application: two related features (projects and
 tasks), bearer-token authentication with identity on the context,
 ownership and membership rules enforced in use cases, pagination,
 partial updates, SQLite adapters on a per-request connection and
-transaction, and a transactional outbox with a worker entrypoint
-([`docs/events.md`](../../docs/events.md)). If a framework capability
-regresses, something here should break.
+transaction, a transactional outbox with a worker entrypoint
+([`docs/events.md`](../../docs/events.md)), and read/write splitting —
+staleness-tolerant listing runs on a read-only second connection through
+its own port ([`docs/read-replicas.md`](../../docs/read-replicas.md)).
+If a framework capability regresses, something here should break.
 
 ```sh
 uv sync

@@ -6,11 +6,24 @@ from .schemas import Task, TaskStatus
 
 
 class TaskRepository(Protocol):
+    """Writes and strong reads: always the primary database."""
+
     async def create(self, *, project_id: str, title: str) -> Task: ...
 
     async def get(self, task_id: str) -> Task | None: ...
 
     async def save(self, task: Task) -> Task: ...
+
+
+class TaskSearch(Protocol):
+    """Staleness-tolerant listing: may be served by a read replica.
+
+    Splitting this from :class:`TaskRepository` makes the consistency
+    decision visible in use-case signatures — a use case holding only
+    ``TaskSearch`` has declared it can tolerate replica lag, and a use
+    case that writes holds the repository, so its own reads are always
+    primary (see ``docs/read-replicas.md`` in the tenchi repository).
+    """
 
     async def search(
         self,

@@ -183,6 +183,16 @@ class SqliteTaskRepository:
         )
         return task
 
+
+class SqliteTaskSearch:
+    """Implements the TaskSearch port. Bound to the read connection in
+    HTTP wiring (a stand-in for a replica); the worker binds it to its
+    primary connection — the port declares staleness *tolerance*, and
+    the wiring decides what actually serves it."""
+
+    def __init__(self, connection: aiosqlite.Connection) -> None:
+        self._connection = connection
+
     async def search(
         self,
         *,
