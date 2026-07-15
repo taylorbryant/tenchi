@@ -11,8 +11,7 @@ class Outbox(Protocol):
 
     The production adapter writes to an outbox table on the request's
     transactional connection, so a job is persisted exactly when the
-    state change it announces is (see docs/events.md in the tenchi
-    repository). A worker delivers it later.
+    state change it announces is. A worker delivers it later.
     """
 
     async def enqueue(self, *, job: str, payload: Mapping[str, Any]) -> None: ...

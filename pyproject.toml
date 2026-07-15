@@ -40,7 +40,6 @@ Homepage = "https://github.com/taylorbryant/tenchi"
 Repository = "https://github.com/taylorbryant/tenchi"
 Issues = "https://github.com/taylorbryant/tenchi/issues"
 Changelog = "https://github.com/taylorbryant/tenchi/blob/main/CHANGELOG.md"
-Roadmap = "https://github.com/taylorbryant/tenchi/blob/main/ROADMAP.md"
 
 [project.scripts]
 tenchi = "tenchi.cli:main"

@@ -1,4 +1,4 @@
-"""The transactional outbox, end to end (docs/events.md in tenchi).
+"""The transactional outbox, end to end.
 
 Enqueued jobs commit and roll back with the state change that announced
 them; the worker delivers valid jobs through an ordinary use case and
