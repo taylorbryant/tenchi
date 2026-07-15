@@ -1,4 +1,4 @@
-"""The outbox worker: asgi.py's sibling entrypoint (docs/events.md).
+"""The outbox worker: ``asgi.py``'s sibling entrypoint.
 
 Run alongside the HTTP server with:
 
@@ -8,7 +8,7 @@ Each job is one unit of work on its own connection: atomically claim the
 oldest pending outbox row (the claim is safe with several workers — see
 ``SqliteOutbox``), then hand the raw payload to ``tenchi.execution``'s
 ``execute``, which validates it against the use case's own request
-annotation — the same boundary validation as HTTP applies.
+annotation before calling the use case.
 
 Every job ends in exactly one of three ways:
 

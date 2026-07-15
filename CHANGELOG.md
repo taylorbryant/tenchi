@@ -9,13 +9,14 @@ versions may change the public API.
 
 ### Added
 
-- `docs/read-replicas.md`: the read/write-splitting recipe — staleness
-  tolerance as a port-level contract, `AsyncExitStack` wiring for
-  multi-resource request scopes, structural read-your-writes, and
-  hook-based post-write stickiness. Demonstrated in the taskboard: the
-  new `TaskSearch` port runs on a read-only second connection, with
-  tests pinning that the read side sees only committed data and
-  rejects writes.
+- The taskboard now separates staleness-tolerant task searches from writes and
+  strong reads with a `TaskSearch` port backed by a read-only second SQLite
+  connection. Tests cover committed-data visibility and rejected writes.
+
+### Changed
+
+- Consolidated the public documentation into a shorter root README and removed
+  the separate design notes, roadmap, and example READMEs.
 
 ## [0.6.0] - 2026-07-14
 
@@ -28,7 +29,6 @@ versions may change the public API.
   the same context scoping as `create_app`. `open_context()` exposes
   that scoping directly, and the server now uses it too, so
   commit-on-success / rollback-on-error semantics are defined once.
-  `docs/execution.md` records what was deliberately left out.
 
 - Request body size limits: `create_app(max_request_bytes=...)` caps
   bodies app-wide (default 1 MiB) and `contract(max_request_bytes=...)`
@@ -79,13 +79,11 @@ versions may change the public API.
 
 ### Added
 
-- `ROADMAP.md`: the lane statement, the anti-roadmap (what Tenchi will
-  never grow), and the complexity budget every proposal is measured
-  against.
-- `docs/events.md`: the design decision for events and background work —
-  direct effects are ports, deferred effects go through a transactional
-  outbox port, workers are ordinary entrypoints; no event bus or job
-  runtime in the framework.
+- Established the framework's lane, explicit non-goals, and complexity
+  budget for evaluating proposals.
+- Defined the approach to events and background work: direct effects are
+  ports, deferred effects use a transactional outbox port, and workers are
+  ordinary entrypoints rather than a framework job runtime.
 - API snapshot guard: `tests/api_snapshot.txt` records every public
   module, signature, field, and constant, and
   `tests/test_api_snapshot.py` fails when the surface drifts from it.
@@ -93,7 +91,7 @@ versions may change the public API.
   (`TENCHI_UPDATE_API_SNAPSHOT=1 uv run pytest
   tests/test_api_snapshot.py`) so API changes are always visible in
   review.
-- The taskboard example demonstrates `docs/events.md` end to end:
+- The taskboard example demonstrates the transactional outbox end to end:
   `add_project_member` enqueues a `member_added` job through an
   `Outbox` port on the request's transaction (commit persists state and
   job atomically; rollback discards both), and the worker entrypoint
@@ -222,9 +220,8 @@ versions may change the public API.
   exceptions flow through `__aexit__` before the error response is built,
   so per-request transactions commit on success and roll back on error.
   The taskboard example now opens a connection and transaction per
-  request this way. `docs/providers.md` records the accompanying
-  decision: Tenchi documents ports + adapters + scoped resources as its
-  integration story instead of growing a provider-package tier.
+  request this way. Tenchi uses ports, adapters, and scoped resources as
+  its integration model instead of growing a provider-package tier.
 
 - `Client` owns more of its transport: `Client(headers=...)` sends default
   headers on every request (the natural home for an `authorization`

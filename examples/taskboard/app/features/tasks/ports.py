@@ -18,11 +18,9 @@ class TaskRepository(Protocol):
 class TaskSearch(Protocol):
     """Staleness-tolerant listing: may be served by a read replica.
 
-    Splitting this from :class:`TaskRepository` makes the consistency
-    decision visible in use-case signatures — a use case holding only
-    ``TaskSearch`` has declared it can tolerate replica lag, and a use
-    case that writes holds the repository, so its own reads are always
-    primary (see ``docs/read-replicas.md`` in the tenchi repository).
+    Splitting this from :class:`TaskRepository` names the consistency
+    requirement explicitly. Callers that need read-your-writes semantics
+    must use ``TaskRepository`` for those reads.
     """
 
     async def search(

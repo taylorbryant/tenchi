@@ -5,8 +5,7 @@ connections per request: a primary (writes and strong reads, wrapped in
 the request transaction) and a read-only connection serving the
 staleness-tolerant ``TaskSearch`` port. With SQLite the "replica" is a
 second connection to the same file locked into query-only mode; against
-Postgres it would be a connection from a replica pool — the wiring
-shape is identical (``docs/read-replicas.md`` in the tenchi repository).
+Postgres it could instead be a connection from a replica pool.
 """
 
 from collections.abc import AsyncGenerator
