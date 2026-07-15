@@ -662,7 +662,7 @@ dev = [
 
 [[package]]
 name = "tenchi"
-version = "0.7.0"
+version = "0.6.0"
 source = { editable = "../../" }
 dependencies = [
     { name = "httpx" },
@@ -682,7 +682,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "aiosqlite", specifier = ">=0.20" },
-    { name = "markdown", specifier = ">=3.10.2" },
     { name = "openapi-spec-validator", specifier = ">=0.7" },
     { name = "pyright", specifier = ">=1.1.390" },
     { name = "pytest", specifier = ">=8.0" },
