@@ -2,7 +2,7 @@ import pytest
 from pydantic import BaseModel
 
 from tenchi.contracts import contract
-from tenchi.errors import ErrorDef
+from tenchi.errors import ConfigurationError, ErrorDef
 
 
 class Item(BaseModel):
@@ -43,6 +43,12 @@ def test_contract_rejects_relative_path() -> None:
         contract(method="GET", path="items")
 
 
+@pytest.mark.parametrize("path", ["/items/{item-id}", "/items/{item_id", "/items/}"])
+def test_contract_rejects_malformed_path_parameter_syntax(path: str) -> None:
+    with pytest.raises(ConfigurationError, match="invalid path parameter syntax"):
+        contract(method="GET", path=path)
+
+
 def test_contract_rejects_invalid_status() -> None:
     with pytest.raises(ValueError, match="invalid status"):
         contract(method="GET", path="/items", status=42)
@@ -62,3 +68,38 @@ def test_contract_metadata_defaults() -> None:
 def test_contract_rejects_empty_media_type() -> None:
     with pytest.raises(ValueError, match="media types must be non-empty"):
         contract(method="GET", path="/items", response_media_type="")
+    with pytest.raises(ValueError, match="media types must be non-empty"):
+        contract(method="GET", path="/items", response_media_type="  ")
+
+
+def test_contract_rejects_malformed_text_metadata() -> None:
+    with pytest.raises(ConfigurationError, match="name must be a string"):
+        contract(method="GET", path="/items", name=42)  # type: ignore[arg-type]
+    with pytest.raises(ConfigurationError, match="summary must be a string"):
+        contract(method="GET", path="/items", summary=42)  # type: ignore[arg-type]
+    with pytest.raises(ConfigurationError, match="description must be a string"):
+        contract(method="GET", path="/items", description=42)  # type: ignore[arg-type]
+
+
+def test_contract_rejects_malformed_declaration_collections() -> None:
+    with pytest.raises(ConfigurationError, match="tags must be a sequence"):
+        contract(method="GET", path="/items", tags="items")
+
+    with pytest.raises(ConfigurationError, match=r"errors\[0\].*ErrorDef"):
+        contract(
+            method="GET",
+            path="/items",
+            errors=("ITEM_MISSING",),  # type: ignore[arg-type]
+        )
+
+
+def test_contract_rejects_conflicting_error_codes_and_dedupes_identical_defs() -> None:
+    first = ErrorDef(code="CONFLICT", status=409, message="First meaning")
+    conflicting = ErrorDef(code="CONFLICT", status=409, message="Second meaning")
+
+    with pytest.raises(ConfigurationError, match=r"conflicting ErrorDef.*CONFLICT"):
+        contract(method="GET", path="/items", errors=(first, conflicting))
+
+    declared = contract(method="GET", path="/items", errors=(first, first))
+
+    assert declared.errors == (first,)

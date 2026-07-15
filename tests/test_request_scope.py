@@ -31,6 +31,12 @@ echo_contract = contract(
     method="POST", path="/echo", request=dict[str, str], response=dict[str, str]
 )
 wrong_shape_contract = contract(method="GET", path="/wrong-shape", response=str)
+wrong_media_contract = contract(
+    method="GET",
+    path="/wrong-media",
+    response=dict[str, str],
+    response_media_type="text/plain",
+)
 
 
 async def ok(context: Context) -> str:
@@ -50,6 +56,11 @@ async def crash(context: Context) -> str:
 async def wrong_shape(context: Context) -> str:
     context.log.append("use case")
     return 42  # type: ignore[return-value]
+
+
+async def wrong_media(context: Context) -> dict[str, str]:
+    context.log.append("use case")
+    return {"value": "not text"}
 
 
 async def echo(request: dict[str, str], context: Context) -> dict[str, str]:
@@ -74,6 +85,7 @@ def make_app(events: list[str], hooks: list[object] | None = None) -> Starlette:
             route(crash_contract, crash),
             route(echo_contract, echo),
             route(wrong_shape_contract, wrong_shape),
+            route(wrong_media_contract, wrong_media),
         ),
         context_factory=request_context,
         hooks=hooks or [],  # pyright: ignore[reportArgumentType]
@@ -137,6 +149,23 @@ async def test_response_contract_violation_rolls_back(
 
     # The use case's writes must not commit behind the 500.
     assert response.status_code == 500
+    assert events == ["enter", "use case", "rollback"]
+
+
+async def test_non_json_response_encoding_violation_rolls_back(
+    scope: tuple[Client, list[str]],
+) -> None:
+    _, events = scope
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=make_app(events)),
+        base_url="http://testserver",
+    )
+
+    async with http:
+        response = await http.get("/wrong-media")
+
+    assert response.status_code == 500
+    assert response.headers["x-tenchi-error-source"] == "framework"
     assert events == ["enter", "use case", "rollback"]
 
 

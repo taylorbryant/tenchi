@@ -327,7 +327,8 @@ _MAKE_FEATURE_ROUTES = '''\
 """Routes for the __FEATURE__ feature.
 
 Bind contracts to use cases with route(contract, use_case), then compose
-this group in app/server/routes.py.
+this group in app/server/routes.py. Boundary and return annotations must
+exactly match the contract types.
 """
 
 from tenchi.routes import route_group

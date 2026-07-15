@@ -5,12 +5,18 @@ from dataclasses import dataclass
 
 import httpx
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.applications import Starlette
 
 from tenchi.client import Client, UnexpectedResponseError
 from tenchi.contracts import contract
-from tenchi.errors import AppError, ErrorDef
+from tenchi.errors import (
+    ERROR_SOURCE_HEADER,
+    AppError,
+    ConfigurationError,
+    ErrorDef,
+    validation_error,
+)
 from tenchi.routes import route, route_group
 from tenchi.server import create_app
 
@@ -131,10 +137,51 @@ async def test_call_returns_validated_response(client: Client) -> None:
     assert item.name == "milk"
 
 
+async def test_call_distinguishes_json_null_request_from_omitted_request() -> None:
+    declared = contract(
+        method="POST",
+        path="/nullable",
+        request=Item | None,
+        response=Item | None,
+    )
+
+    async def echo(request: Item | None, context: Context) -> Item | None:
+        return request
+
+    app = create_app(routes=route_group(route(declared, echo)), context_factory=Context)
+
+    async with Client(transport=httpx.ASGITransport(app=app)) as tenchi_client:
+        result = await tenchi_client.call(declared, request=None)
+
+    assert result is None
+
+
 async def test_call_substitutes_path_params(client: Client) -> None:
     item = await client.call(get_item_contract, params=ItemParams(item_id="abc"))
 
     assert item == Item(name="abc")
+
+
+async def test_call_substitutes_starlette_path_converters() -> None:
+    class NumericParams(BaseModel):
+        item_id: int
+
+    declared = contract(
+        method="GET",
+        path="/items/{item_id:int}",
+        params=NumericParams,
+        status=204,
+    )
+    paths: list[str] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(204)
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        await client.call(declared, params=NumericParams(item_id=7))
+
+    assert paths == ["/items/7"]
 
 
 async def test_call_sends_query_params(client: Client) -> None:
@@ -162,6 +209,55 @@ async def test_call_sends_headers_with_hyphenated_names(client: Client) -> None:
     assert result == "abc/fr"
 
 
+async def test_call_uses_pydantic_aliases_as_wire_names() -> None:
+    class AliasedParams(BaseModel):
+        item_id: str = Field(alias="id")
+
+    class AliasedQuery(BaseModel):
+        tags: list[str] = Field(alias="labels")
+
+    class AliasedHeaders(BaseModel):
+        api_key: str = Field(alias="X-API-Key")
+
+    class AliasedItem(BaseModel):
+        title: str = Field(alias="wireTitle")
+
+    declared = contract(
+        method="POST",
+        path="/aliased/{id}",
+        params=AliasedParams,
+        query=AliasedQuery,
+        headers=AliasedHeaders,
+        request=AliasedItem,
+        response=AliasedItem,
+    )
+    received: list[tuple[str, list[str], str, str]] = []
+
+    async def echo(
+        params: AliasedParams,
+        query: AliasedQuery,
+        headers: AliasedHeaders,
+        request: AliasedItem,
+        context: Context,
+    ) -> AliasedItem:
+        received.append((params.item_id, query.tags, headers.api_key, request.title))
+        return request
+
+    app = create_app(routes=route_group(route(declared, echo)), context_factory=Context)
+
+    async with Client(transport=httpx.ASGITransport(app=app)) as tenchi_client:
+        result = await tenchi_client.call(
+            declared,
+            params=AliasedParams(id="42"),
+            query=AliasedQuery(labels=["featured"]),
+            headers=AliasedHeaders.model_validate({"X-API-Key": "secret"}),
+            request=AliasedItem(wireTitle="milk"),
+        )
+
+    assert result == AliasedItem(wireTitle="milk")
+    assert received == [("42", ["featured"], "secret", "milk")]
+
+
 async def test_call_round_trips_text_media_type(client: Client) -> None:
     assert await client.call(shout_contract, request="hello") == "HELLO"
 
@@ -186,6 +282,54 @@ async def test_undeclared_error_raises_unexpected_response(
 
     assert excinfo.value.status_code == 500
     assert excinfo.value.body["code"] == "INTERNAL_SERVER_ERROR"
+
+
+@pytest.mark.parametrize("source", [None, "framework"])
+async def test_matching_non_app_error_envelope_remains_unexpected(
+    source: str | None,
+) -> None:
+    declared = contract(
+        method="GET",
+        path="/collision",
+        response=Item,
+        errors=(validation_error,),
+    )
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        headers = {ERROR_SOURCE_HEADER: source} if source is not None else None
+        return httpx.Response(
+            422,
+            json={"code": "VALIDATION_ERROR", "message": "Bad input"},
+            headers=headers,
+        )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(UnexpectedResponseError) as excinfo:
+            await client.call(declared)
+
+    assert excinfo.value.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"code": "ITEM_MISSING"},
+        {"code": "ITEM_MISSING", "message": 42},
+    ],
+)
+async def test_malformed_app_error_envelope_remains_unexpected(
+    body: dict[str, object],
+) -> None:
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            json=body,
+            headers={ERROR_SOURCE_HEADER: "app"},
+        )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(UnexpectedResponseError):
+            await client.call(get_item_contract, params=ItemParams(item_id="missing"))
 
 
 async def test_call_requires_declared_params_and_request(
@@ -273,6 +417,101 @@ def test_client_constructor_validation() -> None:
         Client(headers={"a": "b"}, http=httpx.AsyncClient())
 
 
+def test_client_rejects_malformed_shared_errors() -> None:
+    with pytest.raises(ConfigurationError, match=r"errors\[0\].*ErrorDef"):
+        Client(
+            base_url="http://example.test",
+            errors=("UNAUTHORIZED",),  # type: ignore[arg-type]
+        )
+
+
+async def test_client_rejects_contract_and_shared_error_conflicts_before_io() -> None:
+    contract_error = ErrorDef(code="CONFLICT", status=409, message="Contract")
+    shared_error = ErrorDef(code="CONFLICT", status=409, message="Shared")
+    declared = contract(
+        method="GET", path="/conflict", response=Item, errors=(contract_error,)
+    )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"name": "x"})
+
+    async with Client(
+        transport=httpx.MockTransport(respond), errors=(shared_error,)
+    ) as client:
+        with pytest.raises(ConfigurationError, match=r"conflicting ErrorDef.*CONFLICT"):
+            await client.call(declared)
+
+    assert requests == []
+
+
+@pytest.mark.parametrize("slot", ["query", "headers"])
+async def test_client_preflights_omitted_optional_input_types(slot: str) -> None:
+    class Unsupported:
+        pass
+
+    calls: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(204)
+
+    declared = (
+        contract(method="GET", path="/invalid-input", status=204, query=Unsupported)
+        if slot == "query"
+        else contract(
+            method="GET", path="/invalid-input", status=204, headers=Unsupported
+        )
+    )
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConfigurationError, match=rf"{slot} type.*Unsupported"):
+            await client.call(declared)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("slot", ["query", "headers"])
+async def test_client_rejects_scalar_optional_input_types_before_io(slot: str) -> None:
+    calls: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(204)
+
+    declared = (
+        contract(method="GET", path="/scalar-input", status=204, query=int)
+        if slot == "query"
+        else contract(method="GET", path="/scalar-input", status=204, headers=int)
+    )
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConfigurationError, match=rf"{slot} type.*object"):
+            await client.call(declared)
+
+    assert calls == []
+
+
+async def test_structured_json_media_type_round_trips() -> None:
+    declared = contract(
+        method="POST",
+        path="/vendor-json",
+        request=Item,
+        request_media_type="application/vnd.tenchi+json",
+        response=Item,
+        response_media_type="application/vnd.tenchi+json",
+    )
+
+    async def echo(request: Item, context: Context) -> Item:
+        return request
+
+    app = create_app(routes=route_group(route(declared, echo)), context_factory=Context)
+
+    async with Client(transport=httpx.ASGITransport(app=app)) as client:
+        result = await client.call(declared, request=Item(name="x"))
+
+    assert result == Item(name="x")
+
+
 throttled = ErrorDef(
     code="THROTTLED", status=429, message="Slow down", headers=("Retry-After",)
 )
@@ -300,6 +539,8 @@ async def test_declared_error_headers_reach_the_raised_error() -> None:
 async def test_undeclared_inputs_are_rejected_not_dropped(client: Client) -> None:
     with pytest.raises(TypeError, match="does not declare request="):
         await client.call(clear_contract, request=Item(name="x"))
+    with pytest.raises(TypeError, match="does not declare request="):
+        await client.call(clear_contract, request=None)
     with pytest.raises(TypeError, match="does not declare query="):
         await client.call(create_item_contract, query={"term": "x"})
 

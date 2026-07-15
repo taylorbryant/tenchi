@@ -368,6 +368,21 @@ async def test_headers_validate_with_normalized_names(
     assert response.json() == "abc/fr"
 
 
+async def test_repeated_headers_keep_the_last_value(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get(
+        "/headers",
+        headers=[
+            ("x-api-key", "first"),
+            ("x-api-key", "last"),
+        ],
+    )
+
+    assert response.status_code == 200
+    assert response.json() == "last/en"
+
+
 async def test_header_defaults_apply_when_absent(
     client: httpx.AsyncClient,
 ) -> None:

@@ -7,7 +7,7 @@ Canonical imports use the submodules — ``tenchi.contracts``,
 
 from .client import Client, UnexpectedResponseError
 from .contracts import Contract, contract
-from .errors import AppError, ErrorDef
+from .errors import AppError, ConfigurationError, ErrorDef, TenchiError
 from .execution import ExecutionError, execute
 from .health import health_route
 from .openapi import openapi_route, openapi_schema
@@ -15,11 +15,12 @@ from .pagination import Page, PageQuery, page
 from .routes import Route, RouteGroup, route, route_group
 from .server import RequestInfo, create_app
 
-__version__ = "0.7.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "AppError",
     "Client",
+    "ConfigurationError",
     "Contract",
     "ErrorDef",
     "ExecutionError",
@@ -28,6 +29,7 @@ __all__ = [
     "RequestInfo",
     "Route",
     "RouteGroup",
+    "TenchiError",
     "UnexpectedResponseError",
     "__version__",
     "contract",

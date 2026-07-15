@@ -8,26 +8,39 @@ never wait for a request to surface.
 Use cases are plain async functions. The server calls them with keyword
 arguments derived from the contract: ``request`` when the contract declares
 a request type, ``params``/``query``/``headers`` when it declares those
-input types, and always ``context``.
+input types, and always ``context``. Boundary parameter annotations and the
+return annotation must exactly match the contract's declarations; the app-owned
+``context`` annotation is not resolved or compared.
 """
 
 from __future__ import annotations
 
+import functools
 import inspect
-import re
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, cast
 
-from pydantic import BaseModel
+from pydantic import TypeAdapter
 
-from .contracts import Contract, ResponseT
-from .errors import ErrorDef
+from .contracts import (
+    _PATH_PARAMETER,  # pyright: ignore[reportPrivateUsage]
+    Contract,
+    ResponseT,
+    _object_schema,  # pyright: ignore[reportPrivateUsage]
+)
+from .errors import (
+    ConfigurationError,
+    ErrorDef,
+    _validated_error_defs,  # pyright: ignore[reportPrivateUsage]
+)
 
 UseCase = Callable[..., Awaitable[Any]]
 
+_BOUNDARY_ARGUMENTS = ("params", "query", "headers", "request")
 
-class RouteBindingError(TypeError):
+
+class RouteBindingError(ConfigurationError, TypeError):
     """Raised when a use case cannot satisfy its contract."""
 
 
@@ -58,7 +71,7 @@ def route(
     contract: Contract[ResponseT],
     use_case: Callable[..., Awaitable[ResponseT]],
 ) -> Route:
-    """Bind a contract to a use case, validating the signature eagerly."""
+    """Bind a contract to a use case, validating its signature and types."""
     if not inspect.iscoroutinefunction(use_case):
         raise RouteBindingError(
             f"route({contract.name!r}): use case "
@@ -78,7 +91,13 @@ def route(
 
     _check_params_match_path(contract)
 
-    signature = inspect.signature(use_case)
+    try:
+        signature = inspect.signature(use_case)
+    except (TypeError, ValueError) as exc:
+        raise RouteBindingError(
+            f"route({contract.name!r}): could not inspect use case "
+            f"{_describe(use_case)}: {exc}"
+        ) from exc
     parameters = signature.parameters
     accepts_any_kwargs = any(
         parameter.kind is inspect.Parameter.VAR_KEYWORD
@@ -120,6 +139,8 @@ def route(
                 f"{sorted(expected)}"
             )
 
+    _check_type_coherence(contract, use_case, signature, accepts_any_kwargs)
+
     return Route(
         contract=contract,
         use_case=use_case,
@@ -142,25 +163,26 @@ def route_group(
     authentication failure) without repeating them contract by contract.
     Declarations are appended and deduplicated.
     """
+    prefix = _validated_prefix(prefix)
+    declared_errors = _validated_error_defs(errors, label="route_group errors")
     if prefix and not prefix.startswith("/"):
-        raise ValueError(f"route_group prefix must start with '/', got {prefix!r}")
+        raise ConfigurationError(
+            f"route_group prefix must start with '/', got {prefix!r}"
+        )
     if prefix.endswith("/"):
         # Contract paths start with "/", so a trailing slash would build
         # double-slash paths that never match their intended URL.
-        raise ValueError(f"route_group prefix must not end with '/', got {prefix!r}")
+        raise ConfigurationError(
+            f"route_group prefix must not end with '/', got {prefix!r}"
+        )
 
     flattened: list[Route] = []
-    for item in items:
-        if isinstance(item, Route):
-            flattened.append(item)
-        elif isinstance(item, RouteGroup):
-            flattened.extend(item.routes)
-        else:
-            flattened.extend(item)
+    for index, item in enumerate(items):
+        _append_routes(flattened, item, index=index)
 
-    if prefix or errors:
+    if prefix or declared_errors:
         flattened = [
-            replace(item, contract=_amend(item.contract, prefix, errors))
+            replace(item, contract=_amend(item.contract, prefix, declared_errors))
             for item in flattened
         ]
 
@@ -170,20 +192,56 @@ def route_group(
 def _amend(
     contract: Contract[Any], prefix: str, errors: Sequence[ErrorDef]
 ) -> Contract[Any]:
-    merged = contract.errors + tuple(
-        definition for definition in errors if definition not in contract.errors
+    merged = _validated_error_defs(
+        (*contract.errors, *errors), label=f"route_group({contract.name!r}) errors"
+    )
+    path = prefix + contract.path if prefix else contract.path
+    default_name = f"{contract.method} {contract.path}"
+    name = (
+        f"{contract.method} {path}" if contract.name == default_name else contract.name
     )
     return replace(
         contract,
-        path=prefix + contract.path if prefix else contract.path,
+        path=path,
+        name=name,
         errors=merged,
+    )
+
+
+def _validated_prefix(value: object) -> str:
+    if not isinstance(value, str):
+        raise ConfigurationError(
+            f"route_group prefix must be a string, got {type(value).__name__}"
+        )
+    return value
+
+
+def _append_routes(flattened: list[Route], value: object, *, index: int) -> None:
+    if isinstance(value, Route):
+        flattened.append(value)
+        return
+    if isinstance(value, RouteGroup):
+        flattened.extend(value.routes)
+        return
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        for nested_index, nested in enumerate(cast(Sequence[object], value)):
+            if not isinstance(nested, Route):
+                raise ConfigurationError(
+                    f"route_group item[{index}][{nested_index}] must be a Route, "
+                    f"got {type(nested).__name__}"
+                )
+            flattened.append(nested)
+        return
+    raise ConfigurationError(
+        f"route_group item[{index}] must be a Route, RouteGroup, or sequence "
+        f"of Route values, got {type(value).__name__}"
     )
 
 
 def _check_params_match_path(contract: Contract[Any]) -> None:
     """Fail at import time when a params model and the path template
     disagree — such a route would 422 on every single request."""
-    placeholders = set(re.findall(r"{([^}:]+)[^}]*}", contract.path))
+    placeholders = {match.group(1) for match in _PATH_PARAMETER.finditer(contract.path)}
     if contract.params is None:
         if placeholders:
             raise RouteBindingError(
@@ -192,14 +250,125 @@ def _check_params_match_path(contract: Contract[Any]) -> None:
             )
         return
     params_type: Any = contract.params
-    if not inspect.isclass(params_type) or not issubclass(params_type, BaseModel):
-        return  # non-model params types are validated only at runtime
-    fields = set(params_type.model_fields)
+    try:
+        adapter = TypeAdapter(params_type)
+        if not adapter.pydantic_complete:
+            adapter.rebuild(raise_errors=True)
+        schema = adapter.json_schema(mode="validation")
+    except Exception as exc:
+        raise RouteBindingError(
+            f"route({contract.name!r}): could not inspect params type "
+            f"{_type_name(params_type)}: {exc}"
+        ) from exc
+    object_schema = _object_schema(schema)
+    if object_schema is None:
+        raise RouteBindingError(
+            f"route({contract.name!r}): params type {_type_name(params_type)} must "
+            "describe object-shaped input"
+        )
+    fields = set(object_schema.get("properties", {}))
     if fields != placeholders:
         raise RouteBindingError(
             f"route({contract.name!r}): params model fields {sorted(fields)} "
             f"do not match path template parameters {sorted(placeholders)}"
         )
+
+
+def _check_type_coherence(
+    contract: Contract[Any],
+    use_case: UseCase,
+    signature: inspect.Signature,
+    accepts_any_kwargs: bool,
+) -> None:
+    """Require the contract and use-case boundary annotations to agree.
+
+    The server validates values using the contract's types, then passes them
+    to the use case. Exact agreement prevents the two declarations from
+    drifting. The context annotation is deliberately ignored: it is app-owned
+    and commonly imported only under ``TYPE_CHECKING``.
+    """
+    parameters = signature.parameters
+    for name in _BOUNDARY_ARGUMENTS:
+        contract_type = getattr(contract, name)
+        parameter = parameters.get(name)
+        if contract_type is None:
+            if parameter is not None:
+                raise RouteBindingError(
+                    f"route({contract.name!r}): contract declares no {name!r} "
+                    f"input, but use case {_describe(use_case)} has a {name!r} "
+                    "parameter"
+                )
+            continue
+        if parameter is None:
+            assert accepts_any_kwargs
+            raise RouteBindingError(
+                f"route({contract.name!r}): use case {_describe(use_case)} must "
+                f"declare an explicit annotated {name!r} parameter; **kwargs "
+                "cannot prove the contract type agrees"
+            )
+        if parameter.annotation is inspect.Parameter.empty:
+            raise RouteBindingError(
+                f"route({contract.name!r}): use case {_describe(use_case)} "
+                f"parameter {name!r} must be annotated with the contract type"
+            )
+        annotation = _resolve_annotation(
+            contract, use_case, parameter.annotation, f"parameter {name!r}"
+        )
+        if annotation != contract_type:
+            raise RouteBindingError(
+                f"route({contract.name!r}): use case {_describe(use_case)} "
+                f"parameter {name!r} annotation {_type_name(annotation)} does not "
+                f"match contract {name} type {_type_name(contract_type)}"
+            )
+
+    if signature.return_annotation is inspect.Signature.empty:
+        raise RouteBindingError(
+            f"route({contract.name!r}): use case {_describe(use_case)} return value "
+            "must be annotated with the contract response type"
+        )
+    annotation = _resolve_annotation(
+        contract, use_case, signature.return_annotation, "return annotation"
+    )
+    if annotation != contract.response:
+        raise RouteBindingError(
+            f"route({contract.name!r}): use case {_describe(use_case)} return "
+            f"annotation {_type_name(annotation)} does not match contract response "
+            f"type {_type_name(contract.response)}"
+        )
+
+
+def _resolve_annotation(
+    contract: Contract[Any], use_case: UseCase, annotation: Any, location: str
+) -> Any:
+    function: Any = use_case
+    while isinstance(function, functools.partial):
+        function = function.func
+    function = inspect.unwrap(function)
+    namespace = getattr(function, "__globals__", {})
+    original = annotation
+    seen: set[str] = set()
+    while isinstance(annotation, str):
+        if annotation in seen:
+            raise RouteBindingError(
+                f"route({contract.name!r}): could not resolve use case "
+                f"{_describe(use_case)} {location} {original!r}: cyclic forward "
+                "reference"
+            )
+        seen.add(annotation)
+        try:
+            annotation = eval(annotation, namespace)
+        except Exception as exc:
+            raise RouteBindingError(
+                f"route({contract.name!r}): could not resolve use case "
+                f"{_describe(use_case)} {location} {original!r}: {exc}"
+            ) from exc
+    return annotation
+
+
+def _type_name(annotation: Any) -> str:
+    if annotation is None:
+        return "None"
+    return getattr(annotation, "__name__", repr(annotation))
 
 
 def _describe(use_case: object) -> str:
