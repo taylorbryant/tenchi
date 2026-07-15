@@ -9,6 +9,12 @@ versions may change the public API.
 
 ### Added
 
+- A docs site in the spirit of the framework: `docs_site/build.py`
+  renders the repository's own markdown (README, design notes, roadmap,
+  changelog) into a static site — one script, one stylesheet, no
+  JavaScript, dark and light — deployed to GitHub Pages on pushes to
+  `main`. The build is covered by tests, including that no
+  repo-relative link survives unrewritten.
 - `docs/read-replicas.md`: the read/write-splitting recipe — staleness
   tolerance as a port-level contract, `AsyncExitStack` wiring for
   multi-resource request scopes, structural read-your-writes, and

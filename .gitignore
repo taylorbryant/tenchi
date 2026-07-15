@@ -218,3 +218,4 @@ __marimo__/
 .streamlit/secrets.toml
 todos.db
 taskboard.db
+docs_site/dist/
