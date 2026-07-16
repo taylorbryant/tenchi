@@ -1,8 +1,9 @@
 """The SQLite adapters against a real file, including the ownership join."""
 
+import asyncio
 from pathlib import Path
 
-from app.features.tasks.schemas import TaskStatus
+from app.features.tasks.schemas import Task, TaskStatus
 from app.infra.port_wiring import ensure_schema, open_request_ports
 from app.shared.users import OwnerScope
 
@@ -54,7 +55,10 @@ async def test_task_search_joins_ownership_and_paginates(tmp_path: Path) -> None
         assert [task.title for task in items] == ["task 3", "task 4"]
 
         first = items[0]
-        await ports.tasks.save(first.model_copy(update={"status": TaskStatus.DONE}))
+        await ports.tasks.save(
+            first.model_copy(update={"status": TaskStatus.DONE}),
+            expected_version=first.version,
+        )
 
     async with open_request_ports(database) as ports:
         done_items, done_total = await ports.task_search.search(
@@ -119,13 +123,113 @@ async def test_committed_scopes_persist_across_connections(tmp_path: Path) -> No
             name="Launch", owner=OwnerScope(owner_id="alice")
         )
         task = await ports.tasks.create(project_id=project.id, title="persist me")
-        await ports.tasks.save(task.model_copy(update={"status": TaskStatus.DOING}))
+        saved = await ports.tasks.save(
+            task.model_copy(update={"status": TaskStatus.DOING}),
+            expected_version=task.version,
+        )
+        assert saved is not None
+        assert saved.version == 2
 
     async with open_request_ports(database) as ports:
         reloaded = await ports.tasks.get(task.id)
         assert reloaded is not None
         assert reloaded.status == TaskStatus.DOING
+        assert reloaded.version == 2
         assert await ports.projects.get(project.id) == project
+
+
+async def test_task_save_is_an_atomic_compare_and_swap(tmp_path: Path) -> None:
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+
+    async with open_request_ports(database) as ports:
+        project = await ports.projects.create(
+            name="Launch", owner=OwnerScope(owner_id="alice")
+        )
+        original = await ports.tasks.create(project_id=project.id, title="original")
+        stale = original.model_copy()
+
+        first = await ports.tasks.save(
+            original.model_copy(update={"title": "first writer"}),
+            expected_version=original.version,
+        )
+        assert first is not None
+        assert first.version == 2
+
+        rejected = await ports.tasks.save(
+            stale.model_copy(update={"title": "stale writer"}),
+            expected_version=stale.version,
+        )
+        assert rejected is None
+        assert await ports.tasks.get(original.id) == first
+
+
+async def test_concurrent_task_saves_have_exactly_one_winner(tmp_path: Path) -> None:
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+
+    async with open_request_ports(database) as ports:
+        project = await ports.projects.create(
+            name="Launch", owner=OwnerScope(owner_id="alice")
+        )
+        original = await ports.tasks.create(project_id=project.id, title="original")
+
+    async def save(title: str) -> Task | None:
+        async with open_request_ports(database) as ports:
+            return await ports.tasks.save(
+                original.model_copy(update={"title": title}),
+                expected_version=original.version,
+            )
+
+    results = await asyncio.gather(save("first writer"), save("second writer"))
+
+    winners = [result for result in results if result is not None]
+    assert len(winners) == 1
+    assert winners[0].version == 2
+    async with open_request_ports(database) as ports:
+        assert await ports.tasks.get(original.id) == winners[0]
+
+
+async def test_ensure_schema_migrates_existing_task_tables(tmp_path: Path) -> None:
+    import aiosqlite
+
+    database = str(tmp_path / "old-taskboard.db")
+    async with aiosqlite.connect(database) as connection:
+        await connection.execute(
+            "CREATE TABLE tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, "
+            "title TEXT NOT NULL, status TEXT NOT NULL)"
+        )
+        await connection.execute(
+            "INSERT INTO tasks (id, project_id, title, status) VALUES (?, ?, ?, ?)",
+            ("legacy-task", "legacy-project", "Existing", TaskStatus.TODO.value),
+        )
+        await connection.commit()
+
+    # The ASGI app and worker both initialize the schema at startup. An
+    # existing database must migrate safely even when they start together.
+    await asyncio.gather(*(ensure_schema(database) for _ in range(8)))
+    await ensure_schema(database)
+
+    async with aiosqlite.connect(database) as connection:
+        columns = {
+            str(row[1])
+            for row in await (
+                await connection.execute("PRAGMA table_info(tasks)")
+            ).fetchall()
+        }
+    assert "version" in columns
+
+    async with open_request_ports(database) as ports:
+        migrated = await ports.tasks.get("legacy-task")
+        assert migrated is not None
+        assert migrated.version == 1
+        saved = await ports.tasks.save(
+            migrated.model_copy(update={"title": "Updated"}),
+            expected_version=migrated.version,
+        )
+        assert saved is not None
+        assert saved.title == "Updated"
+        assert saved.version == 2
 
 
 async def test_failed_scope_rolls_back(tmp_path: Path) -> None:

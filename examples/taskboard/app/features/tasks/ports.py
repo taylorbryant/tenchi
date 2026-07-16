@@ -12,7 +12,10 @@ class TaskRepository(Protocol):
 
     async def get(self, task_id: str) -> Task | None: ...
 
-    async def save(self, task: Task) -> Task: ...
+    async def save(self, task: Task, *, expected_version: int) -> Task | None:
+        """Atomically save and increment ``task`` when its stored version
+        equals ``expected_version``; return ``None`` on a stale write."""
+        ...
 
 
 class TaskSearch(Protocol):

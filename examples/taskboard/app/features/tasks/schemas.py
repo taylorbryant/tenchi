@@ -23,6 +23,21 @@ class UpdateTask(BaseModel):
     status: TaskStatus | None = None
 
 
+TASK_ETAG_PATTERN = r'^"[1-9][0-9]*"$'
+
+
+class UpdateTaskHeaders(BaseModel):
+    """A strong entity tag identifying the task revision being updated."""
+
+    if_match: str | None = Field(default=None, pattern=TASK_ETAG_PATTERN)
+
+    @property
+    def expected_version(self) -> int | None:
+        if self.if_match is None:
+            return None
+        return int(self.if_match[1:-1])
+
+
 class GetTaskParams(BaseModel):
     task_id: str
 
@@ -37,3 +52,4 @@ class Task(BaseModel):
     project_id: str
     title: str
     status: TaskStatus
+    version: int = Field(ge=1)

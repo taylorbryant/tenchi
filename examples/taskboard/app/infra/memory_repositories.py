@@ -58,6 +58,7 @@ class MemoryTaskRepository:
             project_id=project_id,
             title=title,
             status=TaskStatus.TODO,
+            version=1,
         )
         self.tasks[task.id] = task
         return task
@@ -65,9 +66,13 @@ class MemoryTaskRepository:
     async def get(self, task_id: str) -> Task | None:
         return self.tasks.get(task_id)
 
-    async def save(self, task: Task) -> Task:
-        self.tasks[task.id] = task
-        return task
+    async def save(self, task: Task, *, expected_version: int) -> Task | None:
+        current = self.tasks.get(task.id)
+        if current is None or current.version != expected_version:
+            return None
+        saved = task.model_copy(update={"version": expected_version + 1})
+        self.tasks[task.id] = saved
+        return saved
 
 
 class MemoryTaskSearch:

@@ -19,6 +19,12 @@ versions may change the public API.
   `Client.call_with_response()` returns `ClientResponse[Body, Headers]` with
   the validated body, headers, and underlying `httpx.Response` while
   `Client.call()` keeps its body-only API.
+- Optimistic concurrency in the taskboard example: task responses carry strong
+  `ETag` validators, task creation identifies its resource with `Location`,
+  updates require `If-Match`, and both memory and SQLite repositories use
+  monotonic versions with atomic compare-and-swap writes. Missing and stale
+  preconditions are honest, documented 428 and 412 application errors, and
+  existing SQLite task tables migrate safely during concurrent startup.
 - A dependency-free, one-page documentation site covering Tenchi's core
   workflow and framework features, with automatic GitHub Pages deployment.
 

@@ -43,6 +43,7 @@ async def test_create_task_in_an_owned_project() -> None:
     assert task.project_id == project.id
     assert task.title == "Ship it"
     assert task.status == TaskStatus.TODO
+    assert task.version == 1
 
 
 async def test_create_task_rejects_missing_project() -> None:

@@ -116,7 +116,8 @@ The main pieces are:
 
 See [`examples/todos`](examples/todos) for the small teaching app and
 [`examples/taskboard`](examples/taskboard) for a larger application with
-authentication, authorization, SQLite transactions, and background work.
+authentication, authorization, SQLite transactions, optimistic concurrency
+through `ETag` / `If-Match`, and background work.
 
 ## CLI
 
