@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tenchi.contracts import contract
 from tenchi.errors import ConfigurationError, ErrorDef
@@ -16,12 +16,24 @@ class ItemParams(BaseModel):
     item_id: str
 
 
+class CreatedHeaders(BaseModel):
+    location: str = Field(alias="Location")
+
+
 list_contract = contract(method="GET", path="/items", response=list[Item])
 create_contract = contract(
     method="POST", path="/items", request=Item, response=Item, status=201
 )
 get_contract = contract(
     method="GET", path="/items/{item_id}", params=ItemParams, response=Item
+)
+create_with_headers_contract = contract(
+    method="POST",
+    path="/items/with-headers",
+    request=Item,
+    response=Item,
+    response_headers=CreatedHeaders,
+    status=201,
 )
 
 
@@ -35,6 +47,10 @@ async def create_item(request: Item, context: object) -> Item:
 
 async def get_item(params: ItemParams, context: object) -> Item:
     return Item(name=params.item_id)
+
+
+def created_headers(item: Item) -> CreatedHeaders:
+    return CreatedHeaders(Location=f"/items/{item.name}")
 
 
 def test_route_computes_call_kwargs_from_contract() -> None:
@@ -56,6 +72,84 @@ def test_route_computes_call_kwargs_from_contract() -> None:
         "query",
         "context",
     )
+
+
+def test_route_binds_typed_response_headers_projector() -> None:
+    bound = route(
+        create_with_headers_contract,
+        create_item,
+        response_headers=created_headers,
+    )
+
+    assert bound.response_headers is created_headers
+
+
+def test_route_requires_response_headers_declaration_and_projector_together() -> None:
+    with pytest.raises(RouteBindingError, match="pass a typed response_headers"):
+        route(create_with_headers_contract, create_item)
+
+    with pytest.raises(RouteBindingError, match="declares no response_headers"):
+        route(
+            create_contract,
+            create_item,
+            response_headers=created_headers,  # type: ignore[arg-type]
+        )
+
+
+def test_route_rejects_async_response_headers_projector() -> None:
+    async def async_headers(item: Item) -> CreatedHeaders:
+        return created_headers(item)
+
+    with pytest.raises(RouteBindingError, match="must be a synchronous function"):
+        route(
+            create_with_headers_contract,
+            create_item,
+            response_headers=async_headers,  # type: ignore[arg-type]
+        )
+
+
+def test_route_checks_response_headers_projector_annotations() -> None:
+    def wrong_input(item: str) -> CreatedHeaders:
+        return CreatedHeaders(Location=item)
+
+    def wrong_output(item: Item) -> str:
+        return item.name
+
+    with pytest.raises(RouteBindingError, match=r"parameter annotation.*response type"):
+        route(
+            create_with_headers_contract,
+            create_item,
+            response_headers=wrong_input,  # type: ignore[arg-type]
+        )
+    with pytest.raises(
+        RouteBindingError, match=r"return annotation.*response_headers type"
+    ):
+        route(
+            create_with_headers_contract,
+            create_item,
+            response_headers=wrong_output,  # type: ignore[arg-type]
+        )
+
+
+def test_route_requires_one_annotated_response_headers_projector_argument() -> None:
+    def no_arguments() -> CreatedHeaders:
+        return CreatedHeaders(Location="/items/x")
+
+    def unannotated(item) -> CreatedHeaders:  # type: ignore[no-untyped-def]
+        return CreatedHeaders(Location="/items/x")
+
+    with pytest.raises(RouteBindingError, match="exactly one positional result"):
+        route(
+            create_with_headers_contract,
+            create_item,
+            response_headers=no_arguments,  # type: ignore[arg-type]
+        )
+    with pytest.raises(RouteBindingError, match="result parameter must be annotated"):
+        route(
+            create_with_headers_contract,
+            create_item,
+            response_headers=unannotated,  # pyright: ignore[reportUnknownArgumentType]
+        )
 
 
 def test_route_rejects_sync_use_case() -> None:

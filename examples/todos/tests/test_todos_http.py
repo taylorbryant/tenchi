@@ -40,6 +40,7 @@ async def test_create_todo_validates_and_returns_201(
     assert body["title"] == "Buy milk"
     assert body["completed"] is False
     assert isinstance(body["id"], str) and body["id"]
+    assert response.headers["location"] == f"/todos/{body['id']}"
 
 
 async def test_create_todo_rejects_invalid_body(

@@ -100,10 +100,12 @@ async def harness() -> AsyncIterator[Harness]:
 
 
 async def test_full_project_and_task_flow(harness: Harness) -> None:
-    project = await harness.alice.call(
+    project_response = await harness.alice.call_with_response(
         create_project_contract, request=CreateProject(name="Launch")
     )
+    project = project_response.body
     assert project.owner_id == "alice"
+    assert project_response.headers.location == f"/projects/{project.id}"
 
     fetched = await harness.alice.call(
         get_project_contract, params=GetProjectParams(project_id=project.id)

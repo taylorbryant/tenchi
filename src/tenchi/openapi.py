@@ -1,8 +1,9 @@
 """OpenAPI 3.1 generation from contracts.
 
 Contracts already carry everything the document needs — method, path,
-request/params/query/response types, success status, and declared errors —
-so :func:`openapi_schema` is a pure function from a route group to a dict.
+request/params/query/response types, successful response headers, success
+status, and declared errors — so :func:`openapi_schema` is a pure function
+from a route group to a dict.
 :func:`openapi_route` wraps that dict in an ordinary Tenchi route so the
 document is served by the same machinery it describes.
 """
@@ -21,6 +22,7 @@ from .contracts import (
     _PATH_PARAMETER,  # pyright: ignore[reportPrivateUsage]
     Contract,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
+    _response_header_fields,  # pyright: ignore[reportPrivateUsage]
     contract,
 )
 from .errors import ConfigurationError, ErrorDef
@@ -261,7 +263,7 @@ def _operation(
 
 
 def _responses(
-    declared: Contract[Any],
+    declared: Contract[Any, Any],
     components: dict[str, Any],
     error_schemas: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -276,6 +278,9 @@ def _responses(
                 )
             }
         }
+    success_headers = _success_response_headers(declared, components)
+    if success_headers:
+        success["headers"] = success_headers
     responses[str(declared.status)] = success
 
     errors_by_status: dict[int, list[ErrorDef]] = {}
@@ -306,6 +311,48 @@ def _responses(
         responses[str(status)] = _error_response(definitions, error_schemas)
 
     return responses
+
+
+def _success_response_headers(
+    declared: Contract[Any, Any], components: dict[str, Any]
+) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if declared.response_headers is not None:
+        schema = _json_schema(
+            declared.response_headers, components, mode="serialization"
+        )
+        object_schema = _resolved_object_schema(schema, components)
+        if object_schema is None:
+            type_name = getattr(
+                declared.response_headers, "__name__", repr(declared.response_headers)
+            )
+            raise ConfigurationError(
+                f"openapi: response_headers type {type_name} must be object-shaped"
+            )
+        fields = _response_header_fields(
+            object_schema,
+            label=f"openapi: route {declared.name!r} response_headers",
+            reference_root={"components": {"schemas": components}},
+            validation_schema=TypeAdapter(declared.response_headers).json_schema(
+                mode="validation", by_alias=True
+            ),
+        )
+        for _, name, property_schema, required in fields:
+            headers[name] = {
+                "required": required,
+                "schema": dict(property_schema),
+            }
+    if declared.deprecated:
+        headers["Deprecation"] = {
+            "required": True,
+            "schema": {"type": "string"},
+        }
+    if declared.sunset is not None:
+        headers["Sunset"] = {
+            "required": True,
+            "schema": {"type": "string"},
+        }
+    return headers
 
 
 def _error_response(
@@ -352,17 +399,7 @@ def _parameters(
     components: dict[str, Any],
 ) -> list[dict[str, Any]]:
     schema = _json_schema(annotation, components, mode="validation")
-    object_schema = _object_schema(schema)
-    reference = schema.get("$ref")
-    component_prefix = "#/components/schemas/"
-    if (
-        object_schema is None
-        and isinstance(reference, str)
-        and reference.startswith(component_prefix)
-    ):
-        component = components.get(reference.removeprefix(component_prefix))
-        if isinstance(component, Mapping):
-            object_schema = _object_schema(cast(Mapping[str, Any], component))
+    object_schema = _resolved_object_schema(schema, components)
     if object_schema is None:
         type_name = getattr(annotation, "__name__", repr(annotation))
         raise ConfigurationError(
@@ -380,6 +417,23 @@ def _parameters(
             }
         )
     return parameters
+
+
+def _resolved_object_schema(
+    schema: Mapping[str, Any], components: Mapping[str, Any]
+) -> Mapping[str, Any] | None:
+    object_schema = _object_schema(schema)
+    reference = schema.get("$ref")
+    component_prefix = "#/components/schemas/"
+    if (
+        object_schema is None
+        and isinstance(reference, str)
+        and reference.startswith(component_prefix)
+    ):
+        component = components.get(reference.removeprefix(component_prefix))
+        if isinstance(component, Mapping):
+            object_schema = _object_schema(cast(Mapping[str, Any], component))
+    return object_schema
 
 
 def _json_schema(

@@ -5,7 +5,7 @@ Canonical imports use the submodules — ``tenchi.contracts``,
 — and the most common names are re-exported here for convenience.
 """
 
-from .client import Client, UnexpectedResponseError
+from .client import Client, ClientResponse, UnexpectedResponseError
 from .contracts import Contract, contract
 from .errors import AppError, ConfigurationError, ErrorDef, TenchiError
 from .execution import ExecutionError, execute
@@ -20,6 +20,7 @@ __version__ = "0.7.0"
 __all__ = [
     "AppError",
     "Client",
+    "ClientResponse",
     "ConfigurationError",
     "Contract",
     "ErrorDef",

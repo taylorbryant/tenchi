@@ -42,11 +42,16 @@ uv add tenchi
 A contract declares the HTTP boundary:
 
 ```python
+class CreatedTodoHeaders(BaseModel):
+    location: str = Field(alias="Location")
+
+
 create_todo_contract = contract(
     method="POST",
     path="/todos",
     request=CreateTodo,
     response=Todo,
+    response_headers=CreatedTodoHeaders,
     status=201,
 )
 ```
@@ -64,10 +69,24 @@ parameter and the return annotation exactly match the contract, so invalid
 wiring fails during application composition rather than on a request:
 
 ```python
+def create_todo_headers(todo: Todo) -> CreatedTodoHeaders:
+    return CreatedTodoHeaders(Location=f"/todos/{todo.id}")
+
+
 routes = route_group(
-    route(create_todo_contract, create_todo),
+    route(
+        create_todo_contract,
+        create_todo,
+        response_headers=create_todo_headers,
+    ),
 )
 ```
+
+The synchronous response-header projector keeps HTTP metadata at the route
+boundary while the use case continues to return only domain data. Tenchi
+validates and serializes those headers before the request scope commits. The
+typed client validates them on every call; use `call_with_response()` when you
+also want the typed headers and underlying httpx response.
 
 Applications use this structure:
 
@@ -83,8 +102,9 @@ tests/                  # HTTP integration tests
 The main pieces are:
 
 - Pydantic validation for request bodies, path parameters, query parameters,
-  headers, and responses; field aliases are the names used on the wire and in
-  OpenAPI, and nullable request types can send JSON `null` explicitly.
+  request and successful response headers, and response bodies; field aliases
+  are the names used on the wire and in OpenAPI, and nullable request types can
+  send JSON `null` explicitly.
 - `typing.Protocol` ports and explicit dependency wiring instead of a DI
   container.
 - Declared application errors with a stable JSON envelope.

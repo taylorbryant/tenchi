@@ -41,6 +41,8 @@ from .contracts import (
     _is_json_media_type,  # pyright: ignore[reportPrivateUsage]
     _is_text_media_type,  # pyright: ignore[reportPrivateUsage]
     _object_schema,  # pyright: ignore[reportPrivateUsage]
+    _render_response_header_value,  # pyright: ignore[reportPrivateUsage]
+    _response_header_fields,  # pyright: ignore[reportPrivateUsage]
 )
 from .errors import (
     ERROR_SOURCE_HEADER,
@@ -96,7 +98,7 @@ class RequestInfo:
     method: str
     path: str
     headers: Mapping[str, str]
-    contract: Contract[Any]
+    contract: Contract[Any, Any]
     request_id: str
     """Correlation id: the inbound ``x-request-id`` or a generated one.
     Echoed on every response header and in error envelopes."""
@@ -131,6 +133,9 @@ class _BoundRoute:
     headers_adapter: TypeAdapter[Any] | None
     request_adapter: TypeAdapter[Any] | None
     response_adapter: TypeAdapter[Any] | None
+    response_headers_adapter: TypeAdapter[Any] | None
+    response_header_names: frozenset[str]
+    required_response_headers: frozenset[str]
     query_sequence_fields: frozenset[str]
     header_fields: tuple[str, ...]
     body_limit: int | None
@@ -243,6 +248,10 @@ def create_app(
         headers_adapter = _contract_adapter(item.contract, "headers")
         request_adapter = _contract_adapter(item.contract, "request")
         response_adapter = _contract_adapter(item.contract, "response")
+        response_headers_adapter = _contract_adapter(item.contract, "response_headers")
+        response_header_names, required_response_headers = _response_header_name_sets(
+            item.contract, response_headers_adapter
+        )
         bound = _BoundRoute(
             route=item,
             params_adapter=params_adapter,
@@ -250,6 +259,9 @@ def create_app(
             headers_adapter=headers_adapter,
             request_adapter=request_adapter,
             response_adapter=response_adapter,
+            response_headers_adapter=response_headers_adapter,
+            response_header_names=response_header_names,
+            required_response_headers=required_response_headers,
             query_sequence_fields=_sequence_query_fields(item.contract.query),
             header_fields=_header_field_names(headers_adapter),
             body_limit=(
@@ -338,7 +350,9 @@ def _require_call_shape(
         raise ConfigurationError(f"{label} must {expectation}: {exc}") from exc
 
 
-def _contract_adapter(contract: Contract[Any], slot: str) -> TypeAdapter[Any] | None:
+def _contract_adapter(
+    contract: Contract[Any, Any], slot: str
+) -> TypeAdapter[Any] | None:
     annotation = getattr(contract, slot)
     if annotation is None:
         return None
@@ -354,20 +368,51 @@ def _contract_adapter(contract: Contract[Any], slot: str) -> TypeAdapter[Any] | 
             f"create_app: route {contract.name!r} has a {slot} type {type_name} "
             f"Pydantic cannot validate: {exc}"
         ) from exc
-    if slot in {"params", "query", "headers"}:
+    if slot in {"params", "query", "headers", "response_headers"}:
+        mode = "serialization" if slot == "response_headers" else "validation"
         try:
-            schema = adapter.json_schema(mode="validation")
+            schema = adapter.json_schema(mode=mode, by_alias=True)
+            validation_schema = (
+                adapter.json_schema(mode="validation", by_alias=True)
+                if slot == "response_headers"
+                else None
+            )
         except Exception as exc:
             raise ConfigurationError(
                 f"create_app: route {contract.name!r} has a {slot} type "
                 f"{type_name} Pydantic cannot describe: {exc}"
             ) from exc
-        if _object_schema(schema) is None:
+        if slot == "response_headers":
+            _response_header_fields(
+                schema,
+                label=(
+                    f"create_app: route {contract.name!r} response_headers type "
+                    f"{type_name}"
+                ),
+                validation_schema=validation_schema,
+            )
+        elif _object_schema(schema) is None:
             raise ConfigurationError(
                 f"create_app: route {contract.name!r} has a {slot} type "
                 f"{type_name} that must describe object-shaped input"
             )
     return adapter
+
+
+def _response_header_name_sets(
+    contract: Contract[Any, Any], adapter: TypeAdapter[Any] | None
+) -> tuple[frozenset[str], frozenset[str]]:
+    if adapter is None:
+        return frozenset(), frozenset()
+    fields = _response_header_fields(
+        adapter.json_schema(mode="serialization", by_alias=True),
+        label=f"create_app: route {contract.name!r} response_headers",
+    )
+    names = frozenset(wire_name.casefold() for _, wire_name, _, _ in fields)
+    required = frozenset(
+        wire_name.casefold() for _, wire_name, _, is_required in fields if is_required
+    )
+    return names, required
 
 
 def _starlette_lifespan(
@@ -413,7 +458,9 @@ def _header_fields(request: Request, fields: tuple[str, ...]) -> dict[str, str]:
     return selected
 
 
-def _lifecycle_headers(contract: Contract[Any]) -> tuple[tuple[str, str], ...]:
+def _lifecycle_headers(
+    contract: Contract[Any, Any],
+) -> tuple[tuple[str, str], ...]:
     """Static response headers a contract's lifecycle metadata implies."""
     headers: list[tuple[str, str]] = []
     if isinstance(contract.deprecated, datetime):
@@ -626,48 +673,94 @@ def _make_endpoint(
             )
 
         result = await use_case(**kwargs)
+        payload: bytes | str | None = None
+        validated: Any = None
 
-        if bound.response_adapter is None:
-            return Response(
-                status_code=contract.status,
-                headers={REQUEST_ID_HEADER: request_id},
-            )
-
-        try:
-            validated = bound.response_adapter.validate_python(result)
-            if _is_json_media_type(contract.response_media_type):
-                payload: bytes | str = bound.response_adapter.dump_json(
-                    validated, by_alias=True
-                )
-            elif isinstance(validated, bytes | str):
-                payload = validated
-            else:
-                logger.error(
-                    "Response from %s validated as %s but cannot be encoded as %s; "
-                    "non-JSON response media types require str or bytes "
-                    "[request_id=%s]",
+        if bound.response_adapter is not None:
+            try:
+                validated = bound.response_adapter.validate_python(result)
+                if _is_json_media_type(contract.response_media_type):
+                    payload = bound.response_adapter.dump_json(validated, by_alias=True)
+                elif isinstance(validated, bytes | str):
+                    payload = validated
+                else:
+                    logger.error(
+                        "Response from %s validated as %s but cannot be encoded as %s; "
+                        "non-JSON response media types require str or bytes "
+                        "[request_id=%s]",
+                        contract.name,
+                        type(validated).__name__,
+                        contract.response_media_type,
+                        request_id,
+                    )
+                    raise _ResponseContractViolation
+            except ValidationError as exc:
+                logger.exception(
+                    "Response from %s does not match the contract's response "
+                    "type [request_id=%s]",
                     contract.name,
-                    type(validated).__name__,
-                    contract.response_media_type,
                     request_id,
                 )
-                raise _ResponseContractViolation
-        except ValidationError as exc:
-            logger.exception(
-                "Response from %s does not match the contract's response "
-                "type [request_id=%s]",
-                contract.name,
-                request_id,
-            )
-            # Raise, not return: the request scope must roll back — the
-            # use case's writes must not commit behind a 500.
-            raise _ResponseContractViolation from exc
+                # Raise, not return: the request scope must roll back — the
+                # use case's writes must not commit behind a 500.
+                raise _ResponseContractViolation from exc
+
+        response_headers: dict[str, str] = {REQUEST_ID_HEADER: request_id}
+        if bound.response_headers_adapter is not None:
+            projector = bound.route.response_headers
+            assert projector is not None  # route() checked the declaration
+            try:
+                projected = projector(validated)
+                validated_headers = bound.response_headers_adapter.validate_python(
+                    projected
+                )
+                dumped = bound.response_headers_adapter.dump_python(
+                    validated_headers,
+                    mode="json",
+                    by_alias=True,
+                    exclude_none=True,
+                )
+                if not isinstance(dumped, Mapping):
+                    raise ValueError("response headers must serialize to a mapping")
+                for raw_name, raw_value in cast(
+                    Mapping[object, object], dumped
+                ).items():
+                    if not isinstance(raw_name, str):
+                        raise ValueError("response header names must be strings")
+                    name = raw_name.replace("_", "-")
+                    if name.casefold() not in bound.response_header_names:
+                        raise ValueError(
+                            f"response header {name!r} was not declared by the "
+                            "contract's response_headers type"
+                        )
+                    response_headers[name] = _render_response_header_value(
+                        name,
+                        raw_value,
+                        label=f"route {contract.name!r}",
+                    )
+                emitted = {name.casefold() for name in response_headers}
+                missing = bound.required_response_headers - emitted
+                if missing:
+                    raise ValueError(
+                        f"required response headers were omitted: {sorted(missing)}"
+                    )
+            except Exception as exc:
+                logger.exception(
+                    "Response headers from %s do not match the contract "
+                    "[request_id=%s]",
+                    contract.name,
+                    request_id,
+                )
+                raise _ResponseContractViolation from exc
+
+        if payload is None:
+            return Response(status_code=contract.status, headers=response_headers)
 
         return Response(
             payload,
             status_code=contract.status,
             media_type=contract.response_media_type,
-            headers={REQUEST_ID_HEADER: request_id},
+            headers=response_headers,
         )
 
     async def endpoint(request: Request) -> Response:

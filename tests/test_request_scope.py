@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 
 import httpx
 import pytest
+from pydantic import BaseModel, Field, model_serializer
 from starlette.applications import Starlette
 
 from tenchi.client import Client
@@ -39,6 +40,32 @@ wrong_media_contract = contract(
 )
 
 
+class UnsafeHeaders(BaseModel):
+    location: str = Field(alias="Location")
+
+
+class SneakyHeaders(BaseModel):
+    location: str = Field(alias="Location")
+
+    @model_serializer
+    def serialize(self):  # type: ignore[no-untyped-def]
+        return {"Location": self.location, "Content-Type": "text/plain"}
+
+
+unsafe_headers_contract = contract(
+    method="GET",
+    path="/unsafe-headers",
+    response=str,
+    response_headers=UnsafeHeaders,
+)
+sneaky_headers_contract = contract(
+    method="GET",
+    path="/sneaky-headers",
+    response=str,
+    response_headers=SneakyHeaders,
+)
+
+
 async def ok(context: Context) -> str:
     context.log.append("use case")
     return "ok"
@@ -61,6 +88,19 @@ async def wrong_shape(context: Context) -> str:
 async def wrong_media(context: Context) -> dict[str, str]:
     context.log.append("use case")
     return {"value": "not text"}
+
+
+async def unsafe_headers(context: Context) -> str:
+    context.log.append("use case")
+    return "ok"
+
+
+def project_unsafe_headers(result: str) -> UnsafeHeaders:
+    return UnsafeHeaders(Location=f"/{result}\r\nx-injected: true")
+
+
+def project_sneaky_headers(result: str) -> SneakyHeaders:
+    return SneakyHeaders(Location=f"/{result}")
 
 
 async def echo(request: dict[str, str], context: Context) -> dict[str, str]:
@@ -86,6 +126,16 @@ def make_app(events: list[str], hooks: list[object] | None = None) -> Starlette:
             route(echo_contract, echo),
             route(wrong_shape_contract, wrong_shape),
             route(wrong_media_contract, wrong_media),
+            route(
+                unsafe_headers_contract,
+                unsafe_headers,
+                response_headers=project_unsafe_headers,
+            ),
+            route(
+                sneaky_headers_contract,
+                unsafe_headers,
+                response_headers=project_sneaky_headers,
+            ),
         ),
         context_factory=request_context,
         hooks=hooks or [],  # pyright: ignore[reportArgumentType]
@@ -166,6 +216,42 @@ async def test_non_json_response_encoding_violation_rolls_back(
 
     assert response.status_code == 500
     assert response.headers["x-tenchi-error-source"] == "framework"
+    assert events == ["enter", "use case", "rollback"]
+
+
+async def test_unsafe_response_header_rolls_back(
+    scope: tuple[Client, list[str]],
+) -> None:
+    _, events = scope
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=make_app(events)),
+        base_url="http://testserver",
+    )
+
+    async with http:
+        response = await http.get("/unsafe-headers")
+
+    assert response.status_code == 500
+    assert response.headers["x-tenchi-error-source"] == "framework"
+    assert "x-injected" not in response.headers
+    assert events == ["enter", "use case", "rollback"]
+
+
+async def test_serializer_cannot_emit_an_undeclared_response_header(
+    scope: tuple[Client, list[str]],
+) -> None:
+    _, events = scope
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=make_app(events)),
+        base_url="http://testserver",
+    )
+
+    async with http:
+        response = await http.get("/sneaky-headers")
+
+    assert response.status_code == 500
+    assert "content-type" in response.headers  # the framework's JSON error type
+    assert response.headers["content-type"].startswith("application/json")
     assert events == ["enter", "use case", "rollback"]
 
 

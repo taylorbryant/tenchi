@@ -297,6 +297,11 @@ def route_map(group: RouteGroup) -> list[dict[str, object]]:
                 ],
                 "tags": list(declared.tags),
                 "summary": declared.summary,
+                "response_headers": (
+                    getattr(declared.response_headers, "__name__", None)
+                    if declared.response_headers is not None
+                    else None
+                ),
                 "deprecated": (
                     declared.deprecated.isoformat()
                     if isinstance(declared.deprecated, datetime)

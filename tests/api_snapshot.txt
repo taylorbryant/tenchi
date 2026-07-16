@@ -1,6 +1,7 @@
 # tenchi
 AppError (re-export of tenchi.errors.AppError)
 Client (re-export of tenchi.client.Client)
+ClientResponse (re-export of tenchi.client.ClientResponse)
 ConfigurationError (re-export of tenchi.errors.ConfigurationError)
 Contract (re-export of tenchi.contracts.Contract)
 ErrorDef (re-export of tenchi.errors.ErrorDef)
@@ -26,7 +27,13 @@ route_group (re-export of tenchi.routes.route_group)
 class Client
     def __init__(self, *, base_url: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, http: 'httpx.AsyncClient | None' = None, errors: 'Sequence[ErrorDef]' = ()) -> 'None'
     def aclose(self) -> 'None'
-    def call(self, contract: 'Contract[ResponseT]', *, params: 'Any' = None, query: 'Any' = None, headers: 'Any' = None, request: 'Any' = UNSET) -> 'ResponseT'
+    def call(self, contract: 'Contract[ResponseT, ResponseHeadersT]', *, params: 'Any' = None, query: 'Any' = None, headers: 'Any' = None, request: 'Any' = UNSET) -> 'ResponseT'
+    def call_with_response(self, contract: 'Contract[ResponseT, ResponseHeadersT]', *, params: 'Any' = None, query: 'Any' = None, headers: 'Any' = None, request: 'Any' = UNSET) -> 'ClientResponse[ResponseT, ResponseHeadersT]'
+class ClientResponse(Generic)
+    body: BodyT
+    headers: HeadersT
+    http_response: httpx.Response
+    def __init__(self, body: 'BodyT', headers: 'HeadersT', http_response: 'httpx.Response') -> None
 class UnexpectedResponseError(TenchiError)
     def __init__(self, *, contract_name: 'str', status_code: 'int', body: 'Any') -> 'None'
 
@@ -39,6 +46,7 @@ class Contract(Generic)
     query: type[Any] | UnionType | None = None
     headers: type[Any] | UnionType | None = None
     response: type[ResponseT] | UnionType | None = None
+    response_headers: type[ResponseHeadersT] | UnionType | None = None
     status: int = 200
     errors: tuple[ErrorDef, ...] = ()
     name: str = ''
@@ -50,9 +58,9 @@ class Contract(Generic)
     deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
-    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> None
+    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> None
     def declares_error(self, definition: 'ErrorDef') -> 'bool'
-def contract(*, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> 'Contract[ResponseT]'
+def contract(*, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None) -> 'Contract[ResponseT, ResponseHeadersT]'
 
 # tenchi.errors
 class AppError(TenchiError)
@@ -101,16 +109,17 @@ def page(items: collections.abc.Sequence[ItemT], *, total: int, query: tenchi.pa
 
 # tenchi.routes
 class Route
-    contract: Contract[Any]
+    contract: Contract[Any, Any]
     use_case: UseCase
     call_kwargs: tuple[str, ...]
-    def __init__(self, contract: 'Contract[Any]', use_case: 'UseCase', call_kwargs: 'tuple[str, ...]') -> None
+    response_headers: Callable[[Any], Any] | None = None
+    def __init__(self, contract: 'Contract[Any, Any]', use_case: 'UseCase', call_kwargs: 'tuple[str, ...]', response_headers: 'Callable[[Any], Any] | None' = None) -> None
 class RouteBindingError(ConfigurationError, TypeError)
 class RouteGroup
     routes: tuple[Route, ...]
     def __init__(self, routes: 'tuple[Route, ...]') -> None
 UseCase = collections.abc.Callable[..., collections.abc.Awaitable[typing.Any]]
-def route(contract: 'Contract[ResponseT]', use_case: 'Callable[..., Awaitable[ResponseT]]') -> 'Route'
+def route(contract: 'Contract[ResponseT, ResponseHeadersT]', use_case: 'Callable[..., Awaitable[ResponseT]]', *, response_headers: 'Callable[[ResponseT], ResponseHeadersT] | None' = None) -> 'Route'
 def route_group(*items: 'Route | RouteGroup | Sequence[Route]', prefix: 'str' = '', errors: 'Sequence[ErrorDef]' = ()) -> 'RouteGroup'
 
 # tenchi.server
@@ -124,9 +133,9 @@ class RequestInfo
     method: str
     path: str
     headers: Mapping[str, str]
-    contract: Contract[Any]
+    contract: Contract[Any, Any]
     request_id: str
-    def __init__(self, method: 'str', path: 'str', headers: 'Mapping[str, str]', contract: 'Contract[Any]', request_id: 'str') -> None
+    def __init__(self, method: 'str', path: 'str', headers: 'Mapping[str, str]', contract: 'Contract[Any, Any]', request_id: 'str') -> None
 def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifespan: 'Lifespan | None' = None, hooks: 'Sequence[Hook]' = (), middleware: 'Sequence[Middleware]' = (), max_request_bytes: 'int | None' = 1048576) -> 'Starlette'
 
 # tenchi.testing

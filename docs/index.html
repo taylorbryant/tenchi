@@ -192,8 +192,9 @@ uv run tenchi dev</code></pre>
       <section id="contracts">
         <h2>Contracts</h2>
         <p>
-          A contract declares the method, path, inputs, response, status, and
-          application errors for an endpoint.
+          A contract declares the method, path, inputs, response body,
+          successful response headers, status, and application errors for an
+          endpoint.
         </p>
         <pre data-language="python"><code>from pydantic import BaseModel, Field
 from tenchi.contracts import contract
@@ -206,11 +207,15 @@ class Todo(BaseModel):
     title: str
     completed: bool
 
+class CreatedTodoHeaders(BaseModel):
+    location: str = Field(alias="Location")
+
 create_todo_contract = contract(
     method="POST",
     path="/todos",
     request=CreateTodo,
     response=Todo,
+    response_headers=CreatedTodoHeaders,
     status=201,
 )</code></pre>
       </section>
@@ -247,8 +252,15 @@ from tenchi.openapi import openapi_route
 from tenchi.routes import route, route_group
 from tenchi.server import create_app
 
+def create_todo_headers(todo: Todo) -&gt; CreatedTodoHeaders:
+    return CreatedTodoHeaders(Location=f"/todos/{todo.id}")
+
 todo_routes = route_group(
-    route(create_todo_contract, create_todo),
+    route(
+        create_todo_contract,
+        create_todo,
+        response_headers=create_todo_headers,
+    ),
 )
 
 routes = route_group(
@@ -262,6 +274,9 @@ app = create_app(
     context_factory=lambda: AppContext(todos=repository),
 )</code></pre>
         <p class="muted">
+          The synchronous projector keeps HTTP metadata at the route boundary;
+          Tenchi validates its fixed, scalar fields before the request scope
+          commits. Aliases are the header names on the wire.
           <code>create_app()</code> also accepts lifespan resources, hooks,
           middleware, and request-body limits.
         </p>
@@ -310,13 +325,18 @@ async def get_todo(params: GetTodoParams, context: AppContext) -&gt; Todo:
         <pre data-language="python"><code>from tenchi.client import Client
 
 async with Client(base_url="https://api.example.com") as client:
-    todo = await client.call(
+    created = await client.call_with_response(
         create_todo_contract,
         request=CreateTodo(title="Buy milk"),
-    )</code></pre>
+    )
+    todo = created.body
+    location = created.headers.location
+    status = created.http_response.status_code</code></pre>
         <p>
-          <code>openapi_route()</code> serves an OpenAPI 3.1 document from the
-          same declarations.
+          <code>call()</code> still returns only the validated body. Both client
+          methods validate declared success headers. <code>openapi_route()</code>
+          serves an OpenAPI 3.1 document from the same declarations, including
+          the headers.
         </p>
       </section>
 
