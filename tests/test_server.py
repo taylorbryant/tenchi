@@ -6,10 +6,10 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tenchi.contracts import contract
-from tenchi.errors import ERROR_SOURCE_HEADER, AppError, ErrorDef
+from tenchi.errors import ERROR_SOURCE_HEADER, AppError, ConfigurationError, ErrorDef
 from tenchi.routes import RouteGroup, route, route_group
 from tenchi.server import create_app
 
@@ -38,6 +38,12 @@ class SearchQuery(BaseModel):
 class ClientHeaders(BaseModel):
     x_api_key: str
     accept_language: str = "en"
+
+
+class CreatedHeaders(BaseModel):
+    location: str = Field(alias="Location")
+    revision: int = Field(alias="X-Revision")
+    note: str | None = Field(default=None, alias="X-Note")
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,10 +113,27 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
     async def timed_error(context: Context) -> Item:
         raise AppError(boom, details={"at": datetime(2026, 1, 1, tzinfo=UTC)})
 
+    def created_headers(item: Item) -> CreatedHeaders:
+        return CreatedHeaders.model_validate(
+            {"Location": f"/items/{item.name}", "X-Revision": 7}
+        )
+
     routes = route_group(
         route(
             contract(method="POST", path="/echo", request=Item, response=Item),
             echo,
+        ),
+        route(
+            contract(
+                method="POST",
+                path="/created",
+                request=Item,
+                response=Item,
+                response_headers=CreatedHeaders,
+                status=201,
+            ),
+            echo,
+            response_headers=created_headers,
         ),
         route(
             contract(method="DELETE", path="/empty", status=204),
@@ -199,6 +222,104 @@ async def test_dispatch_validates_and_echoes(client: httpx.AsyncClient) -> None:
     assert response.status_code == 200
     assert response.json() == {"name": "x"}
     assert ERROR_SOURCE_HEADER not in response.headers
+
+
+async def test_success_response_headers_are_projected_and_serialized(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post("/created", json={"name": "milk"})
+
+    assert response.status_code == 201
+    assert response.headers["location"] == "/items/milk"
+    assert response.headers["x-revision"] == "7"
+    assert "x-note" not in response.headers
+
+
+def test_create_app_rejects_invalid_response_header_shapes_and_names() -> None:
+    async def handler(context: Context) -> Item:
+        return Item(name="x")
+
+    def scalar_headers(item: Item) -> int:
+        return len(item.name)
+
+    scalar = contract(
+        method="GET",
+        path="/scalar-response-headers",
+        response=Item,
+        response_headers=int,
+    )
+    with pytest.raises(ConfigurationError, match="object-shaped headers"):
+        create_app(
+            routes=route_group(route(scalar, handler, response_headers=scalar_headers)),
+            context_factory=lambda: Context(request_id=1),
+        )
+
+    def dynamic_headers(item: Item) -> dict[str, str]:
+        return {"X-Item": item.name}
+
+    dynamic = contract(
+        method="GET",
+        path="/dynamic-response-headers",
+        response=Item,
+        response_headers=dict[str, str],
+    )
+    with pytest.raises(ConfigurationError, match="fixed header fields"):
+        create_app(
+            routes=route_group(
+                route(dynamic, handler, response_headers=dynamic_headers)
+            ),
+            context_factory=lambda: Context(request_id=1),
+        )
+
+    class OpenHeaders(BaseModel):
+        model_config = ConfigDict(extra="allow")
+
+        item: str = Field(alias="X-Item")
+
+    open_headers_contract = contract(
+        method="GET",
+        path="/open-response-headers",
+        response=Item,
+        response_headers=OpenHeaders,
+    )
+
+    def open_headers(item: Item) -> OpenHeaders:
+        return OpenHeaders.model_validate(
+            {"X-Item": item.name, "Content-Type": "text/plain"}
+        )
+
+    with pytest.raises(ConfigurationError, match="additional properties"):
+        create_app(
+            routes=route_group(
+                route(
+                    open_headers_contract,
+                    handler,
+                    response_headers=open_headers,
+                )
+            ),
+            context_factory=lambda: Context(request_id=1),
+        )
+
+    class ReservedHeaders(BaseModel):
+        content_type: str = Field(alias="Content-Type")
+
+    reserved = contract(
+        method="GET",
+        path="/reserved-response-headers",
+        response=Item,
+        response_headers=ReservedHeaders,
+    )
+
+    def reserved_headers(item: Item) -> ReservedHeaders:
+        return ReservedHeaders(**{"Content-Type": item.name})
+
+    with pytest.raises(ConfigurationError, match="reserved by the Tenchi framework"):
+        create_app(
+            routes=route_group(
+                route(reserved, handler, response_headers=reserved_headers)
+            ),
+            context_factory=lambda: Context(request_id=1),
+        )
 
 
 async def test_invalid_body_maps_to_framework_422(

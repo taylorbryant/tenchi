@@ -1,13 +1,21 @@
+from pydantic import BaseModel, Field
+
 from app.shared.errors import forbidden, project_not_found
 from tenchi.contracts import contract
 
 from .schemas import AddProjectMember, CreateProject, GetProjectParams, Project
+
+
+class CreatedProjectHeaders(BaseModel):
+    location: str = Field(alias="Location")
+
 
 create_project_contract = contract(
     method="POST",
     path="/projects",
     request=CreateProject,
     response=Project,
+    response_headers=CreatedProjectHeaders,
     status=201,
     summary="Create a project owned by the current user",
     tags=("projects",),

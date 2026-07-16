@@ -23,3 +23,15 @@ task_not_found = ErrorDef(
     status=404,
     message="Task not found",
 )
+
+precondition_required = ErrorDef(
+    code="PRECONDITION_REQUIRED",
+    status=428,
+    message="An If-Match header is required",
+)
+
+precondition_failed = ErrorDef(
+    code="PRECONDITION_FAILED",
+    status=412,
+    message="The resource has changed since it was read",
+)

@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES projects (id),
     title TEXT NOT NULL,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,27 +162,32 @@ class SqliteTaskRepository:
             project_id=project_id,
             title=title,
             status=TaskStatus.TODO,
+            version=1,
         )
         await self._connection.execute(
-            "INSERT INTO tasks (id, project_id, title, status) VALUES (?, ?, ?, ?)",
-            (task.id, task.project_id, task.title, task.status.value),
+            "INSERT INTO tasks (id, project_id, title, status, version) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (task.id, task.project_id, task.title, task.status.value, task.version),
         )
         return task
 
     async def get(self, task_id: str) -> Task | None:
         cursor = await self._connection.execute(
-            "SELECT id, project_id, title, status FROM tasks WHERE id = ?",
+            "SELECT id, project_id, title, status, version FROM tasks WHERE id = ?",
             (task_id,),
         )
         row = await cursor.fetchone()
         return _row_to_task(row) if row is not None else None
 
-    async def save(self, task: Task) -> Task:
-        await self._connection.execute(
-            "UPDATE tasks SET title = ?, status = ? WHERE id = ?",
-            (task.title, task.status.value, task.id),
+    async def save(self, task: Task, *, expected_version: int) -> Task | None:
+        cursor = await self._connection.execute(
+            "UPDATE tasks SET title = ?, status = ?, version = version + 1 "
+            "WHERE id = ? AND version = ? "
+            "RETURNING id, project_id, title, status, version",
+            (task.title, task.status.value, task.id, expected_version),
         )
-        return task
+        row = await cursor.fetchone()
+        return _row_to_task(row) if row is not None else None
 
 
 class SqliteTaskSearch:
@@ -226,7 +232,8 @@ class SqliteTaskSearch:
         total = int(count_row[0]) if count_row is not None else 0
 
         cursor = await self._connection.execute(
-            f"SELECT tasks.id, tasks.project_id, tasks.title, tasks.status {base} "
+            f"SELECT tasks.id, tasks.project_id, tasks.title, tasks.status, "
+            f"tasks.version {base} "
             "ORDER BY tasks.rowid LIMIT ? OFFSET ?",
             (*values, limit, offset),
         )
@@ -244,4 +251,10 @@ def _row_to_project(row: Any) -> Project:
 
 
 def _row_to_task(row: Any) -> Task:
-    return Task(id=row[0], project_id=row[1], title=row[2], status=TaskStatus(row[3]))
+    return Task(
+        id=row[0],
+        project_id=row[1],
+        title=row[2],
+        status=TaskStatus(row[3]),
+        version=row[4],
+    )

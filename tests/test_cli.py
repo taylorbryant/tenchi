@@ -333,4 +333,5 @@ def test_routes_json_emits_a_machine_readable_map(
     create = next(e for e in entries if e["method"] == "POST" and e["path"] == "/todos")
     assert create["status"] == 201
     assert str(create["use_case"]).endswith("create_todo")
+    assert create["response_headers"] == "CreatedTodoHeaders"
     assert "deprecated" in create and "sunset" in create

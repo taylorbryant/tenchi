@@ -26,6 +26,7 @@ from pydantic import TypeAdapter
 from .contracts import (
     _PATH_PARAMETER,  # pyright: ignore[reportPrivateUsage]
     Contract,
+    ResponseHeadersT,
     ResponseT,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
 )
@@ -48,10 +49,12 @@ class RouteBindingError(ConfigurationError, TypeError):
 class Route:
     """One contract bound to one use case."""
 
-    contract: Contract[Any]
+    contract: Contract[Any, Any]
     use_case: UseCase
     call_kwargs: tuple[str, ...]
     """Keyword arguments the server passes when invoking the use case."""
+    response_headers: Callable[[Any], Any] | None = None
+    """Pure projection from the validated result to declared success headers."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,8 +71,10 @@ class RouteGroup:
 
 
 def route(
-    contract: Contract[ResponseT],
+    contract: Contract[ResponseT, ResponseHeadersT],
     use_case: Callable[..., Awaitable[ResponseT]],
+    *,
+    response_headers: Callable[[ResponseT], ResponseHeadersT] | None = None,
 ) -> Route:
     """Bind a contract to a use case, validating its signature and types."""
     if not inspect.iscoroutinefunction(use_case):
@@ -140,11 +145,13 @@ def route(
             )
 
     _check_type_coherence(contract, use_case, signature, accepts_any_kwargs)
+    _check_response_headers_projector(contract, response_headers)
 
     return Route(
         contract=contract,
         use_case=use_case,
         call_kwargs=tuple(call_kwargs),
+        response_headers=response_headers,
     )
 
 
@@ -190,8 +197,8 @@ def route_group(
 
 
 def _amend(
-    contract: Contract[Any], prefix: str, errors: Sequence[ErrorDef]
-) -> Contract[Any]:
+    contract: Contract[Any, Any], prefix: str, errors: Sequence[ErrorDef]
+) -> Contract[Any, Any]:
     merged = _validated_error_defs(
         (*contract.errors, *errors), label=f"route_group({contract.name!r}) errors"
     )
@@ -238,7 +245,7 @@ def _append_routes(flattened: list[Route], value: object, *, index: int) -> None
     )
 
 
-def _check_params_match_path(contract: Contract[Any]) -> None:
+def _check_params_match_path(contract: Contract[Any, Any]) -> None:
     """Fail at import time when a params model and the path template
     disagree — such a route would 422 on every single request."""
     placeholders = {match.group(1) for match in _PATH_PARAMETER.finditer(contract.path)}
@@ -275,7 +282,7 @@ def _check_params_match_path(contract: Contract[Any]) -> None:
 
 
 def _check_type_coherence(
-    contract: Contract[Any],
+    contract: Contract[Any, Any],
     use_case: UseCase,
     signature: inspect.Signature,
     accepts_any_kwargs: bool,
@@ -337,8 +344,82 @@ def _check_type_coherence(
         )
 
 
+def _check_response_headers_projector(
+    contract: Contract[Any, Any],
+    projector: Callable[[Any], Any] | None,
+) -> None:
+    declared = contract.response_headers
+    if declared is None:
+        if projector is not None:
+            raise RouteBindingError(
+                f"route({contract.name!r}): response_headers= was provided but "
+                "the contract declares no response_headers type"
+            )
+        return
+    if projector is None:
+        raise RouteBindingError(
+            f"route({contract.name!r}): contract declares response_headers="
+            f"{_type_name(declared)}; pass a typed response_headers= projector"
+        )
+    if inspect.iscoroutinefunction(projector):
+        raise RouteBindingError(
+            f"route({contract.name!r}): response_headers projector "
+            f"{_describe(projector)} must be a synchronous function"
+        )
+    try:
+        signature = inspect.signature(projector)
+    except (TypeError, ValueError) as exc:
+        raise RouteBindingError(
+            f"route({contract.name!r}): could not inspect response_headers "
+            f"projector {_describe(projector)}: {exc}"
+        ) from exc
+    parameters = tuple(signature.parameters.values())
+    if len(parameters) != 1 or parameters[0].kind not in (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    ):
+        raise RouteBindingError(
+            f"route({contract.name!r}): response_headers projector "
+            f"{_describe(projector)} must accept exactly one positional result"
+        )
+    parameter = parameters[0]
+    if parameter.annotation is inspect.Parameter.empty:
+        raise RouteBindingError(
+            f"route({contract.name!r}): response_headers projector "
+            f"{_describe(projector)} result parameter must be annotated"
+        )
+    input_annotation = _resolve_annotation(
+        contract, projector, parameter.annotation, "result parameter"
+    )
+    if input_annotation != contract.response:
+        raise RouteBindingError(
+            f"route({contract.name!r}): response_headers projector "
+            f"{_describe(projector)} parameter annotation "
+            f"{_type_name(input_annotation)} does not match contract response "
+            f"type {_type_name(contract.response)}"
+        )
+    if signature.return_annotation is inspect.Signature.empty:
+        raise RouteBindingError(
+            f"route({contract.name!r}): response_headers projector "
+            f"{_describe(projector)} return value must be annotated"
+        )
+    return_annotation = _resolve_annotation(
+        contract, projector, signature.return_annotation, "return annotation"
+    )
+    if return_annotation != declared:
+        raise RouteBindingError(
+            f"route({contract.name!r}): response_headers projector "
+            f"{_describe(projector)} return annotation "
+            f"{_type_name(return_annotation)} does not match contract "
+            f"response_headers type {_type_name(declared)}"
+        )
+
+
 def _resolve_annotation(
-    contract: Contract[Any], use_case: UseCase, annotation: Any, location: str
+    contract: Contract[Any, Any],
+    use_case: Callable[..., Any],
+    annotation: Any,
+    location: str,
 ) -> Any:
     function: Any = use_case
     while isinstance(function, functools.partial):

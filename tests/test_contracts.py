@@ -16,6 +16,7 @@ def test_contract_defaults() -> None:
     assert declared.path == "/items"
     assert declared.request is None
     assert declared.params is None
+    assert declared.response_headers is None
     assert declared.status == 200
     assert declared.errors == ()
     assert declared.name == "GET /items"

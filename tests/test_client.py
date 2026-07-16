@@ -2,13 +2,14 @@
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import assert_type
 
 import httpx
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, computed_field
 from starlette.applications import Starlette
 
-from tenchi.client import Client, UnexpectedResponseError
+from tenchi.client import Client, ClientResponse, UnexpectedResponseError
 from tenchi.contracts import contract
 from tenchi.errors import (
     ERROR_SOURCE_HEADER,
@@ -34,6 +35,11 @@ class SearchQuery(BaseModel):
     limit: int = 10
 
 
+class CreatedHeaders(BaseModel):
+    location: str = Field(alias="Location")
+    revision: int = Field(alias="X-Revision")
+
+
 @dataclass(frozen=True, slots=True)
 class Context:
     pass
@@ -42,7 +48,12 @@ class Context:
 item_missing = ErrorDef(code="ITEM_MISSING", status=404, message="Item missing")
 
 create_item_contract = contract(
-    method="POST", path="/items", request=Item, response=Item, status=201
+    method="POST",
+    path="/items",
+    request=Item,
+    response=Item,
+    response_headers=CreatedHeaders,
+    status=201,
 )
 get_item_contract = contract(
     method="GET",
@@ -110,9 +121,18 @@ async def client() -> AsyncIterator[Client]:
     async def read_headers(headers: ClientHeaders, context: Context) -> str:
         return f"{headers.x_api_key}/{headers.accept_language}"
 
+    def create_headers(item: Item) -> CreatedHeaders:
+        return CreatedHeaders.model_validate(
+            {"Location": f"/items/{item.name}", "X-Revision": 2}
+        )
+
     app = create_app(
         routes=route_group(
-            route(create_item_contract, create_item),
+            route(
+                create_item_contract,
+                create_item,
+                response_headers=create_headers,
+            ),
             route(get_item_contract, get_item),
             route(search_contract, search),
             route(clear_contract, clear),
@@ -135,6 +155,72 @@ async def test_call_returns_validated_response(client: Client) -> None:
 
     assert isinstance(item, Item)
     assert item.name == "milk"
+
+
+async def test_call_with_response_returns_typed_headers_and_http_response(
+    client: Client,
+) -> None:
+    result = await client.call_with_response(
+        create_item_contract, request=Item(name="milk")
+    )
+
+    assert_type(result, ClientResponse[Item, CreatedHeaders])
+    assert result.body == Item(name="milk")
+    assert result.headers == CreatedHeaders.model_validate(
+        {"Location": "/items/milk", "X-Revision": 2}
+    )
+    assert result.http_response.status_code == 201
+
+
+async def test_call_with_response_types_undeclared_headers_as_none(
+    client: Client,
+) -> None:
+    result = await client.call_with_response(
+        get_item_contract, params=ItemParams(item_id="abc")
+    )
+
+    assert_type(result, ClientResponse[Item, None])
+    assert result.headers is None
+
+
+async def test_client_rejects_missing_required_success_header() -> None:
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={"name": "milk"})
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ValidationError):
+            await client.call(
+                create_item_contract,
+                request=Item(name="milk"),
+            )
+
+
+async def test_client_rejects_non_round_trip_response_header_fields_before_io() -> None:
+    class ComputedHeaders(BaseModel):
+        source: str = Field(alias="X-Source")
+
+        @computed_field(alias="X-Computed")
+        @property
+        def computed(self) -> str:
+            return self.source.upper()
+
+    declared = contract(
+        method="GET",
+        path="/computed-headers",
+        response=Item,
+        response_headers=ComputedHeaders,
+    )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"name": "x"})
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConfigurationError, match="same field names"):
+            await client.call(declared)
+
+    assert requests == []
 
 
 async def test_call_distinguishes_json_null_request_from_omitted_request() -> None:

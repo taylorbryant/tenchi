@@ -37,10 +37,12 @@ async def client() -> AsyncIterator[Client]:
 
 
 async def test_full_flow_through_typed_client(client: Client) -> None:
-    created = await client.call(
+    created_response = await client.call_with_response(
         create_todo_contract, request=CreateTodo(title="Buy milk")
     )
+    created = created_response.body
     assert isinstance(created, Todo)
+    assert created_response.headers.location == f"/todos/{created.id}"
 
     fetched = await client.call(
         get_todo_contract, params=GetTodoParams(todo_id=created.id)

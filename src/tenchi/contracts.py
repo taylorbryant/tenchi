@@ -26,15 +26,37 @@ from .errors import (
 )
 
 ResponseT = TypeVar("ResponseT", default=Any)
+ResponseHeadersT = TypeVar("ResponseHeadersT", default=None)
 
 _METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
 _PATH_PARAMETER = re.compile(
     r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::[a-zA-Z_][a-zA-Z0-9_]*)?\}"
 )
+_HEADER_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_RESERVED_RESPONSE_HEADERS = frozenset(
+    {
+        "connection",
+        "content-length",
+        "content-type",
+        "deprecation",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "set-cookie",
+        "sunset",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "x-request-id",
+        "x-tenchi-error-source",
+    }
+)
+_SCALAR_HEADER_TYPES = frozenset({"string", "integer", "number", "boolean", "null"})
 
 
 @dataclass(frozen=True)
-class Contract(Generic[ResponseT]):
+class Contract(Generic[ResponseT, ResponseHeadersT]):
     """One declared HTTP operation.
 
     Build these with :func:`contract` rather than instantiating directly.
@@ -47,6 +69,7 @@ class Contract(Generic[ResponseT]):
     query: type[Any] | UnionType | None = None
     headers: type[Any] | UnionType | None = None
     response: type[ResponseT] | UnionType | None = None
+    response_headers: type[ResponseHeadersT] | UnionType | None = None
     status: int = 200
     errors: tuple[ErrorDef, ...] = ()
     name: str = field(default="")
@@ -73,6 +96,7 @@ def contract(
     query: type[Any] | UnionType | None = None,
     headers: type[Any] | UnionType | None = None,
     response: type[ResponseT] | UnionType | None = None,
+    response_headers: type[ResponseHeadersT] | UnionType | None = None,
     status: int = 200,
     errors: Sequence[ErrorDef] = (),
     name: str | None = None,
@@ -84,7 +108,7 @@ def contract(
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
-) -> Contract[ResponseT]:
+) -> Contract[ResponseT, ResponseHeadersT]:
     """Declare an HTTP contract.
 
     Args:
@@ -107,6 +131,14 @@ def contract(
             HTTP header names. Repeated headers keep the last value.
         response: Type the use case result is validated against before
             serialization. ``None`` means an empty response body.
+        response_headers: Object-shaped type describing application-owned
+            headers on a successful response. A bound route must provide a
+            pure ``response_headers=`` projector that derives this value from
+            the validated use-case result. Field aliases are the wire names;
+            underscores otherwise become hyphens. The type must declare a
+            fixed set of fields that validate and serialize under the same
+            names, and each field must serialize to one scalar value. Dynamic
+            extra fields and framework-owned header names are rejected.
         status: Success status code. Defaults to 200.
         errors: Application errors this route is expected to return. Expected
             errors are mapped to their HTTP status; undeclared ``AppError``
@@ -202,6 +234,7 @@ def contract(
         query=query,
         headers=headers,
         response=response,
+        response_headers=response_headers,
         status=status,
         errors=declared_errors,
         name=name or f"{normalized_method} {path}",
@@ -342,3 +375,164 @@ def _object_schema(  # pyright: ignore[reportUnusedFunction]
         if not isinstance(target, Mapping):
             return None
         current = cast(Mapping[str, Any], target)
+
+
+def _response_header_fields(  # pyright: ignore[reportUnusedFunction]
+    schema: Mapping[str, Any],
+    *,
+    label: str,
+    reference_root: Mapping[str, Any] | None = None,
+    validation_schema: Mapping[str, Any] | None = None,
+) -> tuple[tuple[str, str, Mapping[str, Any], bool], ...]:
+    """Validate and return single-valued response-header field metadata."""
+    object_schema = _object_schema(schema)
+    if object_schema is None:
+        raise ConfigurationError(f"{label} must describe object-shaped headers")
+    if (
+        "additionalProperties" in object_schema
+        and object_schema["additionalProperties"] is not False
+    ):
+        raise ConfigurationError(
+            f"{label} must declare fixed header fields; additional properties "
+            "are not supported"
+        )
+    properties = object_schema.get("properties", {})
+    if not isinstance(properties, Mapping):
+        raise ConfigurationError(f"{label} must describe object-shaped headers")
+    if validation_schema is not None:
+        validation_object = _object_schema(validation_schema)
+        if (
+            validation_object is not None
+            and "additionalProperties" in validation_object
+            and validation_object["additionalProperties"] is not False
+        ):
+            raise ConfigurationError(
+                f"{label} must declare fixed header fields; additional properties "
+                "are not supported"
+            )
+        validation_properties = (
+            validation_object.get("properties")
+            if validation_object is not None
+            else None
+        )
+        if not isinstance(validation_properties, Mapping) or set(
+            cast(Mapping[object, object], validation_properties)
+        ) != set(cast(Mapping[object, object], properties)):
+            raise ConfigurationError(
+                f"{label} must use the same field names for validation and "
+                "serialization; use Field(alias=...) for wire names and avoid "
+                "computed response-header fields"
+            )
+    raw_required = object_schema.get("required", [])
+    required: set[object] = (
+        set(cast(list[object], raw_required))
+        if isinstance(raw_required, list)
+        else set()
+    )
+    fields: list[tuple[str, str, Mapping[str, Any], bool]] = []
+    seen: set[str] = set()
+    for raw_name, raw_schema in cast(Mapping[object, object], properties).items():
+        if not isinstance(raw_name, str) or not isinstance(raw_schema, Mapping):
+            raise ConfigurationError(f"{label} has an invalid header field")
+        wire_name = raw_name.replace("_", "-")
+        normalized = wire_name.casefold()
+        if _HEADER_NAME.fullmatch(wire_name) is None:
+            raise ConfigurationError(
+                f"{label} header {wire_name!r} is not a valid HTTP header name"
+            )
+        if normalized in _RESERVED_RESPONSE_HEADERS:
+            raise ConfigurationError(
+                f"{label} header {wire_name!r} is reserved by the Tenchi framework"
+            )
+        if normalized in seen:
+            raise ConfigurationError(
+                f"{label} declares header {wire_name!r} more than once"
+            )
+        property_schema = cast(Mapping[str, Any], raw_schema)
+        if not _is_scalar_header_schema(
+            reference_root or schema, property_schema, seen_refs=set()
+        ):
+            raise ConfigurationError(
+                f"{label} header {wire_name!r} must be single-valued and scalar"
+            )
+        seen.add(normalized)
+        fields.append((raw_name, wire_name, property_schema, raw_name in required))
+    return tuple(fields)
+
+
+def _is_scalar_header_schema(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    *,
+    seen_refs: set[str],
+) -> bool:
+    reference = schema.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/"):
+        if reference in seen_refs:
+            return False
+        target: object = root
+        for raw_part in reference[2:].split("/"):
+            part = raw_part.replace("~1", "/").replace("~0", "~")
+            if not isinstance(target, Mapping) or part not in target:
+                return False
+            target = cast(Mapping[object, object], target)[part]
+        if not isinstance(target, Mapping):
+            return False
+        return _is_scalar_header_schema(
+            root,
+            cast(Mapping[str, Any], target),
+            seen_refs={*seen_refs, reference},
+        )
+    for union_key in ("anyOf", "oneOf"):
+        choices = schema.get(union_key)
+        if isinstance(choices, list):
+            typed_choices = cast(list[object], choices)
+            return bool(typed_choices) and all(
+                isinstance(choice, Mapping)
+                and _is_scalar_header_schema(
+                    root,
+                    cast(Mapping[str, Any], choice),
+                    seen_refs=set(seen_refs),
+                )
+                for choice in typed_choices
+            )
+    schema_type = schema.get("type")
+    if isinstance(schema_type, str):
+        return schema_type in _SCALAR_HEADER_TYPES
+    if isinstance(schema_type, list):
+        typed_schema_types = cast(list[object], schema_type)
+        return bool(typed_schema_types) and all(
+            isinstance(item, str) and item in _SCALAR_HEADER_TYPES
+            for item in typed_schema_types
+        )
+    if "const" in schema:
+        return (
+            isinstance(schema["const"], str | int | float | bool)
+            or schema["const"] is None
+        )
+    enum = schema.get("enum")
+    return isinstance(enum, list) and all(
+        isinstance(item, str | int | float | bool) or item is None
+        for item in cast(list[object], enum)
+    )
+
+
+def _render_response_header_value(  # pyright: ignore[reportUnusedFunction]
+    name: str, value: object, *, label: str
+) -> str:
+    if not isinstance(value, str | int | float | bool):
+        raise ValueError(f"{label} header {name!r} must serialize to a scalar value")
+    rendered = str(value).lower() if isinstance(value, bool) else str(value)
+    if "\r" in rendered or "\n" in rendered:
+        raise ValueError(f"{label} header {name!r} must not contain CR or LF")
+    if rendered[:1] in {" ", "\t"} or rendered[-1:] in {" ", "\t"}:
+        raise ValueError(
+            f"{label} header {name!r} must not start or end with whitespace"
+        )
+    if any(ord(character) < 32 or ord(character) == 127 for character in rendered):
+        raise ValueError(f"{label} header {name!r} must not contain control characters")
+    try:
+        rendered.encode("latin-1")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{label} header {name!r} must be Latin-1 encodable") from exc
+    return rendered

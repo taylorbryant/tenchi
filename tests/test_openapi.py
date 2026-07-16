@@ -1,9 +1,10 @@
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 import httpx
 import pytest
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, computed_field, create_model
 
 from tenchi.contracts import contract
 from tenchi.errors import ConfigurationError, ErrorDef
@@ -140,6 +141,79 @@ def test_request_body_and_success_response() -> None:
         operation["responses"]["201"]["content"]["application/json"]["schema"]["type"]
         == "object"
     )
+
+
+def test_success_response_headers_are_documented_with_wire_names() -> None:
+    class ResultKind(StrEnum):
+        CREATED = "created"
+        RESTORED = "restored"
+
+    class CreatedHeaders(BaseModel):
+        location: str = Field(alias="Location")
+        kind: ResultKind = Field(alias="X-Result-Kind")
+        note: str | None = Field(default=None, alias="X-Note")
+
+    declared = contract(
+        method="POST",
+        path="/created",
+        request=Item,
+        response=Item,
+        response_headers=CreatedHeaders,
+        status=201,
+    )
+
+    def response_headers(item: Item) -> CreatedHeaders:
+        return CreatedHeaders(
+            Location=f"/items/{item.name}",
+            **{"X-Result-Kind": ResultKind.CREATED},
+        )
+
+    document = openapi_schema(
+        route_group(route(declared, create_item, response_headers=response_headers)),
+        title="X",
+        version="1",
+    )
+    headers = document["paths"]["/created"]["post"]["responses"]["201"]["headers"]
+
+    assert headers["Location"] == {
+        "required": True,
+        "schema": {"title": "Location", "type": "string"},
+    }
+    assert headers["X-Result-Kind"]["required"] is True
+    assert headers["X-Result-Kind"]["schema"] == {
+        "$ref": "#/components/schemas/ResultKind"
+    }
+    assert headers["X-Note"]["required"] is False
+
+
+def test_response_header_fields_must_validate_their_wire_representation() -> None:
+    class ComputedHeaders(BaseModel):
+        source: str = Field(alias="X-Source")
+
+        @computed_field(alias="X-Computed")
+        @property
+        def computed(self) -> str:
+            return self.source.upper()
+
+    declared = contract(
+        method="GET",
+        path="/computed-headers",
+        response=Item,
+        response_headers=ComputedHeaders,
+    )
+
+    def response_headers(item: Item) -> ComputedHeaders:
+        return ComputedHeaders(**{"X-Source": item.name})
+
+    async def handler(context: Context) -> Item:
+        return Item(name="x")
+
+    with pytest.raises(ConfigurationError, match="same field names"):
+        openapi_schema(
+            route_group(route(declared, handler, response_headers=response_headers)),
+            title="X",
+            version="1",
+        )
 
 
 def test_path_parameters_are_required() -> None:

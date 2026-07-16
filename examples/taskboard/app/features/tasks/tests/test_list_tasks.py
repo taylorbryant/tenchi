@@ -56,7 +56,10 @@ async def test_list_tasks_paginates_with_total() -> None:
 async def test_list_tasks_filters_by_status() -> None:
     context = await make_populated_context()
     first = (await list_tasks(ListTasksQuery(limit=1), context)).items[0]
-    await context.tasks.save(first.model_copy(update={"status": TaskStatus.DONE}))
+    await context.tasks.save(
+        first.model_copy(update={"status": TaskStatus.DONE}),
+        expected_version=first.version,
+    )
 
     done = await list_tasks(ListTasksQuery(status=TaskStatus.DONE), context)
 

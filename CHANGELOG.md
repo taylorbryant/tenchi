@@ -9,6 +9,22 @@ versions may change the public API.
 
 ### Added
 
+- Contract-owned successful response headers: declare an object-shaped
+  `response_headers=` type on `contract()`, then bind a synchronous, typed
+  projector with `route(..., response_headers=...)`. Tenchi validates and
+  safely serializes scalar header values before request-scope commit, rejects
+  dynamic, undeclared, reserved, and injection-prone headers, and documents
+  fixed header fields in OpenAPI. The typed client validates declared headers
+  on every call; the new
+  `Client.call_with_response()` returns `ClientResponse[Body, Headers]` with
+  the validated body, headers, and underlying `httpx.Response` while
+  `Client.call()` keeps its body-only API.
+- Optimistic concurrency in the taskboard example: task responses carry strong
+  `ETag` validators, task creation identifies its resource with `Location`,
+  updates require `If-Match`, and both memory and SQLite repositories use
+  monotonic versions with atomic compare-and-swap writes. Missing and stale
+  preconditions are honest, documented 428 and 412 application errors, and
+  existing SQLite task tables migrate safely during concurrent startup.
 - A dependency-free, one-page documentation site covering Tenchi's core
   workflow and framework features, with automatic GitHub Pages deployment.
 

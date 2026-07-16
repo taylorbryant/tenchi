@@ -8,6 +8,8 @@ second connection to the same file locked into query-only mode; against
 Postgres it could instead be a connection from a replica pool.
 """
 
+import asyncio
+import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -65,13 +67,48 @@ async def open_read_connection(
 
 
 async def ensure_schema(database_path: str) -> None:
-    """Create tables once at startup (called from the app lifespan)."""
+    """Create or migrate tables once at startup (called from the app lifespan)."""
     async with aiosqlite.connect(database_path) as connection:
+        await configure_connection(connection)
         # WAL is persistent per database file; readers stop blocking the
         # writer, which matters once the worker runs beside the server.
-        await connection.execute("PRAGMA journal_mode = WAL")
-        await connection.executescript(SCHEMA)
+        await _ensure_wal(connection)
+        # The app and worker can start together against the same file. Hold
+        # SQLite's write lock across schema creation and the migration check so
+        # only one process can observe and add a missing column.
+        await connection.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA}")
+        columns = {
+            str(row[1])
+            for row in await (
+                await connection.execute("PRAGMA table_info(tasks)")
+            ).fetchall()
+        }
+        if "version" not in columns:
+            await connection.execute(
+                "ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1"
+            )
         await connection.commit()
+
+
+async def _ensure_wal(connection: aiosqlite.Connection) -> None:
+    """Enable persistent WAL mode despite simultaneous startup attempts."""
+    attempts = 10
+    for attempt in range(attempts):
+        try:
+            cursor = await connection.execute("PRAGMA journal_mode")
+            current = await cursor.fetchone()
+            if current is not None and str(current[0]).casefold() == "wal":
+                return
+
+            cursor = await connection.execute("PRAGMA journal_mode = WAL")
+            selected = await cursor.fetchone()
+            if selected is not None and str(selected[0]).casefold() == "wal":
+                return
+            raise RuntimeError("SQLite did not enable WAL journal mode")
+        except sqlite3.OperationalError as error:
+            if "locked" not in str(error).casefold() or attempt == attempts - 1:
+                raise
+            await asyncio.sleep(0.01)
 
 
 @asynccontextmanager

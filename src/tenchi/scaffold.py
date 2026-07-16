@@ -107,15 +107,22 @@ todo_not_found = ErrorDef(
 """
 
 _CONTRACTS = """\
+from pydantic import BaseModel, Field
 from tenchi.contracts import contract
 
 from .schemas import CreateTodo, Todo
+
+
+class CreatedTodoHeaders(BaseModel):
+    location: str = Field(alias="Location")
+
 
 create_todo_contract = contract(
     method="POST",
     path="/todos",
     request=CreateTodo,
     response=Todo,
+    response_headers=CreatedTodoHeaders,
     status=201,
 )
 
@@ -149,12 +156,22 @@ async def list_todos(context: AppContext) -> list[Todo]:
 _FEATURE_ROUTES = """\
 from tenchi.routes import route, route_group
 
-from .contracts import create_todo_contract, list_todos_contract
+from .contracts import CreatedTodoHeaders, create_todo_contract, list_todos_contract
+from .schemas import Todo
 from .use_cases.create_todo import create_todo
 from .use_cases.list_todos import list_todos
 
+
+def create_todo_headers(todo: Todo) -> CreatedTodoHeaders:
+    return CreatedTodoHeaders(Location=f"/todos/{todo.id}")
+
+
 routes = route_group(
-    route(create_todo_contract, create_todo),
+    route(
+        create_todo_contract,
+        create_todo,
+        response_headers=create_todo_headers,
+    ),
     route(list_todos_contract, list_todos),
 )
 """
@@ -280,6 +297,7 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 async def test_create_and_list_todos(client: httpx.AsyncClient) -> None:
     created = await client.post("/todos", json={"title": "Buy milk"})
     assert created.status_code == 201
+    assert created.headers["location"] == f"/todos/{created.json()['id']}"
 
     listed = await client.get("/todos")
     assert listed.status_code == 200
