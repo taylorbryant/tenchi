@@ -3,7 +3,7 @@ import pytest
 from app.features.projects.schemas import AddProjectMember, GetProjectParams
 from app.features.projects.use_cases.add_project_member import add_project_member
 from app.features.projects.use_cases.get_project import get_project
-from app.features.tasks.schemas import CreateTask
+from app.features.tasks.schemas import CreateTask, CreateTaskHeaders
 from app.features.tasks.use_cases.create_task import create_task
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
@@ -52,14 +52,16 @@ async def test_owner_adds_a_member_idempotently() -> None:
         AddProjectMember(user_id="bob"),
         alice,
     )
-    assert updated.member_ids == ("bob",)
+    assert updated.project.member_ids == ("bob",)
+    assert updated.added is True
 
     again = await add_project_member(
         GetProjectParams(project_id=project.id),
         AddProjectMember(user_id="bob"),
         alice,
     )
-    assert again.member_ids == ("bob",)
+    assert again.project.member_ids == ("bob",)
+    assert again.added is False
 
 
 async def test_adding_a_member_enqueues_one_notification_job() -> None:
@@ -122,5 +124,9 @@ async def test_members_can_view_but_not_write() -> None:
 
     # Member write: creating tasks stays owner-only.
     with pytest.raises(AppError) as excinfo:
-        await create_task(CreateTask(project_id=project.id, title="nope"), bob)
+        await create_task(
+            CreateTaskHeaders(idempotency_key="forbidden-task"),
+            CreateTask(project_id=project.id, title="nope"),
+            bob,
+        )
     assert excinfo.value.definition == forbidden

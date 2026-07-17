@@ -304,6 +304,12 @@ request_too_large = ErrorDef(
     message="Request body too large",
 )
 
+request_timeout = ErrorDef(
+    code="REQUEST_TIMEOUT",
+    status=504,
+    message="Request deadline exceeded",
+)
+
 internal_server_error = ErrorDef(
     code="INTERNAL_SERVER_ERROR",
     status=500,

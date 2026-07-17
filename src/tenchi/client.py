@@ -2,7 +2,8 @@
 
 :class:`Client` sends a request described by a contract and returns the
 validated response type, so callers get real static types from the single
-source of truth::
+source of truth. For named successes, ``ClientResponse.success`` identifies
+the status-specific declaration::
 
     async with Client(base_url="http://localhost:8000") as client:
         todo = await client.call(create_todo_contract, request=CreateTodo(...))
@@ -44,6 +45,7 @@ from .errors import (
     TenchiError,
     _validated_error_defs,  # pyright: ignore[reportPrivateUsage]
 )
+from .responses import SuccessDef
 
 _adapters: dict[Any, TypeAdapter[Any]] = {}
 
@@ -57,14 +59,26 @@ _UNSET = _Unset()
 
 
 class UnexpectedResponseError(TenchiError):
-    """A response that matched neither the contract's success status nor a
-    declared error."""
+    """A response that did not satisfy a declared success or error outcome."""
 
-    def __init__(self, *, contract_name: str, status_code: int, body: Any) -> None:
-        super().__init__(f"{contract_name} returned unexpected status {status_code}")
+    def __init__(
+        self,
+        *,
+        contract_name: str,
+        status_code: int,
+        body: Any,
+        reason: str | None = None,
+    ) -> None:
+        message = (
+            f"{contract_name} returned unexpected status {status_code}"
+            if reason is None
+            else f"{contract_name} returned an invalid response: {reason}"
+        )
+        super().__init__(message)
         self.contract_name = contract_name
         self.status_code = status_code
         self.body = body
+        self.reason = reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +89,15 @@ class ClientResponse[BodyT, HeadersT]:
     body: BodyT
     headers: HeadersT
     http_response: httpx.Response
+    success: SuccessDef[Any, Any] | None = None
+    """Selected named outcome, or ``None`` for a singular-success contract."""
+
+
+@dataclass(frozen=True, slots=True)
+class _ClientSuccess:
+    definition: SuccessDef[Any, Any]
+    response_adapter: TypeAdapter[Any] | None
+    response_headers_adapter: TypeAdapter[Any] | None
 
 
 class Client:
@@ -197,7 +220,9 @@ class Client:
             (*contract.errors, *self._errors),
             label=f"Client.call_with_response({contract.name!r}) errors",
         )
-        response_adapter, response_headers_adapter = _preflight_contract_types(contract)
+        response_adapter, response_headers_adapter, successes = (
+            _preflight_contract_types(contract)
+        )
         url = self._build_path(contract, params)
         query_values = self._build_query(contract, query)
         content, content_headers = self._build_body(contract, request)
@@ -211,24 +236,59 @@ class Client:
             headers=header_values,
         )
 
-        if response.status_code == contract.status:
-            if contract.response is None:
+        selected = next(
+            (
+                outcome
+                for outcome in successes
+                if outcome.definition.status == response.status_code
+            ),
+            None,
+        )
+        is_legacy_success = not successes and response.status_code == contract.status
+        if selected is not None or is_legacy_success:
+            response_type = (
+                selected.definition.response
+                if selected is not None
+                else contract.response
+            )
+            response_media_type = (
+                selected.definition.response_media_type
+                if selected is not None
+                else contract.response_media_type
+            )
+            selected_response_adapter = (
+                selected.response_adapter if selected is not None else response_adapter
+            )
+            selected_headers_adapter = (
+                selected.response_headers_adapter
+                if selected is not None
+                else response_headers_adapter
+            )
+            if response_type is None:
+                if response.content:
+                    raise UnexpectedResponseError(
+                        contract_name=contract.name,
+                        status_code=response.status_code,
+                        body=response.content,
+                        reason="the declared success outcome requires an empty body",
+                    )
                 body = cast(ResponseT, None)
             else:
-                assert response_adapter is not None
-                if _is_json_media_type(contract.response_media_type):
-                    body = response_adapter.validate_json(response.content)
-                elif _is_text_media_type(contract.response_media_type):
+                assert selected_response_adapter is not None
+                assert response_media_type is not None
+                if _is_json_media_type(response_media_type):
+                    body = selected_response_adapter.validate_json(response.content)
+                elif _is_text_media_type(response_media_type):
                     # Charset-aware: httpx decodes per the response headers,
                     # so a latin-1 text body validates instead of failing a
                     # strict UTF-8 decode of the raw bytes.
-                    body = response_adapter.validate_python(response.text)
+                    body = selected_response_adapter.validate_python(response.text)
                 else:
-                    body = response_adapter.validate_python(response.content)
-            if response_headers_adapter is None:
+                    body = selected_response_adapter.validate_python(response.content)
+            if selected_headers_adapter is None:
                 validated_headers = cast(ResponseHeadersT, None)
             else:
-                schema = response_headers_adapter.json_schema(
+                schema = selected_headers_adapter.json_schema(
                     mode="serialization", by_alias=True
                 )
                 fields = _response_header_fields(
@@ -240,13 +300,14 @@ class Client:
                     for raw_name, wire_name, _, _ in fields
                     if response.headers.get_list(wire_name)
                 }
-                validated_headers = response_headers_adapter.validate_python(
+                validated_headers = selected_headers_adapter.validate_python(
                     header_values
                 )
             return ClientResponse(
                 body=body,
                 headers=validated_headers,
                 http_response=response,
+                success=selected.definition if selected is not None else None,
             )
 
         return self._raise_for_error(contract, response, declared_errors)
@@ -431,18 +492,18 @@ def _adapter(
 
 def _preflight_contract_types(
     contract: Contract[Any, Any],
-) -> tuple[TypeAdapter[Any] | None, TypeAdapter[Any] | None]:
+) -> tuple[
+    TypeAdapter[Any] | None,
+    TypeAdapter[Any] | None,
+    tuple[_ClientSuccess, ...],
+]:
     """Build every declared adapter before a request can leave the process."""
     response_adapter: TypeAdapter[Any] | None = None
     response_headers_adapter: TypeAdapter[Any] | None = None
-    for slot in (
-        "params",
-        "query",
-        "headers",
-        "request",
-        "response",
-        "response_headers",
-    ):
+    slots = ["params", "query", "headers", "request"]
+    if not contract.successes:
+        slots.extend(("response", "response_headers"))
+    for slot in slots:
         annotation = getattr(contract, slot)
         if annotation is None:
             continue
@@ -479,7 +540,40 @@ def _preflight_contract_types(
             response_adapter = adapter
         elif slot == "response_headers":
             response_headers_adapter = adapter
-    return response_adapter, response_headers_adapter
+    successes: list[_ClientSuccess] = []
+    for definition in contract.successes:
+        case_response_adapter = (
+            _adapter(definition.response, contract=contract, slot="success response")
+            if definition.response is not None
+            else None
+        )
+        case_headers_adapter = (
+            _adapter(
+                definition.response_headers,
+                contract=contract,
+                slot="success response_headers",
+            )
+            if definition.response_headers is not None
+            else None
+        )
+        if case_headers_adapter is not None:
+            _response_header_fields(
+                case_headers_adapter.json_schema(mode="serialization", by_alias=True),
+                label=(
+                    f"{contract.name}: success {definition.name!r} response_headers"
+                ),
+                validation_schema=case_headers_adapter.json_schema(
+                    mode="validation", by_alias=True
+                ),
+            )
+        successes.append(
+            _ClientSuccess(
+                definition=definition,
+                response_adapter=case_response_adapter,
+                response_headers_adapter=case_headers_adapter,
+            )
+        )
+    return response_adapter, response_headers_adapter, tuple(successes)
 
 
 def _build_adapter(

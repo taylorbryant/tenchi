@@ -20,6 +20,19 @@ def test_contract_defaults() -> None:
     assert declared.status == 200
     assert declared.errors == ()
     assert declared.name == "GET /items"
+    assert declared.successes == ()
+    assert declared.timeout is None
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+def test_contract_rejects_invalid_timeout(timeout: float) -> None:
+    with pytest.raises(ConfigurationError, match="timeout must be finite and positive"):
+        contract(method="GET", path="/items", timeout=timeout)
+
+
+def test_contract_rejects_malformed_timeout_type() -> None:
+    with pytest.raises(ConfigurationError, match="timeout must be a number"):
+        contract(method="GET", path="/items", timeout=True)  # type: ignore[arg-type]
 
 
 def test_contract_carries_declared_errors() -> None:

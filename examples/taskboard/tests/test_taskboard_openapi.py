@@ -25,8 +25,24 @@ def test_document_is_valid_and_documents_errors() -> None:
     assert "401" in create_task["responses"]
     assert "403" in create_task["responses"]
     assert "404" in create_task["responses"]
+    assert "409" in create_task["responses"]
+    idempotency_key = next(
+        parameter
+        for parameter in create_task["parameters"]
+        if parameter["name"] == "idempotency-key"
+    )
+    assert idempotency_key["in"] == "header"
+    assert idempotency_key["required"] is True
+    assert idempotency_key["schema"]["minLength"] == 1
+    assert idempotency_key["schema"]["maxLength"] == 128
+    assert idempotency_key["schema"]["pattern"].endswith("*$")
     assert create_task["responses"]["201"]["headers"]["ETag"]["required"] is True
     assert create_task["responses"]["201"]["headers"]["Location"]["required"] is True
+    assert create_task["x-timeout-seconds"] == 10.0
+    assert "504" in create_task["responses"]
+
+    add_member = document["paths"]["/projects/{project_id}/members"]["post"]
+    assert {"200", "201"} <= set(add_member["responses"])
 
     get_task = document["paths"]["/tasks/{task_id}"]["get"]
     assert get_task["responses"]["200"]["headers"]["ETag"]["required"] is True

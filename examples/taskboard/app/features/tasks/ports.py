@@ -10,6 +10,22 @@ class TaskRepository(Protocol):
 
     async def create(self, *, project_id: str, title: str) -> Task: ...
 
+    async def create_idempotent(
+        self,
+        *,
+        project_id: str,
+        title: str,
+        owner: OwnerScope,
+        idempotency_key: str,
+        request_fingerprint: str,
+    ) -> Task | None:
+        """Create once and replay the original result for matching retries.
+
+        Return ``None`` when the owner already used the key for different
+        validated input. The claim, task, and response must commit atomically.
+        """
+        ...
+
     async def get(self, task_id: str) -> Task | None: ...
 
     async def save(self, task: Task, *, expected_version: int) -> Task | None:

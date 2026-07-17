@@ -3,6 +3,8 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from app.features.tasks.schemas import Task, TaskStatus
 from app.infra.port_wiring import ensure_schema, open_request_ports
 from app.shared.users import OwnerScope
@@ -188,6 +190,165 @@ async def test_concurrent_task_saves_have_exactly_one_winner(tmp_path: Path) -> 
     assert winners[0].version == 2
     async with open_request_ports(database) as ports:
         assert await ports.tasks.get(original.id) == winners[0]
+
+
+async def test_idempotent_task_create_replays_one_concurrent_insert(
+    tmp_path: Path,
+) -> None:
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+    owner = OwnerScope(owner_id="alice")
+    async with open_request_ports(database) as ports:
+        project = await ports.projects.create(name="Launch", owner=owner)
+
+    async def create() -> Task | None:
+        async with open_request_ports(database) as ports:
+            return await ports.tasks.create_idempotent(
+                project_id=project.id,
+                title="Ship it",
+                owner=owner,
+                idempotency_key="concurrent-create",
+                request_fingerprint="matching-input",
+            )
+
+    results = await asyncio.gather(*(create() for _ in range(8)))
+
+    assert all(result is not None for result in results)
+    assert results == [results[0]] * len(results)
+    async with open_request_ports(database) as ports:
+        _, total = await ports.task_search.search(
+            viewer=owner,
+            project_id=project.id,
+            status=None,
+            limit=10,
+            offset=0,
+        )
+    assert total == 1
+
+
+async def test_idempotency_key_rejects_different_input(tmp_path: Path) -> None:
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+    owner = OwnerScope(owner_id="alice")
+    async with open_request_ports(database) as ports:
+        project = await ports.projects.create(name="Launch", owner=owner)
+        original = await ports.tasks.create_idempotent(
+            project_id=project.id,
+            title="Original",
+            owner=owner,
+            idempotency_key="reused-key",
+            request_fingerprint="original-input",
+        )
+
+    async with open_request_ports(database) as ports:
+        assert original is not None
+        updated = await ports.tasks.save(
+            original.model_copy(update={"title": "Renamed"}),
+            expected_version=original.version,
+        )
+        replayed = await ports.tasks.create_idempotent(
+            project_id=project.id,
+            title="Original",
+            owner=owner,
+            idempotency_key="reused-key",
+            request_fingerprint="original-input",
+        )
+        conflict = await ports.tasks.create_idempotent(
+            project_id=project.id,
+            title="Different",
+            owner=owner,
+            idempotency_key="reused-key",
+            request_fingerprint="different-input",
+        )
+        _, total = await ports.task_search.search(
+            viewer=owner,
+            project_id=project.id,
+            status=None,
+            limit=10,
+            offset=0,
+        )
+
+    assert updated is not None
+    assert updated.version == 2
+    assert replayed == original
+    assert conflict is None
+    assert total == 1
+
+
+async def test_idempotency_keys_are_scoped_to_the_authenticated_owner(
+    tmp_path: Path,
+) -> None:
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+    alice = OwnerScope(owner_id="alice")
+    bob = OwnerScope(owner_id="bob")
+    async with open_request_ports(database) as ports:
+        alice_project = await ports.projects.create(name="Alice", owner=alice)
+        bob_project = await ports.projects.create(name="Bob", owner=bob)
+        alice_task = await ports.tasks.create_idempotent(
+            project_id=alice_project.id,
+            title="Alice task",
+            owner=alice,
+            idempotency_key="shared-client-key",
+            request_fingerprint="alice-input",
+        )
+        bob_task = await ports.tasks.create_idempotent(
+            project_id=bob_project.id,
+            title="Bob task",
+            owner=bob,
+            idempotency_key="shared-client-key",
+            request_fingerprint="bob-input",
+        )
+
+    assert alice_task is not None
+    assert bob_task is not None
+    assert alice_task.id != bob_task.id
+
+
+async def test_failed_transaction_does_not_consume_idempotency_key(
+    tmp_path: Path,
+) -> None:
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+    owner = OwnerScope(owner_id="alice")
+    async with open_request_ports(database) as ports:
+        project = await ports.projects.create(name="Launch", owner=owner)
+
+    class Boom(Exception):
+        pass
+
+    with pytest.raises(Boom):
+        async with open_request_ports(database) as ports:
+            doomed = await ports.tasks.create_idempotent(
+                project_id=project.id,
+                title="Ship it",
+                owner=owner,
+                idempotency_key="retry-after-rollback",
+                request_fingerprint="matching-input",
+            )
+            assert doomed is not None
+            raise Boom
+
+    async with open_request_ports(database) as ports:
+        retried = await ports.tasks.create_idempotent(
+            project_id=project.id,
+            title="Ship it",
+            owner=owner,
+            idempotency_key="retry-after-rollback",
+            request_fingerprint="matching-input",
+        )
+
+    async with open_request_ports(database) as ports:
+        _, total = await ports.task_search.search(
+            viewer=owner,
+            project_id=project.id,
+            status=None,
+            limit=10,
+            offset=0,
+        )
+
+    assert retried is not None
+    assert total == 1
 
 
 async def test_ensure_schema_migrates_existing_task_tables(tmp_path: Path) -> None:

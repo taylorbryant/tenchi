@@ -24,6 +24,12 @@ task_not_found = ErrorDef(
     message="Task not found",
 )
 
+idempotency_conflict = ErrorDef(
+    code="IDEMPOTENCY_CONFLICT",
+    status=409,
+    message="The idempotency key was already used with different input",
+)
+
 precondition_required = ErrorDef(
     code="PRECONDITION_REQUIRED",
     status=428,

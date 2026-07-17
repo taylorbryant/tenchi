@@ -11,6 +11,7 @@ bearer hook attaches the authenticated user. Demo tokens: ``alice-token``
 and ``bob-token``.
 """
 
+import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -21,7 +22,9 @@ from app.server.context import AppContext
 from app.server.hooks import create_bearer_hook
 from app.server.routes import routes
 from app.shared.users import User
-from tenchi.server import create_app
+from tenchi.server import RequestOutcome, create_app
+
+logger = logging.getLogger("taskboard.requests")
 
 DATABASE_PATH = os.environ.get("TASKBOARD_DATABASE", "taskboard.db")
 
@@ -49,9 +52,20 @@ async def create_context(database_path: str) -> AsyncGenerator[AppContext]:
         )
 
 
+def observe_request(outcome: RequestOutcome) -> None:
+    logger.info(
+        "%s %s -> %d in %.3fs",
+        outcome.request.method,
+        outcome.request.path,
+        outcome.status_code,
+        outcome.duration_seconds,
+    )
+
+
 app = create_app(
     routes=routes,
     context_factory=create_context,
     lifespan=lifespan,
     hooks=[create_bearer_hook(StaticTokenDirectory(DEMO_TOKENS))],
+    observers=[observe_request],
 )

@@ -8,9 +8,11 @@ never wait for a request to surface.
 Use cases are plain async functions. The server calls them with keyword
 arguments derived from the contract: ``request`` when the contract declares
 a request type, ``params``/``query``/``headers`` when it declares those
-input types, and always ``context``. Boundary parameter annotations and the
-return annotation must exactly match the contract's declarations; the app-owned
-``context`` annotation is not resolved or compared.
+input types, and always ``context``. Boundary parameter annotations must exactly
+match the contract's declarations. A singular-success use case's return
+annotation matches the response too; a route with named successes may return a
+domain result that its typed synchronous presenter maps to the wire. The
+app-owned ``context`` annotation is not resolved or compared.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ import functools
 import inspect
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, cast
+from typing import Any, cast, overload
 
 from pydantic import TypeAdapter
 
@@ -35,6 +37,7 @@ from .errors import (
     ErrorDef,
     _validated_error_defs,  # pyright: ignore[reportPrivateUsage]
 )
+from .responses import PresentedResponse
 
 UseCase = Callable[..., Awaitable[Any]]
 
@@ -55,6 +58,8 @@ class Route:
     """Keyword arguments the server passes when invoking the use case."""
     response_headers: Callable[[Any], Any] | None = None
     """Pure projection from the validated result to declared success headers."""
+    presenter: Callable[[Any], PresentedResponse] | None = None
+    """Pure selection of one named success outcome."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,11 +75,32 @@ class RouteGroup:
         return len(self.routes)
 
 
+@overload
 def route(
     contract: Contract[ResponseT, ResponseHeadersT],
     use_case: Callable[..., Awaitable[ResponseT]],
     *,
     response_headers: Callable[[ResponseT], ResponseHeadersT] | None = None,
+    present: None = None,
+) -> Route: ...
+
+
+@overload
+def route[ResultT](
+    contract: Contract[Any, Any],
+    use_case: Callable[..., Awaitable[ResultT]],
+    *,
+    response_headers: None = None,
+    present: Callable[[ResultT], PresentedResponse],
+) -> Route: ...
+
+
+def route(
+    contract: Contract[Any, Any],
+    use_case: UseCase,
+    *,
+    response_headers: Callable[[Any], Any] | None = None,
+    present: Callable[[Any], PresentedResponse] | None = None,
 ) -> Route:
     """Bind a contract to a use case, validating its signature and types."""
     if not inspect.iscoroutinefunction(use_case):
@@ -144,14 +170,34 @@ def route(
                 f"{sorted(expected)}"
             )
 
-    _check_type_coherence(contract, use_case, signature, accepts_any_kwargs)
-    _check_response_headers_projector(contract, response_headers)
+    use_case_return = _check_type_coherence(
+        contract,
+        use_case,
+        signature,
+        accepts_any_kwargs,
+        check_response=not contract.successes,
+    )
+    if contract.successes:
+        if response_headers is not None:
+            raise RouteBindingError(
+                f"route({contract.name!r}): response_headers= cannot be combined "
+                "with contract successes; each success declares its own headers"
+            )
+        _check_presenter(contract, present, use_case_return)
+    else:
+        if present is not None:
+            raise RouteBindingError(
+                f"route({contract.name!r}): present= was provided but the contract "
+                "declares no successes"
+            )
+        _check_response_headers_projector(contract, response_headers)
 
     return Route(
         contract=contract,
         use_case=use_case,
         call_kwargs=tuple(call_kwargs),
         response_headers=response_headers,
+        presenter=present,
     )
 
 
@@ -286,7 +332,9 @@ def _check_type_coherence(
     use_case: UseCase,
     signature: inspect.Signature,
     accepts_any_kwargs: bool,
-) -> None:
+    *,
+    check_response: bool,
+) -> Any:
     """Require the contract and use-case boundary annotations to agree.
 
     The server validates values using the contract's types, then passes them
@@ -331,16 +379,78 @@ def _check_type_coherence(
     if signature.return_annotation is inspect.Signature.empty:
         raise RouteBindingError(
             f"route({contract.name!r}): use case {_describe(use_case)} return value "
-            "must be annotated with the contract response type"
+            "must be annotated"
         )
     annotation = _resolve_annotation(
         contract, use_case, signature.return_annotation, "return annotation"
     )
-    if annotation != contract.response:
+    if check_response and annotation != contract.response:
         raise RouteBindingError(
             f"route({contract.name!r}): use case {_describe(use_case)} return "
             f"annotation {_type_name(annotation)} does not match contract response "
             f"type {_type_name(contract.response)}"
+        )
+    return annotation
+
+
+def _check_presenter(
+    contract: Contract[Any, Any],
+    presenter: Callable[[Any], PresentedResponse] | None,
+    use_case_return: Any,
+) -> None:
+    if presenter is None:
+        raise RouteBindingError(
+            f"route({contract.name!r}): contract declares successes; pass a typed "
+            "present= function that selects one"
+        )
+    if inspect.iscoroutinefunction(presenter):
+        raise RouteBindingError(
+            f"route({contract.name!r}): presenter {_describe(presenter)} must be "
+            "a synchronous function"
+        )
+    try:
+        signature = inspect.signature(presenter)
+    except (TypeError, ValueError) as exc:
+        raise RouteBindingError(
+            f"route({contract.name!r}): could not inspect presenter "
+            f"{_describe(presenter)}: {exc}"
+        ) from exc
+    parameters = tuple(signature.parameters.values())
+    if len(parameters) != 1 or parameters[0].kind not in (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    ):
+        raise RouteBindingError(
+            f"route({contract.name!r}): presenter {_describe(presenter)} must "
+            "accept exactly one positional use-case result"
+        )
+    parameter = parameters[0]
+    if parameter.annotation is inspect.Parameter.empty:
+        raise RouteBindingError(
+            f"route({contract.name!r}): presenter {_describe(presenter)} result "
+            "parameter must be annotated"
+        )
+    input_annotation = _resolve_annotation(
+        contract, presenter, parameter.annotation, "result parameter"
+    )
+    if input_annotation != use_case_return:
+        raise RouteBindingError(
+            f"route({contract.name!r}): presenter {_describe(presenter)} parameter "
+            f"annotation {_type_name(input_annotation)} does not match use-case "
+            f"return type {_type_name(use_case_return)}"
+        )
+    if signature.return_annotation is inspect.Signature.empty:
+        raise RouteBindingError(
+            f"route({contract.name!r}): presenter {_describe(presenter)} return "
+            "value must be annotated with PresentedResponse"
+        )
+    return_annotation = _resolve_annotation(
+        contract, presenter, signature.return_annotation, "return annotation"
+    )
+    if return_annotation is not PresentedResponse:
+        raise RouteBindingError(
+            f"route({contract.name!r}): presenter {_describe(presenter)} return "
+            f"annotation {_type_name(return_annotation)} must be PresentedResponse"
         )
 
 

@@ -16,6 +16,19 @@ class CreateTask(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+IDEMPOTENCY_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+
+
+class CreateTaskHeaders(BaseModel):
+    """A stable key for safely retrying one logical create command."""
+
+    idempotency_key: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=IDEMPOTENCY_KEY_PATTERN,
+    )
+
+
 class UpdateTask(BaseModel):
     """Partial update: ``None`` fields are left unchanged."""
 

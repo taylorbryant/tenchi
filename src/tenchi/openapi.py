@@ -1,8 +1,8 @@
 """OpenAPI 3.1 generation from contracts.
 
 Contracts already carry everything the document needs — method, path,
-request/params/query/response types, successful response headers, success
-status, and declared errors — so :func:`openapi_schema` is a pure function
+request/params/query/response types, successful response headers and statuses,
+deadlines, and declared errors — so :func:`openapi_schema` is a pure function
 from a route group to a dict.
 :func:`openapi_route` wraps that dict in an ordinary Tenchi route so the
 document is served by the same machinery it describes.
@@ -26,6 +26,7 @@ from .contracts import (
     contract,
 )
 from .errors import ConfigurationError, ErrorDef
+from .responses import SuccessDef
 from .routes import Route, RouteGroup, route
 
 _ERROR_COMPONENT = "ErrorResponse"
@@ -235,6 +236,8 @@ def _operation(
         # Normalized to UTC so the extension and the Sunset header
         # describe the instant identically.
         operation["x-sunset"] = declared.sunset.astimezone(UTC).isoformat()
+    if declared.timeout is not None:
+        operation["x-timeout-seconds"] = declared.timeout
 
     parameters: list[dict[str, Any]] = []
     if declared.params is not None:
@@ -269,19 +272,15 @@ def _responses(
 ) -> dict[str, Any]:
     responses: dict[str, Any] = {}
 
-    success: dict[str, Any] = {"description": "Successful response"}
-    if declared.response is not None:
-        success["content"] = {
-            declared.response_media_type: {
-                "schema": _json_schema(
-                    declared.response, components, mode="serialization"
-                )
-            }
-        }
-    success_headers = _success_response_headers(declared, components)
-    if success_headers:
-        success["headers"] = success_headers
-    responses[str(declared.status)] = success
+    if declared.successes:
+        for definition in declared.successes:
+            responses[str(definition.status)] = _success_response(
+                declared,
+                components,
+                definition=definition,
+            )
+    else:
+        responses[str(declared.status)] = _success_response(declared, components)
 
     errors_by_status: dict[int, list[ErrorDef]] = {}
     for definition in declared.errors:
@@ -307,25 +306,68 @@ def _responses(
         if tenchi_errors.request_too_large not in at_413:
             at_413.append(tenchi_errors.request_too_large)
 
+    if declared.timeout is not None:
+        at_504 = errors_by_status.setdefault(tenchi_errors.request_timeout.status, [])
+        if tenchi_errors.request_timeout not in at_504:
+            at_504.append(tenchi_errors.request_timeout)
+
     for status, definitions in errors_by_status.items():
         responses[str(status)] = _error_response(definitions, error_schemas)
 
     return responses
 
 
+def _success_response(
+    declared: Contract[Any, Any],
+    components: dict[str, Any],
+    *,
+    definition: SuccessDef[Any, Any] | None = None,
+) -> dict[str, Any]:
+    response_type = definition.response if definition is not None else declared.response
+    response_headers = (
+        definition.response_headers
+        if definition is not None
+        else declared.response_headers
+    )
+    media_type = (
+        definition.response_media_type
+        if definition is not None
+        else declared.response_media_type
+    )
+    response: dict[str, Any] = {
+        "description": (
+            definition.description if definition is not None else "Successful response"
+        )
+    }
+    if response_type is not None:
+        assert media_type is not None
+        response["content"] = {
+            media_type: {
+                "schema": _json_schema(response_type, components, mode="serialization")
+            }
+        }
+    headers = _success_response_headers(
+        declared,
+        components,
+        response_headers=response_headers,
+    )
+    if headers:
+        response["headers"] = headers
+    return response
+
+
 def _success_response_headers(
-    declared: Contract[Any, Any], components: dict[str, Any]
+    declared: Contract[Any, Any],
+    components: dict[str, Any],
+    *,
+    response_headers: Any,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
-    if declared.response_headers is not None:
-        schema = _json_schema(
-            declared.response_headers, components, mode="serialization"
-        )
+    if response_headers is not None:
+        schema = _json_schema(response_headers, components, mode="serialization")
         object_schema = _resolved_object_schema(schema, components)
         if object_schema is None:
-            type_name = getattr(
-                declared.response_headers, "__name__", repr(declared.response_headers)
-            )
+            type_name = getattr(response_headers, "__name__", repr(response_headers))
             raise ConfigurationError(
                 f"openapi: response_headers type {type_name} must be object-shaped"
             )
@@ -333,7 +375,7 @@ def _success_response_headers(
             object_schema,
             label=f"openapi: route {declared.name!r} response_headers",
             reference_root={"components": {"schemas": components}},
-            validation_schema=TypeAdapter(declared.response_headers).json_schema(
+            validation_schema=TypeAdapter(response_headers).json_schema(
                 mode="validation", by_alias=True
             ),
         )
