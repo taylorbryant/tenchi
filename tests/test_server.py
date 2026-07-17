@@ -449,21 +449,115 @@ async def test_text_media_type_round_trips(client: httpx.AsyncClient) -> None:
     assert response.text == "HELLO"
 
 
-async def test_invalid_utf8_text_body_maps_to_422(
-    client: httpx.AsyncClient,
+@pytest.mark.parametrize(
+    ("charset", "content"),
+    [("utf-8", b"\xff\xfe"), ("ascii", b"\xff")],
+)
+async def test_invalid_text_body_maps_to_422_with_encoding_neutral_detail(
+    client: httpx.AsyncClient, charset: str, content: bytes
 ) -> None:
-    response = await client.post("/shout", content=b"\xff\xfe")
+    response = await client.post(
+        "/shout",
+        content=content,
+        headers={"content-type": f"text/plain; charset={charset}"},
+    )
 
     assert response.status_code == 422
     assert response.json()["code"] == "VALIDATION_ERROR"
+    assert response.json()["details"] == [
+        {"msg": "Request body is not valid for its declared text charset"}
+    ]
 
 
 async def test_binary_media_type_round_trips(client: httpx.AsyncClient) -> None:
-    response = await client.post("/checksum", content=b"\x01\x02\x03")
+    response = await client.post(
+        "/checksum",
+        content=b"\x01\x02\x03",
+        headers={"content-type": "application/octet-stream"},
+    )
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/octet-stream"
     assert response.content == b"\x06"
+
+
+async def test_request_without_content_type_maps_to_415(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post("/shout", content="hello")
+
+    assert response.status_code == 415
+    assert response.headers[ERROR_SOURCE_HEADER] == "framework"
+    assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE"
+    assert response.json()["details"] == {"expected": "text/plain", "actual": None}
+
+
+async def test_request_with_wrong_content_type_maps_to_415(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post(
+        "/echo",
+        content=b'{"name":"x"}',
+        headers={"content-type": "text/plain"},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["details"] == {
+        "expected": "application/json",
+        "actual": "text/plain",
+    }
+
+
+async def test_request_content_type_allows_additional_parameters(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post(
+        "/echo",
+        content=b'{"name":"x"}',
+        headers={"content-type": "application/json; charset=UTF-8"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"name": "x"}
+
+
+async def test_text_request_honors_declared_wire_charset(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post(
+        "/shout",
+        content="café".encode("iso-8859-1"),
+        headers={"content-type": "text/plain; charset=iso-8859-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.text == "CAFÉ"
+
+
+async def test_text_request_with_unknown_charset_maps_to_415(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post(
+        "/shout",
+        content=b"hello",
+        headers={"content-type": "text/plain; charset=not-a-codec"},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE"
+
+
+async def test_extended_charset_parameter_maps_to_415(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post(
+        "/shout",
+        content=b"hello",
+        headers={"content-type": "text/plain; charset*=utf-8''utf-8"},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE"
 
 
 async def test_app_error_headers_reach_the_response(

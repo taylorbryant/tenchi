@@ -198,6 +198,16 @@
             },
             "description": "REQUEST_TOO_LARGE: Request body too large"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract"
+          },
           "422": {
             "content": {
               "application/json": {

@@ -304,6 +304,12 @@ request_too_large = ErrorDef(
     message="Request body too large",
 )
 
+unsupported_media_type = ErrorDef(
+    code="UNSUPPORTED_MEDIA_TYPE",
+    status=415,
+    message="Request media type does not match the contract",
+)
+
 request_timeout = ErrorDef(
     code="REQUEST_TIMEOUT",
     status=504,

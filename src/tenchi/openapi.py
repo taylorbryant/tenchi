@@ -51,7 +51,6 @@ def openapi_schema(
     version: str,
     description: str | None = None,
     security: Mapping[str, Mapping[str, Any]] | None = None,
-    public_tags: Sequence[str] = ("health",),
 ) -> dict[str, Any]:
     """Build an OpenAPI 3.1 document for every route in the group.
 
@@ -59,19 +58,18 @@ def openapi_schema(
     example ``{"bearerAuth": {"type": "http", "scheme": "bearer"}}`` or
     ``{"apiKeyAuth": {"type": "apiKey", "in": "header", "name":
     "x-api-key"}}``. When given, every scheme is required globally and
-    operations whose contract tags intersect ``public_tags`` are exempted
-    with an empty per-operation security list — matching the convention of
-    hooks exempting routes by tag.
+    operations whose contracts declare ``public=True`` are exempted with an
+    empty per-operation security list. Authentication hooks can inspect the
+    same metadata, keeping runtime access and documentation aligned.
 
-    Operations with request bodies document the framework's 413, because
-    body caps are on by default. This is a pure function of the route
-    group — it cannot see ``create_app(max_request_bytes=None)`` — so an
-    app that disables caps entirely (and sets no per-contract ceilings)
-    over-documents that one response.
+    Operations with request bodies document the framework's 415 for missing or
+    mismatched media types and its 413 because body caps are on by default.
+    This is a pure function of the route group — it cannot see
+    ``create_app(max_request_bytes=None)`` — so an app that disables caps
+    entirely (and sets no per-contract ceilings) over-documents the 413.
     """
     _validate_document_metadata(title=title, version=version, description=description)
     security_schemes = _validated_security(security)
-    public = _validated_tag_set(public_tags, label="openapi_schema public_tags")
     components: dict[str, Any] = {}
     paths: dict[str, dict[str, Any]] = {}
     operation_ids: dict[str, int] = {}
@@ -96,7 +94,7 @@ def openapi_schema(
                 f"openapi_schema: route {declared.name!r} has a type Pydantic "
                 f"cannot document: {exc}"
             ) from exc
-        if security_schemes and public & set(declared.tags):
+        if security_schemes and declared.public:
             operation["security"] = []
         operations[declared.method.lower()] = operation
 
@@ -133,9 +131,9 @@ def openapi_route(
     version: str,
     description: str | None = None,
     security: Mapping[str, Mapping[str, Any]] | None = None,
-    public_tags: Sequence[str] = ("health",),
     path: str = "/openapi.json",
     tags: Sequence[str] = ("docs",),
+    public: bool = True,
 ) -> Route:
     """Build a route serving the OpenAPI document for ``routes``.
 
@@ -146,9 +144,9 @@ def openapi_route(
         api_routes = route_group(todo_routes)
         routes = route_group(api_routes, openapi_route(api_routes, ...))
 
-    The serving route's contract carries ``tags`` (default ``("docs",)``)
-    so authentication hooks can exempt it the same way they exempt health
-    routes — by tag, not by hardcoded path.
+    The serving route is public by default so authentication hooks can exempt
+    it by contract metadata rather than by path or documentation tag. Pass
+    ``public=False`` when the document itself requires authentication.
     """
     document = openapi_schema(
         routes,
@@ -156,27 +154,21 @@ def openapi_route(
         version=version,
         description=description,
         security=security,
-        public_tags=public_tags,
     )
 
     async def get_openapi(context: object) -> dict[str, Any]:
         return document
 
     return route(
-        contract(method="GET", path=path, response=dict[str, Any], tags=tags),
+        contract(
+            method="GET",
+            path=path,
+            response=dict[str, Any],
+            tags=tags,
+            public=public,
+        ),
         get_openapi,
     )
-
-
-def _validated_tag_set(value: object, *, label: str) -> set[str]:
-    if isinstance(value, str | bytes) or not isinstance(value, Sequence):
-        raise ConfigurationError(f"{label} must be a sequence of strings")
-    validated: set[str] = set()
-    for index, tag in enumerate(cast(Sequence[object], value)):
-        if not isinstance(tag, str) or not tag.strip():
-            raise ConfigurationError(f"{label}[{index}] must be a non-empty string")
-        validated.add(tag)
-    return validated
 
 
 def _validate_document_metadata(
@@ -305,6 +297,12 @@ def _responses(
         at_413 = errors_by_status.setdefault(tenchi_errors.request_too_large.status, [])
         if tenchi_errors.request_too_large not in at_413:
             at_413.append(tenchi_errors.request_too_large)
+
+        at_415 = errors_by_status.setdefault(
+            tenchi_errors.unsupported_media_type.status, []
+        )
+        if tenchi_errors.unsupported_media_type not in at_415:
+            at_415.append(tenchi_errors.unsupported_media_type)
 
     if declared.timeout is not None:
         at_504 = errors_by_status.setdefault(tenchi_errors.request_timeout.status, [])

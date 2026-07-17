@@ -265,7 +265,11 @@ async def test_validation_failure_exits_cleanly(
     )
 
     async with http:
-        response = await http.post("/echo", content=b"not json")
+        response = await http.post(
+            "/echo",
+            content=b"not json",
+            headers={"content-type": "application/json"},
+        )
 
     # Nothing ran, so the scope exits without an exception.
     assert response.status_code == 422

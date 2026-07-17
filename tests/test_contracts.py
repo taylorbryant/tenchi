@@ -22,6 +22,7 @@ def test_contract_defaults() -> None:
     assert declared.name == "GET /items"
     assert declared.successes == ()
     assert declared.timeout is None
+    assert declared.public is False
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
@@ -76,7 +77,19 @@ def test_contract_metadata_defaults() -> None:
     assert declared.summary is None
     assert declared.description is None
     assert declared.tags == ()
+    assert declared.public is False
     assert declared.deprecated is False
+
+
+def test_contract_carries_explicit_public_metadata() -> None:
+    declared = contract(method="GET", path="/health", public=True)
+
+    assert declared.public is True
+
+
+def test_contract_rejects_malformed_public_metadata() -> None:
+    with pytest.raises(ConfigurationError, match="public must be a bool"):
+        contract(method="GET", path="/items", public=1)  # type: ignore[arg-type]
 
 
 def test_contract_rejects_empty_media_type() -> None:
@@ -84,6 +97,39 @@ def test_contract_rejects_empty_media_type() -> None:
         contract(method="GET", path="/items", response_media_type="")
     with pytest.raises(ValueError, match="media types must be non-empty"):
         contract(method="GET", path="/items", response_media_type="  ")
+
+
+def test_contract_rejects_unsupported_declared_charsets() -> None:
+    with pytest.raises(
+        ConfigurationError, match=r"request_media_type.*unsupported charset"
+    ):
+        contract(
+            method="POST",
+            path="/items",
+            request=str,
+            request_media_type="text/plain; charset=not-a-codec",
+        )
+    with pytest.raises(
+        ConfigurationError, match=r"response_media_type.*unsupported charset"
+    ):
+        contract(
+            method="GET",
+            path="/items",
+            response=str,
+            response_media_type="text/plain; charset=not-a-codec",
+        )
+
+
+def test_contract_rejects_extended_media_type_parameters() -> None:
+    with pytest.raises(
+        ConfigurationError, match="extended media type parameters are unsupported"
+    ):
+        contract(
+            method="GET",
+            path="/items",
+            response=str,
+            response_media_type="text/plain; charset*=utf-8''utf-8",
+        )
 
 
 def test_contract_rejects_malformed_text_metadata() -> None:

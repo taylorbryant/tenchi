@@ -221,8 +221,6 @@ def test_openapi_prints_document(
                 "Todo API",
                 "--security",
                 '{"bearerAuth":{"type":"http","scheme":"bearer"}}',
-                "--public-tag",
-                "todos",
             ]
         )
         == 0
@@ -235,7 +233,9 @@ def test_openapi_prints_document(
         "version": "9.9.9",
     }
     assert document["security"] == [{"bearerAuth": []}]
-    assert document["paths"]["/todos"]["get"]["security"] == []
+    assert "security" not in document["paths"]["/todos"]["get"]
+    assert document["paths"]["/health"]["get"]["security"] == []
+    assert document["paths"]["/openapi.json"]["get"]["security"] == []
     assert "/todos" in document["paths"]
 
 
@@ -252,29 +252,6 @@ def test_openapi_rejects_invalid_security_json(
 
     assert main(["openapi", "--security", '{"bearerAuth":"invalid"}']) == 1
     assert "security scheme 'bearerAuth' must be a mapping" in capsys.readouterr().err
-
-
-def test_openapi_can_apply_security_to_every_tag(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    import json
-
-    monkeypatch.chdir(EXAMPLE_DIR)
-
-    assert (
-        main(
-            [
-                "openapi",
-                "--security",
-                '{"bearerAuth":{"type":"http","scheme":"bearer"}}',
-                "--no-public-tags",
-            ]
-        )
-        == 0
-    )
-
-    document = json.loads(capsys.readouterr().out)
-    assert "security" not in document["paths"]["/health"]["get"]
 
 
 def test_openapi_writes_file_and_defaults_title_to_directory(
@@ -675,3 +652,6 @@ def test_routes_json_emits_a_machine_readable_map(
     assert "deprecated" in create and "sunset" in create
     assert create["successes"] == []
     assert create["timeout"] is None
+    assert create["public"] is False
+    health = next(e for e in entries if e["path"] == "/health")
+    assert health["public"] is True

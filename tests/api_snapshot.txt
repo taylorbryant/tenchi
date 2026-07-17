@@ -78,14 +78,15 @@ class Contract(Generic)
     summary: str | None = None
     description: str | None = None
     tags: tuple[str, ...] = ()
+    public: bool = False
     deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
     successes: tuple[SuccessDef[Any, Any], ...] = ()
     timeout: float | None = None
-    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, successes: 'tuple[SuccessDef[Any, Any], ...]' = (), timeout: 'float | None' = None) -> None
+    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), public: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, successes: 'tuple[SuccessDef[Any, Any], ...]' = (), timeout: 'float | None' = None) -> None
     def declares_error(self, definition: 'ErrorDef') -> 'bool'
-def contract(*, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, successes: 'Sequence[SuccessDef[Any, Any]]' = (), timeout: 'float | None' = None) -> 'Contract[ResponseT, ResponseHeadersT]'
+def contract(*, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), public: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, successes: 'Sequence[SuccessDef[Any, Any]]' = (), timeout: 'float | None' = None) -> 'Contract[ResponseT, ResponseHeadersT]'
 
 # tenchi.errors
 class AppError(TenchiError)
@@ -115,11 +116,11 @@ HealthCheck = collections.abc.Callable[[typing.Any], typing.Any]
 class HealthReport(BaseModel)
     status: str = 'ok'
     checks: dict[str, str] = {}
-def health_route(*, path: 'str' = '/health', checks: 'Mapping[str, HealthCheck] | None' = None, check_timeout: 'float' = 5.0) -> 'Route'
+def health_route(*, path: 'str' = '/health', checks: 'Mapping[str, HealthCheck] | None' = None, check_timeout: 'float' = 5.0, public: 'bool' = True) -> 'Route'
 
 # tenchi.openapi
-def openapi_route(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, public_tags: 'Sequence[str]' = ('health',), path: 'str' = '/openapi.json', tags: 'Sequence[str]' = ('docs',)) -> 'Route'
-def openapi_schema(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, public_tags: 'Sequence[str]' = ('health',)) -> 'dict[str, Any]'
+def openapi_route(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, path: 'str' = '/openapi.json', tags: 'Sequence[str]' = ('docs',), public: 'bool' = True) -> 'Route'
+def openapi_schema(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None) -> 'dict[str, Any]'
 
 # tenchi.pagination
 class Page(BaseModel, Generic)

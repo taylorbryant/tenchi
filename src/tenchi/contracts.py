@@ -20,6 +20,7 @@ from typing import Any, Generic, Union, cast, get_args, get_origin
 
 from typing_extensions import TypeVar
 
+from ._media_types import MediaTypeError, validate_media_type
 from .errors import (
     ConfigurationError,
     ErrorDef,
@@ -83,6 +84,7 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
     summary: str | None = None
     description: str | None = None
     tags: tuple[str, ...] = ()
+    public: bool = False
     deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
@@ -112,6 +114,7 @@ def contract(
     summary: str | None = None,
     description: str | None = None,
     tags: Sequence[str] = (),
+    public: bool = False,
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
@@ -162,12 +165,21 @@ def contract(
             types validate the decoded text, and any other type (such as
             ``application/octet-stream``) validates the raw bytes — pair
             them with ``request=str`` and ``request=bytes`` respectively.
+            A missing or mismatched wire ``Content-Type`` receives the
+            framework's 415 response before body decoding.
         response_media_type: Media type of the success response. Non-JSON
-            types send ``str``/``bytes`` results as-is.
+            types send ``bytes`` results as-is; ``text/*`` string results use
+            the declared charset (UTF-8 by default). The typed client requires
+            successful responses to carry the declared type and strictly
+            decodes text with its wire charset.
         summary: Short one-line summary for documentation.
         description: Longer documentation text. When omitted, OpenAPI
             generation falls back to the bound use case's docstring.
         tags: Documentation tags grouping related operations.
+        public: Whether authentication hooks should treat the operation as
+            public. Tenchi exposes this metadata to hooks and uses it to exempt
+            the operation from global OpenAPI security; it does not perform
+            authentication itself. Defaults to ``False``.
         deprecated: Mark the operation as deprecated. Pass an aware
             datetime (the instant deprecation took effect) to send an
             RFC 9745 ``Deprecation: @<unix-timestamp>`` response header;
@@ -207,6 +219,7 @@ def contract(
         name=name,
         summary=summary,
         description=description,
+        public=public,
         deprecated=deprecated,
         sunset=sunset,
         max_request_bytes=max_request_bytes,
@@ -234,6 +247,16 @@ def contract(
         raise ConfigurationError(
             f"contract(path={path!r}): media types must be non-empty"
         )
+    for label, media_type in (
+        ("request_media_type", request_media_type),
+        ("response_media_type", response_media_type),
+    ):
+        try:
+            validate_media_type(media_type)
+        except MediaTypeError as exc:
+            raise ConfigurationError(
+                f"contract(path={path!r}): {label} is invalid: {exc}"
+            ) from exc
     if sunset is not None and sunset.tzinfo is None:
         raise ConfigurationError(
             f"contract(path={path!r}): sunset must be timezone-aware so the "
@@ -284,6 +307,7 @@ def contract(
         summary=summary,
         description=description,
         tags=declared_tags,
+        public=public,
         deprecated=deprecated,
         sunset=sunset,
         max_request_bytes=max_request_bytes,
@@ -302,6 +326,7 @@ def _validate_runtime_options(
     name: object,
     summary: object,
     description: object,
+    public: object,
     deprecated: object,
     sunset: object,
     max_request_bytes: object,
@@ -338,6 +363,11 @@ def _validate_runtime_options(
                 f"contract(path={path!r}): {label} must be a string or None, "
                 f"got {type(value).__name__}"
             )
+    if not isinstance(public, bool):
+        raise ConfigurationError(
+            f"contract(path={path!r}): public must be a bool, got "
+            f"{type(public).__name__}"
+        )
     if sunset is not None and not isinstance(sunset, datetime):
         raise ConfigurationError(
             f"contract(path={path!r}): sunset must be a datetime or None, got "
@@ -457,19 +487,6 @@ def _validate_path_template(path: str) -> None:
             f"contract(path={path!r}): invalid path parameter syntax; use "
             "'{name}' or Starlette's '{name:converter}' form"
         )
-
-
-def _is_json_media_type(  # pyright: ignore[reportUnusedFunction]
-    value: str,
-) -> bool:
-    essence = value.partition(";")[0].strip().casefold()
-    return essence == "application/json" or essence.endswith("+json")
-
-
-def _is_text_media_type(  # pyright: ignore[reportUnusedFunction]
-    value: str,
-) -> bool:
-    return value.partition(";")[0].strip().casefold().startswith("text/")
 
 
 def _object_schema(  # pyright: ignore[reportUnusedFunction]

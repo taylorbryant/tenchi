@@ -104,7 +104,11 @@ The main pieces are:
 - Pydantic validation for request bodies, path parameters, query parameters,
   request and successful response headers, and response bodies; field aliases
   are the names used on the wire and in OpenAPI, and nullable request types can
-  send JSON `null` explicitly.
+  send JSON `null` explicitly. Declared media types are enforced against wire
+  `Content-Type`: mismatched requests receive a framework-owned 415 and the
+  typed client rejects mismatched responses. Charset-qualified text contracts
+  are encoded and decoded strictly in both directions; unsupported declared
+  charsets fail when the contract is built.
 - `typing.Protocol` ports and explicit dependency wiring instead of a DI
   container.
 - Declared application errors with a stable JSON envelope.
@@ -114,6 +118,25 @@ The main pieces are:
 - Lifespan resources, request-scoped contexts, authentication hooks, middleware,
   request deadlines, outcome observers, pagination, health checks, and
   in-process testing helpers.
+
+Contracts are private by default. Set `public=True` for operations that an
+authentication hook should exempt, then inspect the same metadata in the hook:
+
+```python
+health = contract(method="GET", path="/health", response=Health, public=True)
+
+
+def authenticate(info: RequestInfo, context: AppContext) -> AppContext | None:
+    if info.contract.public:
+        return None
+    # Authenticate and return an enriched context, or raise AppError.
+```
+
+When OpenAPI security schemes are configured, public operations receive an
+empty per-operation security requirement. `health_route()` and
+`openapi_route()` are public by default; pass `public=False` to protect them.
+The metadata itself does not authenticate requests—application hooks remain in
+control.
 
 For endpoints with more than one successful status, declare named outcomes and
 select one in a synchronous presenter. The same mechanism is Tenchi's
@@ -180,8 +203,8 @@ metadata-only, or unknown. Breaking and unknown changes return a non-zero
 status; additive and metadata-only changes pass. Use `--diff-format json` for
 machine-readable output. `openapi --check` remains the exact drift check for
 tests and CI. Pass the same `--routes`, `--title`, `--version`, `--description`,
-`--security`, and public-tag options in every command when your document uses
-them. Run `--diff` before replacing the baseline with `--write`; in CI, compare
+and `--security` options in every command when your document uses them. Run
+`--diff` before replacing the baseline with `--write`; in CI, compare
 against the snapshot from the merge base or previous release rather than the
 snapshot committed in the same change. `--output` and `-o` remain aliases for
 `--write`. For programmatic checks, import `analyze_openapi_compatibility` from

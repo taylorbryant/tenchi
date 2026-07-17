@@ -598,6 +598,143 @@ async def test_structured_json_media_type_round_trips() -> None:
     assert result == Item(name="x")
 
 
+@pytest.mark.parametrize("charset", ["iso-8859-1", "utf-16"])
+async def test_typed_text_round_trip_honors_declared_charset(charset: str) -> None:
+    media_type = f"text/plain; charset={charset}"
+    declared = contract(
+        method="POST",
+        path="/text",
+        request=str,
+        request_media_type=media_type,
+        response=str,
+        response_media_type=media_type,
+    )
+
+    async def shout(request: str, context: Context) -> str:
+        return request.upper()
+
+    app = create_app(
+        routes=route_group(route(declared, shout)), context_factory=Context
+    )
+
+    async with Client(transport=httpx.ASGITransport(app=app)) as client:
+        result = await client.call_with_response(declared, request="café")
+
+    assert result.body == "CAFÉ"
+    assert result.http_response.content == "CAFÉ".encode(charset)
+    assert result.http_response.headers["content-type"] == media_type
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    [None, "text/plain", "application/json; charset*=utf-8''utf-8"],
+)
+async def test_client_rejects_success_with_wrong_response_media_type(
+    content_type: str | None,
+) -> None:
+    declared = contract(method="GET", path="/item", response=Item)
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        headers = {"content-type": content_type} if content_type is not None else None
+        return httpx.Response(200, content=b'{"name":"x"}', headers=headers)
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(UnexpectedResponseError, match="content type") as excinfo:
+            await client.call(declared)
+
+    assert excinfo.value.reason is not None
+    assert "application/json" in excinfo.value.reason
+
+
+async def test_client_accepts_additional_response_media_type_parameters() -> None:
+    declared = contract(method="GET", path="/item", response=Item)
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b'{"name":"x"}',
+            headers={"content-type": "application/json; charset=UTF-8"},
+        )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        result = await client.call(declared)
+
+    assert result == Item(name="x")
+
+
+async def test_client_decodes_text_using_the_wire_charset() -> None:
+    declared = contract(
+        method="GET",
+        path="/text",
+        response=str,
+        response_media_type="text/plain",
+    )
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content="café".encode("iso-8859-1"),
+            headers={"content-type": "text/plain; charset=iso-8859-1"},
+        )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        result = await client.call(declared)
+
+    assert result == "café"
+
+
+@pytest.mark.parametrize(
+    ("content", "content_type", "reason"),
+    [
+        (b"\xff", "text/plain; charset=ascii", "not valid for charset 'ascii'"),
+        (
+            b"text",
+            "text/plain; charset=not-a-codec",
+            "unsupported charset 'not-a-codec'",
+        ),
+    ],
+)
+async def test_client_rejects_text_that_violates_the_wire_charset(
+    content: bytes, content_type: str, reason: str
+) -> None:
+    declared = contract(
+        method="GET",
+        path="/text",
+        response=str,
+        response_media_type="text/plain",
+    )
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=content,
+            headers={"content-type": content_type},
+        )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(UnexpectedResponseError, match=reason):
+            await client.call(declared)
+
+
+async def test_client_rejects_error_with_wrong_response_media_type() -> None:
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            content=b'{"code":"ITEM_MISSING","message":"Missing"}',
+            headers={
+                ERROR_SOURCE_HEADER: "app",
+                "content-type": "text/plain",
+            },
+        )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(UnexpectedResponseError, match="content type"):
+            await client.call(
+                get_item_contract,
+                params=ItemParams(item_id="missing"),
+            )
+
+
 throttled = ErrorDef(
     code="THROTTLED", status=429, message="Slow down", headers=("Retry-After",)
 )

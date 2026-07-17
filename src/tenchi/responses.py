@@ -16,6 +16,7 @@ from typing import Any, Generic, cast, overload
 from starlette.responses import Response
 from typing_extensions import TypeVar
 
+from ._media_types import MediaTypeError, validate_media_type
 from .errors import ConfigurationError
 
 BodyT = TypeVar("BodyT", default=Any)
@@ -174,6 +175,13 @@ def _validate_success_definition(
         raise ConfigurationError(
             "success: response_media_type cannot be None when response is declared"
         )
+    if isinstance(response_media_type, str):
+        try:
+            validate_media_type(response_media_type)
+        except MediaTypeError as exc:
+            raise ConfigurationError(
+                f"success: response_media_type is invalid: {exc}"
+            ) from exc
     if not isinstance(description, str) or not description.strip():
         raise ConfigurationError("success: description must be a non-empty string")
     if not isinstance(passthrough, bool):

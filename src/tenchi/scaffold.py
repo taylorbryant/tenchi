@@ -465,6 +465,16 @@ _OPENAPI_SNAPSHOT = """\
             },
             "description": "REQUEST_TOO_LARGE: Request body too large"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "__UNSUPPORTED_MEDIA_TYPE_DESCRIPTION__"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -516,7 +526,10 @@ _FILES: dict[str, str] = {
 def app_files(app_name: str) -> dict[str, str]:
     """Return the scaffold as a mapping of relative path to file content."""
     return {
-        path: content.replace("__APP_NAME__", app_name)
+        path: content.replace("__APP_NAME__", app_name).replace(
+            "__UNSUPPORTED_MEDIA_TYPE_DESCRIPTION__",
+            "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
+        )
         for path, content in _FILES.items()
     }
 

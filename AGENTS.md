@@ -179,6 +179,11 @@ API shape:
   authorization lives in use cases, which still assert identity via an
   app-owned `require_user`-style helper. Ownership failures on reads
   surface as not-found, not forbidden, so ids cannot be probed.
+- Authentication hooks exempt routes through `info.contract.public`, which
+  defaults to `False`; documentation tags and paths never decide access.
+  `health_route()` and `openapi_route()` are public by default and accept
+  `public=False` when an application needs to protect them. OpenAPI derives
+  global-security exemptions from the same contract metadata.
 
 ## CLI expectations
 

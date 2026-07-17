@@ -22,7 +22,6 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequen
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from email.message import Message
 from email.utils import format_datetime
 from time import perf_counter
 from types import MappingProxyType, UnionType
@@ -39,10 +38,16 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route as StarletteRoute
 
 from . import errors as tenchi_errors
+from ._media_types import (
+    MediaTypeError,
+    is_json_media_type,
+    is_text_media_type,
+    media_type_matches,
+    media_type_parts,
+    text_charset,
+)
 from .contracts import (
     Contract,
-    _is_json_media_type,  # pyright: ignore[reportPrivateUsage]
-    _is_text_media_type,  # pyright: ignore[reportPrivateUsage]
     _object_schema,  # pyright: ignore[reportPrivateUsage]
     _render_response_header_value,  # pyright: ignore[reportPrivateUsage]
     _response_header_fields,  # pyright: ignore[reportPrivateUsage]
@@ -100,7 +105,7 @@ class RequestInfo:
 
     ``headers`` is read-only and its keys are lowercased HTTP names
     (``x-api-key``). ``contract`` is the matched contract, so hooks can exempt
-    routes via contract metadata such as ``tags``.
+    routes via contract metadata such as ``public``.
     """
 
     method: str
@@ -709,34 +714,16 @@ def _validated_payload(
         return None, None
     validated = adapter.validate_python(value)
     assert media_type is not None
-    if _is_json_media_type(media_type):
+    if is_json_media_type(media_type):
         return validated, adapter.dump_json(validated, by_alias=True)
+    if isinstance(validated, str) and is_text_media_type(media_type):
+        return validated, validated.encode(text_charset(media_type))
     if isinstance(validated, bytes | str):
         return validated, validated
     raise ValueError(
         f"non-JSON response media type {media_type!r} requires str or bytes, "
         f"got {type(validated).__name__}"
     )
-
-
-def _media_type_parts(value: str) -> tuple[str, dict[str, str]]:
-    """Return a normalized media essence and parameter mapping.
-
-    Parameter names and charset values are case-insensitive; other parameter
-    values (notably multipart boundaries) retain their case-sensitive value.
-    """
-    message = Message()
-    message["content-type"] = value
-    raw_parameters: list[tuple[str, str]] = (
-        message.get_params(header="content-type") or []
-    )
-    parameters = {
-        name.casefold(): raw_value.casefold()
-        if name.casefold() == "charset"
-        else raw_value
-        for name, raw_value in raw_parameters[1:]
-    }
-    return message.get_content_type().casefold(), parameters
 
 
 def _validate_passthrough_header_values(response: Response, *, label: str) -> None:
@@ -856,11 +843,11 @@ def _presented_response(
         if definition.response is not None:
             actual = response.headers.get("content-type")
             assert definition.response_media_type is not None
-            expected_essence, expected_parameters = _media_type_parts(
+            expected_essence, expected_parameters = media_type_parts(
                 definition.response_media_type
             )
             actual_essence, actual_parameters = (
-                _media_type_parts(actual) if actual else ("", {})
+                media_type_parts(actual) if actual else ("", {})
             )
             parameter_mismatch = any(
                 actual_parameters.get(name) != value
@@ -1005,13 +992,37 @@ def _make_endpoint(
                     _header_fields(request, bound.header_fields)
                 )
             if bound.request_adapter is not None:
-                body = await _read_body(request, bound.body_limit)
-                if _is_json_media_type(contract.request_media_type):
-                    kwargs["request"] = bound.request_adapter.validate_json(body)
-                elif _is_text_media_type(contract.request_media_type):
-                    kwargs["request"] = bound.request_adapter.validate_python(
-                        body.decode("utf-8")
+                actual_media_type = request.headers.get("content-type")
+                if not media_type_matches(
+                    declared=contract.request_media_type,
+                    actual=actual_media_type,
+                ):
+                    return _framework_error_response(
+                        tenchi_errors.unsupported_media_type,
+                        details={
+                            "expected": contract.request_media_type,
+                            "actual": actual_media_type,
+                        },
+                        request_id=request_id,
                     )
+                body = await _read_body(request, bound.body_limit)
+                if is_json_media_type(contract.request_media_type):
+                    kwargs["request"] = bound.request_adapter.validate_json(body)
+                elif is_text_media_type(contract.request_media_type):
+                    assert actual_media_type is not None
+                    try:
+                        charset = text_charset(actual_media_type)
+                        text = body.decode(charset)
+                    except (LookupError, MediaTypeError):
+                        return _framework_error_response(
+                            tenchi_errors.unsupported_media_type,
+                            details={
+                                "expected": contract.request_media_type,
+                                "actual": actual_media_type,
+                            },
+                            request_id=request_id,
+                        )
+                    kwargs["request"] = bound.request_adapter.validate_python(text)
                 else:
                     kwargs["request"] = bound.request_adapter.validate_python(body)
         except ValidationError as exc:
@@ -1027,7 +1038,9 @@ def _make_endpoint(
         except UnicodeDecodeError:
             return _framework_error_response(
                 tenchi_errors.validation_error,
-                details=[{"msg": "Request body is not valid UTF-8 text"}],
+                details=[
+                    {"msg": "Request body is not valid for its declared text charset"}
+                ],
                 request_id=request_id,
             )
         except _BodyTooLarge as exc:

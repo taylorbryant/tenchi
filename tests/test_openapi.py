@@ -93,9 +93,6 @@ def test_document_skeleton() -> None:
 
 
 def test_openapi_rejects_bare_string_tag_sequences() -> None:
-    with pytest.raises(ConfigurationError, match="public_tags must be a sequence"):
-        openapi_schema(make_group(), title="Items", version="1", public_tags="health")
-
     with pytest.raises(ConfigurationError, match="tags must be a sequence"):
         openapi_route(make_group(), title="Items", version="1", tags="docs")
 
@@ -743,11 +740,16 @@ def test_multiple_security_schemes_are_all_required() -> None:
     assert document["security"] == [{"bearerAuth": [], "apiKeyAuth": []}]
 
 
-def test_public_tagged_operations_are_exempt_from_security() -> None:
+def test_public_operations_are_exempt_from_security() -> None:
     open_contract = contract(
-        method="GET", path="/health", response=Item, tags=("health",)
+        method="GET",
+        path="/health",
+        response=Item,
+        public=True,
     )
-    closed_contract = contract(method="GET", path="/closed", response=Item)
+    closed_contract = contract(
+        method="GET", path="/closed", response=Item, tags=("health",)
+    )
 
     async def handler(context: Context) -> Item:
         return Item(name="x")
@@ -789,12 +791,24 @@ async def test_openapi_route_serves_document_without_documenting_itself() -> Non
     assert "/openapi.json" not in document["paths"]
 
 
-def test_request_bodies_document_the_413() -> None:
+def test_openapi_route_is_public_by_default_and_can_be_protected() -> None:
+    group = make_group()
+
+    assert openapi_route(group, title="Items", version="1").contract.public is True
+    assert (
+        openapi_route(group, title="Items", version="1", public=False).contract.public
+        is False
+    )
+
+
+def test_request_bodies_document_framework_body_errors() -> None:
     document = make_document()
 
     assert "413" in document["paths"]["/items"]["post"]["responses"]
+    assert "415" in document["paths"]["/items"]["post"]["responses"]
     # No request body: nothing to cap.
     assert "413" not in document["paths"]["/search"]["get"]["responses"]
+    assert "415" not in document["paths"]["/search"]["get"]["responses"]
 
 
 def test_sunset_becomes_a_vendor_extension() -> None:

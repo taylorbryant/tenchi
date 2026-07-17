@@ -70,8 +70,13 @@ async def test_failing_check_maps_to_503_without_leaking_messages() -> None:
     assert "secret host details" not in response.text
 
 
-async def test_health_route_is_tagged_for_hook_exemption() -> None:
+async def test_health_route_is_public_and_tagged_for_documentation() -> None:
+    assert health_route().contract.public is True
     assert "health" in health_route().contract.tags
+
+
+def test_health_route_can_require_authentication() -> None:
+    assert health_route(public=False).contract.public is False
 
 
 async def test_custom_path() -> None:

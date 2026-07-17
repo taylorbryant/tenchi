@@ -410,6 +410,14 @@ def test_success_declarations_fail_early_when_ambiguous_or_incoherent() -> None:
     with pytest.raises(ConfigurationError, match="cannot declare a response body"):
         success(name="no-content", status=204, response=Item)
 
+    with pytest.raises(ConfigurationError, match="unsupported charset"):
+        success(
+            name="bad-text",
+            status=200,
+            response=str,
+            response_media_type="text/plain; charset=not-a-codec",
+        )
+
 
 def test_a_success_may_itself_declare_a_union_within_the_exact_aggregate() -> None:
     flexible: SuccessDef[Item | str, None] = success(

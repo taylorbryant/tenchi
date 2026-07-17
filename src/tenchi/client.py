@@ -25,13 +25,18 @@ from urllib.parse import quote
 import httpx
 from pydantic import TypeAdapter
 
+from ._media_types import (
+    MediaTypeError,
+    is_json_media_type,
+    is_text_media_type,
+    media_type_matches,
+    text_charset,
+)
 from .contracts import (
     _PATH_PARAMETER,  # pyright: ignore[reportPrivateUsage]
     Contract,
     ResponseHeadersT,
     ResponseT,
-    _is_json_media_type,  # pyright: ignore[reportPrivateUsage]
-    _is_text_media_type,  # pyright: ignore[reportPrivateUsage]
     _object_schema,  # pyright: ignore[reportPrivateUsage]
     _response_header_fields,  # pyright: ignore[reportPrivateUsage]
 )
@@ -276,13 +281,17 @@ class Client:
             else:
                 assert selected_response_adapter is not None
                 assert response_media_type is not None
-                if _is_json_media_type(response_media_type):
+                self._require_response_media_type(
+                    contract,
+                    response,
+                    declared=response_media_type,
+                )
+                if is_json_media_type(response_media_type):
                     body = selected_response_adapter.validate_json(response.content)
-                elif _is_text_media_type(response_media_type):
-                    # Charset-aware: httpx decodes per the response headers,
-                    # so a latin-1 text body validates instead of failing a
-                    # strict UTF-8 decode of the raw bytes.
-                    body = selected_response_adapter.validate_python(response.text)
+                elif is_text_media_type(response_media_type):
+                    body = selected_response_adapter.validate_python(
+                        self._decode_text_response(contract, response)
+                    )
                 else:
                     body = selected_response_adapter.validate_python(response.content)
             if selected_headers_adapter is None:
@@ -391,12 +400,31 @@ class Client:
             )
         adapter = _adapter(contract.request, contract=contract, slot="request")
         validated = adapter.validate_python(request)
-        if _is_json_media_type(contract.request_media_type):
+        if is_json_media_type(contract.request_media_type):
             content: bytes = adapter.dump_json(validated, by_alias=True)
         elif isinstance(validated, bytes):
             content = validated
         elif isinstance(validated, str):
-            content = validated.encode("utf-8")
+            try:
+                charset = (
+                    text_charset(contract.request_media_type)
+                    if is_text_media_type(contract.request_media_type)
+                    else "utf-8"
+                )
+            except MediaTypeError as exc:
+                raise ConfigurationError(
+                    f"{contract.name}: invalid request media type: {exc}"
+                ) from exc
+            try:
+                content = validated.encode(charset)
+            except LookupError as exc:
+                raise ConfigurationError(
+                    f"{contract.name}: unsupported request charset {charset!r}"
+                ) from exc
+            except UnicodeEncodeError as exc:
+                raise ValueError(
+                    f"{contract.name}: request text cannot be encoded as {charset!r}"
+                ) from exc
         else:
             # Silently sending JSON labeled as another media type would
             # produce a body the server rejects with no hint why.
@@ -436,6 +464,12 @@ class Client:
         response: httpx.Response,
         errors: Sequence[ErrorDef],
     ) -> Any:
+        if response.status_code >= 400:
+            self._require_response_media_type(
+                contract,
+                response,
+                declared="application/json",
+            )
         try:
             body: Any = response.json()
         except ValueError:
@@ -475,6 +509,58 @@ class Client:
             status_code=response.status_code,
             body=body,
         )
+
+    @staticmethod
+    def _require_response_media_type(
+        contract: Contract[Any, Any],
+        response: httpx.Response,
+        *,
+        declared: str,
+    ) -> None:
+        actual = response.headers.get("content-type")
+        if media_type_matches(declared=declared, actual=actual):
+            return
+        raise UnexpectedResponseError(
+            contract_name=contract.name,
+            status_code=response.status_code,
+            body=response.content,
+            reason=(
+                f"response content type {actual!r} does not match declared "
+                f"media type {declared!r}"
+            ),
+        )
+
+    @staticmethod
+    def _decode_text_response(
+        contract: Contract[Any, Any], response: httpx.Response
+    ) -> str:
+        actual = response.headers.get("content-type")
+        assert actual is not None
+        try:
+            charset = text_charset(actual)
+        except MediaTypeError as exc:
+            raise UnexpectedResponseError(
+                contract_name=contract.name,
+                status_code=response.status_code,
+                body=response.content,
+                reason=f"response content type is invalid: {exc}",
+            ) from exc
+        try:
+            return response.content.decode(charset)
+        except LookupError as exc:
+            raise UnexpectedResponseError(
+                contract_name=contract.name,
+                status_code=response.status_code,
+                body=response.content,
+                reason=f"response declares unsupported charset {charset!r}",
+            ) from exc
+        except UnicodeDecodeError as exc:
+            raise UnexpectedResponseError(
+                contract_name=contract.name,
+                status_code=response.status_code,
+                body=response.content,
+                reason=f"response body is not valid for charset {charset!r}",
+            ) from exc
 
 
 def _adapter(

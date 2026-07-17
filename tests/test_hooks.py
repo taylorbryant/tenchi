@@ -25,9 +25,9 @@ class Context:
 
 unauthorized = ErrorDef(code="UNAUTHORIZED", status=401, message="Unauthorized")
 
-whoami_contract = contract(method="GET", path="/whoami", response=str)
+whoami_contract = contract(method="GET", path="/whoami", response=str, tags=("health",))
 echo_contract = contract(method="POST", path="/echo", request=Item, response=Item)
-public_contract = contract(method="GET", path="/health", response=str, tags=("public",))
+public_contract = contract(method="GET", path="/health", response=str, public=True)
 
 
 async def whoami(context: Context) -> str:
@@ -52,7 +52,7 @@ def make_routes(*, declare_errors: bool = True) -> RouteGroup:
 
 
 def api_key_hook(info: RequestInfo, context: Context) -> Context | None:
-    if "public" in info.contract.tags:
+    if info.contract.public:
         return None
     key = info.headers.get("x-api-key")
     if key != "secret":
@@ -77,7 +77,9 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         yield http
 
 
-async def test_hook_rejects_with_declared_error(client: httpx.AsyncClient) -> None:
+async def test_hook_rejects_private_route_with_public_looking_tag(
+    client: httpx.AsyncClient,
+) -> None:
     response = await client.get("/whoami")
 
     assert response.status_code == 401

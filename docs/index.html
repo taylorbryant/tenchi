@@ -280,6 +280,15 @@ app = create_app(
           <code>create_app()</code> also accepts lifespan resources, hooks,
           middleware, and request-body limits.
         </p>
+        <p class="muted">
+          Contracts are private by default. Set <code>public=True</code> on an
+          operation that authentication hooks should exempt, then inspect
+          <code>info.contract.public</code> in the hook. OpenAPI uses the same
+          metadata to remove global security from that operation.
+          <code>health_route()</code> and <code>openapi_route()</code> are public
+          by default and accept <code>public=False</code> when they should be
+          protected. The metadata does not authenticate requests by itself.
+        </p>
       </section>
 
       <section id="errors">
@@ -334,9 +343,15 @@ async with Client(base_url="https://api.example.com") as client:
     status = created.http_response.status_code</code></pre>
         <p>
           <code>call()</code> still returns only the validated body. Both client
-          methods validate declared success headers. <code>openapi_route()</code>
-          serves an OpenAPI 3.1 document from the same declarations, including
-          the headers.
+          methods validate declared success headers and the response
+          <code>Content-Type</code>. The server likewise requires request bodies
+          to match their contract media type, returning a framework-owned 415
+          before decoding a missing or mismatched type.
+          Charset-qualified text contracts are encoded and decoded strictly in
+          both directions, and unsupported declared charsets fail when the
+          contract is built.
+          <code>openapi_route()</code> serves an OpenAPI 3.1 document from the
+          same declarations, including headers and the possible 415 response.
         </p>
         <p class="muted">
           The taskboard example builds optimistic concurrency on this surface:
@@ -470,8 +485,8 @@ tenchi dev</code></pre>
           Breaking and unknown changes fail; additive and metadata-only changes
           pass. Add <code>--diff-format json</code> for machine-readable output,
           and use <code>openapi --check</code> for exact drift detection in tests
-          or CI. Use the same routes, metadata, security, and public-tag options
-          in every command. Run the diff before replacing its baseline; CI
+          or CI. Use the same routes, metadata, and security options in every
+          command. Run the diff before replacing its baseline; CI
           should read that baseline from the merge base or previous release,
           not from the same change being checked.
           For programmatic checks, import

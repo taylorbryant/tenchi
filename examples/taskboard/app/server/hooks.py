@@ -21,9 +21,9 @@ def create_bearer_hook(directory: TokenDirectory) -> Hook:
     """
 
     async def authenticate(info: RequestInfo, context: AppContext) -> AppContext | None:
-        # Exempt by tag, not by path: the docs and health routes carry
-        # their tags wherever they are mounted.
-        if {"docs", "health"} & set(info.contract.tags):
+        # Exempt by contract metadata, not by path: public routes remain
+        # public wherever they are mounted.
+        if info.contract.public:
             return None
         scheme, _, token = info.headers.get("authorization", "").partition(" ")
         if scheme.lower() != "bearer" or not token:

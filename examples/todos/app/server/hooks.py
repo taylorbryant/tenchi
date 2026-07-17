@@ -17,12 +17,12 @@ def require_api_key(info: RequestInfo, context: AppContext) -> None:
 
     Disabled when ``TODOS_API_KEY`` is unset, so local quickstarts stay
     open. The OpenAPI document and health route stay public either way,
-    exempted by their tags.
+    exempted by explicit contract metadata.
     """
     expected = os.environ.get("TODOS_API_KEY")
     if expected is None:
         return
-    if {"docs", "health"} & set(info.contract.tags):
+    if info.contract.public:
         return
     provided = info.headers.get("x-api-key", "")
     # Constant-time comparison: a plain != leaks key prefixes via timing.

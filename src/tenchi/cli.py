@@ -79,7 +79,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.version,
             description=args.description,
             security_json=args.security,
-            public_tags=args.public_tag,
             write=args.write,
             check=args.check,
             diff=args.diff,
@@ -157,23 +156,6 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="JSON",
         help="Security schemes as a JSON object",
-    )
-    public_tags = openapi_parser.add_mutually_exclusive_group()
-    public_tags.add_argument(
-        "--public-tag",
-        action="append",
-        default=None,
-        help=(
-            "Tag exempt from global security; repeat to declare multiple "
-            "(default: health)"
-        ),
-    )
-    public_tags.add_argument(
-        "--no-public-tags",
-        action="store_const",
-        const=(),
-        dest="public_tag",
-        help="Apply global security to every operation",
     )
     openapi_mode = openapi_parser.add_mutually_exclusive_group()
     openapi_mode.add_argument(
@@ -372,6 +354,7 @@ def route_map(group: RouteGroup) -> list[dict[str, object]]:
                     {"code": e.code, "status": e.status} for e in declared.errors
                 ],
                 "tags": list(declared.tags),
+                "public": declared.public,
                 "summary": declared.summary,
                 "response_headers": (
                     getattr(declared.response_headers, "__name__", None)
@@ -400,7 +383,6 @@ def _openapi(
     *,
     description: str | None,
     security_json: str | None,
-    public_tags: Sequence[str] | None,
     write: str | None,
     check: str | None,
     diff: str | None,
@@ -436,7 +418,6 @@ def _openapi(
             version=version,
             description=description,
             security=security,
-            public_tags=("health",) if public_tags is None else public_tags,
         )
     except ConfigurationError as exc:
         _fail(f"tenchi openapi: {exc}")

@@ -13,8 +13,8 @@ any failure returns the standard error envelope with status 503 and the
 ``UNHEALTHY`` code. Failure details expose only exception class names —
 full tracebacks go to the log.
 
-The route is tagged ``health`` so authentication hooks can exempt it via
-``info.contract.tags``.
+The route declares ``public=True`` by default so authentication hooks can
+exempt it through explicit contract metadata.
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ def health_route(
     path: str = "/health",
     checks: Mapping[str, HealthCheck] | None = None,
     check_timeout: float = 5.0,
+    public: bool = True,
 ) -> Route:
     """Build a route reporting service health.
 
@@ -61,7 +62,9 @@ def health_route(
     unhealthy and its exception class name (never the message) appears in
     the response details. An async check that exceeds ``check_timeout``
     seconds fails as ``TimeoutError`` — a hung dependency must produce the
-    503 the contract promises, not a hung health endpoint.
+    503 the contract promises, not a hung health endpoint. The route declares
+    ``public=True`` by default; pass ``public=False`` when authentication hooks
+    should protect it.
     """
     health_contract = contract(
         method="GET",
@@ -70,6 +73,7 @@ def health_route(
         errors=(unhealthy,),
         summary="Service health",
         tags=("health",),
+        public=public,
     )
     registered = dict(checks or {})
 

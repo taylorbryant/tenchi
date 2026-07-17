@@ -110,8 +110,9 @@ async def test_chunked_bodies_without_content_length_are_capped(
 async def test_contract_ceiling_overrides_the_app_default(
     http: httpx.AsyncClient,
 ) -> None:
-    accepted = await http.post("/upload", content=b"x" * 150)
-    rejected = await http.post("/upload", content=b"x" * 250)
+    headers = {"content-type": "application/octet-stream"}
+    accepted = await http.post("/upload", content=b"x" * 150, headers=headers)
+    rejected = await http.post("/upload", content=b"x" * 250, headers=headers)
 
     assert accepted.status_code == 200
     assert accepted.json() == 150
@@ -213,8 +214,9 @@ async def test_body_exactly_at_the_limit_is_accepted() -> None:
 
 async def test_contract_ceiling_applies_when_app_default_is_disabled() -> None:
     async with open_http(make_app(max_request_bytes=None)) as http:
-        accepted = await http.post("/upload", content=b"x" * 150)
-        rejected = await http.post("/upload", content=b"x" * 250)
+        headers = {"content-type": "application/octet-stream"}
+        accepted = await http.post("/upload", content=b"x" * 150, headers=headers)
+        rejected = await http.post("/upload", content=b"x" * 250, headers=headers)
 
     assert accepted.status_code == 200
     assert rejected.status_code == 413
@@ -236,7 +238,11 @@ async def test_contract_ceiling_smaller_than_app_default_wins() -> None:
     )
 
     async with open_http(app) as http:
-        response = await http.post("/tight", content=b"x" * 50)
+        response = await http.post(
+            "/tight",
+            content=b"x" * 50,
+            headers={"content-type": "application/octet-stream"},
+        )
 
     assert response.status_code == 413
     assert response.json()["details"] == {"limit_bytes": 10}

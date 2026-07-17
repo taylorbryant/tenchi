@@ -22,6 +22,27 @@ versions may change the public API.
   compares both examples with their snapshots from the base commit, and the
   generated starter documents the required pre-write workflow. The underlying
   analyzer is available from `tenchi.compatibility` for programmatic checks.
+- Explicit public-operation metadata: `contract(public=True)` gives
+  authentication hooks and OpenAPI one access-control signal instead of
+  overloading documentation tags. Contracts are private by default;
+  `health_route()` and `openapi_route()` default to public and allow
+  `public=False`. The JSON route map now exposes the value.
+
+### Changed
+
+- Declared media types are authoritative at runtime. Request bodies with a
+  missing or mismatched `Content-Type` receive a framework-owned 415
+  `UNSUPPORTED_MEDIA_TYPE`, and the typed client rejects successful and error
+  responses whose `Content-Type` does not match their declared wire format.
+  Charset-qualified text is encoded and decoded strictly in both directions,
+  while unsupported declared charsets fail at composition. OpenAPI documents
+  the 415 for every operation with a request body.
+
+### Removed
+
+- `openapi_schema(public_tags=...)`, `openapi_route(public_tags=...)`, and the
+  CLI's `--public-tag`/`--no-public-tags` options. Set `public=True` on the
+  contract instead; documentation tags no longer control security semantics.
 
 ## [0.7.0] - 2026-07-16
 
