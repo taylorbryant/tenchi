@@ -290,7 +290,11 @@ def route_map(group: RouteGroup) -> list[dict[str, object]]:
             {
                 "method": declared.method,
                 "path": declared.path,
-                "status": declared.status,
+                "status": declared.status if not declared.successes else None,
+                "successes": [
+                    {"name": success.name, "status": success.status}
+                    for success in declared.successes
+                ],
                 "use_case": f"{item.use_case.__module__}.{item.use_case.__qualname__}",
                 "errors": [
                     {"code": e.code, "status": e.status} for e in declared.errors
@@ -311,6 +315,7 @@ def route_map(group: RouteGroup) -> list[dict[str, object]]:
                     declared.sunset.isoformat() if declared.sunset is not None else None
                 ),
                 "max_request_bytes": declared.max_request_bytes,
+                "timeout": declared.timeout,
             }
         )
     return entries
@@ -381,7 +386,12 @@ def format_routes(group: RouteGroup) -> list[str]:
         if contract.errors:
             codes = ", ".join(d.code for d in contract.errors)
             use_case = f"{use_case}  [{codes}]"
-        rows.append((contract.method, contract.path, str(contract.status), use_case))
+        statuses = (
+            ",".join(str(outcome.status) for outcome in contract.successes)
+            if contract.successes
+            else str(contract.status)
+        )
+        rows.append((contract.method, contract.path, statuses, use_case))
 
     if not rows:
         return ["no routes bound"]

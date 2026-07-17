@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 
 from app.shared.errors import (
     forbidden,
+    idempotency_conflict,
     precondition_failed,
     precondition_required,
     project_not_found,
@@ -13,6 +14,7 @@ from tenchi.pagination import Page
 from .schemas import (
     TASK_ETAG_PATTERN,
     CreateTask,
+    CreateTaskHeaders,
     GetTaskParams,
     ListTasksQuery,
     Task,
@@ -33,11 +35,18 @@ create_task_contract = contract(
     method="POST",
     path="/tasks",
     request=CreateTask,
+    headers=CreateTaskHeaders,
     response=Task,
     response_headers=CreatedTaskHeaders,
     status=201,
-    errors=(project_not_found, forbidden),
+    timeout=10.0,
+    errors=(project_not_found, forbidden, idempotency_conflict),
     summary="Create a task in one of the current user's projects",
+    description=(
+        "Idempotency-Key is required. Retrying the same validated input with "
+        "the same key returns the original task response; reusing a key for "
+        "different input returns 409."
+    ),
     tags=("tasks",),
 )
 

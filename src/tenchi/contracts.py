@@ -14,8 +14,9 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from math import isfinite
 from types import UnionType
-from typing import Any, Generic, cast
+from typing import Any, Generic, Union, cast, get_args, get_origin
 
 from typing_extensions import TypeVar
 
@@ -23,6 +24,10 @@ from .errors import (
     ConfigurationError,
     ErrorDef,
     _validated_error_defs,  # pyright: ignore[reportPrivateUsage]
+)
+from .responses import (
+    SuccessDef,
+    _validated_success_defs,  # pyright: ignore[reportPrivateUsage]
 )
 
 ResponseT = TypeVar("ResponseT", default=Any)
@@ -81,6 +86,8 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
     deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
+    successes: tuple[SuccessDef[Any, Any], ...] = ()
+    timeout: float | None = None
 
     def declares_error(self, definition: ErrorDef) -> bool:
         """Whether this contract declares the given error as expected."""
@@ -108,6 +115,8 @@ def contract(
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
+    successes: Sequence[SuccessDef[Any, Any]] = (),
+    timeout: float | None = None,
 ) -> Contract[ResponseT, ResponseHeadersT]:
     """Declare an HTTP contract.
 
@@ -129,8 +138,11 @@ def contract(
             to hyphens on the wire, so ``x_api_key`` reads ``X-Api-Key``;
             Pydantic field aliases are also honored case-insensitively as
             HTTP header names. Repeated headers keep the last value.
-        response: Type the use case result is validated against before
-            serialization. ``None`` means an empty response body.
+        response: Successful wire body type. For a singular success, the use
+            case result is validated against it before serialization. With
+            ``successes=``, it is the aggregate body type returned by the
+            typed client; each named outcome declares its concrete wire type.
+            ``None`` means an empty response body.
         response_headers: Object-shaped type describing application-owned
             headers on a successful response. A bound route must provide a
             pure ``response_headers=`` projector that derives this value from
@@ -139,7 +151,8 @@ def contract(
             fixed set of fields that validate and serialize under the same
             names, and each field must serialize to one scalar value. Dynamic
             extra fields and framework-owned header names are rejected.
-        status: Success status code. Defaults to 200.
+        status: Singular success status code. Defaults to 200 and is ignored
+            when ``successes=`` declares named outcomes.
         errors: Application errors this route is expected to return. Expected
             errors are mapped to their HTTP status; undeclared ``AppError``
             instances are treated as internal server errors.
@@ -172,6 +185,18 @@ def contract(
             ``create_app``). Bodies over the ceiling are rejected with
             the framework's 413 before validation runs. Only meaningful
             on contracts that declare a ``request`` type.
+        successes: Named successful outcomes for routes with multiple success
+            statuses or controlled Starlette response passthrough. Each
+            outcome's response and response-header types together must exactly
+            equal the aggregate ``response`` and ``response_headers`` types.
+            A bound route supplies a typed ``present=`` function to select an
+            outcome. When omitted, the singular ``status`` and response
+            declarations above apply.
+        timeout: Seconds before Tenchi cooperatively cancels the request scope,
+            including context acquisition, hooks, validation, and the use case.
+            Tenchi waits for cancellation cleanup before returning its framework
+            504, so cleanup is never abandoned and total wall time can exceed
+            this deadline when cleanup itself takes time.
     """
     _validate_runtime_options(
         method=method,
@@ -185,11 +210,15 @@ def contract(
         deprecated=deprecated,
         sunset=sunset,
         max_request_bytes=max_request_bytes,
+        timeout=timeout,
     )
     declared_errors = _validated_error_defs(
         errors, label=f"contract(path={path!r}) errors"
     )
     declared_tags = _validated_tags(tags, path=path)
+    declared_successes = _validated_success_defs(
+        successes, label=f"contract(path={path!r}) successes"
+    )
 
     normalized_method = method.upper()
     if normalized_method not in _METHODS:
@@ -226,6 +255,18 @@ def contract(
             "contract declares no request type; the ceiling would never "
             "apply"
         )
+    if timeout is not None and (timeout <= 0 or not isfinite(timeout)):
+        raise ConfigurationError(
+            f"contract(path={path!r}): timeout must be finite and positive, "
+            f"got {timeout!r}"
+        )
+    if declared_successes:
+        _validate_success_aggregates(
+            path=path,
+            response=response,
+            response_headers=response_headers,
+            successes=declared_successes,
+        )
     return Contract(
         method=normalized_method,
         path=path,
@@ -246,6 +287,8 @@ def contract(
         deprecated=deprecated,
         sunset=sunset,
         max_request_bytes=max_request_bytes,
+        successes=declared_successes,
+        timeout=timeout,
     )
 
 
@@ -262,6 +305,7 @@ def _validate_runtime_options(
     deprecated: object,
     sunset: object,
     max_request_bytes: object,
+    timeout: object,
 ) -> None:
     """Frame malformed dynamically supplied options as configuration errors."""
     if not isinstance(method, str):
@@ -311,6 +355,84 @@ def _validate_runtime_options(
             f"contract(path={path!r}): max_request_bytes must be an int or None, "
             f"got {type(max_request_bytes).__name__}"
         )
+    if timeout is not None and (
+        not isinstance(timeout, int | float) or isinstance(timeout, bool)
+    ):
+        raise ConfigurationError(
+            f"contract(path={path!r}): timeout must be a number or None, got "
+            f"{type(timeout).__name__}"
+        )
+
+
+def _validate_success_aggregates(
+    *,
+    path: str,
+    response: object,
+    response_headers: object,
+    successes: tuple[SuccessDef[Any, Any], ...],
+) -> None:
+    for definition in successes:
+        if not _annotation_contains(response, definition.response):
+            raise ConfigurationError(
+                f"contract(path={path!r}): success {definition.name!r} response "
+                f"type {_type_name(definition.response)} is not represented by "
+                f"the aggregate response type {_type_name(response)}"
+            )
+        if not _annotation_contains(response_headers, definition.response_headers):
+            raise ConfigurationError(
+                f"contract(path={path!r}): success {definition.name!r} "
+                f"response_headers type {_type_name(definition.response_headers)} "
+                "is not represented by the aggregate response_headers type "
+                f"{_type_name(response_headers)}"
+            )
+    for label, aggregate, declared in (
+        ("response", response, tuple(item.response for item in successes)),
+        (
+            "response_headers",
+            response_headers,
+            tuple(item.response_headers for item in successes),
+        ),
+    ):
+        unexpected = _unexpected_annotation_members(aggregate, declared)
+        if unexpected:
+            rendered = ", ".join(_type_name(item) for item in unexpected)
+            raise ConfigurationError(
+                f"contract(path={path!r}): aggregate {label} type "
+                f"{_type_name(aggregate)} includes {rendered}, which no success "
+                "declares"
+            )
+
+
+def _annotation_contains(aggregate: object, member: object) -> bool:
+    aggregate_members = _annotation_members(aggregate)
+    return all(item in aggregate_members for item in _annotation_members(member))
+
+
+def _annotation_members(annotation: object) -> tuple[object, ...]:
+    normalized = type(None) if annotation is None else annotation
+    origin = get_origin(normalized)
+    if origin is Union or origin is UnionType:
+        return cast(tuple[object, ...], get_args(normalized))
+    return (normalized,)
+
+
+def _unexpected_annotation_members(
+    aggregate: object, declared: tuple[object, ...]
+) -> tuple[object, ...]:
+    declared_members = tuple(
+        member for annotation in declared for member in _annotation_members(annotation)
+    )
+    return tuple(
+        member
+        for member in _annotation_members(aggregate)
+        if member not in declared_members
+    )
+
+
+def _type_name(annotation: object) -> str:
+    if annotation is None:
+        return "None"
+    return getattr(annotation, "__name__", repr(annotation))
 
 
 def _validated_tags(value: object, *, path: str) -> tuple[str, ...]:

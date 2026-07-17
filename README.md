@@ -112,12 +112,52 @@ The main pieces are:
   runtime application and transport failures.
 - A contract-driven async client and OpenAPI 3.1 generation.
 - Lifespan resources, request-scoped contexts, authentication hooks, middleware,
-  pagination, health checks, and in-process testing helpers.
+  request deadlines, outcome observers, pagination, health checks, and
+  in-process testing helpers.
+
+For endpoints with more than one successful status, declare named outcomes and
+select one in a synchronous presenter. The same mechanism is Tenchi's
+controlled HTTP escape hatch: a passthrough outcome may return a Starlette
+`StreamingResponse`, `FileResponse`, or redirect while its status, media type,
+media-type parameters, and headers remain contract-owned. No-body outcomes
+accept only a concrete response with an empty materialized body; streaming
+outcomes must declare their body type. The typed client reports the selected
+outcome on `ClientResponse.success` and validates its declared body and headers.
+
+```python
+from tenchi.responses import PresentedResponse, present, success
+
+created = success(name="created", status=201, response=Todo)
+existing = success(name="existing", status=200, response=Todo)
+
+put_todo_contract = contract(
+    method="PUT",
+    path="/todos",
+    request=CreateTodo,
+    response=Todo,
+    successes=(created, existing),
+    timeout=5.0,
+)
+
+def present_put(result: PutTodoResult) -> PresentedResponse:
+    outcome = created if result.created else existing
+    return present(outcome, body=result.todo)
+
+route(put_todo_contract, put_todo, present=present_put)
+```
+
+`timeout=` cooperatively cancels overdue work, lets request-scope cleanup and
+rollback finish, then returns the framework's 504 even if application code
+catches the injected cancellation. `create_app(observers=...)` delivers an
+immutable `RequestOutcome`, including a read-only header mapping, after each
+matched route has finalized. Observer failures are logged and never change the
+response.
 
 See [`examples/todos`](examples/todos) for the small teaching app and
 [`examples/taskboard`](examples/taskboard) for a larger application with
 authentication, authorization, SQLite transactions, optimistic concurrency
-through `ETag` / `If-Match`, and background work.
+through `ETag` / `If-Match`, idempotent task creation, multiple successful
+outcomes, request observation, deadlines, and background work.
 
 ## CLI
 

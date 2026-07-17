@@ -2,12 +2,27 @@ from pydantic import BaseModel, Field
 
 from app.shared.errors import forbidden, project_not_found
 from tenchi.contracts import contract
+from tenchi.responses import success
 
 from .schemas import AddProjectMember, CreateProject, GetProjectParams, Project
 
 
 class CreatedProjectHeaders(BaseModel):
     location: str = Field(alias="Location")
+
+
+member_added = success(
+    name="member_added",
+    status=201,
+    response=Project,
+    description="The member was added",
+)
+already_a_member = success(
+    name="already_a_member",
+    status=200,
+    response=Project,
+    description="The user was already a member",
+)
 
 
 create_project_contract = contract(
@@ -45,6 +60,7 @@ add_project_member_contract = contract(
     params=GetProjectParams,
     request=AddProjectMember,
     response=Project,
+    successes=(member_added, already_a_member),
     errors=(project_not_found, forbidden),
     summary="Add a member to one of the current user's projects",
     tags=("projects",),

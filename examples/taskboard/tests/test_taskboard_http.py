@@ -12,11 +12,18 @@ import pytest
 from starlette.applications import Starlette
 
 from app.features.projects.contracts import (
+    add_project_member_contract,
+    already_a_member,
     create_project_contract,
     get_project_contract,
     list_projects_contract,
+    member_added,
 )
-from app.features.projects.schemas import CreateProject, GetProjectParams
+from app.features.projects.schemas import (
+    AddProjectMember,
+    CreateProject,
+    GetProjectParams,
+)
 from app.features.tasks.contracts import (
     create_task_contract,
     get_task_contract,
@@ -25,6 +32,7 @@ from app.features.tasks.contracts import (
 )
 from app.features.tasks.schemas import (
     CreateTask,
+    CreateTaskHeaders,
     GetTaskParams,
     ListTasksQuery,
     TaskStatus,
@@ -44,6 +52,7 @@ from app.server.hooks import create_bearer_hook
 from app.server.routes import routes
 from app.shared.errors import (
     forbidden,
+    idempotency_conflict,
     precondition_failed,
     project_not_found,
     unauthorized,
@@ -58,6 +67,10 @@ TOKENS = {
     "alice-token": User(id="alice", name="Alice"),
     "bob-token": User(id="bob", name="Bob"),
 }
+
+
+def create_headers(key: str) -> CreateTaskHeaders:
+    return CreateTaskHeaders(idempotency_key=key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,8 +132,25 @@ async def test_full_project_and_task_flow(harness: Harness) -> None:
     )
     assert fetched == project
 
+    member_params = GetProjectParams(project_id=project.id)
+    added = await harness.alice.call_with_response(
+        add_project_member_contract,
+        params=member_params,
+        request=AddProjectMember(user_id="bob"),
+    )
+    replayed = await harness.alice.call_with_response(
+        add_project_member_contract,
+        params=member_params,
+        request=AddProjectMember(user_id="bob"),
+    )
+    assert added.success is member_added
+    assert added.http_response.status_code == 201
+    assert replayed.success is already_a_member
+    assert replayed.http_response.status_code == 200
+
     task_response = await harness.alice.call_with_response(
         create_task_contract,
+        headers=create_headers("full-flow"),
         request=CreateTask(project_id=project.id, title="Ship it"),
     )
     task = task_response.body
@@ -163,6 +193,7 @@ async def test_typed_client_rejects_a_stale_task_update(harness: Harness) -> Non
     )
     created = await harness.alice.call_with_response(
         create_task_contract,
+        headers=create_headers("stale-update"),
         request=CreateTask(project_id=project.id, title="original"),
     )
     old_tag = created.headers.etag
@@ -216,6 +247,7 @@ async def test_creating_a_task_in_anothers_project_is_forbidden(
     with pytest.raises(AppError) as excinfo:
         await harness.bob.call(
             create_task_contract,
+            headers=create_headers("forbidden-create"),
             request=CreateTask(project_id=project.id, title="sabotage"),
         )
 
@@ -243,6 +275,7 @@ async def test_pagination_over_http(harness: Harness) -> None:
     for index in range(5):
         await harness.alice.call(
             create_task_contract,
+            headers=create_headers(f"pagination-{index}"),
             request=CreateTask(project_id=project.id, title=f"task {index}"),
         )
 
@@ -263,6 +296,82 @@ async def test_health_is_public_and_runs_the_database_check() -> None:
     assert response.json() == {"status": "ok", "checks": {"database": "ok"}}
 
 
+async def test_typed_client_replays_task_creation_and_rejects_key_reuse(
+    harness: Harness,
+) -> None:
+    project = await harness.alice.call(
+        create_project_contract, request=CreateProject(name="Launch")
+    )
+    headers = create_headers("retry-create")
+    request = CreateTask(project_id=project.id, title="Original")
+    original = await harness.alice.call_with_response(
+        create_task_contract, headers=headers, request=request
+    )
+    await harness.alice.call(
+        update_task_contract,
+        params=GetTaskParams(task_id=original.body.id),
+        headers=UpdateTaskHeaders(if_match=original.headers.etag),
+        request=UpdateTask(title="Renamed"),
+    )
+
+    replayed = await harness.alice.call_with_response(
+        create_task_contract, headers=headers, request=request
+    )
+
+    assert replayed.body == original.body
+    assert replayed.headers == original.headers
+    assert replayed.http_response.status_code == original.http_response.status_code
+    page = await harness.alice.call(list_tasks_contract)
+    assert page.total == 1
+
+    with pytest.raises(AppError) as excinfo:
+        await harness.alice.call(
+            create_task_contract,
+            headers=headers,
+            request=CreateTask(project_id=project.id, title="Different"),
+        )
+    assert excinfo.value.definition == idempotency_conflict
+
+
+async def test_raw_http_validates_and_enforces_idempotency_keys() -> None:
+    authorization = {"authorization": "Bearer alice-token"}
+    async with open_http(make_app()) as http:
+        project_response = await http.post(
+            "/projects", headers=authorization, json={"name": "Launch"}
+        )
+        project_id = project_response.json()["id"]
+        body = {"project_id": project_id, "title": "Original"}
+
+        missing = await http.post("/tasks", headers=authorization, json=body)
+        assert missing.status_code == 422
+        assert missing.headers[ERROR_SOURCE_HEADER] == "framework"
+
+        malformed = await http.post(
+            "/tasks",
+            headers={**authorization, "idempotency-key": "contains spaces"},
+            json=body,
+        )
+        assert malformed.status_code == 422
+        assert malformed.headers[ERROR_SOURCE_HEADER] == "framework"
+
+        request_headers = {**authorization, "idempotency-key": "raw-retry"}
+        original = await http.post("/tasks", headers=request_headers, json=body)
+        replayed = await http.post("/tasks", headers=request_headers, json=body)
+        assert replayed.status_code == 201
+        assert replayed.json() == original.json()
+        assert replayed.headers["location"] == original.headers["location"]
+        assert replayed.headers["etag"] == original.headers["etag"]
+
+        conflict = await http.post(
+            "/tasks",
+            headers=request_headers,
+            json={**body, "title": "Different"},
+        )
+        assert conflict.status_code == 409
+        assert conflict.headers[ERROR_SOURCE_HEADER] == "app"
+        assert conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
+
+
 async def test_raw_http_enforces_if_match_and_returns_etags() -> None:
     authorization = {"authorization": "Bearer alice-token"}
     async with open_http(make_app()) as http:
@@ -274,7 +383,7 @@ async def test_raw_http_enforces_if_match_and_returns_etags() -> None:
         project_id = project_response.json()["id"]
         created = await http.post(
             "/tasks",
-            headers=authorization,
+            headers={**authorization, "idempotency-key": "raw-etag-flow"},
             json={"project_id": project_id, "title": "original"},
         )
         task_id = created.json()["id"]

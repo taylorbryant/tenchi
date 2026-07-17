@@ -51,6 +51,7 @@ class MemoryTaskRepository:
     def __init__(self, projects: MemoryProjectRepository) -> None:
         self._projects = projects
         self.tasks: dict[str, Task] = {}
+        self._create_requests: dict[tuple[str, str], tuple[str, Task]] = {}
 
     async def create(self, *, project_id: str, title: str) -> Task:
         task = Task(
@@ -61,6 +62,32 @@ class MemoryTaskRepository:
             version=1,
         )
         self.tasks[task.id] = task
+        return task
+
+    async def create_idempotent(
+        self,
+        *,
+        project_id: str,
+        title: str,
+        owner: OwnerScope,
+        idempotency_key: str,
+        request_fingerprint: str,
+    ) -> Task | None:
+        scope = (owner.owner_id, idempotency_key)
+        existing = self._create_requests.get(scope)
+        if existing is not None:
+            fingerprint, original = existing
+            return (
+                original.model_copy(deep=True)
+                if fingerprint == request_fingerprint
+                else None
+            )
+
+        task = await self.create(project_id=project_id, title=title)
+        self._create_requests[scope] = (
+            request_fingerprint,
+            task.model_copy(deep=True),
+        )
         return task
 
     async def get(self, task_id: str) -> Task | None:

@@ -9,6 +9,24 @@ versions may change the public API.
 
 ### Added
 
+- Cancellation-safe request deadlines: `contract(timeout=...)` cooperatively
+  cancels overdue route work, waits for request-scope rollback and cleanup, and
+  returns a framework-owned 504 `REQUEST_TIMEOUT`. Timed operations document
+  the 504 and `x-timeout-seconds` in OpenAPI.
+- Named success outcomes and controlled Starlette response passthrough:
+  `success()` definitions let one contract declare multiple successful
+  statuses, bodies, media types, and header types; a typed synchronous
+  `route(..., present=...)` presenter selects the result with `present()`.
+  Passthrough outcomes preserve streaming, file, redirect, and background-task
+  responses while Tenchi verifies their declared wire metadata. OpenAPI lists
+  every outcome, and `ClientResponse.success` identifies and validates the
+  status-specific result.
+- Request outcome observers: `create_app(observers=...)` invokes sync or async
+  observers in order after a matched route's request scope closes. Immutable
+  `RequestOutcome` values carry request metadata, status, duration, and error
+  ownership for metrics and tracing; observer failures are isolated and
+  cannot alter responses.
+
 - Contract-owned successful response headers: declare an object-shaped
   `response_headers=` type on `contract()`, then bind a synchronous, typed
   projector with `route(..., response_headers=...)`. Tenchi validates and
@@ -25,8 +43,38 @@ versions may change the public API.
   monotonic versions with atomic compare-and-swap writes. Missing and stale
   preconditions are honest, documented 428 and 412 application errors, and
   existing SQLite task tables migrate safely during concurrent startup.
+- Idempotent commands in the taskboard example: task creation requires a typed
+  `Idempotency-Key`, atomically creates once across concurrent SQLite requests,
+  and replays the original body, `Location`, and `ETag` for matching retries.
+  Reusing a key with different input is a declared 409 application error, and
+  rolled-back requests do not consume their keys.
 - A dependency-free, one-page documentation site covering Tenchi's core
   workflow and framework features, with automatic GitHub Pages deployment.
+
+### Changed
+
+- `UnexpectedResponseError` now accepts and exposes an optional `reason` when
+  a response has a declared success status but violates that outcome's wire
+  contract.
+- The release workflow now reruns the standalone taskboard checks and installs
+  the built wheel into a clean environment before generating and validating a
+  fresh application, feature, and use-case stub.
+
+### Fixed
+
+- Request deadlines remain authoritative when application code suppresses the
+  injected cancellation: a late value can no longer escape as a successful
+  response after the deadline has expired.
+- Passthrough responses now apply header-injection checks to raw response
+  headers, enforce declared media-type parameters such as `charset`, and
+  reject streaming or materialized bodies for outcomes that declare no body.
+  The typed client likewise rejects non-empty bodies for no-body successes,
+  and injection-prone inbound request ids are replaced before being echoed.
+- `present()` now preserves each `SuccessDef`'s body and header types for
+  Pyright, and aggregate contract response types must exactly match the union
+  of their named outcomes instead of advertising impossible client values.
+- Observer request headers are now structurally read-only, so one observer
+  cannot mutate the `RequestOutcome` seen by later observers.
 
 ## [0.6.0] - 2026-07-15
 

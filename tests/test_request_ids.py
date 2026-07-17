@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+import pytest
+
 from tenchi.contracts import contract
 from tenchi.errors import REQUEST_ID_HEADER, AppError, ErrorDef
 from tenchi.routes import route, route_group
@@ -75,6 +77,19 @@ async def test_oversized_inbound_ids_are_replaced() -> None:
 
     assert response.headers[REQUEST_ID_HEADER] != "x" * 500
     assert len(response.headers[REQUEST_ID_HEADER]) == 32
+
+
+@pytest.mark.parametrize(
+    "inbound",
+    ["trace\r\nx-injected: yes", " trace", "trace\x7f"],
+)
+async def test_injection_prone_inbound_ids_are_replaced(inbound: str) -> None:
+    async with open_http(make_app()) as http:
+        response = await http.get("/ping", headers={REQUEST_ID_HEADER: inbound})
+
+    request_id = response.headers[REQUEST_ID_HEADER]
+    assert request_id != inbound
+    assert len(request_id) == 32
 
 
 async def test_hooks_see_the_request_id() -> None:

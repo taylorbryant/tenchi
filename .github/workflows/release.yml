@@ -30,5 +30,25 @@ jobs:
       - run: uv run ruff check .
       - run: uv run pyright
       - run: uv run pytest
+      - run: uv run --directory examples/taskboard pytest
+      - run: uv run --directory examples/taskboard pyright
+      - run: uv run --directory examples/taskboard tenchi doctor
       - run: uv build
+      - name: Smoke-test the built wheel and generated app
+        run: |
+          smoke_dir=$(mktemp -d)
+          wheel=$(find "$GITHUB_WORKSPACE/dist" -name '*.whl' -print -quit)
+          uv venv "$smoke_dir/venv"
+          uv pip install --python "$smoke_dir/venv/bin/python" "$wheel"
+          cd "$smoke_dir"
+          "$smoke_dir/venv/bin/tenchi" new generated_app
+          cd "$smoke_dir/generated_app"
+          uv add "$wheel"
+          uv run tenchi make feature notes
+          uv run tenchi make use-case notes create_note
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run pyright
+          uv run pytest
+          uv run tenchi doctor
       - run: uv publish --trusted-publishing always

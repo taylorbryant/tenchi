@@ -83,7 +83,7 @@ async def add_member_over_http(database_path: str) -> str:
         added = await http.post(
             f"/projects/{project_id}/members", json={"user_id": "bob"}
         )
-        assert added.status_code == 200
+        assert added.status_code == 201
     return project_id
 
 
