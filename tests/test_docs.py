@@ -66,17 +66,24 @@ def test_docs_page_local_assets_exist() -> None:
 def test_docs_page_covers_the_framework_workflow() -> None:
     page = _parse_page()
 
-    assert {
+    workflow = (
+        "start",
         "contracts",
         "use-cases",
         "application",
         "errors",
         "client",
-        "workers",
+        "outcomes",
         "pagination",
+        "workers",
         "testing",
         "cli",
-    } <= set(page.ids)
+    )
+
+    assert set(workflow) <= set(page.ids)
+    assert [page.ids.index(section) for section in workflow] == sorted(
+        page.ids.index(section) for section in workflow
+    )
 
 
 def test_docs_python_examples_are_valid_syntax() -> None:

@@ -180,21 +180,32 @@
           Tenchi is a small, contract-first Python framework for typed JSON
           APIs. Contracts define the HTTP boundary, plain async functions
           implement use cases, and frozen dataclasses carry explicitly wired
-          dependencies.
+          dependencies. Tenchi requires Python 3.12 or newer and is currently
+          pre-1.0.
         </p>
-        <p><code>uv add tenchi</code></p>
+        <p>
+          This guide follows one todo API from its contract through application
+          wiring, then adds errors, clients, alternate entrypoints, testing,
+          and operational tooling.
+        </p>
+        <p>Start a new application:</p>
         <pre data-language="shell"><code>uvx tenchi new my_app
 cd my_app
 uv sync
 uv run tenchi dev</code></pre>
+        <p>
+          To add Tenchi to an existing project instead, run
+          <code>uv add tenchi</code>.
+        </p>
       </section>
 
       <section id="contracts">
         <h2>Contracts</h2>
         <p>
-          A contract declares the method, path, inputs, response body,
-          successful response headers, status, and application errors for an
-          endpoint.
+          A contract is the source of truth for an endpoint’s method, path,
+          inputs, response body, successful response headers, status, and
+          application errors. Pydantic validates these annotations at the HTTP
+          boundary.
         </p>
         <pre data-language="python"><code>from pydantic import BaseModel, Field
 from tenchi.contracts import contract
@@ -223,14 +234,16 @@ create_todo_contract = contract(
       <section id="use-cases">
         <h2>Use cases and ports</h2>
         <p>
-          Ports are protocols. A frozen context carries their implementations.
-          Use cases are ordinary async functions.
+          The application owns its ports as protocols. A frozen context carries
+          their implementations, and use cases remain ordinary async functions
+          with no dependency on the HTTP runtime.
         </p>
         <pre data-language="python"><code>from dataclasses import dataclass
 from typing import Protocol
 
 class TodoRepository(Protocol):
     async def create(self, *, title: str) -&gt; Todo: ...
+    async def get(self, todo_id: str) -&gt; Todo | None: ...
     async def list(self) -&gt; list[Todo]: ...
 
 @dataclass(frozen=True, slots=True)
@@ -244,8 +257,9 @@ async def create_todo(request: CreateTodo, context: AppContext) -&gt; Todo:
       <section id="application">
         <h2>Application wiring</h2>
         <p>
-          Bind contracts to use cases, compose the routes, and provide concrete
-          dependencies at the application root.
+          Routes bind contracts to use cases. The application root composes
+          those routes and supplies concrete port implementations; here,
+          <code>repository</code> implements <code>TodoRepository</code>.
         </p>
         <pre data-language="python"><code>from tenchi.health import health_route
 from tenchi.openapi import openapi_route
@@ -288,6 +302,8 @@ app = create_app(
           <code>health_route()</code> and <code>openapi_route()</code> are public
           by default and accept <code>public=False</code> when they should be
           protected. The metadata does not authenticate requests by itself.
+          Authentication belongs in boundary hooks; authorization stays in use
+          cases and pure policy functions.
         </p>
       </section>
 
@@ -299,6 +315,9 @@ app = create_app(
           500s.
         </p>
         <pre data-language="python"><code>from tenchi.errors import AppError, ErrorDef
+
+class GetTodoParams(BaseModel):
+    todo_id: str
 
 todo_not_found = ErrorDef(
     code="TODO_NOT_FOUND",
@@ -320,16 +339,18 @@ async def get_todo(params: GetTodoParams, context: AppContext) -&gt; Todo:
         raise AppError(todo_not_found, details={"todo_id": params.todo_id})
     return todo</code></pre>
         <p class="muted">
-          Authentication belongs in boundary hooks. Authorization stays in use
-          cases and pure policy functions.
+          The same honesty rule applies to boundary hooks: an authentication
+          failure maps to its application status only when the matched contract
+          or route group declares that error.
         </p>
       </section>
 
       <section id="client">
         <h2>Client and OpenAPI</h2>
         <p>
-          The async client serializes inputs and validates responses using the
-          same contract.
+          The async client uses the same contract to serialize inputs and
+          validate responses, so the server and client do not need separate
+          schema declarations.
         </p>
         <pre data-language="python"><code>from tenchi.client import Client
 
@@ -346,47 +367,49 @@ async with Client(base_url="https://api.example.com") as client:
           methods validate declared success headers and the response
           <code>Content-Type</code>. The server likewise requires request bodies
           to match their contract media type, returning a framework-owned 415
-          before decoding a missing or mismatched type.
-          Charset-qualified text contracts are encoded and decoded strictly in
-          both directions, and unsupported declared charsets fail when the
-          contract is built.
-          <code>openapi_route()</code> serves an OpenAPI 3.1 document from the
-          same declarations, including headers and the possible 415 response.
+          before decoding a missing or mismatched type. Charset-qualified text
+          contracts are encoded and decoded strictly in both directions, and
+          unsupported declared charsets fail when the contract is built.
         </p>
-        <p class="muted">
-          The taskboard example builds optimistic concurrency on this surface:
-          task responses emit <code>ETag</code>, PATCH requests require
-          <code>If-Match</code>, and stale writes return a declared 412. Task
-          creation also requires a typed <code>Idempotency-Key</code> so
-          concurrent retries create once, replay the original response, and
-          reject a reused key with different input as a declared 409.
+        <p>
+          <code>openapi_route()</code> serves an OpenAPI 3.1 document from the
+          same declarations, including successful headers and framework-owned
+          error responses.
         </p>
       </section>
 
       <section id="outcomes">
-        <h2>Outcomes, deadlines, and observation</h2>
+        <h2>Multiple responses and runtime controls</h2>
         <p>
           Routes that can succeed in more than one way declare response
           definitions. Their body and header types determine the aggregate
           client result, while a synchronous presenter selects the
           status-specific response and the use case keeps returning domain data.
+          Here, <code>put_todo</code> returns a
+          <code>PutTodoResult</code>.
         </p>
-        <pre data-language="python"><code>from tenchi.responses import PresentedResponse, present, response
+        <pre data-language="python"><code>from dataclasses import dataclass
+from tenchi.responses import PresentedResponse, present, response
 
-created = response(Todo, status=201)
-existing = response(Todo, status=200)
+@dataclass(frozen=True, slots=True)
+class PutTodoResult:
+    todo: Todo
+    created: bool
+
+created_response = response(Todo, status=201)
+existing_response = response(Todo, status=200)
 
 put_todo_contract = contract(
     method="PUT",
     path="/todos",
     request=CreateTodo,
-    responses=(created, existing),
+    responses=(created_response, existing_response),
     timeout=5.0,
 )
 
 def present_put(result: PutTodoResult) -&gt; PresentedResponse:
-    outcome = created if result.created else existing
-    return present(outcome, result.todo)
+    definition = created_response if result.created else existing_response
+    return present(definition, result.todo)
 
 route(put_todo_contract, put_todo, present=present_put)</code></pre>
         <p>
@@ -409,36 +432,21 @@ route(put_todo_contract, put_todo, present=present_put)</code></pre>
           <code>ClientResponse.definition</code>.
         </p>
         <p class="muted">
-          <code>timeout=</code> cooperatively cancels overdue work, waits for
-          request-scope cleanup, and returns a framework 504 even if
-          application code catches the cancellation.
-          <code>create_app(observers=...)</code> delivers immutable outcomes
-          with read-only request headers after matched requests finalize for
-          metrics or tracing; observer failures are logged and isolated from
-          the response.
+          A contract’s <code>timeout=</code> cooperatively cancels overdue work,
+          waits for request-scope cleanup, and returns a framework 504 even if
+          application code catches the cancellation. At the application
+          boundary, <code>create_app(observers=...)</code> delivers immutable
+          request outcomes for metrics or tracing after matched requests
+          finalize; observer failures are logged and cannot alter the response.
         </p>
-      </section>
-
-      <section id="workers">
-        <h2>Workers and scripts</h2>
-        <p>
-          <code>execute()</code> validates job data against a use case’s request
-          annotation and applies the same context scoping as the server.
-        </p>
-        <pre data-language="python"><code>from tenchi.execution import execute
-
-await execute(
-    notify_member_added,
-    request_json=job.payload,
-    context=context,
-)</code></pre>
       </section>
 
       <section id="pagination">
         <h2>Pagination</h2>
         <p>
           Subclass <code>PageQuery</code> for filters, return
-          <code>Page[Item]</code>, and build the result with <code>page()</code>.
+          <code>Page[Todo]</code>, and build the result with
+          <code>page()</code>.
         </p>
         <pre data-language="python"><code>from tenchi.pagination import Page, PageQuery, page
 
@@ -455,12 +463,30 @@ async def list_todos(
     return page(window, total=len(items), query=query)</code></pre>
       </section>
 
+      <section id="workers">
+        <h2>Workers and scripts</h2>
+        <p>
+          HTTP is only one caller of a use case. <code>execute()</code> validates
+          job data against the same request annotation and applies the server’s
+          context-scoping rules without introducing another contract.
+        </p>
+        <pre data-language="python"><code>from tenchi.execution import execute
+
+async def handle_job(payload: bytes, context: AppContext) -&gt; Todo:
+    return await execute(
+        create_todo,
+        request_json=payload,
+        context=context,
+    )</code></pre>
+      </section>
+
       <section id="testing">
         <h2>Testing</h2>
         <p>
-          <code>open_client</code> provides the typed client in-process;
-          <code>open_http</code> exposes raw httpx responses. Both run the app
-          lifespan.
+          Test use cases directly with memory implementations of their ports.
+          For boundary behavior, <code>open_client()</code> provides the typed
+          client in-process and <code>open_http()</code> exposes raw httpx
+          responses. Both run the application lifespan.
         </p>
         <pre data-language="python"><code>from tenchi.testing import open_client, open_http
 
@@ -477,16 +503,22 @@ async with open_http(app) as http:
 
       <section id="cli">
         <h2>CLI</h2>
-        <pre data-language="shell"><code>tenchi new my_app
-tenchi make feature notes
-tenchi make use-case notes create_note
-tenchi routes
-tenchi openapi
-tenchi openapi --diff openapi.json
-tenchi openapi --check openapi.json
-tenchi openapi --write openapi.json
-tenchi doctor
-tenchi dev</code></pre>
+        <p>
+          The CLI scaffolds structural conventions, inspects the composed
+          application, and keeps its OpenAPI contract reviewable in version
+          control.
+        </p>
+        <pre data-language="shell"><code>uvx tenchi new my_app
+cd my_app
+uv run tenchi make feature notes
+uv run tenchi make use-case notes create_note
+uv run tenchi routes
+uv run tenchi openapi
+uv run tenchi openapi --diff openapi.json
+uv run tenchi openapi --check openapi.json
+uv run tenchi openapi --write openapi.json
+uv run tenchi doctor
+uv run tenchi dev</code></pre>
         <p>
           <code>openapi --write</code> stores canonical, key-sorted JSON.
           Before accepting a changed snapshot, use <code>openapi --diff</code>
@@ -495,10 +527,12 @@ tenchi dev</code></pre>
           pass. Add <code>--diff-format json</code> for machine-readable output,
           and use <code>openapi --check</code> for exact drift detection in tests
           or CI. Use the same routes, metadata, and security options in every
-          command. Run the diff before replacing its baseline; CI
-          should read that baseline from the merge base or previous release,
-          not from the same change being checked.
-          For programmatic checks, import
+          command.
+        </p>
+        <p>
+          Run the diff before replacing its baseline. CI should read that
+          baseline from the merge base or previous release, not from the same
+          change being checked. For programmatic checks, import
           <code>analyze_openapi_compatibility</code> from
           <code>tenchi.compatibility</code>.
         </p>
