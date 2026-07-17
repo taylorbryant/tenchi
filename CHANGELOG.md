@@ -15,6 +15,13 @@ versions may change the public API.
   public tags can be supplied so the CLI reproduces the served document. The
   generated starter and both examples now commit and test their snapshots,
   and CI verifies the workflow directly.
+- Conservative OpenAPI compatibility reports: `tenchi openapi --diff`
+  classifies changes against a committed snapshot as breaking, additive,
+  metadata-only, or unknown. Breaking and unknown changes fail closed, while
+  `--diff-format json` provides machine-readable output for automation. CI
+  compares both examples with their snapshots from the base commit, and the
+  generated starter documents the required pre-write workflow. The underlying
+  analyzer is available from `tenchi.compatibility` for programmatic checks.
 
 ## [0.7.0] - 2026-07-16
 

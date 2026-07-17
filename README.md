@@ -167,17 +167,25 @@ tenchi make feature notes
 tenchi make use-case notes create_note
 tenchi routes
 tenchi openapi
-tenchi openapi --write openapi.json
+tenchi openapi --diff openapi.json
 tenchi openapi --check openapi.json
+tenchi openapi --write openapi.json
 tenchi doctor
 tenchi dev
 ```
 
-`openapi --write` stores canonical, key-sorted JSON. Commit that file, then run
-`openapi --check` in tests or CI; drift returns a non-zero status with a short
-summary and unified diff. Pass the same `--routes`, `--title`, `--version`,
-`--description`, `--security`, and public-tag options in both commands when
-your document uses them. `--output` and `-o` remain aliases for `--write`.
+`openapi --write` stores canonical, key-sorted JSON. Before accepting a changed
+snapshot, run `openapi --diff` to classify changes as breaking, additive,
+metadata-only, or unknown. Breaking and unknown changes return a non-zero
+status; additive and metadata-only changes pass. Use `--diff-format json` for
+machine-readable output. `openapi --check` remains the exact drift check for
+tests and CI. Pass the same `--routes`, `--title`, `--version`, `--description`,
+`--security`, and public-tag options in every command when your document uses
+them. Run `--diff` before replacing the baseline with `--write`; in CI, compare
+against the snapshot from the merge base or previous release rather than the
+snapshot committed in the same change. `--output` and `-o` remain aliases for
+`--write`. For programmatic checks, import `analyze_openapi_compatibility` from
+`tenchi.compatibility`.
 
 Run `tenchi <command> --help` for command options.
 

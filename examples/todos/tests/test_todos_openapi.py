@@ -13,6 +13,15 @@ from tenchi.openapi import openapi_schema
 from tenchi.server import create_app
 
 SNAPSHOT = Path(__file__).parent.parent / "openapi.json"
+OPENAPI_ARGUMENTS = [
+    "openapi",
+    "--routes",
+    "app.server.routes:api_routes",
+    "--title",
+    OPENAPI_TITLE,
+    "--version",
+    OPENAPI_VERSION,
+]
 
 
 def test_document_is_valid_openapi() -> None:
@@ -32,22 +41,7 @@ def test_document_is_valid_openapi() -> None:
 
 
 def test_openapi_snapshot_is_current() -> None:
-    assert (
-        main(
-            [
-                "openapi",
-                "--routes",
-                "app.server.routes:api_routes",
-                "--title",
-                OPENAPI_TITLE,
-                "--version",
-                OPENAPI_VERSION,
-                "--check",
-                str(SNAPSHOT),
-            ]
-        )
-        == 0
-    )
+    assert main([*OPENAPI_ARGUMENTS, "--check", str(SNAPSHOT)]) == 0
 
 
 async def test_document_is_served_by_the_app() -> None:

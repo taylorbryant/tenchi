@@ -44,6 +44,22 @@ class ClientResponse(Generic)
 class UnexpectedResponseError(TenchiError)
     def __init__(self, *, contract_name: 'str', status_code: 'int', body: 'Any', reason: 'str | None' = None) -> 'None'
 
+# tenchi.compatibility
+class CompatibilityChange
+    severity: ChangeSeverity
+    location: str
+    message: str
+    def __init__(self, severity: 'ChangeSeverity', location: 'str', message: 'str') -> None
+class CompatibilityReport
+    changes: tuple[CompatibilityChange, ...]
+    def __init__(self, changes: 'tuple[CompatibilityChange, ...]') -> None
+    def as_dict(self) -> 'dict[str, object]'
+    property compatible(self) -> 'bool'
+    def count(self, severity: 'ChangeSeverity') -> 'int'
+    property status(self) -> 'CompatibilityStatus'
+def analyze_openapi_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
+def render_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
+
 # tenchi.contracts
 class Contract(Generic)
     method: str

@@ -22,6 +22,7 @@ from pydantic import BaseModel
 PUBLIC_MODULES = (
     "tenchi",
     "tenchi.client",
+    "tenchi.compatibility",
     "tenchi.contracts",
     "tenchi.errors",
     "tenchi.execution",

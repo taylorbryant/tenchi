@@ -458,16 +458,25 @@ tenchi make feature notes
 tenchi make use-case notes create_note
 tenchi routes
 tenchi openapi
-tenchi openapi --write openapi.json
+tenchi openapi --diff openapi.json
 tenchi openapi --check openapi.json
+tenchi openapi --write openapi.json
 tenchi doctor
 tenchi dev</code></pre>
         <p>
           <code>openapi --write</code> stores canonical, key-sorted JSON.
-          Commit it and use <code>openapi --check</code> in tests or CI; stale
-          snapshots fail with a concise change summary and unified diff. Use
-          the same routes, metadata, security, and public-tag options when
-          writing and checking.
+          Before accepting a changed snapshot, use <code>openapi --diff</code>
+          to classify breaking, additive, metadata-only, and unknown changes.
+          Breaking and unknown changes fail; additive and metadata-only changes
+          pass. Add <code>--diff-format json</code> for machine-readable output,
+          and use <code>openapi --check</code> for exact drift detection in tests
+          or CI. Use the same routes, metadata, security, and public-tag options
+          in every command. Run the diff before replacing its baseline; CI
+          should read that baseline from the merge base or previous release,
+          not from the same change being checked.
+          For programmatic checks, import
+          <code>analyze_openapi_compatibility</code> from
+          <code>tenchi.compatibility</code>.
         </p>
       </section>
     </main>

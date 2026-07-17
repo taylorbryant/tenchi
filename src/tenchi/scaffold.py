@@ -52,10 +52,15 @@ uv sync                 # install dependencies
 uv run pytest           # run tests
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
+uv run tenchi openapi --diff openapi.json   # classify API changes
 uv run tenchi openapi --check openapi.json  # verify the API snapshot
 uv run tenchi openapi --write openapi.json  # accept an intentional change
 uv run tenchi doctor    # check dependency direction and structure
 ```
+
+Run `openapi --diff` before using `openapi --write` to replace the baseline. In
+CI, compare against a snapshot from the merge base or previous release, not
+the snapshot committed in the same change.
 """
 
 _GITIGNORE = """\

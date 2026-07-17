@@ -411,6 +411,164 @@ def test_openapi_write_reports_filesystem_errors(
     assert "could not write snapshot" in capsys.readouterr().err
 
 
+def test_openapi_diff_accepts_an_identical_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    baseline = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+    command = ["openapi", "--title", "Todos", "--version", "1.2.3"]
+    assert main([*command, "--write", str(baseline)]) == 0
+    capsys.readouterr()
+
+    assert main([*command, "--diff", str(baseline)]) == 0
+
+    output = capsys.readouterr().out
+    assert f"against {baseline}: compatible" in output
+    assert "No API changes found." in output
+
+
+def test_openapi_diff_allows_additive_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+    from typing import Any, cast
+
+    baseline = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+    command = ["openapi", "--title", "Todos", "--version", "1.2.3"]
+    assert main([*command, "--write", str(baseline)]) == 0
+    capsys.readouterr()
+    stored = cast(dict[str, Any], json.loads(baseline.read_text()))
+    del stored["paths"]["/todos/{todo_id}"]
+    baseline.write_text(json.dumps(stored))
+
+    assert main([*command, "--diff", str(baseline)]) == 0
+
+    output = capsys.readouterr().out
+    assert "compatible" in output
+    assert "ADDITIVE" in output
+    assert "operation added" in output
+
+
+def test_openapi_diff_fails_for_breaking_changes_and_emits_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+    from typing import Any, cast
+
+    baseline = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+    command = ["openapi", "--title", "Todos", "--version", "1.2.3"]
+    assert main([*command, "--write", str(baseline)]) == 0
+    capsys.readouterr()
+    stored = cast(dict[str, Any], json.loads(baseline.read_text()))
+    stored["paths"]["/legacy"] = {
+        "get": {
+            "operationId": "legacy",
+            "responses": {"200": {"description": "Legacy"}},
+        }
+    }
+    baseline.write_text(json.dumps(stored))
+
+    assert (
+        main(
+            [
+                *command,
+                "--diff",
+                str(baseline),
+                "--diff-format",
+                "json",
+            ]
+        )
+        == 1
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["baseline"] == str(baseline)
+    assert report["status"] == "incompatible"
+    assert report["compatible"] is False
+    assert report["counts"]["breaking"] == 1
+    assert report["changes"][0]["message"] == "operation removed"
+
+
+def test_openapi_diff_fails_closed_for_unknown_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+    from typing import Any, cast
+
+    baseline = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+    command = ["openapi", "--title", "Todos", "--version", "1.2.3"]
+    assert main([*command, "--write", str(baseline)]) == 0
+    capsys.readouterr()
+    stored = cast(dict[str, Any], json.loads(baseline.read_text()))
+    stored["paths"]["/todos"]["get"]["x-unsupported"] = True
+    baseline.write_text(json.dumps(stored))
+
+    assert main([*command, "--diff", str(baseline)]) == 1
+
+    output = capsys.readouterr().out
+    assert "review required" in output
+    assert "UNKNOWN" in output
+    assert "unsupported operation fields changed" in output
+
+
+def test_openapi_diff_reports_unreadable_and_invalid_baselines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    baseline = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert main(["openapi", "--diff", str(baseline)]) == 1
+    assert "could not read baseline" in capsys.readouterr().err
+
+    baseline.write_text("not JSON")
+    assert main(["openapi", "--diff", str(baseline)]) == 1
+    invalid_error = capsys.readouterr().err
+    assert "baseline" in invalid_error
+    assert "is not valid JSON" in invalid_error
+
+    baseline.write_text("{}")
+    assert main(["openapi", "--diff", str(baseline)]) == 1
+    assert "could not compare baseline" in capsys.readouterr().err
+
+
+def test_openapi_diff_format_cannot_be_used_with_another_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    snapshot = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert (
+        main(
+            [
+                "openapi",
+                "--write",
+                str(snapshot),
+                "--diff-format",
+                "json",
+            ]
+        )
+        == 1
+    )
+
+    assert "--diff-format requires --diff" in capsys.readouterr().err
+    assert not snapshot.exists()
+
+
 def test_routes_reports_missing_module(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

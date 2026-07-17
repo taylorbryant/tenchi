@@ -15,27 +15,21 @@ from tenchi.cli import main
 from tenchi.openapi import openapi_schema
 
 SNAPSHOT = Path(__file__).parent.parent / "openapi.json"
+OPENAPI_ARGUMENTS = [
+    "openapi",
+    "--routes",
+    "app.server.routes:api_routes",
+    "--title",
+    OPENAPI_TITLE,
+    "--version",
+    OPENAPI_VERSION,
+    "--security",
+    json.dumps(OPENAPI_SECURITY),
+]
 
 
 def test_openapi_snapshot_is_current() -> None:
-    assert (
-        main(
-            [
-                "openapi",
-                "--routes",
-                "app.server.routes:api_routes",
-                "--title",
-                OPENAPI_TITLE,
-                "--version",
-                OPENAPI_VERSION,
-                "--security",
-                json.dumps(OPENAPI_SECURITY),
-                "--check",
-                str(SNAPSHOT),
-            ]
-        )
-        == 0
-    )
+    assert main([*OPENAPI_ARGUMENTS, "--check", str(SNAPSHOT)]) == 0
 
 
 def test_document_is_valid_and_documents_errors() -> None:

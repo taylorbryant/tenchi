@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
@@ -18,6 +20,18 @@ jobs:
       - run: uv run ruff check .
       - run: uv run pyright
       - run: uv run pytest
+      - name: Export historical OpenAPI baselines
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          git show "${BASE_SHA}:examples/todos/openapi.json" > "${RUNNER_TEMP}/todos-openapi-baseline.json"
+          git show "${BASE_SHA}:examples/taskboard/openapi.json" > "${RUNNER_TEMP}/taskboard-openapi-baseline.json"
+      - name: Check todos OpenAPI compatibility
+        run: >-
+          uv run --directory examples/todos tenchi openapi
+          --routes app.server.routes:api_routes
+          --title Todos --version 0.1.0
+          --diff "${RUNNER_TEMP}/todos-openapi-baseline.json"
       - name: Check todos OpenAPI snapshot
         run: >-
           uv run --directory examples/todos tenchi openapi
@@ -29,6 +43,13 @@ jobs:
       - run: uv run --directory examples/taskboard pytest
       - run: uv run --directory examples/taskboard pyright
       - run: uv run --directory examples/taskboard tenchi doctor
+      - name: Check taskboard OpenAPI compatibility
+        run: >-
+          uv run --directory examples/taskboard tenchi openapi
+          --routes app.server.routes:api_routes
+          --title Taskboard --version 0.1.0
+          --security '{"bearerAuth":{"type":"http","scheme":"bearer"}}'
+          --diff "${RUNNER_TEMP}/taskboard-openapi-baseline.json"
       - name: Check taskboard OpenAPI snapshot
         run: >-
           uv run --directory examples/taskboard tenchi openapi

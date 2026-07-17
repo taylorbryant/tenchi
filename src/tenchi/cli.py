@@ -9,8 +9,8 @@ Commands are intentionally few and reliable:
   Generators create files and print wiring instructions — they never edit
   existing modules, because dependency wiring stays explicit and app-owned.
 - ``tenchi routes`` prints the application's bound route table.
-- ``tenchi openapi`` prints, writes, or checks the application's canonical
-  OpenAPI document.
+- ``tenchi openapi`` prints, writes, checks, or compatibility-diffs the
+  application's canonical OpenAPI document.
 - ``tenchi doctor`` checks dependency direction and prescribed structure.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
@@ -32,6 +32,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from .compatibility import (
+    analyze_openapi_compatibility,
+    render_compatibility_report,
+)
 from .doctor import run_doctor
 from .errors import ConfigurationError
 from .openapi import openapi_schema
@@ -78,6 +82,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             public_tags=args.public_tag,
             write=args.write,
             check=args.check,
+            diff=args.diff,
+            diff_format=args.diff_format,
         )
     if args.command == "doctor":
         return _doctor()
@@ -124,7 +130,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     openapi_parser = subparsers.add_parser(
-        "openapi", help="Print, write, or check the application's OpenAPI document"
+        "openapi",
+        help="Print, write, check, or diff the application's OpenAPI document",
     )
     openapi_parser.add_argument(
         "--routes",
@@ -181,6 +188,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--check",
         default=None,
         help="Fail if this snapshot differs from the generated document",
+    )
+    openapi_mode.add_argument(
+        "--diff",
+        default=None,
+        metavar="BASELINE",
+        help=("Classify changes from a baseline; fail on breaking or unknown changes"),
+    )
+    openapi_parser.add_argument(
+        "--diff-format",
+        choices=("text", "json"),
+        default="text",
+        help="Compatibility report format (default: %(default)s)",
     )
 
     subparsers.add_parser(
@@ -384,7 +403,13 @@ def _openapi(
     public_tags: Sequence[str] | None,
     write: str | None,
     check: str | None,
+    diff: str | None,
+    diff_format: str,
 ) -> int:
+    if diff is None and diff_format != "text":
+        _fail("tenchi openapi: --diff-format requires --diff")
+        return 1
+
     group = _load_route_group("tenchi openapi", target)
     if group is None:
         return 1
@@ -427,7 +452,12 @@ def _openapi(
         return 0
     if check is not None:
         return _check_openapi_snapshot(Path(check), rendered)
-
+    if diff is not None:
+        return _diff_openapi_snapshot(
+            Path(diff),
+            document,
+            output_format=diff_format,
+        )
     sys.stdout.write(rendered)
     return 0
 
@@ -470,6 +500,43 @@ def _check_openapi_snapshot(path: Path, rendered: str) -> int:
         "to accept this change."
     )
     return 1
+
+
+def _diff_openapi_snapshot(
+    path: Path,
+    current: Mapping[str, object],
+    *,
+    output_format: str,
+) -> int:
+    try:
+        baseline_text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi openapi: could not read baseline {str(path)!r}: {exc}")
+        return 1
+    try:
+        baseline: object = json.loads(baseline_text)
+    except json.JSONDecodeError as exc:
+        _fail(
+            f"tenchi openapi: baseline {str(path)!r} is not valid JSON "
+            f"(line {exc.lineno}, column {exc.colno})"
+        )
+        return 1
+
+    try:
+        report = analyze_openapi_compatibility(baseline, current)
+    except ValueError as exc:
+        _fail(f"tenchi openapi: could not compare baseline {str(path)!r}: {exc}")
+        return 1
+
+    if output_format == "json":
+        payload: dict[str, object] = {
+            "baseline": str(path),
+            **report.as_dict(),
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        sys.stdout.write(render_compatibility_report(report, baseline_path=str(path)))
+    return 0 if report.compatible else 1
 
 
 def _dev(app_target: str, host: str, port: int, *, reload: bool) -> int:
