@@ -52,7 +52,8 @@ uv sync                 # install dependencies
 uv run pytest           # run tests
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
-uv run tenchi openapi   # print the OpenAPI document
+uv run tenchi openapi --check openapi.json  # verify the API snapshot
+uv run tenchi openapi --write openapi.json  # accept an intentional change
 uv run tenchi doctor    # check dependency direction and structure
 ```
 """
@@ -304,10 +305,183 @@ async def test_create_and_list_todos(client: httpx.AsyncClient) -> None:
     assert listed.json() == [created.json()]
 """
 
+_OPENAPI_TEST = """\
+from tenchi.cli import main
+
+
+def test_openapi_snapshot_is_current() -> None:
+    assert main(["openapi", "--check", "openapi.json"]) == 0
+"""
+
+_OPENAPI_SNAPSHOT = """\
+{
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "details": {},
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "Todo": {
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "completed"
+        ],
+        "title": "Todo",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "__APP_NAME__",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/todos": {
+      "get": {
+        "operationId": "list_todos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Todo"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_todo",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "title": {
+                    "minLength": 1,
+                    "title": "Title",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "title": "CreateTodo",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "completed": {
+                      "title": "Completed",
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "title": "Id",
+                      "type": "string"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "completed"
+                  ],
+                  "title": "Todo",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful response",
+            "headers": {
+              "Location": {
+                "required": true,
+                "schema": {
+                  "title": "Location",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "REQUEST_TOO_LARGE: Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: Request validation failed"
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 _FILES: dict[str, str] = {
     "pyproject.toml": _PYPROJECT,
     "README.md": _README,
     ".gitignore": _GITIGNORE,
+    "openapi.json": _OPENAPI_SNAPSHOT,
     "app/__init__.py": "",
     "app/features/__init__.py": "",
     "app/features/todos/__init__.py": "",
@@ -330,6 +504,7 @@ _FILES: dict[str, str] = {
     "app/shared/__init__.py": "",
     "app/shared/errors.py": _SHARED_ERRORS,
     "tests/test_http.py": _HTTP_TEST,
+    "tests/test_openapi_snapshot.py": _OPENAPI_TEST,
 }
 
 

@@ -16,7 +16,7 @@ from .responses import PresentedResponse, SuccessDef, present, success
 from .routes import Route, RouteGroup, route, route_group
 from .server import OutcomeObserver, RequestInfo, RequestOutcome, create_app
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "AppError",

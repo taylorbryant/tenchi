@@ -9,7 +9,8 @@ Commands are intentionally few and reliable:
   Generators create files and print wiring instructions — they never edit
   existing modules, because dependency wiring stays explicit and app-owned.
 - ``tenchi routes`` prints the application's bound route table.
-- ``tenchi openapi`` prints (or writes) the application's OpenAPI document.
+- ``tenchi openapi`` prints, writes, or checks the application's canonical
+  OpenAPI document.
 - ``tenchi doctor`` checks dependency direction and prescribed structure.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
@@ -26,14 +27,21 @@ import json
 import keyword
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 from .doctor import run_doctor
+from .errors import ConfigurationError
 from .openapi import openapi_schema
 from .routes import RouteGroup
 from .scaffold import app_files, feature_files, use_case_files
+from .snapshots import (
+    describe_openapi_drift,
+    openapi_snapshot_diff,
+    render_openapi_snapshot,
+)
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -61,7 +69,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "routes":
         return _routes(args.target, as_json=args.json)
     if args.command == "openapi":
-        return _openapi(args.target, args.title, args.version, args.output)
+        return _openapi(
+            args.target,
+            args.title,
+            args.version,
+            description=args.description,
+            security_json=args.security,
+            public_tags=args.public_tag,
+            write=args.write,
+            check=args.check,
+        )
     if args.command == "doctor":
         return _doctor()
     return _dev(args.app, args.host, args.port, reload=not args.no_reload)
@@ -107,7 +124,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     openapi_parser = subparsers.add_parser(
-        "openapi", help="Print or write the application's OpenAPI document"
+        "openapi", help="Print, write, or check the application's OpenAPI document"
     )
     openapi_parser.add_argument(
         "--routes",
@@ -124,10 +141,46 @@ def _build_parser() -> argparse.ArgumentParser:
         "--version", default="0.1.0", help="API version (default: %(default)s)"
     )
     openapi_parser.add_argument(
+        "--description",
+        default=None,
+        help="API description",
+    )
+    openapi_parser.add_argument(
+        "--security",
+        default=None,
+        metavar="JSON",
+        help="Security schemes as a JSON object",
+    )
+    public_tags = openapi_parser.add_mutually_exclusive_group()
+    public_tags.add_argument(
+        "--public-tag",
+        action="append",
+        default=None,
+        help=(
+            "Tag exempt from global security; repeat to declare multiple "
+            "(default: health)"
+        ),
+    )
+    public_tags.add_argument(
+        "--no-public-tags",
+        action="store_const",
+        const=(),
+        dest="public_tag",
+        help="Apply global security to every operation",
+    )
+    openapi_mode = openapi_parser.add_mutually_exclusive_group()
+    openapi_mode.add_argument(
+        "--write",
         "--output",
         "-o",
+        dest="write",
         default=None,
-        help="Write the document to this file instead of stdout",
+        help="Write a canonical snapshot (aliases: --output, -o)",
+    )
+    openapi_mode.add_argument(
+        "--check",
+        default=None,
+        help="Fail if this snapshot differs from the generated document",
     )
 
     subparsers.add_parser(
@@ -321,19 +374,102 @@ def route_map(group: RouteGroup) -> list[dict[str, object]]:
     return entries
 
 
-def _openapi(target: str, title: str | None, version: str, output: str | None) -> int:
+def _openapi(
+    target: str,
+    title: str | None,
+    version: str,
+    *,
+    description: str | None,
+    security_json: str | None,
+    public_tags: Sequence[str] | None,
+    write: str | None,
+    check: str | None,
+) -> int:
     group = _load_route_group("tenchi openapi", target)
     if group is None:
         return 1
 
-    document = openapi_schema(group, title=title or Path.cwd().name, version=version)
-    rendered = json.dumps(document, indent=2)
-    if output is None:
-        print(rendered)
-    else:
-        Path(output).write_text(rendered + "\n", encoding="utf-8")
-        print(f"Wrote {output}")
+    security: Mapping[str, Mapping[str, Any]] | None = None
+    if security_json is not None:
+        try:
+            parsed_security: object = json.loads(security_json)
+        except json.JSONDecodeError as exc:
+            _fail(
+                "tenchi openapi: --security must be valid JSON "
+                f"(line {exc.lineno}, column {exc.colno})"
+            )
+            return 1
+        if not isinstance(parsed_security, Mapping):
+            _fail("tenchi openapi: --security must be a JSON object")
+            return 1
+        security = cast(Mapping[str, Mapping[str, Any]], parsed_security)
+
+    try:
+        document = openapi_schema(
+            group,
+            title=title or Path.cwd().name,
+            version=version,
+            description=description,
+            security=security,
+            public_tags=("health",) if public_tags is None else public_tags,
+        )
+    except ConfigurationError as exc:
+        _fail(f"tenchi openapi: {exc}")
+        return 1
+    rendered = render_openapi_snapshot(document)
+    if write is not None:
+        try:
+            Path(write).write_text(rendered, encoding="utf-8")
+        except OSError as exc:
+            _fail(f"tenchi openapi: could not write snapshot {write!r}: {exc}")
+            return 1
+        print(f"Wrote {write}")
+        return 0
+    if check is not None:
+        return _check_openapi_snapshot(Path(check), rendered)
+
+    sys.stdout.write(rendered)
     return 0
+
+
+def _check_openapi_snapshot(path: Path, rendered: str) -> int:
+    try:
+        expected = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi openapi: could not read snapshot {str(path)!r}: {exc}")
+        _fail(
+            f"Rerun the same command with --write {path} instead of --check "
+            "to create it."
+        )
+        return 1
+
+    if expected == rendered:
+        print(f"OpenAPI snapshot matches {path}")
+        return 0
+
+    _fail(f"tenchi openapi: snapshot differs: {path}")
+    try:
+        stored_document: object = json.loads(expected)
+    except json.JSONDecodeError as exc:
+        _fail(
+            "  - stored snapshot is not valid JSON "
+            f"(line {exc.lineno}, column {exc.colno})"
+        )
+    else:
+        generated_document: object = json.loads(rendered)
+        for change in describe_openapi_drift(stored_document, generated_document):
+            _fail(f"  - {change}")
+
+    diff = openapi_snapshot_diff(expected, rendered, snapshot_path=str(path))
+    if diff:
+        print(file=sys.stderr)
+        print(diff, file=sys.stderr, end="" if diff.endswith("\n") else "\n")
+    print(file=sys.stderr)
+    _fail(
+        f"Run the same command with --write {path} instead of --check "
+        "to accept this change."
+    )
+    return 1
 
 
 def _dev(app_target: str, host: str, port: int, *, reload: bool) -> int:

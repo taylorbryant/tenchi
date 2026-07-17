@@ -167,9 +167,17 @@ tenchi make feature notes
 tenchi make use-case notes create_note
 tenchi routes
 tenchi openapi
+tenchi openapi --write openapi.json
+tenchi openapi --check openapi.json
 tenchi doctor
 tenchi dev
 ```
+
+`openapi --write` stores canonical, key-sorted JSON. Commit that file, then run
+`openapi --check` in tests or CI; drift returns a non-zero status with a short
+summary and unified diff. Pass the same `--routes`, `--title`, `--version`,
+`--description`, `--security`, and public-tag options in both commands when
+your document uses them. `--output` and `-o` remain aliases for `--write`.
 
 Run `tenchi <command> --help` for command options.
 

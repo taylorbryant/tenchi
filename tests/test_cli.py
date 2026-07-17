@@ -26,6 +26,8 @@ def test_new_scaffolds_a_working_app(
     assert (root / "app/features/todos/use_cases/create_todo.py").is_file()
     assert (root / "app/infra/port_wiring.py").is_file()
     assert (root / "app/shared/errors.py").is_file()
+    assert (root / "openapi.json").is_file()
+    assert (root / "tests/test_openapi_snapshot.py").is_file()
 
     # The generated app imports and composes an ASGI application using the
     # tenchi installed in this environment.
@@ -207,11 +209,72 @@ def test_openapi_prints_document(
 
     monkeypatch.chdir(EXAMPLE_DIR)
 
-    assert main(["openapi", "--title", "Todos", "--version", "9.9.9"]) == 0
+    assert (
+        main(
+            [
+                "openapi",
+                "--title",
+                "Todos",
+                "--version",
+                "9.9.9",
+                "--description",
+                "Todo API",
+                "--security",
+                '{"bearerAuth":{"type":"http","scheme":"bearer"}}',
+                "--public-tag",
+                "todos",
+            ]
+        )
+        == 0
+    )
 
     document = json.loads(capsys.readouterr().out)
-    assert document["info"] == {"title": "Todos", "version": "9.9.9"}
+    assert document["info"] == {
+        "description": "Todo API",
+        "title": "Todos",
+        "version": "9.9.9",
+    }
+    assert document["security"] == [{"bearerAuth": []}]
+    assert document["paths"]["/todos"]["get"]["security"] == []
     assert "/todos" in document["paths"]
+
+
+def test_openapi_rejects_invalid_security_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert main(["openapi", "--security", "not-json"]) == 1
+    assert "--security must be valid JSON" in capsys.readouterr().err
+
+    assert main(["openapi", "--security", "[]"]) == 1
+    assert "--security must be a JSON object" in capsys.readouterr().err
+
+    assert main(["openapi", "--security", '{"bearerAuth":"invalid"}']) == 1
+    assert "security scheme 'bearerAuth' must be a mapping" in capsys.readouterr().err
+
+
+def test_openapi_can_apply_security_to_every_tag(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert (
+        main(
+            [
+                "openapi",
+                "--security",
+                '{"bearerAuth":{"type":"http","scheme":"bearer"}}',
+                "--no-public-tags",
+            ]
+        )
+        == 0
+    )
+
+    document = json.loads(capsys.readouterr().out)
+    assert "security" not in document["paths"]["/health"]["get"]
 
 
 def test_openapi_writes_file_and_defaults_title_to_directory(
@@ -224,11 +287,128 @@ def test_openapi_writes_file_and_defaults_title_to_directory(
     output = tmp_path / "openapi.json"
     monkeypatch.chdir(EXAMPLE_DIR)
 
-    assert main(["openapi", "--output", str(output)]) == 0
+    assert main(["openapi", "--write", str(output)]) == 0
     assert "Wrote" in capsys.readouterr().out
 
     document = json.loads(output.read_text())
     assert document["info"]["title"] == EXAMPLE_DIR.name
+    assert list(document) == sorted(document)
+    assert output.read_text().endswith("\n")
+
+
+def test_openapi_output_remains_an_alias_for_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert main(["openapi", "--output", str(output)]) == 0
+
+    assert output.is_file()
+
+
+def test_openapi_check_accepts_a_current_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    snapshot = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+    command = [
+        "openapi",
+        "--title",
+        "Todos",
+        "--version",
+        "1.2.3",
+        "--security",
+        '{"bearerAuth":{"type":"http","scheme":"bearer"}}',
+    ]
+
+    assert main([*command, "--write", str(snapshot)]) == 0
+    capsys.readouterr()
+
+    assert main([*command, "--check", str(snapshot)]) == 0
+    captured = capsys.readouterr()
+    assert f"OpenAPI snapshot matches {snapshot}" in captured.out
+    assert captured.err == ""
+
+
+def test_openapi_check_describes_drift_and_shows_a_diff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+    from typing import Any, cast
+
+    snapshot = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+    command = [
+        "openapi",
+        "--title",
+        "Todos",
+        "--version",
+        "1.2.3",
+        "--security",
+        '{"bearerAuth":{"type":"http","scheme":"bearer"}}',
+    ]
+    assert main([*command, "--write", str(snapshot)]) == 0
+    capsys.readouterr()
+
+    stored = cast(dict[str, Any], json.loads(snapshot.read_text()))
+    stored["info"]["version"] = "outdated"
+    stored["components"]["securitySchemes"]["bearerAuth"]["scheme"] = "basic"
+    del stored["paths"]["/todos/{todo_id}"]
+    snapshot.write_text(json.dumps(stored, indent=2, sort_keys=True) + "\n")
+
+    assert main([*command, "--check", str(snapshot)]) == 1
+
+    error = capsys.readouterr().err
+    assert f"snapshot differs: {snapshot}" in error
+    assert "API metadata changed" in error
+    assert "security schemes changed" in error
+    assert "operation added: GET /todos/{todo_id}" in error
+    assert f"--- {snapshot}" in error
+    assert "+++ generated OpenAPI" in error
+    assert "instead of --check to accept this change" in error
+
+
+def test_openapi_check_reports_missing_and_invalid_snapshots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    snapshot = tmp_path / "openapi.json"
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert main(["openapi", "--check", str(snapshot)]) == 1
+    missing_error = capsys.readouterr().err
+    assert "could not read snapshot" in missing_error
+    assert f"--write {snapshot} instead of --check" in missing_error
+
+    snapshot.write_text("{not JSON}\n")
+
+    assert main(["openapi", "--check", str(snapshot)]) == 1
+    invalid_error = capsys.readouterr().err
+    assert "stored snapshot is not valid JSON" in invalid_error
+    assert "+++ generated OpenAPI" in invalid_error
+
+    snapshot.write_bytes(b"\xff")
+
+    assert main(["openapi", "--check", str(snapshot)]) == 1
+    assert "could not read snapshot" in capsys.readouterr().err
+
+
+def test_openapi_write_reports_filesystem_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert main(["openapi", "--write", str(tmp_path)]) == 1
+    assert "could not write snapshot" in capsys.readouterr().err
 
 
 def test_routes_reports_missing_module(

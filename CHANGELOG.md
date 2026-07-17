@@ -9,6 +9,17 @@ versions may change the public API.
 
 ### Added
 
+- Deterministic application OpenAPI snapshots: `tenchi openapi --write`
+  emits canonical, key-sorted JSON and `tenchi openapi --check` fails on drift
+  with a semantic summary and unified diff. Description, security schemes, and
+  public tags can be supplied so the CLI reproduces the served document. The
+  generated starter and both examples now commit and test their snapshots,
+  and CI verifies the workflow directly.
+
+## [0.7.0] - 2026-07-16
+
+### Added
+
 - Cancellation-safe request deadlines: `contract(timeout=...)` cooperatively
   cancels overdue route work, waits for request-scope rollback and cleanup, and
   returns a framework-owned 504 `REQUEST_TIMEOUT`. Timed operations document

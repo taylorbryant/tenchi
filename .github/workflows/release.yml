@@ -30,9 +30,22 @@ jobs:
       - run: uv run ruff check .
       - run: uv run pyright
       - run: uv run pytest
+      - name: Check todos OpenAPI snapshot
+        run: >-
+          uv run --directory examples/todos tenchi openapi
+          --routes app.server.routes:api_routes
+          --title Todos --version 0.1.0
+          --check openapi.json
       - run: uv run --directory examples/taskboard pytest
       - run: uv run --directory examples/taskboard pyright
       - run: uv run --directory examples/taskboard tenchi doctor
+      - name: Check taskboard OpenAPI snapshot
+        run: >-
+          uv run --directory examples/taskboard tenchi openapi
+          --routes app.server.routes:api_routes
+          --title Taskboard --version 0.1.0
+          --security '{"bearerAuth":{"type":"http","scheme":"bearer"}}'
+          --check openapi.json
       - run: uv build
       - name: Smoke-test the built wheel and generated app
         run: |
@@ -50,5 +63,6 @@ jobs:
           uv run ruff check .
           uv run pyright
           uv run pytest
+          uv run tenchi openapi --check openapi.json
           uv run tenchi doctor
       - run: uv publish --trusted-publishing always

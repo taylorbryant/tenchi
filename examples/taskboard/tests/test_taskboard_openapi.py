@@ -1,17 +1,49 @@
 """The taskboard OpenAPI document is valid and reflects auth and errors."""
 
+import json
+from pathlib import Path
+
 from openapi_spec_validator import validate
 
-from app.server.routes import api_routes
+from app.server.routes import (
+    OPENAPI_SECURITY,
+    OPENAPI_TITLE,
+    OPENAPI_VERSION,
+    api_routes,
+)
+from tenchi.cli import main
 from tenchi.openapi import openapi_schema
+
+SNAPSHOT = Path(__file__).parent.parent / "openapi.json"
+
+
+def test_openapi_snapshot_is_current() -> None:
+    assert (
+        main(
+            [
+                "openapi",
+                "--routes",
+                "app.server.routes:api_routes",
+                "--title",
+                OPENAPI_TITLE,
+                "--version",
+                OPENAPI_VERSION,
+                "--security",
+                json.dumps(OPENAPI_SECURITY),
+                "--check",
+                str(SNAPSHOT),
+            ]
+        )
+        == 0
+    )
 
 
 def test_document_is_valid_and_documents_errors() -> None:
     document = openapi_schema(
         api_routes,
-        title="Taskboard",
-        version="0.1.0",
-        security={"bearerAuth": {"type": "http", "scheme": "bearer"}},
+        title=OPENAPI_TITLE,
+        version=OPENAPI_VERSION,
+        security=OPENAPI_SECURITY,
     )
 
     validate(document)

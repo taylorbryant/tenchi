@@ -18,8 +18,21 @@ jobs:
       - run: uv run ruff check .
       - run: uv run pyright
       - run: uv run pytest
+      - name: Check todos OpenAPI snapshot
+        run: >-
+          uv run --directory examples/todos tenchi openapi
+          --routes app.server.routes:api_routes
+          --title Todos --version 0.1.0
+          --check openapi.json
       # The taskboard example is a standalone project consuming tenchi as
       # a path dependency; it gets its own environment and checks.
       - run: uv run --directory examples/taskboard pytest
       - run: uv run --directory examples/taskboard pyright
       - run: uv run --directory examples/taskboard tenchi doctor
+      - name: Check taskboard OpenAPI snapshot
+        run: >-
+          uv run --directory examples/taskboard tenchi openapi
+          --routes app.server.routes:api_routes
+          --title Taskboard --version 0.1.0
+          --security '{"bearerAuth":{"type":"http","scheme":"bearer"}}'
+          --check openapi.json

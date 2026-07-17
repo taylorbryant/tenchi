@@ -458,8 +458,17 @@ tenchi make feature notes
 tenchi make use-case notes create_note
 tenchi routes
 tenchi openapi
+tenchi openapi --write openapi.json
+tenchi openapi --check openapi.json
 tenchi doctor
 tenchi dev</code></pre>
+        <p>
+          <code>openapi --write</code> stores canonical, key-sorted JSON.
+          Commit it and use <code>openapi --check</code> in tests or CI; stale
+          snapshots fail with a concise change summary and unified diff. Use
+          the same routes, metadata, security, and public-tag options when
+          writing and checking.
+        </p>
       </section>
     </main>
 

@@ -7,6 +7,10 @@ from tenchi.health import health_route
 from tenchi.openapi import openapi_route
 from tenchi.routes import route_group
 
+OPENAPI_TITLE = "Taskboard"
+OPENAPI_VERSION = "0.1.0"
+OPENAPI_SECURITY = {"bearerAuth": {"type": "http", "scheme": "bearer"}}
+
 # Every API route may return the hook-raised UNAUTHORIZED error.
 api_routes = route_group(
     project_routes,
@@ -24,9 +28,9 @@ routes = route_group(
     api_routes,
     openapi_route(
         api_routes,
-        title="Taskboard",
-        version="0.1.0",
-        security={"bearerAuth": {"type": "http", "scheme": "bearer"}},
+        title=OPENAPI_TITLE,
+        version=OPENAPI_VERSION,
+        security=OPENAPI_SECURITY,
     ),
     health_route(checks={"database": database_ready}),
 )
