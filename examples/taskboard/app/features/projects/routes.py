@@ -23,7 +23,7 @@ def create_project_headers(project: Project) -> CreatedProjectHeaders:
 
 def present_add_project_member(result: AddProjectMemberResult) -> PresentedResponse:
     outcome = member_added if result.added else already_a_member
-    return present(outcome, body=result.project)
+    return present(outcome, result.project)
 
 
 routes = route_group(

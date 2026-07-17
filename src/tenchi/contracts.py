@@ -1,8 +1,8 @@
 """Contract declarations for the HTTP boundary.
 
 A contract is pure data: method, path, the types validated at the boundary,
-the success status, and the application errors the route is allowed to
-return. Validation itself happens in the server, which builds Pydantic
+the successful response status, and the application errors the route is
+allowed to return. Validation itself happens in the server, which builds Pydantic
 ``TypeAdapter`` instances from these declarations, so any type Pydantic can
 validate works as a request, params, or response type — models, dataclasses,
 ``list[Model]``, and so on.
@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from math import isfinite
 from types import UnionType
-from typing import Any, Generic, Union, cast, get_args, get_origin
+from typing import Any, Generic, Protocol, Union, cast, get_args, get_origin, overload
 
 from typing_extensions import TypeVar
 
@@ -27,12 +27,34 @@ from .errors import (
     _validated_error_defs,  # pyright: ignore[reportPrivateUsage]
 )
 from .responses import (
-    SuccessDef,
-    _validated_success_defs,  # pyright: ignore[reportPrivateUsage]
+    ResponseDef,
+    _validated_response_defs,  # pyright: ignore[reportPrivateUsage]
 )
 
 ResponseT = TypeVar("ResponseT", default=Any)
 ResponseHeadersT = TypeVar("ResponseHeadersT", default=None)
+_ResponseBodyCo = TypeVar("_ResponseBodyCo", covariant=True)
+_ResponseHeadersCo = TypeVar("_ResponseHeadersCo", covariant=True)
+
+
+class _ResponseDefView(Protocol[_ResponseBodyCo, _ResponseHeadersCo]):
+    """Covariant view used only to infer a contract's aggregate types.
+
+    ``ResponseDef`` itself remains invariant so ``present()`` rejects a body
+    or header value of the wrong type instead of widening both arguments to a
+    union. The structural view lets a heterogeneous tuple infer that union at
+    contract declaration time without exposing a second public abstraction.
+    """
+
+    @property
+    def body(self) -> type[_ResponseBodyCo] | UnionType | None: ...
+
+    @property
+    def headers(self) -> type[_ResponseHeadersCo] | UnionType | None: ...
+
+    @property
+    def _tenchi_response_definition(self) -> None: ...
+
 
 _METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
 _PATH_PARAMETER = re.compile(
@@ -88,7 +110,7 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
     deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
-    successes: tuple[SuccessDef[Any, Any], ...] = ()
+    responses: tuple[ResponseDef[Any, Any], ...] = ()
     timeout: float | None = None
 
     def declares_error(self, definition: ErrorDef) -> bool:
@@ -96,6 +118,7 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
         return definition in self.errors
 
 
+@overload
 def contract(
     *,
     method: str,
@@ -118,7 +141,62 @@ def contract(
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
-    successes: Sequence[SuccessDef[Any, Any]] = (),
+    responses: tuple[()] = (),
+    timeout: float | None = None,
+) -> Contract[ResponseT, ResponseHeadersT]: ...
+
+
+@overload
+def contract(
+    *,
+    method: str,
+    path: str,
+    request: type[Any] | UnionType | None = None,
+    params: type[Any] | UnionType | None = None,
+    query: type[Any] | UnionType | None = None,
+    headers: type[Any] | UnionType | None = None,
+    response: None = None,
+    response_headers: None = None,
+    status: int = 200,
+    errors: Sequence[ErrorDef] = (),
+    name: str | None = None,
+    request_media_type: str = "application/json",
+    response_media_type: str = "application/json",
+    summary: str | None = None,
+    description: str | None = None,
+    tags: Sequence[str] = (),
+    public: bool = False,
+    deprecated: bool | datetime = False,
+    sunset: datetime | None = None,
+    max_request_bytes: int | None = None,
+    responses: Sequence[_ResponseDefView[ResponseT, ResponseHeadersT]],
+    timeout: float | None = None,
+) -> Contract[ResponseT, ResponseHeadersT]: ...
+
+
+def contract(  # pyright: ignore[reportInconsistentOverload]
+    *,
+    method: str,
+    path: str,
+    request: type[Any] | UnionType | None = None,
+    params: type[Any] | UnionType | None = None,
+    query: type[Any] | UnionType | None = None,
+    headers: type[Any] | UnionType | None = None,
+    response: type[ResponseT] | UnionType | None = None,
+    response_headers: type[ResponseHeadersT] | UnionType | None = None,
+    status: int = 200,
+    errors: Sequence[ErrorDef] = (),
+    name: str | None = None,
+    request_media_type: str = "application/json",
+    response_media_type: str = "application/json",
+    summary: str | None = None,
+    description: str | None = None,
+    tags: Sequence[str] = (),
+    public: bool = False,
+    deprecated: bool | datetime = False,
+    sunset: datetime | None = None,
+    max_request_bytes: int | None = None,
+    responses: Sequence[ResponseDef[Any, Any]] = (),
     timeout: float | None = None,
 ) -> Contract[ResponseT, ResponseHeadersT]:
     """Declare an HTTP contract.
@@ -141,21 +219,20 @@ def contract(
             to hyphens on the wire, so ``x_api_key`` reads ``X-Api-Key``;
             Pydantic field aliases are also honored case-insensitively as
             HTTP header names. Repeated headers keep the last value.
-        response: Successful wire body type. For a singular success, the use
-            case result is validated against it before serialization. With
-            ``successes=``, it is the aggregate body type returned by the
-            typed client; each named outcome declares its concrete wire type.
-            ``None`` means an empty response body.
+        response: Successful wire body type for a singular response. The use
+            case result is validated against it before serialization. Omit it
+            when declaring ``responses=``; Tenchi derives the aggregate typed
+            client body from those definitions. ``None`` means an empty body.
         response_headers: Object-shaped type describing application-owned
-            headers on a successful response. A bound route must provide a
+            headers on a singular successful response. A bound route must provide a
             pure ``response_headers=`` projector that derives this value from
             the validated use-case result. Field aliases are the wire names;
             underscores otherwise become hyphens. The type must declare a
             fixed set of fields that validate and serialize under the same
             names, and each field must serialize to one scalar value. Dynamic
             extra fields and framework-owned header names are rejected.
-        status: Singular success status code. Defaults to 200 and is ignored
-            when ``successes=`` declares named outcomes.
+        status: Singular successful status code. Defaults to 200. Response
+            definitions carry their own statuses when ``responses=`` is used.
         errors: Application errors this route is expected to return. Expected
             errors are mapped to their HTTP status; undeclared ``AppError``
             instances are treated as internal server errors.
@@ -167,7 +244,7 @@ def contract(
             them with ``request=str`` and ``request=bytes`` respectively.
             A missing or mismatched wire ``Content-Type`` receives the
             framework's 415 response before body decoding.
-        response_media_type: Media type of the success response. Non-JSON
+        response_media_type: Media type of the singular successful response. Non-JSON
             types send ``bytes`` results as-is; ``text/*`` string results use
             the declared charset (UTF-8 by default). The typed client requires
             successful responses to carry the declared type and strictly
@@ -197,13 +274,12 @@ def contract(
             ``create_app``). Bodies over the ceiling are rejected with
             the framework's 413 before validation runs. Only meaningful
             on contracts that declare a ``request`` type.
-        successes: Named successful outcomes for routes with multiple success
-            statuses or controlled Starlette response passthrough. Each
-            outcome's response and response-header types together must exactly
-            equal the aggregate ``response`` and ``response_headers`` types.
-            A bound route supplies a typed ``present=`` function to select an
-            outcome. When omitted, the singular ``status`` and response
-            declarations above apply.
+        responses: Response definitions for routes with multiple successful
+            statuses or controlled Starlette response passthrough. Their body
+            and header types determine the contract's aggregate typed-client
+            result, so do not also pass ``response=`` or ``response_headers=``.
+            A bound route supplies a typed ``present=`` function to select a
+            definition. When omitted, the singular declarations above apply.
         timeout: Seconds before Tenchi cooperatively cancels the request scope,
             including context acquisition, hooks, validation, and the use case.
             Tenchi waits for cancellation cleanup before returning its framework
@@ -229,8 +305,8 @@ def contract(
         errors, label=f"contract(path={path!r}) errors"
     )
     declared_tags = _validated_tags(tags, path=path)
-    declared_successes = _validated_success_defs(
-        successes, label=f"contract(path={path!r}) successes"
+    declared_responses = _validated_response_defs(
+        responses, label=f"contract(path={path!r}) responses"
     )
 
     normalized_method = method.upper()
@@ -283,12 +359,29 @@ def contract(
             f"contract(path={path!r}): timeout must be finite and positive, "
             f"got {timeout!r}"
         )
-    if declared_successes:
-        _validate_success_aggregates(
-            path=path,
-            response=response,
-            response_headers=response_headers,
-            successes=declared_successes,
+    resolved_response: type[Any] | UnionType | None = response
+    resolved_response_headers: type[Any] | UnionType | None = response_headers
+    if declared_responses:
+        if response is not None or response_headers is not None:
+            raise ConfigurationError(
+                f"contract(path={path!r}): responses derive the aggregate body "
+                "and headers; do not also pass response= or response_headers="
+            )
+        if status != 200:
+            raise ConfigurationError(
+                f"contract(path={path!r}): status= is only valid for a singular "
+                "response; each response definition carries its own status"
+            )
+        if response_media_type != "application/json":
+            raise ConfigurationError(
+                f"contract(path={path!r}): response_media_type= is only valid "
+                "for a singular response; set media_type= on each definition"
+            )
+        resolved_response = _aggregate_annotation(
+            tuple(definition.body for definition in declared_responses)
+        )
+        resolved_response_headers = _aggregate_annotation(
+            tuple(definition.headers for definition in declared_responses)
         )
     return Contract(
         method=normalized_method,
@@ -297,8 +390,8 @@ def contract(
         params=params,
         query=query,
         headers=headers,
-        response=response,
-        response_headers=response_headers,
+        response=resolved_response,
+        response_headers=resolved_response_headers,
         status=status,
         errors=declared_errors,
         name=name or f"{normalized_method} {path}",
@@ -311,7 +404,7 @@ def contract(
         deprecated=deprecated,
         sunset=sunset,
         max_request_bytes=max_request_bytes,
-        successes=declared_successes,
+        responses=declared_responses,
         timeout=timeout,
     )
 
@@ -394,50 +487,6 @@ def _validate_runtime_options(
         )
 
 
-def _validate_success_aggregates(
-    *,
-    path: str,
-    response: object,
-    response_headers: object,
-    successes: tuple[SuccessDef[Any, Any], ...],
-) -> None:
-    for definition in successes:
-        if not _annotation_contains(response, definition.response):
-            raise ConfigurationError(
-                f"contract(path={path!r}): success {definition.name!r} response "
-                f"type {_type_name(definition.response)} is not represented by "
-                f"the aggregate response type {_type_name(response)}"
-            )
-        if not _annotation_contains(response_headers, definition.response_headers):
-            raise ConfigurationError(
-                f"contract(path={path!r}): success {definition.name!r} "
-                f"response_headers type {_type_name(definition.response_headers)} "
-                "is not represented by the aggregate response_headers type "
-                f"{_type_name(response_headers)}"
-            )
-    for label, aggregate, declared in (
-        ("response", response, tuple(item.response for item in successes)),
-        (
-            "response_headers",
-            response_headers,
-            tuple(item.response_headers for item in successes),
-        ),
-    ):
-        unexpected = _unexpected_annotation_members(aggregate, declared)
-        if unexpected:
-            rendered = ", ".join(_type_name(item) for item in unexpected)
-            raise ConfigurationError(
-                f"contract(path={path!r}): aggregate {label} type "
-                f"{_type_name(aggregate)} includes {rendered}, which no success "
-                "declares"
-            )
-
-
-def _annotation_contains(aggregate: object, member: object) -> bool:
-    aggregate_members = _annotation_members(aggregate)
-    return all(item in aggregate_members for item in _annotation_members(member))
-
-
 def _annotation_members(annotation: object) -> tuple[object, ...]:
     normalized = type(None) if annotation is None else annotation
     origin = get_origin(normalized)
@@ -446,23 +495,22 @@ def _annotation_members(annotation: object) -> tuple[object, ...]:
     return (normalized,)
 
 
-def _unexpected_annotation_members(
-    aggregate: object, declared: tuple[object, ...]
-) -> tuple[object, ...]:
-    declared_members = tuple(
-        member for annotation in declared for member in _annotation_members(annotation)
-    )
-    return tuple(
-        member
-        for member in _annotation_members(aggregate)
-        if member not in declared_members
-    )
-
-
-def _type_name(annotation: object) -> str:
-    if annotation is None:
-        return "None"
-    return getattr(annotation, "__name__", repr(annotation))
+def _aggregate_annotation(
+    annotations: tuple[type[Any] | UnionType | None, ...],
+) -> type[Any] | UnionType | None:
+    members: list[object] = []
+    for annotation in annotations:
+        for member in _annotation_members(annotation):
+            if member not in members:
+                members.append(member)
+    if members == [type(None)]:
+        return None
+    if len(members) == 1:
+        return cast(type[Any] | UnionType, members[0])
+    aggregate = members[0]
+    for member in members[1:]:
+        aggregate = cast(Any, aggregate) | cast(Any, member)
+    return cast(type[Any] | UnionType, aggregate)
 
 
 def _validated_tags(value: object, *, path: str) -> tuple[str, ...]:

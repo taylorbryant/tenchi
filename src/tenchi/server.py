@@ -4,7 +4,7 @@
 Starlette application. Per request the server validates path parameters and
 the JSON body against the contract, builds a fresh application context,
 invokes the bound use case with keyword arguments, validates its declared
-success outcome, and serializes or safely passes through the response.
+successful response, and serializes or safely passes through it.
 
 Expected errors — ``AppError`` instances whose definition the contract
 declares — map to their declared HTTP status. Everything else (validation
@@ -63,7 +63,7 @@ from .errors import (
 from .execution import open_context
 from .responses import (
     PresentedResponse,
-    SuccessDef,
+    ResponseDef,
     _is_unset,  # pyright: ignore[reportPrivateUsage]
 )
 from .routes import Route, RouteGroup
@@ -173,12 +173,12 @@ class _BoundRoute:
     header_fields: tuple[str, ...]
     body_limit: int | None
     lifecycle_headers: tuple[tuple[str, str], ...]
-    successes: tuple[_BoundSuccess, ...]
+    responses: tuple[_BoundResponse, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class _BoundSuccess:
-    definition: SuccessDef[Any, Any]
+class _BoundResponse:
+    definition: ResponseDef[Any, Any]
     response_adapter: TypeAdapter[Any] | None
     response_headers_adapter: TypeAdapter[Any] | None
     response_header_names: frozenset[str]
@@ -307,12 +307,12 @@ def create_app(
         request_adapter = _contract_adapter(item.contract, "request")
         response_adapter = (
             None
-            if item.contract.successes
+            if item.contract.responses
             else _contract_adapter(item.contract, "response")
         )
         response_headers_adapter = (
             None
-            if item.contract.successes
+            if item.contract.responses
             else _contract_adapter(item.contract, "response_headers")
         )
         response_header_names, required_response_headers = _response_header_name_sets(
@@ -336,9 +336,9 @@ def create_app(
                 else max_request_bytes
             ),
             lifecycle_headers=_lifecycle_headers(item.contract),
-            successes=tuple(
-                _bind_success(item.contract, definition)
-                for definition in item.contract.successes
+            responses=tuple(
+                _bind_response(item.contract, definition)
+                for definition in item.contract.responses
             ),
         )
         try:
@@ -488,19 +488,19 @@ def _annotation_adapter(
     return adapter
 
 
-def _bind_success(
-    contract: Contract[Any, Any], definition: SuccessDef[Any, Any]
-) -> _BoundSuccess:
-    label = f"route {contract.name!r} success {definition.name!r}"
+def _bind_response(
+    contract: Contract[Any, Any], definition: ResponseDef[Any, Any]
+) -> _BoundResponse:
+    label = f"route {contract.name!r} response status {definition.status}"
     response_adapter = _annotation_adapter(
         contract,
-        definition.response,
+        definition.body,
         slot="response",
         label=label,
     )
     response_headers_adapter = _annotation_adapter(
         contract,
-        definition.response_headers,
+        definition.headers,
         slot="response_headers",
         label=label,
     )
@@ -509,7 +509,7 @@ def _bind_success(
         response_headers_adapter,
         label=label,
     )
-    return _BoundSuccess(
+    return _BoundResponse(
         definition=definition,
         response_adapter=response_adapter,
         response_headers_adapter=response_headers_adapter,
@@ -806,14 +806,14 @@ def _presented_response(
     selected = next(
         (
             outcome
-            for outcome in bound.successes
-            if outcome.definition is presented.success
+            for outcome in bound.responses
+            if outcome.definition is presented.definition
         ),
         None,
     )
     if selected is None:
         raise ValueError(
-            "presenter selected a SuccessDef that is not declared by the contract"
+            "presenter selected a ResponseDef that is not declared by the contract"
         )
     definition = selected.definition
     if definition.passthrough:
@@ -833,18 +833,18 @@ def _presented_response(
                 f"passthrough response status {response.status_code} does not match "
                 f"declared status {definition.status}"
             )
-        label = f"route {contract.name!r} success {definition.name!r}"
+        label = f"route {contract.name!r} response status {definition.status}"
         _validate_passthrough_header_values(response, label=label)
-        if definition.response is None and getattr(response, "body", _UNSET) != b"":
+        if definition.body is None and getattr(response, "body", _UNSET) != b"":
             raise ValueError(
-                "passthrough response cannot prove an empty body for a success "
+                "passthrough response cannot prove an empty body for a definition "
                 "that declares no response body"
             )
-        if definition.response is not None:
+        if definition.body is not None:
             actual = response.headers.get("content-type")
-            assert definition.response_media_type is not None
+            assert definition.media_type is not None
             expected_essence, expected_parameters = media_type_parts(
-                definition.response_media_type
+                definition.media_type
             )
             actual_essence, actual_parameters = (
                 media_type_parts(actual) if actual else ("", {})
@@ -856,7 +856,7 @@ def _presented_response(
             if actual_essence != expected_essence or parameter_mismatch:
                 raise ValueError(
                     f"passthrough response content type {actual!r} does not match "
-                    f"declared media type {definition.response_media_type!r}"
+                    f"declared media type {definition.media_type!r}"
                 )
         header_input: dict[str, str] | None = None
         if selected.response_headers_adapter is not None:
@@ -886,14 +886,14 @@ def _presented_response(
 
     if presented.response is not None:
         raise ValueError("ordinary PresentedResponse cannot carry response=")
-    if (definition.response is None) != _is_unset(presented.body):
+    if (definition.body is None) != _is_unset(presented.body):
         raise ValueError("presented body does not match the selected declaration")
-    if (definition.response_headers is None) != _is_unset(presented.headers):
+    if (definition.headers is None) != _is_unset(presented.headers):
         raise ValueError("presented headers do not match the selected declaration")
     _, payload = _validated_payload(
         selected.response_adapter,
         None if _is_unset(presented.body) else presented.body,
-        media_type=definition.response_media_type,
+        media_type=definition.media_type,
     )
     response_headers = {REQUEST_ID_HEADER: request_id}
     response_headers.update(
@@ -902,13 +902,13 @@ def _presented_response(
             selected.response_header_names,
             selected.required_response_headers,
             None if _is_unset(presented.headers) else presented.headers,
-            label=f"route {contract.name!r} success {definition.name!r}",
+            label=f"route {contract.name!r} response status {definition.status}",
         )
     )
     return _response_from_payload(
         payload,
         status=definition.status,
-        media_type=definition.response_media_type,
+        media_type=definition.media_type,
         headers=response_headers,
     )
 
@@ -1054,7 +1054,7 @@ def _make_endpoint(
 
         result = await use_case(**kwargs)
         try:
-            if bound.successes:
+            if bound.responses:
                 presenter = bound.route.presenter
                 assert presenter is not None
                 return _presented_response(
@@ -1089,7 +1089,7 @@ def _make_endpoint(
             )
         except Exception as exc:
             logger.exception(
-                "Response from %s does not match its declared success outcome "
+                "Response from %s does not match its declared successful response "
                 "[request_id=%s]",
                 contract.name,
                 request_id,

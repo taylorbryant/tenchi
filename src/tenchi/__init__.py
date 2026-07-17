@@ -12,7 +12,7 @@ from .execution import ExecutionError, execute
 from .health import health_route
 from .openapi import openapi_route, openapi_schema
 from .pagination import Page, PageQuery, page
-from .responses import PresentedResponse, SuccessDef, present, success
+from .responses import PresentedResponse, ResponseDef, present, response
 from .routes import Route, RouteGroup, route, route_group
 from .server import OutcomeObserver, RequestInfo, RequestOutcome, create_app
 
@@ -32,9 +32,9 @@ __all__ = [
     "PresentedResponse",
     "RequestInfo",
     "RequestOutcome",
+    "ResponseDef",
     "Route",
     "RouteGroup",
-    "SuccessDef",
     "TenchiError",
     "UnexpectedResponseError",
     "__version__",
@@ -46,7 +46,7 @@ __all__ = [
     "openapi_schema",
     "page",
     "present",
+    "response",
     "route",
     "route_group",
-    "success",
 ]

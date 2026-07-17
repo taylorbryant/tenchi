@@ -1,9 +1,9 @@
-"""Declared success outcomes and controlled Starlette response passthrough.
+"""Declared response variants and controlled Starlette response passthrough.
 
-Most routes need only the singular success declared directly by
+Most routes need only the singular response declared directly by
 :func:`tenchi.contracts.contract`. Routes with more than one successful
 status, or routes that must return a streaming/file/redirect response, declare
-named :class:`SuccessDef` values and select one in a pure presenter.
+:class:`ResponseDef` values and select one in a pure presenter.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from types import UnionType
-from typing import Any, Generic, cast, overload
+from typing import Any, Generic, Union, cast, get_origin, overload
 
 from starlette.responses import Response
 from typing_extensions import TypeVar
@@ -32,171 +32,222 @@ _UNSET = _Unset()
 
 
 @dataclass(frozen=True, slots=True)
-class SuccessDef(Generic[BodyT, HeadersT]):
-    """One named successful HTTP outcome.
+class ResponseDef(Generic[BodyT, HeadersT]):
+    """One successful HTTP response variant.
 
-    Build definitions with :func:`success`. ``passthrough=True`` permits a
+    Build definitions with :func:`response`. ``passthrough=True`` permits a
     presenter to return a Starlette response while the declaration still
     supplies the status, media type, body type, and header type used for
     runtime checks, OpenAPI, and the typed client.
     """
 
-    name: str
+    body: type[BodyT] | UnionType | None
     status: int
-    response: type[BodyT] | UnionType | None
-    response_headers: type[HeadersT] | UnionType | None = None
-    response_media_type: str | None = "application/json"
+    headers: type[HeadersT] | None = None
+    media_type: str | None = "application/json"
     description: str = "Successful response"
     passthrough: bool = False
 
     def __post_init__(self) -> None:
-        _validate_success_definition(
-            name=self.name,
+        _validate_response_definition(
             status=self.status,
-            response=self.response,
-            response_media_type=self.response_media_type,
+            body=self.body,
+            headers=self.headers,
+            media_type=self.media_type,
             description=self.description,
             passthrough=self.passthrough,
         )
 
+    @property
+    def _tenchi_response_definition(self) -> None:
+        """Nominal marker for the private contract-inference protocol."""
+        return None
+
 
 @dataclass(frozen=True, slots=True)
 class PresentedResponse:
-    """A presenter-selected success outcome.
+    """A presenter-selected response variant.
 
     Build values with :func:`present`; direct construction is intentionally
     unsupported by the server so malformed values cannot bypass its checks.
     """
 
-    success: SuccessDef[Any, Any]
+    definition: ResponseDef[Any, Any]
     body: Any = _UNSET
     headers: Any = _UNSET
     response: Response | None = None
 
 
 @overload
-def success[BodyT](
-    *,
-    name: str,
+def response[BodyT](
+    body: type[BodyT],
+    /,
+    *body_alternatives: type[BodyT],
     status: int,
-    response: type[BodyT] | UnionType,
-    response_headers: None = None,
-    response_media_type: str | None = "application/json",
+    headers: None = None,
+    media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
-) -> SuccessDef[BodyT, None]: ...
+) -> ResponseDef[BodyT, None]: ...
 
 
 @overload
-def success[BodyT, HeadersT](
-    *,
-    name: str,
+def response[BodyT, HeadersT](
+    body: type[BodyT],
+    /,
+    *body_alternatives: type[BodyT],
     status: int,
-    response: type[BodyT] | UnionType,
-    response_headers: type[HeadersT] | UnionType,
-    response_media_type: str | None = "application/json",
+    headers: type[HeadersT],
+    media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
-) -> SuccessDef[BodyT, HeadersT]: ...
+) -> ResponseDef[BodyT, HeadersT]: ...
 
 
 @overload
-def success(
+def response(
+    body: None,
+    /,
     *,
-    name: str,
     status: int,
-    response: None,
-    response_headers: None = None,
-    response_media_type: str | None = "application/json",
+    headers: None = None,
+    media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
-) -> SuccessDef[None, None]: ...
+) -> ResponseDef[None, None]: ...
 
 
 @overload
-def success[HeadersT](
+def response[HeadersT](
+    body: None,
+    /,
     *,
-    name: str,
     status: int,
-    response: None,
-    response_headers: type[HeadersT] | UnionType,
-    response_media_type: str | None = "application/json",
+    headers: type[HeadersT],
+    media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
-) -> SuccessDef[None, HeadersT]: ...
+) -> ResponseDef[None, HeadersT]: ...
 
 
-def success(
-    *,
-    name: str,
+def response(
+    body: type[Any] | UnionType | None,
+    /,
+    *body_alternatives: type[Any],
     status: int,
-    response: type[Any] | UnionType | None,
-    response_headers: type[Any] | UnionType | None = None,
-    response_media_type: str | None = "application/json",
+    headers: type[Any] | None = None,
+    media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
-) -> SuccessDef[Any, Any]:
-    """Declare one successful outcome for ``contract(successes=...)``."""
-    return SuccessDef(
-        name=name,
+) -> ResponseDef[Any, Any]:
+    """Declare one variant for ``contract(responses=...)``.
+
+    Pass top-level body union members as separate positional alternatives so
+    static type checkers can preserve their aggregate type::
+
+        response(Created, Accepted, status=200)
+
+    Nested unions remain ordinary annotations, such as
+    ``response(list[Created | Accepted], status=200)``.
+    """
+    normalized_body = _body_annotation(body, body_alternatives)
+    return ResponseDef(
+        body=normalized_body,
         status=status,
-        response=response,
-        response_headers=response_headers,
-        response_media_type=response_media_type,
+        headers=headers,
+        media_type=media_type,
         description=description,
         passthrough=passthrough,
     )
 
 
-def _validate_success_definition(
+def _validate_response_definition(
     *,
-    name: object,
     status: object,
-    response: object,
-    response_media_type: object,
+    body: object,
+    headers: object,
+    media_type: object,
     description: object,
     passthrough: object,
 ) -> None:
-    if not isinstance(name, str) or not name.strip():
-        raise ConfigurationError("success: name must be a non-empty string")
+    label = f"response(status={status!r})"
     if (
         not isinstance(status, int)
         or isinstance(status, bool)
         or not 200 <= status <= 399
     ):
-        raise ConfigurationError("success: status must be an int between 200 and 399")
-    if response_media_type is not None and (
-        not isinstance(response_media_type, str) or not response_media_type.strip()
+        raise ConfigurationError("response: status must be an int between 200 and 399")
+    if media_type is not None and (
+        not isinstance(media_type, str) or not media_type.strip()
     ):
         raise ConfigurationError(
-            "success: response_media_type must be a non-empty string or None"
+            f"{label}: media_type must be a non-empty string or None"
         )
-    if response is not None and response_media_type is None:
+    if body is not None and media_type is None:
         raise ConfigurationError(
-            "success: response_media_type cannot be None when response is declared"
+            f"{label}: media_type cannot be None when a body is declared"
         )
-    if isinstance(response_media_type, str):
+    if _is_union_annotation(headers):
+        raise ConfigurationError(
+            f"{label}: headers must be one object-shaped schema; declare "
+            "separate response definitions for alternative header shapes"
+        )
+    if isinstance(media_type, str):
         try:
-            validate_media_type(response_media_type)
+            validate_media_type(media_type)
         except MediaTypeError as exc:
-            raise ConfigurationError(
-                f"success: response_media_type is invalid: {exc}"
-            ) from exc
+            raise ConfigurationError(f"{label}: media_type is invalid: {exc}") from exc
     if not isinstance(description, str) or not description.strip():
-        raise ConfigurationError("success: description must be a non-empty string")
+        raise ConfigurationError(f"{label}: description must be a non-empty string")
     if not isinstance(passthrough, bool):
-        raise ConfigurationError("success: passthrough must be a bool")
-    if status in {204, 205, 304} and response is not None:
+        raise ConfigurationError(f"{label}: passthrough must be a bool")
+    if status in {204, 205, 304} and body is not None:
         raise ConfigurationError(
-            f"success: status {status} cannot declare a response body"
+            f"{label}: status {status} cannot declare a response body"
         )
+
+
+def _body_annotation(
+    body: type[Any] | UnionType | None,
+    alternatives: tuple[type[Any], ...],
+) -> type[Any] | UnionType | None:
+    if body is None:
+        if alternatives:
+            raise ConfigurationError(
+                "response: body alternatives cannot follow None; use type(None) "
+                "as the nullable alternative"
+            )
+        return None
+    members: tuple[object, ...] = (body, *alternatives)
+    if any(_is_union_annotation(member) for member in members):
+        raise ConfigurationError(
+            "response: pass top-level union members as separate positional body "
+            "alternatives, for example response(A, B, status=200)"
+        )
+    aggregate: object = body
+    for alternative in alternatives:
+        try:
+            aggregate = cast(Any, aggregate) | alternative
+        except TypeError as exc:
+            raise ConfigurationError(
+                "response: body alternatives must be valid type annotations"
+            ) from exc
+    return cast(type[Any] | UnionType, aggregate)
+
+
+def _is_union_annotation(annotation: object) -> bool:
+    return isinstance(annotation, UnionType) or get_origin(annotation) in {
+        Union,
+        UnionType,
+    }
 
 
 @overload
 def present(
-    success: SuccessDef[None, None],
-    *,
+    definition: ResponseDef[None, None],
     body: _Unset = _UNSET,
+    /,
+    *,
     headers: _Unset = _UNSET,
     response: None = None,
 ) -> PresentedResponse: ...
@@ -204,9 +255,10 @@ def present(
 
 @overload
 def present[HeadersT](
-    success: SuccessDef[None, HeadersT],
-    *,
+    definition: ResponseDef[None, HeadersT],
     body: _Unset = _UNSET,
+    /,
+    *,
     headers: HeadersT,
     response: None = None,
 ) -> PresentedResponse: ...
@@ -214,9 +266,10 @@ def present[HeadersT](
 
 @overload
 def present[BodyT](
-    success: SuccessDef[BodyT, None],
-    *,
+    definition: ResponseDef[BodyT, None],
     body: BodyT,
+    /,
+    *,
     headers: _Unset = _UNSET,
     response: None = None,
 ) -> PresentedResponse: ...
@@ -224,9 +277,10 @@ def present[BodyT](
 
 @overload
 def present[BodyT, HeadersT](
-    success: SuccessDef[BodyT, HeadersT],
-    *,
+    definition: ResponseDef[BodyT, HeadersT],
     body: BodyT,
+    /,
+    *,
     headers: HeadersT,
     response: None = None,
 ) -> PresentedResponse: ...
@@ -234,96 +288,92 @@ def present[BodyT, HeadersT](
 
 @overload
 def present[BodyT, HeadersT](
-    success: SuccessDef[BodyT, HeadersT],
-    *,
+    definition: ResponseDef[BodyT, HeadersT],
     body: _Unset = _UNSET,
+    /,
+    *,
     headers: _Unset = _UNSET,
     response: Response,
 ) -> PresentedResponse: ...
 
 
 def present(
-    success: SuccessDef[Any, Any],
-    *,
+    definition: ResponseDef[Any, Any],
     body: Any = _UNSET,
+    /,
+    *,
     headers: Any = _UNSET,
     response: Response | None = None,
 ) -> PresentedResponse:
-    """Select a declared outcome from a route presenter.
+    """Select a declared variant from a route presenter.
 
-    Ordinary outcomes carry ``body=`` when declared and ``headers=`` when
-    declared; either channel may exist independently.
-    Passthrough outcomes carry exactly one Starlette ``response=``; Tenchi
-    verifies its status, content type, and declared headers before returning
-    it without consuming streaming bodies or replacing background tasks.
+    Ordinary variants carry a positional body when declared and ``headers=``
+    when declared; either channel may exist independently. Passthrough
+    variants carry exactly one Starlette ``response=``; Tenchi verifies its
+    status, content type, and declared headers before returning it without
+    consuming streaming bodies or replacing background tasks.
     """
-    raw_success = cast(object, success)
-    if not isinstance(raw_success, SuccessDef):
+    raw_definition = cast(object, definition)
+    if not isinstance(raw_definition, ResponseDef):
         raise ConfigurationError(
-            f"present: success must be a SuccessDef, got {type(success).__name__}"
+            "present: definition must be a ResponseDef, got "
+            f"{type(definition).__name__}"
         )
-    if success.passthrough:
+    label = f"response status {definition.status}"
+    if definition.passthrough:
         if not isinstance(response, Response):
             raise ConfigurationError(
-                "present: a passthrough success requires response= to be a "
+                "present: a passthrough response requires response= to be a "
                 "Starlette Response"
             )
         if body is not _UNSET or headers is not _UNSET:
             raise ConfigurationError(
-                "present: body= and headers= are not accepted for a passthrough success"
+                "present: body and headers= are not accepted for a passthrough response"
             )
     else:
         if response is not None:
             raise ConfigurationError(
-                "present: response= is only accepted for a passthrough success"
+                "present: response= is only accepted for a passthrough response"
             )
-        if (body is _UNSET) == (success.response is not None):
+        if (body is _UNSET) == (definition.body is not None):
             requirement = (
-                "requires body=" if success.response is not None else "has no body"
+                "requires a body" if definition.body is not None else "has no body"
             )
-            raise ConfigurationError(f"present: success {success.name!r} {requirement}")
-        if (headers is _UNSET) == (success.response_headers is not None):
+            raise ConfigurationError(f"present: {label} {requirement}")
+        if (headers is _UNSET) == (definition.headers is not None):
             requirement = (
                 "requires headers="
-                if success.response_headers is not None
+                if definition.headers is not None
                 else "declares no response headers"
             )
-            raise ConfigurationError(f"present: success {success.name!r} {requirement}")
+            raise ConfigurationError(f"present: {label} {requirement}")
     return PresentedResponse(
-        success=success,
+        definition=definition,
         body=body,
         headers=headers,
         response=response,
     )
 
 
-def _validated_success_defs(  # pyright: ignore[reportUnusedFunction]
+def _validated_response_defs(  # pyright: ignore[reportUnusedFunction]
     value: object, *, label: str
-) -> tuple[SuccessDef[Any, Any], ...]:
+) -> tuple[ResponseDef[Any, Any], ...]:
     if isinstance(value, str | bytes) or not isinstance(value, Sequence):
-        raise ConfigurationError(f"{label} must be a sequence of SuccessDef values")
-    definitions: list[SuccessDef[Any, Any]] = []
-    names: set[str] = set()
+        raise ConfigurationError(f"{label} must be a sequence of ResponseDef values")
+    definitions: list[ResponseDef[Any, Any]] = []
     statuses: set[int] = set()
     for index, definition in enumerate(cast(Sequence[object], value)):
-        if not isinstance(definition, SuccessDef):
+        if not isinstance(definition, ResponseDef):
             raise ConfigurationError(
-                f"{label}[{index}] must be a SuccessDef, got "
+                f"{label}[{index}] must be a ResponseDef, got "
                 f"{type(definition).__name__}"
             )
-        typed_definition = cast(SuccessDef[Any, Any], definition)
-        if typed_definition.name in names:
-            raise ConfigurationError(
-                f"{label} declares success name {typed_definition.name!r} more "
-                "than once"
-            )
+        typed_definition = cast(ResponseDef[Any, Any], definition)
         if typed_definition.status in statuses:
             raise ConfigurationError(
-                f"{label} declares success status {typed_definition.status} more "
-                "than once; "
-                "clients select outcomes by status"
+                f"{label} declares response status {typed_definition.status} more "
+                "than once; clients select variants by status"
             )
-        names.add(typed_definition.name)
         statuses.add(typed_definition.status)
         definitions.append(typed_definition)
     return tuple(definitions)

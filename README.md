@@ -138,36 +138,49 @@ empty per-operation security requirement. `health_route()` and
 The metadata itself does not authenticate requests—application hooks remain in
 control.
 
-For endpoints with more than one successful status, declare named outcomes and
-select one in a synchronous presenter. The same mechanism is Tenchi's
-controlled HTTP escape hatch: a passthrough outcome may return a Starlette
+For endpoints with more than one successful status, declare response
+definitions and select one in a synchronous presenter. Their body and header
+types become the contract's aggregate typed-client result, so they are the
+only source of truth. The same mechanism is Tenchi's controlled HTTP escape
+hatch: a passthrough definition may return a Starlette
 `StreamingResponse`, `FileResponse`, or redirect while its status, media type,
-media-type parameters, and headers remain contract-owned. No-body outcomes
+media-type parameters, and headers remain contract-owned. No-body definitions
 accept only a concrete response with an empty materialized body; streaming
-outcomes must declare their body type. The typed client reports the selected
-outcome on `ClientResponse.success` and validates its declared body and headers.
+definitions must declare their body type. The typed client reports the selected
+definition on `ClientResponse.definition` and validates its body and headers.
 
 ```python
-from tenchi.responses import PresentedResponse, present, success
+from tenchi.responses import PresentedResponse, present, response
 
-created = success(name="created", status=201, response=Todo)
-existing = success(name="existing", status=200, response=Todo)
+created = response(Todo, status=201)
+existing = response(Todo, status=200)
 
 put_todo_contract = contract(
     method="PUT",
     path="/todos",
     request=CreateTodo,
-    response=Todo,
-    successes=(created, existing),
+    responses=(created, existing),
     timeout=5.0,
 )
 
 def present_put(result: PutTodoResult) -> PresentedResponse:
     outcome = created if result.created else existing
-    return present(outcome, body=result.todo)
+    return present(outcome, result.todo)
 
 route(put_todo_contract, put_todo, present=present_put)
 ```
+
+When one status permits alternative top-level body schemas, pass them as
+separate positional alternatives so Pyright preserves the exact union:
+
+```python
+flexible = response(Todo, str, status=200)  # ResponseDef[Todo | str, None]
+```
+
+Nested unions retain their ordinary spelling, such as
+`response(list[Todo | str], status=200)`. Each response definition has one
+fixed object-shaped header schema; differing header shapes belong in separate
+definitions.
 
 `timeout=` cooperatively cancels overdue work, lets request-scope cleanup and
 rollback finish, then returns the framework's 504 even if application code

@@ -26,7 +26,7 @@ from .contracts import (
     contract,
 )
 from .errors import ConfigurationError, ErrorDef
-from .responses import SuccessDef
+from .responses import ResponseDef
 from .routes import Route, RouteGroup, route
 
 _ERROR_COMPONENT = "ErrorResponse"
@@ -264,15 +264,15 @@ def _responses(
 ) -> dict[str, Any]:
     responses: dict[str, Any] = {}
 
-    if declared.successes:
-        for definition in declared.successes:
-            responses[str(definition.status)] = _success_response(
+    if declared.responses:
+        for definition in declared.responses:
+            responses[str(definition.status)] = _successful_response(
                 declared,
                 components,
                 definition=definition,
             )
     else:
-        responses[str(declared.status)] = _success_response(declared, components)
+        responses[str(declared.status)] = _successful_response(declared, components)
 
     errors_by_status: dict[int, list[ErrorDef]] = {}
     for definition in declared.errors:
@@ -315,20 +315,18 @@ def _responses(
     return responses
 
 
-def _success_response(
+def _successful_response(
     declared: Contract[Any, Any],
     components: dict[str, Any],
     *,
-    definition: SuccessDef[Any, Any] | None = None,
+    definition: ResponseDef[Any, Any] | None = None,
 ) -> dict[str, Any]:
-    response_type = definition.response if definition is not None else declared.response
+    response_type = definition.body if definition is not None else declared.response
     response_headers = (
-        definition.response_headers
-        if definition is not None
-        else declared.response_headers
+        definition.headers if definition is not None else declared.response_headers
     )
     media_type = (
-        definition.response_media_type
+        definition.media_type
         if definition is not None
         else declared.response_media_type
     )
@@ -344,7 +342,7 @@ def _success_response(
                 "schema": _json_schema(response_type, components, mode="serialization")
             }
         }
-    headers = _success_response_headers(
+    headers = _successful_response_headers(
         declared,
         components,
         response_headers=response_headers,
@@ -354,7 +352,7 @@ def _success_response(
     return response
 
 
-def _success_response_headers(
+def _successful_response_headers(
     declared: Contract[Any, Any],
     components: dict[str, Any],
     *,

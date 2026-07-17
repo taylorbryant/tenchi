@@ -9,8 +9,8 @@ Use cases are plain async functions. The server calls them with keyword
 arguments derived from the contract: ``request`` when the contract declares
 a request type, ``params``/``query``/``headers`` when it declares those
 input types, and always ``context``. Boundary parameter annotations must exactly
-match the contract's declarations. A singular-success use case's return
-annotation matches the response too; a route with named successes may return a
+match the contract's declarations. A singular-response use case's return
+annotation matches the response too; a route with response definitions may return a
 domain result that its typed synchronous presenter maps to the wire. The
 app-owned ``context`` annotation is not resolved or compared.
 """
@@ -57,9 +57,9 @@ class Route:
     call_kwargs: tuple[str, ...]
     """Keyword arguments the server passes when invoking the use case."""
     response_headers: Callable[[Any], Any] | None = None
-    """Pure projection from the validated result to declared success headers."""
+    """Pure projection from the validated result to declared response headers."""
     presenter: Callable[[Any], PresentedResponse] | None = None
-    """Pure selection of one named success outcome."""
+    """Pure selection of one declared response."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,20 +175,20 @@ def route(
         use_case,
         signature,
         accepts_any_kwargs,
-        check_response=not contract.successes,
+        check_response=not contract.responses,
     )
-    if contract.successes:
+    if contract.responses:
         if response_headers is not None:
             raise RouteBindingError(
                 f"route({contract.name!r}): response_headers= cannot be combined "
-                "with contract successes; each success declares its own headers"
+                "with contract responses; each definition declares its own headers"
             )
         _check_presenter(contract, present, use_case_return)
     else:
         if present is not None:
             raise RouteBindingError(
                 f"route({contract.name!r}): present= was provided but the contract "
-                "declares no successes"
+                "declares no responses"
             )
         _check_response_headers_projector(contract, response_headers)
 
@@ -400,7 +400,7 @@ def _check_presenter(
 ) -> None:
     if presenter is None:
         raise RouteBindingError(
-            f"route({contract.name!r}): contract declares successes; pass a typed "
+            f"route({contract.name!r}): contract declares responses; pass a typed "
             "present= function that selects one"
         )
     if inspect.iscoroutinefunction(presenter):

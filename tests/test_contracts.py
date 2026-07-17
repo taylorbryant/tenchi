@@ -20,7 +20,7 @@ def test_contract_defaults() -> None:
     assert declared.status == 200
     assert declared.errors == ()
     assert declared.name == "GET /items"
-    assert declared.successes == ()
+    assert declared.responses == ()
     assert declared.timeout is None
     assert declared.public is False
 

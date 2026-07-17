@@ -30,6 +30,17 @@ versions may change the public API.
 
 ### Changed
 
+- Multiple successful responses now have one authoritative declaration:
+  `response(Body, status=...)` returns a `ResponseDef`,
+  `contract(responses=(...))` derives the aggregate body and header types, and
+  `present(definition, body)` selects the wire response. This removes repeated
+  aggregate unions while preserving strict presenter and typed-client
+  inference. A single response with alternative top-level body schemas uses
+  `response(A, B, status=...)`, which Pyright infers as `A | B`; nested unions
+  keep their normal spelling. Each response definition declares one fixed
+  object-shaped header schema. `ClientResponse.definition` identifies the
+  selected definition; singular `contract(response=...)` declarations are
+  unchanged.
 - Declared media types are authoritative at runtime. Request bodies with a
   missing or mismatched `Content-Type` receive a framework-owned 415
   `UNSUPPORTED_MEDIA_TYPE`, and the typed client rejects successful and error
@@ -40,6 +51,9 @@ versions may change the public API.
 
 ### Removed
 
+- The experimental `SuccessDef`, `success()`, `contract(successes=...)`, and
+  `ClientResponse.success` response API. Use `ResponseDef`, `response()`,
+  `contract(responses=...)`, and `ClientResponse.definition` respectively.
 - `openapi_schema(public_tags=...)`, `openapi_route(public_tags=...)`, and the
   CLI's `--public-tag`/`--no-public-tags` options. Set `public=True` on the
   contract instead; documentation tags no longer control security semantics.

@@ -143,9 +143,9 @@ async def test_full_project_and_task_flow(harness: Harness) -> None:
         params=member_params,
         request=AddProjectMember(user_id="bob"),
     )
-    assert added.success is member_added
+    assert added.definition is member_added
     assert added.http_response.status_code == 201
-    assert replayed.success is already_a_member
+    assert replayed.definition is already_a_member
     assert replayed.http_response.status_code == 200
 
     task_response = await harness.alice.call_with_response(

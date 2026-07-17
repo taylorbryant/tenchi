@@ -650,7 +650,7 @@ def test_routes_json_emits_a_machine_readable_map(
     assert str(create["use_case"]).endswith("create_todo")
     assert create["response_headers"] == "CreatedTodoHeaders"
     assert "deprecated" in create and "sunset" in create
-    assert create["successes"] == []
+    assert create["responses"] == []
     assert create["timeout"] is None
     assert create["public"] is False
     health = next(e for e in entries if e["path"] == "/health")

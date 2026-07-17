@@ -344,10 +344,9 @@ def route_map(group: RouteGroup) -> list[dict[str, object]]:
             {
                 "method": declared.method,
                 "path": declared.path,
-                "status": declared.status if not declared.successes else None,
-                "successes": [
-                    {"name": success.name, "status": success.status}
-                    for success in declared.successes
+                "status": declared.status if not declared.responses else None,
+                "responses": [
+                    {"status": definition.status} for definition in declared.responses
                 ],
                 "use_case": f"{item.use_case.__module__}.{item.use_case.__qualname__}",
                 "errors": [
@@ -571,8 +570,8 @@ def format_routes(group: RouteGroup) -> list[str]:
             codes = ", ".join(d.code for d in contract.errors)
             use_case = f"{use_case}  [{codes}]"
         statuses = (
-            ",".join(str(outcome.status) for outcome in contract.successes)
-            if contract.successes
+            ",".join(str(definition.status) for definition in contract.responses)
+            if contract.responses
             else str(contract.status)
         )
         rows.append((contract.method, contract.path, statuses, use_case))

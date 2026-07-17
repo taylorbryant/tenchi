@@ -366,38 +366,47 @@ async with Client(base_url="https://api.example.com") as client:
       <section id="outcomes">
         <h2>Outcomes, deadlines, and observation</h2>
         <p>
-          Routes that can succeed in more than one way declare named outcomes.
-          A synchronous presenter selects the status-specific body and headers
-          while the use case keeps returning domain data.
+          Routes that can succeed in more than one way declare response
+          definitions. Their body and header types determine the aggregate
+          client result, while a synchronous presenter selects the
+          status-specific response and the use case keeps returning domain data.
         </p>
-        <pre data-language="python"><code>from tenchi.responses import PresentedResponse, present, success
+        <pre data-language="python"><code>from tenchi.responses import PresentedResponse, present, response
 
-created = success(name="created", status=201, response=Todo)
-existing = success(name="existing", status=200, response=Todo)
+created = response(Todo, status=201)
+existing = response(Todo, status=200)
 
 put_todo_contract = contract(
     method="PUT",
     path="/todos",
     request=CreateTodo,
-    response=Todo,
-    successes=(created, existing),
+    responses=(created, existing),
     timeout=5.0,
 )
 
 def present_put(result: PutTodoResult) -&gt; PresentedResponse:
     outcome = created if result.created else existing
-    return present(outcome, body=result.todo)
+    return present(outcome, result.todo)
 
 route(put_todo_contract, put_todo, present=present_put)</code></pre>
         <p>
-          A success declared with <code>passthrough=True</code> may instead
+          When one status permits alternative top-level body schemas, pass
+          them separately so Pyright preserves the exact union:
+          <code>response(Todo, str, status=200)</code>. Nested unions retain
+          their ordinary spelling, such as
+          <code>response(list[Todo | str], status=200)</code>. Each definition
+          has one fixed object-shaped header schema; differing header shapes
+          belong in separate definitions.
+        </p>
+        <p>
+          A response defined with <code>passthrough=True</code> may instead
           carry a Starlette streaming, file, or redirect response. Tenchi
           preserves the response while checking its contract-owned status,
-          media-type parameters, and declared headers. Outcomes without a
+          media-type parameters, and declared headers. Definitions without a
           body accept only a concrete, provably empty response; streaming
-          outcomes declare their body type. The typed client validates the
-          selected outcome and exposes it as
-          <code>ClientResponse.success</code>.
+          definitions declare their body type. The typed client validates the
+          selected definition and exposes it as
+          <code>ClientResponse.definition</code>.
         </p>
         <p class="muted">
           <code>timeout=</code> cooperatively cancels overdue work, waits for

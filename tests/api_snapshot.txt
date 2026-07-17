@@ -12,9 +12,9 @@ PageQuery (re-export of tenchi.pagination.PageQuery)
 PresentedResponse (re-export of tenchi.responses.PresentedResponse)
 RequestInfo (re-export of tenchi.server.RequestInfo)
 RequestOutcome (re-export of tenchi.server.RequestOutcome)
+ResponseDef (re-export of tenchi.responses.ResponseDef)
 Route (re-export of tenchi.routes.Route)
 RouteGroup (re-export of tenchi.routes.RouteGroup)
-SuccessDef (re-export of tenchi.responses.SuccessDef)
 TenchiError (re-export of tenchi.errors.TenchiError)
 UnexpectedResponseError (re-export of tenchi.client.UnexpectedResponseError)
 contract (re-export of tenchi.contracts.contract)
@@ -25,9 +25,9 @@ openapi_route (re-export of tenchi.openapi.openapi_route)
 openapi_schema (re-export of tenchi.openapi.openapi_schema)
 page (re-export of tenchi.pagination.page)
 present (re-export of tenchi.responses.present)
+response (re-export of tenchi.responses.response)
 route (re-export of tenchi.routes.route)
 route_group (re-export of tenchi.routes.route_group)
-success (re-export of tenchi.responses.success)
 
 # tenchi.client
 class Client
@@ -39,8 +39,8 @@ class ClientResponse(Generic)
     body: BodyT
     headers: HeadersT
     http_response: httpx.Response
-    success: SuccessDef[Any, Any] | None = None
-    def __init__(self, body: 'BodyT', headers: 'HeadersT', http_response: 'httpx.Response', success: 'SuccessDef[Any, Any] | None' = None) -> None
+    definition: ResponseDef[Any, Any] | None = None
+    def __init__(self, body: 'BodyT', headers: 'HeadersT', http_response: 'httpx.Response', definition: 'ResponseDef[Any, Any] | None' = None) -> None
 class UnexpectedResponseError(TenchiError)
     def __init__(self, *, contract_name: 'str', status_code: 'int', body: 'Any', reason: 'str | None' = None) -> 'None'
 
@@ -82,11 +82,11 @@ class Contract(Generic)
     deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
-    successes: tuple[SuccessDef[Any, Any], ...] = ()
+    responses: tuple[ResponseDef[Any, Any], ...] = ()
     timeout: float | None = None
-    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), public: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, successes: 'tuple[SuccessDef[Any, Any], ...]' = (), timeout: 'float | None' = None) -> None
+    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), public: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, responses: 'tuple[ResponseDef[Any, Any], ...]' = (), timeout: 'float | None' = None) -> None
     def declares_error(self, definition: 'ErrorDef') -> 'bool'
-def contract(*, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), public: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, successes: 'Sequence[SuccessDef[Any, Any]]' = (), timeout: 'float | None' = None) -> 'Contract[ResponseT, ResponseHeadersT]'
+def contract(*, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), public: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, responses: 'Sequence[ResponseDef[Any, Any]]' = (), timeout: 'float | None' = None) -> 'Contract[ResponseT, ResponseHeadersT]'
 
 # tenchi.errors
 class AppError(TenchiError)
@@ -151,22 +151,21 @@ def route_group(*items: 'Route | RouteGroup | Sequence[Route]', prefix: 'str' = 
 
 # tenchi.responses
 class PresentedResponse
-    success: SuccessDef[Any, Any]
+    definition: ResponseDef[Any, Any]
     body: Any = UNSET
     headers: Any = UNSET
     response: Response | None = None
-    def __init__(self, success: 'SuccessDef[Any, Any]', body: 'Any' = UNSET, headers: 'Any' = UNSET, response: 'Response | None' = None) -> None
-class SuccessDef(Generic)
-    name: str
+    def __init__(self, definition: 'ResponseDef[Any, Any]', body: 'Any' = UNSET, headers: 'Any' = UNSET, response: 'Response | None' = None) -> None
+class ResponseDef(Generic)
+    body: type[BodyT] | UnionType | None
     status: int
-    response: type[BodyT] | UnionType | None
-    response_headers: type[HeadersT] | UnionType | None = None
-    response_media_type: str | None = 'application/json'
+    headers: type[HeadersT] | None = None
+    media_type: str | None = 'application/json'
     description: str = 'Successful response'
     passthrough: bool = False
-    def __init__(self, name: 'str', status: 'int', response: 'type[BodyT] | UnionType | None', response_headers: 'type[HeadersT] | UnionType | None' = None, response_media_type: 'str | None' = 'application/json', description: 'str' = 'Successful response', passthrough: 'bool' = False) -> None
-def present(success: 'SuccessDef[Any, Any]', *, body: 'Any' = UNSET, headers: 'Any' = UNSET, response: 'Response | None' = None) -> 'PresentedResponse'
-def success(*, name: 'str', status: 'int', response: 'type[Any] | UnionType | None', response_headers: 'type[Any] | UnionType | None' = None, response_media_type: 'str | None' = 'application/json', description: 'str' = 'Successful response', passthrough: 'bool' = False) -> 'SuccessDef[Any, Any]'
+    def __init__(self, body: 'type[BodyT] | UnionType | None', status: 'int', headers: 'type[HeadersT] | None' = None, media_type: 'str | None' = 'application/json', description: 'str' = 'Successful response', passthrough: 'bool' = False) -> None
+def present(definition: 'ResponseDef[Any, Any]', body: 'Any' = UNSET, /, *, headers: 'Any' = UNSET, response: 'Response | None' = None) -> 'PresentedResponse'
+def response(body: 'type[Any] | UnionType | None', /, *body_alternatives: 'type[Any]', status: 'int', headers: 'type[Any] | None' = None, media_type: 'str | None' = 'application/json', description: 'str' = 'Successful response', passthrough: 'bool' = False) -> 'ResponseDef[Any, Any]'
 
 # tenchi.server
 ContextFactory = collections.abc.Callable[..., typing.Any]
