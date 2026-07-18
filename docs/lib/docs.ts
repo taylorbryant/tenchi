@@ -159,9 +159,9 @@ export const docsSections = [
     routes: [
       {
         path: "/reference",
-        title: "API reference",
+        title: "Module reference",
         description:
-          "Find Tenchi's public modules and the responsibility, declarations, and runtime helpers each one owns.",
+          "Map Tenchi's public modules to the declarations and runtime helpers each one owns.",
         priority: 0.72,
       },
       {

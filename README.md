@@ -9,7 +9,7 @@ client. It requires Python 3.12 or newer and is currently pre-1.0.
 
 Read the [documentation](https://tenchi.io/) for the
 quickstart, mental model, complete contract and runtime guides, production
-workflow, comparisons, and API reference.
+workflow, comparisons, and module reference.
 
 ## Quick start
 
@@ -119,8 +119,8 @@ The main pieces are:
   request deadlines, outcome observers, pagination, health checks, and
   in-process testing helpers.
 
-Contracts are private by default. Set `public=True` for operations that an
-authentication hook should exempt, then inspect the same metadata in the hook:
+`public` defaults to `False`. Set `public=True` for operations that an
+authentication hook should exempt, then inspect the metadata in the hook:
 
 ```python
 health = contract(method="GET", path="/health", response=Health, public=True)

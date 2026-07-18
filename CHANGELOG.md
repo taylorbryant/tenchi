@@ -14,7 +14,7 @@ versions may change the public API.
   dark themes, generated `llms.txt` files, and a static GitHub Pages export at
   [tenchi.io](https://tenchi.io/).
   The site now separates the quickstart, mental model, core runtime,
-  authentication, testing, operations, comparisons, and API reference into a
+  authentication, testing, operations, comparisons, and module reference into a
   coherent learning path.
 - Deterministic application OpenAPI snapshots: `tenchi openapi --write`
   emits canonical, key-sorted JSON and `tenchi openapi --check` fails on drift
@@ -31,9 +31,10 @@ versions may change the public API.
   analyzer is available from `tenchi.compatibility` for programmatic checks.
 - Explicit public-operation metadata: `contract(public=True)` gives
   authentication hooks and OpenAPI one access-control signal instead of
-  overloading documentation tags. Contracts are private by default;
-  `health_route()` and `openapi_route()` default to public and allow
-  `public=False`. The JSON route map now exposes the value.
+  overloading documentation tags. `public` defaults to `False`; hooks decide
+  how that metadata affects authentication. `health_route()` and
+  `openapi_route()` default to public and allow `public=False`. The JSON route
+  map now exposes the value.
 
 ### Changed
 
@@ -63,6 +64,10 @@ versions may change the public API.
 
 ### Fixed
 
+- Documentation examples now show dependency arrows in their true direction,
+  a complete repository adapter, and the full relationship between reusable
+  authorization abilities and their declared failure semantics. Visibility
+  metadata and framework comparisons also use more precise, neutral language.
 - The documentation shell now has consistent navigation, search, theme,
   table-of-contents, and code-copying behavior. Search keeps a 16px mobile
   input to prevent iOS Safari focus zoom, and mobile overlays contain their

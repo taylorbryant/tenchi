@@ -1,7 +1,9 @@
-# API reference
+# Module reference
 
 Tenchi's public modules each own one small responsibility. Public declarations
 are also re-exported selectively from `tenchi` for compact application imports.
+This page maps those modules and names; the task guides explain how they work
+together.
 
 ## Core declarations
 
@@ -51,11 +53,11 @@ Application code should normally call the CLI rather than import tooling
 modules. `tenchi.compatibility` is public for CI systems that need a structured
 report instead of command output.
 
-## Signature source of truth
+## Exact signatures
 
 The package ships inline type information and is checked with strict Pyright.
-For exact overloads and parameter types, use editor completion or inspect the
-public source on [GitHub](https://github.com/taylorbryant/tenchi/tree/main/src/tenchi).
+For overloads and parameter types, use editor completion or inspect the public
+source on [GitHub](https://github.com/taylorbryant/tenchi/tree/main/src/tenchi).
 
 Public API drift is guarded by a checked-in signature snapshot in the
 repository. Intentional changes update that snapshot and the changelog in the

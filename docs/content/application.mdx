@@ -77,6 +77,12 @@ class MemoryTodoRepository:
         todo = Todo(id=uuid4().hex, title=title, completed=False)
         self._todos[todo.id] = todo
         return todo
+
+    async def get(self, todo_id: str) -> Todo | None:
+        return self._todos.get(todo_id)
+
+    async def list(self) -> list[Todo]:
+        return list(self._todos.values())
 ```
 
 Static typing verifies that the adapter satisfies `TodoRepository` when it is

@@ -63,11 +63,14 @@ direction.
 ## Dependency direction
 
 ```text
-schemas/domain <- ports <- use cases <- routes
-                        ^                 |
-                        |                 v
-                 infrastructure     server composition
+routes -> use cases -> ports -> schemas/domain
+server composition -> routes
+server composition -> infrastructure -> ports
 ```
+
+Arrows point from the importing layer to the layer it depends on. Server
+composition owns the complete graph; routes and infrastructure never depend
+on it.
 
 - Schemas, domain code, and ports never import infrastructure or the HTTP
   runtime.

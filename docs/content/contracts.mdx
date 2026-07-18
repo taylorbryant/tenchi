@@ -92,8 +92,9 @@ declared charset fails when the contract is built rather than during a call.
 `summary`, `description`, and `tags` feed OpenAPI. `deprecated` accepts `True`
 or a timestamp; `sunset` records the removal date.
 
-Contracts are private by default. `public=True` is metadata for authentication
-hooks and OpenAPI security; it does not authenticate or authorize a request by
+`public` defaults to `False`. Authentication hooks can use `public=True` to
+exempt an operation, and OpenAPI uses the same value when security schemes are
+configured. The metadata does not authenticate or authorize a request by
 itself.
 
 <Callout title="One access-control signal">

@@ -61,12 +61,13 @@ app = create_app(
 ```
 
 Authentication hooks run before request input validation, so an unauthenticated
-caller cannot use validation responses to inspect a private operation.
+caller cannot use validation responses to inspect an operation the hook
+protects.
 
 ## Declare authentication failures
 
 The server's [error honesty rule](/errors) applies to hooks. Declare the
-authentication error across private routes:
+authentication error across the routes protected by the hook:
 
 ```python
 private_routes = route_group(
@@ -92,17 +93,38 @@ async def get_project(
 ```
 
 The use case still asserts identity through an app-owned helper. This matters
-when a worker or test invokes it without the HTTP hook.
+when a worker or test invokes it without the HTTP hook. It fetches the subject
+through a port, then delegates the authorization decision to the subject's
+policy module.
 
-Policies take subjects as arguments and perform no I/O:
+The policy keeps both the reusable ability and its declared failure mapping in
+one I/O-free place:
 
 ```python
+from app.shared.errors import project_not_found
+from tenchi.errors import AppError
+
+
 def can_view_project(user: User, project: Project | None) -> bool:
-    return project is not None and user.id in project.member_ids
+    if project is None:
+        return False
+    return project.owner_id == user.id or user.id in project.member_ids
+
+
+def ensure_can_view_project(
+    user: User,
+    project: Project | None,
+    *,
+    project_id: str,
+) -> Project:
+    if project is None or not can_view_project(user, project):
+        raise AppError(project_not_found, details={"project_id": project_id})
+    return project
 ```
 
-Fetch through a port, then ask the policy. On reads, ownership failures should
-usually surface as not-found rather than forbidden so callers cannot probe
+`can_view_project()` can be reused by other features. The `ensure_*` helper
+turns the same decision into the operation's public error semantics. On reads,
+missing and unviewable subjects both become not-found so callers cannot probe
 identifiers.
 
 <Callout title="Public is metadata, not a guard">

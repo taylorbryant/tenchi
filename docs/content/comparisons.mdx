@@ -6,13 +6,13 @@ architecture need to remain aligned over time.
 
 ## At a glance
 
-| Framework | Strongest fit | Compared with Tenchi |
+| Framework | Strongest fit | Main tradeoff |
 | --- | --- | --- |
-| FastAPI | Fast adoption, broad ecosystem, interactive API development | Less prescribed application architecture; clients usually come from separate OpenAPI generation |
-| Starlette | Small ASGI toolkit and low-level control | Tenchi builds a typed contract and application model on top of Starlette |
-| Litestar | Feature-rich typed ASGI applications | Broader built-in surface; Tenchi deliberately keeps fewer concepts |
-| Django Ninja | Typed APIs inside the Django ecosystem | Best when Django ORM, admin, and conventions are already desired |
-| Tenchi | Long-lived typed JSON APIs with explicit use cases and ports | More structure at the start; fewer built-in integrations and protocols |
+| FastAPI | Fast adoption, broad ecosystem, interactive API development | More built-in API ergonomics; less prescribed application architecture; typed clients generated from OpenAPI |
+| Starlette | Small ASGI toolkit and low-level control | Direct control over ASGI primitives without a shared contract, client, or application model |
+| Litestar | Feature-rich typed ASGI applications | More built-in capabilities and framework concepts |
+| Django Ninja | Typed APIs inside the Django ecosystem | Deep Django integration and conventions rather than a framework-independent stack |
+| Tenchi | Long-lived typed JSON APIs with explicit use cases and ports | More up-front structure; fewer built-in integrations and protocols |
 
 ## Choose Tenchi when
 
@@ -27,9 +27,10 @@ architecture need to remain aligned over time.
 
 - You need WebSockets, HTML templates, an ORM, admin UI, or background runtime
   as first-class framework features.
-- The team values the largest possible ecosystem and hiring familiarity above
-  architectural guidance.
-- A few untyped endpoints are the complete application and will remain so.
+- You want built-in dependency injection, authentication primitives, or a
+  broader integration surface.
+- The API is small enough that a prescribed contract, use-case, and port
+  structure would add more ceremony than value.
 - You need older Python versions; Tenchi requires Python 3.12 or newer.
 
 ## Tenchi and Starlette
