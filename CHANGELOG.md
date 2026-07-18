@@ -37,6 +37,9 @@ versions may change the public API.
 
 ### Changed
 
+- The documentation now uses a green visual identity and a new horizon mark
+  in both light and dark themes, including its favicon and installable-site
+  metadata.
 - Multiple successful responses now have one authoritative declaration:
   `response(Body, status=...)` returns a `ResponseDef`,
   `contract(responses=(...))` derives the aggregate body and header types, and

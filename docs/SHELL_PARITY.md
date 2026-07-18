@@ -29,7 +29,7 @@ callouts should not diverge accidentally.
 
 Tenchi keeps its own:
 
-- name, logo, blue color palette, package version, and GitHub/PyPI links
+- name, logo, green color palette, package version, and GitHub/PyPI links
 - Python-oriented content, routes, search defaults, and metadata
 - static-export and optional base-path support for GitHub Pages
 - internal Next.js links, heading scroll offsets, skip link, focus treatment,
