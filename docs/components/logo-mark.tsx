@@ -6,10 +6,12 @@ export function LogoMark({
   return (
     <svg viewBox="0 0 64 64" className={className} aria-hidden="true">
       <rect width="64" height="64" rx="18" className="fill-brand" />
-      <path
-        d="M26 8h9v12h12v9H35v12.5c0 3 1.5 4.5 4.7 4.5H47v9h-8.5C30.2 55 26 50.7 26 42V29h-9v-9h9z"
-        className="fill-bg"
-      />
+      <g className="fill-bg">
+        <rect x="8" y="12" width="48" height="7" rx="2" />
+        <rect x="17" y="19" width="7" height="33" rx="2" />
+        <rect x="40" y="19" width="7" height="33" rx="2" />
+        <rect x="13" y="28" width="38" height="6" rx="2" />
+      </g>
     </svg>
   );
 }
