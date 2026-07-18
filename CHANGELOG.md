@@ -9,6 +9,12 @@ versions may change the public API.
 
 ### Added
 
+- A version-aware Next.js documentation site with task-oriented MDX guides,
+  responsive navigation, local search, anchored tables of contents, light and
+  dark themes, generated `llms.txt` files, and a static GitHub Pages export.
+  The site now separates the quickstart, mental model, core runtime,
+  authentication, testing, operations, comparisons, and API reference into a
+  coherent learning path.
 - Deterministic application OpenAPI snapshots: `tenchi openapi --write`
   emits canonical, key-sorted JSON and `tenchi openapi --check` fails on drift
   with a semantic summary and unified diff. Description, security schemes, and

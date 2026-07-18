@@ -7,9 +7,9 @@ and frozen dataclasses carry explicitly wired dependencies.
 Tenchi uses Pydantic for validation, Starlette for ASGI, and httpx for its typed
 client. It requires Python 3.12 or newer and is currently pre-1.0.
 
-Read the [one-page guide](https://taylorbryant.github.io/tenchi/) for examples
-of contracts, use cases, application wiring, errors, the typed client, workers,
-pagination, testing, and the CLI.
+Read the [documentation](https://taylorbryant.github.io/tenchi/) for the
+quickstart, mental model, complete contract and runtime guides, production
+workflow, comparisons, and API reference.
 
 ## Quick start
 
@@ -234,5 +234,17 @@ uv run ruff format --check .
 uv run ruff check .
 uv run pyright
 ```
+
+The documentation is a separate Bun and Next.js application:
+
+```sh
+cd docs
+bun install
+bun run dev
+```
+
+Run `bun run check` in `docs/` to lint, type-check, test, and build the static
+GitHub Pages export. Search data and `llms.txt` files are generated during the
+build from the registered MDX pages.
 
 Tenchi is licensed under the MIT License.

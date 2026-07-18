@@ -1,0 +1,68 @@
+# CLI
+
+The `tenchi` command scaffolds the prescribed structure, inspects the composed
+application, and keeps API changes reviewable.
+
+## Create an application
+
+```shell
+uvx tenchi new my_app
+```
+
+Names use `snake_case`. The generated project includes a todos feature, memory
+adapter, strict checks, integration tests, and an OpenAPI snapshot.
+
+## Generate application slices
+
+```shell
+uv run tenchi make feature notes
+uv run tenchi make use-case notes create_note
+```
+
+Generators create files and print explicit wiring instructions. They never
+rewrite route or infrastructure modules.
+
+## Inspect routes
+
+```shell
+uv run tenchi routes
+uv run tenchi routes --json
+```
+
+The default target is `app.server.routes:routes`. Override it with
+`--routes module:attribute`. JSON output is a small machine-readable map of
+the composed HTTP surface.
+
+## Manage OpenAPI
+
+```shell
+uv run tenchi openapi
+uv run tenchi openapi --diff openapi.json
+uv run tenchi openapi --check openapi.json
+uv run tenchi openapi --write openapi.json
+```
+
+Common metadata options are `--title`, `--version`, `--description`, and
+`--security`. See [OpenAPI and compatibility](/openapi) for the safe baseline
+workflow.
+
+## Check architecture
+
+```shell
+uv run tenchi doctor
+```
+
+Doctor validates the canonical application structure, dependency direction,
+and authorization consistency. Findings include the file and line involved.
+
+## Run development
+
+```shell
+uv run tenchi dev
+uv run tenchi dev --host 0.0.0.0 --port 8080
+uv run tenchi dev --no-reload
+```
+
+The default ASGI target is `app.server.asgi:app`. Override it with
+`--app module:attribute`. Production deployments should invoke an ASGI server
+directly rather than the development command.

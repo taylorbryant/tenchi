@@ -1,94 +1,85 @@
 import ast
-from html.parser import HTMLParser
+import json
+import re
+from importlib.util import find_spec
 from pathlib import Path
 from textwrap import indent
 
 DOCS = Path(__file__).parents[1] / "docs"
+CONTENT = DOCS / "content"
 
 
-class _PageParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.ids: list[str] = []
-        self.links: list[str] = []
-        self.python_blocks: list[str] = []
-        self._language: str | None = None
-        self._code: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = dict(attrs)
-        if element_id := attributes.get("id"):
-            self.ids.append(element_id)
-        if tag in {"a", "link"}:
-            href = attributes.get("href")
-            if href is not None:
-                self.links.append(href)
-        if tag == "pre":
-            self._language = attributes.get("data-language")
-            self._code = []
-
-    def handle_data(self, data: str) -> None:
-        if self._language is not None:
-            self._code.append(data)
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag != "pre" or self._language is None:
-            return
-        if self._language.startswith("python"):
-            self.python_blocks.append("".join(self._code))
-        self._language = None
-        self._code = []
+def _pages() -> list[Path]:
+    return sorted(CONTENT.glob("*.mdx"))
 
 
-def _parse_page() -> _PageParser:
-    parser = _PageParser()
-    parser.feed((DOCS / "index.html").read_text())
-    return parser
+def _python_blocks(source: str) -> list[str]:
+    return re.findall(r"^```python\n(.*?)^```$", source, re.MULTILINE | re.DOTALL)
 
 
-def test_docs_page_has_unique_working_internal_links() -> None:
-    page = _parse_page()
+def test_docs_are_a_static_next_application() -> None:
+    package = json.loads((DOCS / "package.json").read_text())
 
-    assert len(page.ids) == len(set(page.ids))
-    for href in page.links:
-        if href.startswith("#"):
-            assert href.removeprefix("#") in page.ids
-
-
-def test_docs_page_local_assets_exist() -> None:
-    page = _parse_page()
-
-    for href in page.links:
-        if not href.startswith(("#", "https://")):
-            assert (DOCS / href).resolve().is_file()
+    assert package["scripts"]["build"].endswith("next build --webpack")
+    assert package["dependencies"]["next"]
+    assert package["dependencies"]["react"]
+    assert (DOCS / "bun.lock").is_file()
+    assert (DOCS / "app" / "[[...slug]]" / "page.tsx").is_file()
+    assert (DOCS / "public" / ".nojekyll").is_file()
+    assert not (DOCS / "index.html").exists()
 
 
-def test_docs_page_covers_the_framework_workflow() -> None:
-    page = _parse_page()
-
-    workflow = (
-        "start",
+def test_docs_cover_the_framework_workflow() -> None:
+    expected_pages = {
+        "index",
+        "getting-started",
+        "concepts",
+        "architecture",
+        "comparisons",
         "contracts",
-        "use-cases",
         "application",
+        "server",
+        "responses",
         "errors",
         "client",
-        "outcomes",
         "pagination",
-        "workers",
+        "authentication",
+        "execution",
         "testing",
+        "openapi",
         "cli",
-    )
+        "deployment",
+        "reference",
+        "stability",
+    }
+    pages = {page.stem for page in _pages()}
+    registry = (DOCS / "lib" / "docs.ts").read_text()
 
-    assert set(workflow) <= set(page.ids)
-    assert [page.ids.index(section) for section in workflow] == sorted(
-        page.ids.index(section) for section in workflow
-    )
+    assert pages == expected_pages
+    for page in expected_pages - {"index"}:
+        assert f'path: "/{page}"' in registry
 
 
 def test_docs_python_examples_are_valid_syntax() -> None:
-    page = _parse_page()
+    blocks = [block for page in _pages() for block in _python_blocks(page.read_text())]
 
-    assert page.python_blocks
-    for block in page.python_blocks:
+    assert blocks
+    for block in blocks:
         ast.parse(f"async def _example():\n{indent(block, '    ')}\n")
+
+
+def test_docs_python_imports_reference_real_tenchi_modules() -> None:
+    modules: set[str] = set()
+    for page in _pages():
+        for block in _python_blocks(page.read_text()):
+            tree = ast.parse(f"async def _example():\n{indent(block, '    ')}\n")
+            modules.update(
+                node.module
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+                and node.module is not None
+                and node.module.startswith("tenchi")
+            )
+
+    assert modules
+    assert [module for module in sorted(modules) if find_spec(module) is None] == []

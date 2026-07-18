@@ -1,0 +1,8 @@
+.next/
+.next-pages/
+node_modules/
+out/
+public/llms.txt
+public/llms-full.txt
+public/search-index.json
+tsconfig.tsbuildinfo

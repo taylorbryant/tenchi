@@ -1,0 +1,68 @@
+# Pagination
+
+Tenchi provides one small limit-and-offset vocabulary that remains typed across
+the contract, use case, client, and OpenAPI document.
+
+## Declare a query and page
+
+```python
+from tenchi.contracts import contract
+from tenchi.pagination import Page, PageQuery
+
+
+class ListTodosQuery(PageQuery):
+    completed: bool | None = None
+
+
+list_todos_contract = contract(
+    method="GET",
+    path="/todos",
+    query=ListTodosQuery,
+    response=Page[Todo],
+)
+```
+
+`PageQuery` declares `limit` and `offset` with boundary validation. Subclass it
+to add filters or sorting fields owned by the operation.
+
+`Page[Todo]` serializes one stable envelope:
+
+```json
+{
+  "items": [],
+  "total": 0,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+## Build the result
+
+```python
+from tenchi.pagination import Page, page
+
+
+async def list_todos(
+    query: ListTodosQuery,
+    context: AppContext,
+) -> Page[Todo]:
+    items, total = await context.todos.list_page(
+        limit=query.limit,
+        offset=query.offset,
+        completed=query.completed,
+    )
+    return page(items, total=total, query=query)
+```
+
+`page()` copies the validated limit and offset into the response, keeping the
+repository result and public envelope aligned.
+
+## Keep pagination in the port
+
+Memory tests may slice a list, but production repositories should apply limit,
+offset, and filters in the database or remote service. Return the current page
+plus the total matching count through the feature-owned port; the use case
+turns those values into the public `Page`.
+
+The typed client returns `Page[Todo]`, and OpenAPI includes both the query
+constraints and the generic item schema without another declaration.

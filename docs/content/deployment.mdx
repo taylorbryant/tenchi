@@ -1,0 +1,118 @@
+import { Callout } from "@/components/callout";
+
+# Deployment
+
+Tenchi produces an ordinary ASGI application. Production readiness comes from
+explicit lifecycle ownership, middleware, health checks, observability, and a
+repeatable contract gate.
+
+## Run an ASGI server
+
+The generated application exposes `app.server.asgi:app`:
+
+```shell
+uv run uvicorn app.server.asgi:app \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --proxy-headers
+```
+
+Use your platform's process manager, worker count, graceful shutdown, and
+request-timeout guidance. `tenchi dev` enables reload and is not the production
+entrypoint.
+
+## Own resources with lifespan
+
+Open database pools, SDK clients, and other process-scoped resources in the
+application lifespan. Yield a small state object and build each request context
+from it. Cleanup runs during graceful shutdown.
+
+Use a request-scoped context manager for transactions or ports whose success
+depends on the request outcome. Application exceptions pass through its
+`__aexit__` before Tenchi maps them to HTTP, allowing commit-on-success and
+rollback-on-error behavior.
+
+## Add ASGI middleware directly
+
+```python
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+
+middleware = [
+    Middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["api.example.com"],
+    ),
+    Middleware(
+        CORSMiddleware,
+        allow_origins=["https://app.example.com"],
+        allow_methods=["*"],
+        allow_headers=["authorization", "content-type"],
+    ),
+]
+
+app = create_app(
+    routes=routes,
+    context_factory=create_context,
+    lifespan=lifespan,
+    middleware=middleware,
+)
+```
+
+Configure HTTPS and forwarded headers at the trusted reverse proxy boundary.
+Keep host and origin allowlists explicit.
+
+## Health and readiness
+
+```python
+from tenchi.health import health_route
+
+
+health = health_route(
+    path="/health",
+    checks={"database": check_database},
+    check_timeout=2.0,
+)
+```
+
+Health checks run concurrently and return `503` when any check is unhealthy.
+The route is public by default; pass `public=False` when infrastructure can
+authenticate probes.
+
+## Limits and deadlines
+
+The server limits request bodies to 1 MiB by default. Set
+`max_request_bytes=` globally or on an individual contract. Declare
+`timeout=` for operations that need an application-level deadline, and also
+configure transport and platform timeouts.
+
+## Observe outcomes
+
+`RequestInfo` includes a trusted request ID. Tenchi accepts a valid inbound
+`x-request-id` or creates one and includes it on responses. Outcome observers
+receive the request, final status, duration, and application/framework error
+source after request-scoped cleanup.
+
+Use observers or ASGI middleware to feed structured logs, metrics, and traces.
+They should never contain request bodies, credentials, or error details unless
+the application deliberately redacts them.
+
+## Pre-deploy checks
+
+```shell
+uv run ruff format --check .
+uv run ruff check .
+uv run pyright
+uv run pytest
+uv run tenchi doctor
+uv run tenchi openapi --diff openapi-baseline.json
+uv run tenchi openapi --check openapi.json
+```
+
+<Callout type="warning" title="Exercise lifespan in tests">
+  Raw `httpx.ASGITransport` does not run lifespan by itself. Prefer
+  `tenchi.testing.open_client()` or `open_http()`, which start and stop the
+  application correctly.
+</Callout>

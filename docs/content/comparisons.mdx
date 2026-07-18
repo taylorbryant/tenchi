@@ -1,0 +1,52 @@
+# Comparisons
+
+Tenchi is not a universal replacement for every Python web framework. It is a
+focused choice for typed JSON APIs whose contracts, clients, and application
+architecture need to remain aligned over time.
+
+## At a glance
+
+| Framework | Strongest fit | Compared with Tenchi |
+| --- | --- | --- |
+| FastAPI | Fast adoption, broad ecosystem, interactive API development | Less prescribed application architecture; clients usually come from separate OpenAPI generation |
+| Starlette | Small ASGI toolkit and low-level control | Tenchi builds a typed contract and application model on top of Starlette |
+| Litestar | Feature-rich typed ASGI applications | Broader built-in surface; Tenchi deliberately keeps fewer concepts |
+| Django Ninja | Typed APIs inside the Django ecosystem | Best when Django ORM, admin, and conventions are already desired |
+| Tenchi | Long-lived typed JSON APIs with explicit use cases and ports | More structure at the start; fewer built-in integrations and protocols |
+
+## Choose Tenchi when
+
+- The server and a Python client should share one executable contract.
+- API compatibility must be checked in CI against a historical baseline.
+- Business behavior should run unchanged from HTTP, workers, scripts, and
+  direct tests.
+- You want composition-time signature failures and explicit dependency wiring.
+- A small, readable core matters more than a large extension ecosystem.
+
+## Choose another framework when
+
+- You need WebSockets, HTML templates, an ORM, admin UI, or background runtime
+  as first-class framework features.
+- The team values the largest possible ecosystem and hiring familiarity above
+  architectural guidance.
+- A few untyped endpoints are the complete application and will remain so.
+- You need older Python versions; Tenchi requires Python 3.12 or newer.
+
+## Tenchi and Starlette
+
+Tenchi exposes Starlette where that is useful. `create_app()` returns a
+Starlette application, accepts Starlette middleware, and allows explicitly
+declared passthrough responses for streaming, files, and redirects. Tenchi adds
+contract ownership around those primitives rather than replacing the ASGI
+ecosystem.
+
+## Tenchi and FastAPI
+
+Both frameworks use Python annotations and Pydantic at the boundary. FastAPI
+optimizes for concise route declaration and ecosystem reach. Tenchi separates
+the contract from the use case so the same application function is not owned
+by HTTP, and it includes a contract-driven runtime client and conservative
+OpenAPI compatibility analysis.
+
+The tradeoff is visible: Tenchi asks you to name the layers. That is valuable
+when the API will grow, but unnecessary ceremony for some small services.

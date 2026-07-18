@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-bg: #ffffff;
+  --color-surface: #f8fafc;
+  --color-surface-muted: #eff6ff;
+  --color-ink: #0f172a;
+  --color-ink-light: #475569;
+  --color-ink-muted: #94a3b8;
+  --color-border: rgb(15 23 42 / 0.1);
+  --color-accent: #2563eb;
+  --color-accent-strong: #1d4ed8;
+  --color-code-bg: #e2e8f0;
+  --font-sans:
+    "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono:
+    "SFMono-Regular", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+html {
+  color-scheme: light;
+  scroll-behavior: smooth;
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-bg: #0b1120;
+  --color-surface: #111827;
+  --color-surface-muted: #172554;
+  --color-ink: #f8fafc;
+  --color-ink-light: #cbd5e1;
+  --color-ink-muted: #64748b;
+  --color-border: rgb(148 163 184 / 0.18);
+  --color-accent: #60a5fa;
+  --color-accent-strong: #93c5fd;
+  --color-code-bg: #1e293b;
+}
+
+body {
+  min-height: 100vh;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+html.dark .shiki,
+html.dark .shiki span {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides Shiki's inline light-theme values */
+  color: var(--shiki-dark) !important;
+  /* biome-ignore lint/complexity/noImportantStyles: overrides Shiki's inline light-theme values */
+  background-color: var(--shiki-dark-bg) !important;
+  /* biome-ignore lint/complexity/noImportantStyles: overrides Shiki's inline light-theme values */
+  font-style: var(--shiki-dark-font-style) !important;
+  /* biome-ignore lint/complexity/noImportantStyles: overrides Shiki's inline light-theme values */
+  font-weight: var(--shiki-dark-font-weight) !important;
+  /* biome-ignore lint/complexity/noImportantStyles: overrides Shiki's inline light-theme values */
+  text-decoration: var(--shiki-dark-text-decoration) !important;
+}

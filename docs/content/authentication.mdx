@@ -1,0 +1,112 @@
+import { Callout } from "@/components/callout";
+
+# Authentication and authorization
+
+Authentication belongs at the HTTP boundary. Business authorization belongs
+in use cases and pure policy functions. Keeping them separate lets the same
+application rules run from HTTP, workers, scripts, and direct tests.
+
+## Carry optional identity
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    todos: TodoRepository
+    user: User | None = None
+```
+
+The context begins without verified identity. A hook authenticates the request
+and returns an enriched copy.
+
+## Authenticate in a hook
+
+```python
+from dataclasses import replace
+
+from tenchi.errors import AppError
+from tenchi.server import Hook, RequestInfo
+
+
+def create_bearer_hook(tokens: TokenDirectory) -> Hook:
+    async def authenticate(
+        info: RequestInfo,
+        context: AppContext,
+    ) -> AppContext | None:
+        if info.contract.public:
+            return None
+
+        scheme, _, token = info.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise AppError(unauthorized)
+
+        user = await tokens.lookup(token)
+        if user is None:
+            raise AppError(unauthorized)
+        return replace(context, user=user)
+
+    return authenticate
+```
+
+Register the hook at composition:
+
+```python
+app = create_app(
+    routes=routes,
+    context_factory=create_context,
+    hooks=(create_bearer_hook(tokens),),
+)
+```
+
+Authentication hooks run before request input validation, so an unauthenticated
+caller cannot use validation responses to inspect a private operation.
+
+## Declare authentication failures
+
+The server's [error honesty rule](/errors) applies to hooks. Declare the
+authentication error across private routes:
+
+```python
+private_routes = route_group(
+    project_routes,
+    task_routes,
+    errors=(unauthorized,),
+)
+```
+
+Health and OpenAPI routes are public by default. Pass `public=False` if the
+application should protect them.
+
+## Authorize in the use case
+
+```python
+async def get_project(
+    params: GetProjectParams,
+    context: AppContext,
+) -> Project:
+    user = require_user(context.user)
+    project = await context.projects.get(params.project_id)
+    return ensure_can_view_project(user, project, project_id=params.project_id)
+```
+
+The use case still asserts identity through an app-owned helper. This matters
+when a worker or test invokes it without the HTTP hook.
+
+Policies take subjects as arguments and perform no I/O:
+
+```python
+def can_view_project(user: User, project: Project | None) -> bool:
+    return project is not None and user.id in project.member_ids
+```
+
+Fetch through a port, then ask the policy. On reads, ownership failures should
+usually surface as not-found rather than forbidden so callers cannot probe
+identifiers.
+
+<Callout title="Public is metadata, not a guard">
+  Setting `public=True` only gives hooks and OpenAPI one consistent exemption
+  signal. The hook must still inspect it, and use cases remain responsible for
+  business authorization.
+</Callout>

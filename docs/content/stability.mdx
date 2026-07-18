@@ -1,0 +1,54 @@
+import { Callout } from "@/components/callout";
+
+# Stability and releases
+
+Tenchi is pre-1.0. It follows semantic versioning with pre-1.0 semantics: minor
+releases may change public APIs while the framework finds the cleanest durable
+shape.
+
+## What is protected today
+
+Every change on `main` runs formatting, linting, strict Pyright, framework
+tests, standalone application tests, architecture checks, exact OpenAPI
+snapshots, and compatibility analysis against historical baselines.
+
+The repository also snapshots public module signatures. An accidental API
+change fails CI; an intentional one must update the snapshot and changelog.
+
+These checks make change deliberate. They do not promise that every pre-1.0
+release is source-compatible.
+
+## Upgrade safely
+
+1. Read the release entry in `CHANGELOG.md`.
+2. Upgrade Tenchi in a branch and refresh the lockfile.
+3. Run Ruff, Pyright, pytest, and `tenchi doctor`.
+4. Run `tenchi openapi --diff` against the pre-upgrade snapshot.
+5. Review application wiring and generated-code convention changes.
+6. Update the snapshot only after accepting the compatibility report.
+
+Pin a compatible minor range or an exact version according to the application's
+risk tolerance. Production applications should not upgrade framework versions
+implicitly during deployment.
+
+## Deprecation metadata
+
+Contract deprecation is part of the API itself. Use `deprecated=True` while an
+operation remains available, or provide a timestamp. Add `sunset=` when callers
+need a concrete removal date. Tenchi emits the lifecycle metadata in OpenAPI
+and response headers.
+
+## What will gate 1.0
+
+Tenchi should reach 1.0 after its contract, response, client, context, and
+composition APIs have been exercised by several independently maintained
+applications and can remain stable across normal framework evolution.
+
+The bar is not a large feature checklist. It is confidence that the small core
+has earned its abstractions and that users can upgrade predictably.
+
+<Callout title="Report real application pressure">
+  Bugs and design feedback from complete applications are more valuable than
+  speculative feature parity. Open an issue with the contract, use-case shape,
+  and boundary behavior that created the pressure.
+</Callout>

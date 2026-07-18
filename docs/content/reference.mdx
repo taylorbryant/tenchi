@@ -1,0 +1,62 @@
+# API reference
+
+Tenchi's public modules each own one small responsibility. Public declarations
+are also re-exported selectively from `tenchi` for compact application imports.
+
+## Core declarations
+
+| Module | Public surface |
+| --- | --- |
+| `tenchi.contracts` | `Contract`, `contract()` |
+| `tenchi.routes` | `Route`, `RouteGroup`, `RouteBindingError`, `route()`, `route_group()` |
+| `tenchi.responses` | `ResponseDef`, `PresentedResponse`, `response()`, `present()` |
+| `tenchi.errors` | `ErrorDef`, `AppError`, `TenchiError`, `ConfigurationError`, `error_body()` |
+
+Contracts describe HTTP. Routes bind contracts to use cases. Response
+definitions describe status-specific success. Error definitions describe
+expected application failure.
+
+## Runtime
+
+| Module | Public surface |
+| --- | --- |
+| `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver` |
+| `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError` |
+| `tenchi.client` | `Client`, `ClientResponse`, `UnexpectedResponseError` |
+| `tenchi.testing` | `open_client()`, `open_http()` |
+
+`create_app()` owns HTTP dispatch and lifecycle composition. `execute()` runs
+the application boundary without HTTP. `Client` enforces contracts against
+remote or in-process servers.
+
+## Schema and operations
+
+| Module | Public surface |
+| --- | --- |
+| `tenchi.openapi` | `openapi_schema()`, `openapi_route()` |
+| `tenchi.compatibility` | `analyze_openapi_compatibility()`, `CompatibilityReport`, rendering helpers |
+| `tenchi.snapshots` | Canonical rendering and exact drift diagnostics |
+| `tenchi.pagination` | `Page`, `PageQuery`, `page()` |
+| `tenchi.health` | `HealthReport`, `health_route()` |
+
+## Tooling
+
+| Module | Responsibility |
+| --- | --- |
+| `tenchi.cli` | CLI entrypoint and route-map formatting |
+| `tenchi.doctor` | Structural and dependency-direction findings |
+| `tenchi.scaffold` | Application, feature, and use-case templates |
+
+Application code should normally call the CLI rather than import tooling
+modules. `tenchi.compatibility` is public for CI systems that need a structured
+report instead of command output.
+
+## Signature source of truth
+
+The package ships inline type information and is checked with strict Pyright.
+For exact overloads and parameter types, use editor completion or inspect the
+public source on [GitHub](https://github.com/taylorbryant/tenchi/tree/main/src/tenchi).
+
+Public API drift is guarded by a checked-in signature snapshot in the
+repository. Intentional changes update that snapshot and the changelog in the
+same release.

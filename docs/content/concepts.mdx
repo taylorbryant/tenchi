@@ -1,0 +1,78 @@
+# Mental model
+
+Tenchi has one architecture: typed contracts at the boundary, plain use cases
+at the center, and explicit dependency wiring around them.
+
+## Contract
+
+A frozen declaration of one HTTP operation: method, path, validated inputs,
+successful responses, expected application errors, media types, metadata, and
+runtime limits. A contract contains no handler logic.
+
+## Route
+
+A binding between a contract and a use case. `route()` inspects the use-case
+signature immediately, so mismatched parameter names or annotations fail while
+the application is composed rather than on the first request.
+
+## Use case
+
+A plain async function that implements one application action. Its parameters
+are named boundary values such as `request`, `params`, `query`, `headers`, and
+`context`. It does not receive a Starlette request.
+
+## Port
+
+An interface the application needs, declared with `typing.Protocol`. The
+feature owns the port; infrastructure supplies an adapter. This keeps the
+application independent of a database driver, HTTP SDK, cache, or queue.
+
+## Context
+
+A frozen dataclass carrying the dependencies and verified identity available
+to a use case. The application constructs it explicitly. Tenchi does not use a
+service locator or dependency-injection container.
+
+## Hook
+
+An HTTP-boundary function that sees `RequestInfo` and the current context. A
+hook can authenticate a request and return an enriched context. Hooks are for
+boundary concerns, not business authorization.
+
+## Policy
+
+A pure application function that answers an authorization question about a
+known subject. The use case loads the subject through a port and asks the
+policy. Because policies perform no I/O, they are easy to test and reusable
+from HTTP, workers, scripts, and tests.
+
+## Adapter
+
+A concrete implementation of a port. SQL repositories, external API clients,
+and memory test doubles are adapters. They live under `app/infra/` and are
+wired at the server composition root.
+
+## Boundary flow
+
+```text
+HTTP request
+  -> route match
+  -> request id and context factory / request scope
+  -> boundary hooks
+  -> size, media-type, and Pydantic input validation
+  -> plain use case
+  -> response presenter and header projector
+  -> Pydantic response validation
+  -> HTTP response
+```
+
+The typed client runs the complementary checks: it serializes inputs from the
+same contract and validates the status, media type, body, headers, and declared
+application errors returned by a server.
+
+## The key tradeoff
+
+Tenchi asks for more structure than a one-file microframework example. In
+return, an endpoint's validation, client behavior, OpenAPI, compatibility
+policy, and application boundary do not become separate models as the service
+grows.

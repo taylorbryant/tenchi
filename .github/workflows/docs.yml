@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "pyproject.toml"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -25,10 +26,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: Install documentation dependencies
+        working-directory: docs
+        run: bun install --frozen-lockfile
+      - name: Check documentation
+        working-directory: docs
+        run: bun run lint && bun run typecheck && bun test
+      - name: Build documentation
+        working-directory: docs
+        env:
+          NEXT_PUBLIC_BASE_PATH: /tenchi
+          NEXT_PUBLIC_SITE_URL: https://taylorbryant.github.io/tenchi
+        run: bun run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: docs
+          path: docs/out
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4

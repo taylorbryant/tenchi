@@ -1,0 +1,81 @@
+# Testing
+
+Test behavior at the narrowest useful boundary: use cases directly for
+application logic, the typed client for contract behavior, and raw HTTP for
+exact envelopes and headers.
+
+## Test use cases directly
+
+```python
+async def test_create_todo_persists() -> None:
+    repository = MemoryTodoRepository()
+    context = AppContext(todos=repository)
+
+    todo = await create_todo(CreateTodo(title="Buy milk"), context)
+
+    assert todo.completed is False
+    assert await repository.get(todo.id) == todo
+```
+
+These tests need no ASGI application and make authorization and domain behavior
+easy to exercise.
+
+## Use the typed in-process client
+
+```python
+from tenchi.testing import open_client
+
+
+async with open_client(app) as client:
+    created = await client.call_with_response(
+        create_todo_contract,
+        request=CreateTodo(title="Buy milk"),
+    )
+
+assert created.body.title == "Buy milk"
+assert created.headers.location.endswith(created.body.id)
+```
+
+`open_client()` runs the application lifespan and uses httpx's ASGI transport.
+It provides the same contract validation as a network client.
+
+## Assert raw HTTP behavior
+
+```python
+from tenchi.testing import open_http
+
+
+async with open_http(app) as http:
+    response = await http.post(
+        "/todos",
+        json={"title": ""},
+    )
+
+assert response.status_code == 422
+assert response.headers["x-tenchi-error-source"] == "framework"
+assert response.json()["code"] == "VALIDATION_ERROR"
+```
+
+Use raw HTTP for malformed input, media types, request IDs, middleware,
+application error envelopes, and other wire-level behavior.
+
+## Replace ports, not framework internals
+
+Build a fresh application around memory adapters for each integration test.
+Avoid monkeypatching route dispatch or internal Tenchi functions; the purpose
+of these tests is to exercise the real boundary.
+
+## Keep OpenAPI reproducible
+
+Generated applications include a test that runs:
+
+```python
+from tenchi.cli import main
+
+
+def test_openapi_snapshot_is_current() -> None:
+    assert main(["openapi", "--check", "openapi.json"]) == 0
+```
+
+This checks exact drift. Compatibility belongs in CI against a historical
+baseline; see [OpenAPI and compatibility](/openapi).

@@ -1,0 +1,116 @@
+import { Callout } from "@/components/callout";
+
+# Contracts
+
+A contract is the source of truth for one HTTP operation. It is immutable data,
+separate from the use case that implements the operation.
+
+## Declare an operation
+
+```python
+from pydantic import BaseModel, Field
+from tenchi.contracts import contract
+
+
+class CreateTodo(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+
+
+class Todo(BaseModel):
+    id: str
+    title: str
+    completed: bool
+
+
+class CreatedTodoHeaders(BaseModel):
+    location: str = Field(alias="Location")
+
+
+create_todo_contract = contract(
+    method="POST",
+    path="/todos",
+    request=CreateTodo,
+    response=Todo,
+    response_headers=CreatedTodoHeaders,
+    status=201,
+    name="create_todo",
+    summary="Create a todo",
+    tags=("todos",),
+)
+```
+
+Pydantic's `TypeAdapter` validates every declared boundary type. You may use
+Pydantic models, dataclasses, standard collections, unions, and other types
+Pydantic supports; inputs are not restricted to `BaseModel` subclasses.
+
+## Input sources
+
+Contracts name four validated input sources:
+
+| Option | Source | Use-case parameter |
+| --- | --- | --- |
+| `request=` | Request body | `request` |
+| `params=` | Path parameters | `params` |
+| `query=` | Query string | `query` |
+| `headers=` | Request headers | `headers` |
+
+```python
+class GetTodoParams(BaseModel):
+    todo_id: str
+
+
+class RequestHeaders(BaseModel):
+    api_version: str = Field(alias="X-API-Version")
+
+
+get_todo_contract = contract(
+    method="GET",
+    path="/todos/{todo_id}",
+    params=GetTodoParams,
+    headers=RequestHeaders,
+    response=Todo,
+)
+```
+
+Field aliases are the wire names for path, query, and header fields and appear
+the same way in OpenAPI. `route()` verifies that path placeholders match the
+declared parameter schema.
+
+## Media types
+
+JSON is the default. Declare a different body or response representation with
+`request_media_type=` and `response_media_type=`. Text declarations validate a
+string; other non-JSON media types validate bytes or strings. Requests with a
+missing or mismatched `Content-Type` fail with a framework-owned `415` before
+decoding.
+
+Charset-qualified text types are encoded and decoded strictly. An unsupported
+declared charset fails when the contract is built rather than during a call.
+
+## Metadata and visibility
+
+`summary`, `description`, and `tags` feed OpenAPI. `deprecated` accepts `True`
+or a timestamp; `sunset` records the removal date.
+
+Contracts are private by default. `public=True` is metadata for authentication
+hooks and OpenAPI security; it does not authenticate or authorize a request by
+itself.
+
+<Callout title="One access-control signal">
+  Authentication hooks should exempt operations through
+  `info.contract.public`, not URL paths or documentation tags. OpenAPI uses the
+  same metadata to remove global security from public operations.
+</Callout>
+
+## Runtime limits
+
+- `max_request_bytes=` overrides the application's request-body limit for one
+  operation.
+- `timeout=` cooperatively cancels overdue work, waits for request-scope
+  cleanup, and returns a framework-owned `504`.
+- `errors=` declares the application failures callers are allowed to observe.
+- `responses=` declares status-dependent successful outcomes.
+
+Invalid combinations and unsupported schemas fail when `contract()` is called.
+Continue with [routes and server](/server), [responses](/responses), and
+[errors](/errors).

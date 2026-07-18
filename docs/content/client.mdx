@@ -1,0 +1,78 @@
+# Typed client
+
+`Client` is an async httpx client driven by the same contracts as the server.
+It serializes validated inputs and refuses responses that violate the declared
+wire shape.
+
+## Call a contract
+
+```python
+from tenchi.client import Client
+
+
+async with Client(base_url="https://api.example.com") as client:
+    todo = await client.call(
+        create_todo_contract,
+        request=CreateTodo(title="Buy milk"),
+    )
+```
+
+`call()` returns only the validated response body. Input arguments mirror the
+contract: `request=`, `params=`, `query=`, and `headers=`.
+
+## Inspect the HTTP response
+
+```python
+async with Client(base_url="https://api.example.com") as client:
+    created = await client.call_with_response(
+        create_todo_contract,
+        request=CreateTodo(title="Buy milk"),
+    )
+
+    todo = created.body
+    location = created.headers.location
+    status = created.http_response.status_code
+    definition = created.definition
+```
+
+`call_with_response()` adds validated successful headers, the underlying
+`httpx.Response`, and the selected status-dependent response definition.
+
+## Configure transport and headers
+
+```python
+import httpx
+
+
+transport = httpx.AsyncHTTPTransport(retries=2)
+
+async with Client(
+    base_url="https://api.example.com",
+    headers={"Authorization": f"Bearer {token}"},
+    transport=transport,
+) as client:
+    ...
+```
+
+Tenchi exposes httpx rather than wrapping its transport model. You may instead
+pass an existing `httpx.AsyncClient` with `http=`; Tenchi does not close a
+client it does not own.
+
+## Response enforcement
+
+The client validates:
+
+- the selected successful status,
+- response `Content-Type` and charset,
+- the response body,
+- declared successful headers,
+- declared application error envelopes and sources.
+
+Unexpected statuses or invalid wire data raise `UnexpectedResponseError` with
+the contract name, status, body, and reason.
+
+## In-process use
+
+Tests should normally use `tenchi.testing.open_client(app)`. It supplies an
+ASGI transport, runs the application lifespan, and returns the same `Client`
+API used against a deployed server.

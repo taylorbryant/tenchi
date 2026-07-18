@@ -1,0 +1,99 @@
+# Use cases and ports
+
+Tenchi keeps application behavior independent of HTTP and concrete
+infrastructure.
+
+## Define an application port
+
+The feature owns interfaces for the capabilities it needs:
+
+```python
+from typing import Protocol
+
+from .schemas import Todo
+
+
+class TodoRepository(Protocol):
+    async def create(self, *, title: str) -> Todo: ...
+
+    async def get(self, todo_id: str) -> Todo | None: ...
+
+    async def list(self) -> list[Todo]: ...
+```
+
+Nothing in this interface selects SQLAlchemy, PostgreSQL, an external service,
+or a memory dictionary. Infrastructure makes that decision later.
+
+## Carry dependencies in context
+
+```python
+from dataclasses import dataclass
+
+from app.features.todos.ports import TodoRepository
+
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    todos: TodoRepository
+```
+
+The context is ordinary application data. It can also carry authenticated
+identity or request-scoped ports. Frozen contexts make enrichment explicit:
+an authentication hook returns `dataclasses.replace(context, user=user)`
+instead of mutating shared state.
+
+## Write a use case
+
+```python
+from app.server.context import AppContext
+
+from ..schemas import CreateTodo, Todo
+
+
+async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
+    return await context.todos.create(title=request.title)
+```
+
+Use cases are plain async functions. Parameter names connect them to contract
+inputs: `request`, `params`, `query`, `headers`, and `context`. A function takes
+only the values it needs.
+
+The return value is application data. HTTP headers and status selection remain
+at the [route and response boundary](/responses).
+
+## Implement an adapter
+
+```python
+from uuid import uuid4
+
+from app.features.todos.schemas import Todo
+
+
+class MemoryTodoRepository:
+    def __init__(self) -> None:
+        self._todos: dict[str, Todo] = {}
+
+    async def create(self, *, title: str) -> Todo:
+        todo = Todo(id=uuid4().hex, title=title, completed=False)
+        self._todos[todo.id] = todo
+        return todo
+```
+
+Static typing verifies that the adapter satisfies `TodoRepository` when it is
+returned from an explicitly annotated wiring function.
+
+## Test without HTTP
+
+```python
+async def test_create_todo() -> None:
+    repository = MemoryTodoRepository()
+    context = AppContext(todos=repository)
+
+    todo = await create_todo(CreateTodo(title="Buy milk"), context)
+
+    assert todo.title == "Buy milk"
+    assert await repository.get(todo.id) == todo
+```
+
+This is the default testing level for business behavior. Add HTTP tests for
+the boundary guarantees that only the composed application can provide.

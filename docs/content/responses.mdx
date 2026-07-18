@@ -1,0 +1,106 @@
+import { Callout } from "@/components/callout";
+
+# Responses
+
+Tenchi validates successful response bodies and headers before they cross the
+HTTP boundary. Use the simple contract fields when success has one fixed
+shape; use response definitions when status or representation depends on the
+result.
+
+## One successful response
+
+```python
+class CreatedTodoHeaders(BaseModel):
+    location: str = Field(alias="Location")
+
+
+create_todo_contract = contract(
+    method="POST",
+    path="/todos",
+    request=CreateTodo,
+    response=Todo,
+    response_headers=CreatedTodoHeaders,
+    status=201,
+)
+
+
+def create_todo_headers(todo: Todo) -> CreatedTodoHeaders:
+    return CreatedTodoHeaders(Location=f"/todos/{todo.id}")
+
+
+route(
+    create_todo_contract,
+    create_todo,
+    response_headers=create_todo_headers,
+)
+```
+
+The synchronous header projector keeps HTTP metadata out of the use case.
+Tenchi checks that its return annotation and fixed scalar fields match the
+contract at composition time.
+
+## Status-dependent responses
+
+```python
+from dataclasses import dataclass
+from tenchi.responses import PresentedResponse, present, response
+
+
+@dataclass(frozen=True, slots=True)
+class PutTodoResult:
+    todo: Todo
+    created: bool
+
+
+created = response(Todo, status=201, description="Todo created")
+existing = response(Todo, status=200, description="Todo replaced")
+
+put_todo_contract = contract(
+    method="PUT",
+    path="/todos/{todo_id}",
+    request=CreateTodo,
+    responses=(created, existing),
+)
+
+
+def present_put(result: PutTodoResult) -> PresentedResponse:
+    return present(created if result.created else existing, result.todo)
+
+
+put_todo_route = route(put_todo_contract, put_todo, present=present_put)
+```
+
+The use case returns domain-shaped data. A synchronous presenter selects the
+declared wire response. The typed client exposes the selected definition on
+`ClientResponse.definition`.
+
+## Alternative body schemas
+
+When one status accepts alternative top-level bodies, pass them separately so
+Pyright preserves the precise union:
+
+```python
+found = response(Todo, ArchivedTodo, status=200)
+```
+
+Nested unions use ordinary Python spelling:
+
+```python
+many = response(list[Todo | ArchivedTodo], status=200)
+```
+
+## Empty and passthrough responses
+
+Use `response(None, status=204)` for an empty result and select it with
+`present(definition)`. When an empty definition also uses passthrough, its
+concrete Starlette response must have a materialized empty body.
+
+For streaming, files, or redirects, declare `passthrough=True` and present a
+Starlette `Response`. Tenchi preserves it while validating the contract-owned
+status, media type parameters, and declared headers.
+
+<Callout title="Passthrough remains declared">
+  Passthrough is not an escape hatch around the contract. A streaming response
+  declares its body type, and its status, content type, and headers must match
+  the selected response definition.
+</Callout>

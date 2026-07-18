@@ -1,0 +1,125 @@
+import { Callout } from "@/components/callout";
+
+# Routes and server
+
+Routes bind contracts to use cases. The server composes routes with concrete
+dependencies and ASGI concerns.
+
+## Bind a route
+
+```python
+from tenchi.routes import route, route_group
+
+from .contracts import create_todo_contract
+from .use_cases.create_todo import create_todo
+
+
+routes = route_group(
+    route(create_todo_contract, create_todo),
+)
+```
+
+`route()` checks the use-case signature immediately. A missing input, wrong
+parameter name, incompatible annotation, invalid header projector, or invalid
+presenter is a composition error.
+
+## Compose route groups
+
+```python
+from tenchi.routes import route_group
+
+from app.features.notes.routes import routes as note_routes
+from app.features.todos.routes import routes as todo_routes
+
+
+api_routes = route_group(
+    todo_routes,
+    note_routes,
+    prefix="/api",
+)
+```
+
+Groups flatten to an immutable route collection. `errors=` declares an
+application error across the group. Prefixes and shared errors create
+composition, not hidden runtime behavior.
+
+## Create the ASGI application
+
+```python
+from tenchi.health import health_route
+from tenchi.openapi import openapi_route
+from tenchi.routes import route_group
+from tenchi.server import create_app
+
+from app.infra.port_wiring import create_todo_repository
+from app.server.context import AppContext
+from app.server.routes import api_routes
+
+
+repository = create_todo_repository()
+
+
+def create_context() -> AppContext:
+    return AppContext(todos=repository)
+
+
+routes = route_group(
+    api_routes,
+    openapi_route(api_routes, title="Todos", version="1.0.0"),
+    health_route(),
+)
+
+app = create_app(routes=routes, context_factory=create_context)
+```
+
+`create_app()` returns a Starlette application and rejects duplicate routes or
+an invalid context-factory shape during composition.
+
+## Lifespan and request scopes
+
+An async context manager can create process-scoped resources once:
+
+```python
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan() -> AsyncIterator[Database]:
+    database = await Database.connect()
+    try:
+        yield database
+    finally:
+        await database.close()
+
+
+def create_context(database: Database) -> AppContext:
+    return AppContext(todos=SqlTodoRepository(database))
+
+
+app = create_app(
+    routes=routes,
+    lifespan=lifespan,
+    context_factory=create_context,
+)
+```
+
+The context factory may return a context directly, await one, or return an
+async context manager. The final form creates request-scoped resources and
+guarantees cleanup before the response is finalized.
+
+## Hooks, middleware, and observers
+
+- `hooks=` run after route matching and context creation, before input validation. They may return an
+  enriched context and are the right boundary for authentication.
+- `middleware=` accepts ordinary Starlette `Middleware` values for CORS,
+  sessions, trusted hosts, compression, or app-specific ASGI behavior.
+- `observers=` receive immutable `RequestOutcome` values after a matched
+  request finalizes. Observer failures are logged and cannot change the
+  response.
+
+<Callout title="Expose the ecosystem">
+  Tenchi does not wrap Starlette middleware or ASGI deployment servers. Use
+  those libraries directly at the composition root and keep framework-owned
+  behavior focused on contracts and use cases.
+</Callout>

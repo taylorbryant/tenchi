@@ -1,0 +1,119 @@
+import { Callout } from "@/components/callout";
+
+# Quickstart
+
+Create a Tenchi application, run its checks, and make one contract change that
+you can observe at every boundary.
+
+## Requirements
+
+Tenchi requires Python 3.12 or newer. The examples use
+[uv](https://docs.astral.sh/uv/) to create environments and run commands.
+
+## Create the application
+
+```shell
+uvx tenchi new my_app
+cd my_app
+uv sync
+```
+
+The scaffold is intentionally a small complete application rather than a
+single route. Its important files are:
+
+| Path | Responsibility |
+| --- | --- |
+| `app/features/todos/contracts.py` | HTTP method, path, inputs, response, and metadata |
+| `app/features/todos/schemas.py` | Pydantic boundary and application data models |
+| `app/features/todos/use_cases/` | Plain application functions |
+| `app/features/todos/ports.py` | App-owned infrastructure protocols |
+| `app/infra/` | Concrete adapters and port wiring |
+| `app/server/context.py` | Frozen context passed to use cases |
+| `app/server/asgi.py` | Composition root and ASGI application |
+
+## Run the checks
+
+```shell
+uv run ruff format --check .
+uv run ruff check .
+uv run pyright
+uv run pytest
+uv run tenchi doctor
+```
+
+Generated code passes these checks without edits. Use-case tests run without an
+HTTP server; integration tests exercise the composed ASGI application.
+
+## Start the server
+
+```shell
+uv run tenchi dev
+```
+
+In another terminal:
+
+```shell
+curl -i \
+  -H 'content-type: application/json' \
+  -d '{"title":"Buy milk"}' \
+  http://127.0.0.1:8000/todos
+
+curl http://127.0.0.1:8000/todos
+```
+
+The create response is validated as `Todo`, returns status `201`, and includes
+the declared `Location` header.
+
+## Make the first contract change
+
+Open `app/features/todos/schemas.py` and require a longer title:
+
+```diff
+ class CreateTodo(BaseModel):
+-    title: str = Field(min_length=1)
++    title: str = Field(min_length=3)
+```
+
+The server now rejects shorter input before the use case runs. Generate the
+current OpenAPI and compare it to the committed baseline:
+
+```shell
+uv run tenchi openapi --diff openapi.json
+```
+
+Tightening a request constraint is breaking for existing callers, so the
+command fails and explains the affected operation. Restore the old constraint,
+then add an optional field instead:
+
+```python
+class CreateTodo(BaseModel):
+    title: str = Field(min_length=1)
+    notes: str | None = None
+```
+
+The compatibility report now classifies the change as additive. After
+reviewing it, update the snapshot:
+
+```shell
+uv run tenchi openapi --write openapi.json
+uv run pytest
+```
+
+<Callout title="Keep the baseline historical">
+  Run `--diff` before replacing the snapshot. In CI, compare the branch against
+  the merge base or previous release; comparing a branch with its own updated
+  snapshot is only an equality check.
+</Callout>
+
+## Add another feature
+
+```shell
+uv run tenchi make feature notes
+uv run tenchi make use-case notes create_note
+```
+
+Generators create files and print the wiring steps. They do not edit existing
+composition modules, keeping dependency wiring visible and app-owned.
+
+Next, read the [mental model](/concepts), then follow [app
+architecture](/architecture) when deciding where new code belongs.

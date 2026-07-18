@@ -1,0 +1,87 @@
+import { Callout } from "@/components/callout";
+import { LogoMark } from "@/components/logo-mark";
+
+<div className="mb-4 flex items-center gap-3">
+  <LogoMark className="size-10 shrink-0" />
+  <h1 className="m-0 text-3xl font-semibold leading-none tracking-tight text-ink">Tenchi</h1>
+</div>
+
+<Callout type="warning" title="Pre-1.0 software">
+  Tenchi is ready for evaluation and real application feedback, but its public
+  API can still change between minor releases. Read [stability and
+  releases](/stability) before adopting it for a long-lived service.
+</Callout>
+
+A contract-first, Python-native framework for typed JSON APIs that stay
+coherent as they grow.
+
+Tenchi gives the HTTP boundary, application use cases, a typed Python client,
+OpenAPI, compatibility checks, and structural tooling one shared model.
+Contracts describe what crosses the wire. Plain async functions own behavior.
+Protocols and frozen dataclasses keep dependencies explicit.
+
+## Start an application
+
+```shell
+uvx tenchi new my_app
+cd my_app
+uv sync
+uv run pytest
+uv run tenchi dev
+```
+
+The generated application includes a working todos feature, memory adapter,
+HTTP tests, strict Pyright configuration, and an OpenAPI snapshot. The
+[quickstart](/getting-started) follows its first development loop.
+
+## What makes it different
+
+- **The contract is executable.** The server validates requests and responses,
+  the client validates both sides of the call, and OpenAPI is derived from the
+  same declaration.
+- **Application code stays ordinary.** Use cases are plain async functions;
+  ports are `typing.Protocol`; contexts are frozen dataclasses.
+- **API changes are reviewable.** Canonical snapshots and conservative
+  compatibility analysis distinguish additive, breaking, metadata-only, and
+  unknown changes.
+- **Architecture is explicit.** `tenchi doctor` checks dependency direction
+  without introducing a dependency-injection container or framework base
+  classes.
+- **HTTP is one entrypoint.** Workers and scripts can execute the same use cases
+  with the same request validation and context-scoping guarantees.
+
+## One declaration, several guarantees
+
+```python
+from pydantic import BaseModel, Field
+from tenchi.contracts import contract
+
+
+class CreateTodo(BaseModel):
+    title: str = Field(min_length=1)
+
+
+class Todo(BaseModel):
+    id: str
+    title: str
+    completed: bool
+
+
+create_todo_contract = contract(
+    method="POST",
+    path="/todos",
+    request=CreateTodo,
+    response=Todo,
+    status=201,
+)
+```
+
+That value can be bound to a use case, called through the typed client, served
+as OpenAPI 3.1, and compared against a previous release.
+
+## Read next
+
+- [Quickstart](/getting-started) creates and changes a complete application.
+- [Mental model](/concepts) defines the small vocabulary used by the framework.
+- [Contracts](/contracts) covers the complete HTTP declaration.
+- [Comparisons](/comparisons) explains where Tenchi fits and where it does not.

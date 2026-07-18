@@ -1,0 +1,86 @@
+import { Callout } from "@/components/callout";
+
+# App architecture
+
+Tenchi applications organize code by feature and make infrastructure and
+server composition explicit.
+
+```text
+app/
+  features/<feature>/
+    contracts.py
+    schemas.py
+    ports.py
+    policy.py
+    routes.py
+    use_cases/
+    tests/
+  shared/
+  infra/
+  server/
+    context.py
+    hooks.py
+    routes.py
+    asgi.py
+tests/
+```
+
+## Feature boundary
+
+`contracts.py` owns HTTP declarations. `schemas.py` owns Pydantic models shared
+by contracts, ports, and use cases. `ports.py` defines the interfaces the
+feature needs. `policy.py` owns pure authorization rules. `routes.py` binds
+contracts to use cases.
+
+Each file in `use_cases/` contains one plain async function. Unit tests sit
+beside the feature and call those functions directly with memory adapters.
+
+## Shared kernel
+
+`app/shared/` contains application-wide errors and concepts shared by several
+features, such as authenticated users. Shared code must not depend on a
+feature; otherwise the dependency direction points both ways.
+
+## Infrastructure
+
+`app/infra/` implements feature-owned ports and exposes explicit wiring
+functions. Infrastructure may depend on database drivers or external SDKs, but
+never on use cases, routes, contracts, or server composition.
+
+## Server composition
+
+The `app/server/` package is the application root:
+
+- `context.py` declares the frozen `AppContext`.
+- `hooks.py` implements HTTP-boundary concerns such as authentication.
+- `routes.py` combines feature route groups and shared error declarations.
+- `asgi.py` creates adapters, lifecycle resources, hooks, middleware, and the
+  final Starlette application.
+
+The composition root may import anything. Everything else follows a narrower
+direction.
+
+## Dependency direction
+
+```text
+schemas/domain <- ports <- use cases <- routes
+                        ^                 |
+                        |                 v
+                 infrastructure     server composition
+```
+
+- Schemas, domain code, and ports never import infrastructure or the HTTP
+  runtime.
+- Use cases may import schemas, ports, policies, context types, and shared
+  application code.
+- Routes may import contracts and use cases, but never infrastructure.
+- Infrastructure implements ports, but never imports use cases or routes.
+- Server composition wires the complete graph.
+
+Run `uv run tenchi doctor` to check these conventions.
+
+<Callout title="Types without runtime coupling">
+  Use `TYPE_CHECKING` imports when a use case needs the `AppContext` annotation
+  without importing server composition at runtime. Tenchi resolves only the
+  annotations it needs for boundary validation.
+</Callout>

@@ -1,0 +1,82 @@
+import { Callout } from "@/components/callout";
+
+# Errors
+
+Application errors are stable public outcomes. Define them once, raise them
+from use cases, and declare which contracts may expose them.
+
+## Define and declare an error
+
+```python
+from tenchi.errors import AppError, ErrorDef
+
+
+todo_not_found = ErrorDef(
+    code="TODO_NOT_FOUND",
+    status=404,
+    message="Todo not found",
+)
+
+
+get_todo_contract = contract(
+    method="GET",
+    path="/todos/{todo_id}",
+    params=GetTodoParams,
+    response=Todo,
+    errors=(todo_not_found,),
+)
+```
+
+Raise the definition with request-specific safe details:
+
+```python
+async def get_todo(params: GetTodoParams, context: AppContext) -> Todo:
+    todo = await context.todos.get(params.todo_id)
+    if todo is None:
+        raise AppError(todo_not_found, details={"todo_id": params.todo_id})
+    return todo
+```
+
+## The honesty rule
+
+An `AppError` maps to its declared status only when the matched contract or a
+containing route group declares that definition. An undeclared application
+error becomes a framework-owned `500` instead of leaking an undocumented
+behavior.
+
+The same rule applies to errors raised by authentication hooks. Every private
+route that can receive an authentication failure must declare it directly or
+through a route group.
+
+## Error envelope
+
+Application and framework errors use one flat shape:
+
+```json
+{
+  "code": "TODO_NOT_FOUND",
+  "message": "Todo not found",
+  "details": { "todo_id": "abc123" },
+  "request_id": "01J..."
+}
+```
+
+Every error response carries `x-tenchi-error-source: app | framework`.
+Framework failures use stable codes for validation, media types, body limits,
+timeouts, missing routes, and internal contract violations.
+
+## Client symmetry
+
+The typed client raises declared `AppError` values. An undocumented status,
+invalid envelope, wrong error source, mismatched media type, or invalid success
+body raises `UnexpectedResponseError`.
+
+Pass shared group errors to `Client(errors=...)` when the server declares them
+at a route-group boundary. This keeps client and server error semantics
+symmetric.
+
+<Callout type="warning" title="Details are public">
+  Treat `message`, `details`, and declared headers as API data. Do not include
+  exception text, SQL, tokens, or internal identifiers that callers should not
+  receive.
+</Callout>

@@ -1,0 +1,50 @@
+# Workers and scripts
+
+HTTP is one caller of an application use case. `execute()` applies Tenchi's
+request validation and context-scoping rules from jobs, command-line scripts,
+message consumers, or tests without inventing a second contract.
+
+## Execute validated input
+
+```python
+from tenchi.execution import execute
+
+
+async def handle_job(payload: bytes, context: AppContext) -> Todo:
+    return await execute(
+        create_todo,
+        request_json=payload,
+        context=context,
+    )
+```
+
+`request_json=` validates serialized input against the use case's annotated
+`request` parameter. Use `request=` for an already decoded Python value.
+
+`execute()` deliberately supplies only `request` and `context`. A use case that
+requires HTTP-specific `params`, `query`, or `headers` is not portable to this
+entrypoint and fails with `ExecutionError`.
+
+## Open a context explicitly
+
+```python
+from tenchi.execution import open_context
+
+
+async with open_context(create_request_context()) as context:
+    result = await execute(rebuild_index, context=context)
+```
+
+`open_context()` accepts a direct value, an awaitable, or an async context
+manager. This mirrors the server's context behavior, including cleanup for
+transactional or request-scoped resources.
+
+## Keep transport concerns outside
+
+The message consumer acknowledges, retries, or dead-letters work. The use case
+owns application behavior. Convert message metadata into application input
+before calling `execute()` rather than passing a queue SDK object into the
+application layer.
+
+Authorization remains in the use case. When a job acts for a user, construct a
+context with verified actor identity and let the same policy checks run.
