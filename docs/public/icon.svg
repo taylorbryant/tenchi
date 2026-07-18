@@ -2,12 +2,17 @@
   <title>Tenchi</title>
   <style>
     .tenchi-box { fill: #047857; }
-    .tenchi-letter { fill: #ecfdf5; }
+    .tenchi-mark { fill: #ecfdf5; }
     @media (prefers-color-scheme: dark) {
       .tenchi-box { fill: #10b981; }
-      .tenchi-letter { fill: #08110d; }
+      .tenchi-mark { fill: #08110d; }
     }
   </style>
   <rect width="64" height="64" rx="18" class="tenchi-box"/>
-  <path d="M26 8h9v12h12v9H35v12.5c0 3 1.5 4.5 4.7 4.5H47v9h-8.5C30.2 55 26 50.7 26 42V29h-9v-9h9z" class="tenchi-letter"/>
+  <g class="tenchi-mark">
+    <rect x="8" y="12" width="48" height="7" rx="2"/>
+    <rect x="17" y="19" width="7" height="33" rx="2"/>
+    <rect x="40" y="19" width="7" height="33" rx="2"/>
+    <rect x="13" y="28" width="38" height="6" rx="2"/>
+  </g>
 </svg>
