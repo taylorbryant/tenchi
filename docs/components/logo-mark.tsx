@@ -7,7 +7,7 @@ export function LogoMark({
     <svg viewBox="0 0 64 64" className={className} aria-hidden="true">
       <rect width="64" height="64" rx="18" className="fill-brand" />
       <path
-        d="M28 12h9v12h12v9H37v12.5c0 3 1.5 4.5 4.7 4.5H49v9h-8.5C32.2 59 28 54.7 28 46V33h-9v-9h9z"
+        d="M26 8h9v12h12v9H35v12.5c0 3 1.5 4.5 4.7 4.5H47v9h-8.5C30.2 55 26 50.7 26 42V29h-9v-9h9z"
         className="fill-bg"
       />
     </svg>
