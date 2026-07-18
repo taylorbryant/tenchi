@@ -11,7 +11,6 @@
   --color-ink-muted: #84978d;
   --color-border: rgb(16 32 24 / 0.11);
   --color-brand: #047857;
-  --color-brand-secondary: #10b981;
   --color-accent: #047857;
   --color-accent-strong: #065f46;
   --color-code-bg: #e5eee9;
@@ -42,7 +41,6 @@ html.dark {
   --color-ink-muted: #718079;
   --color-border: rgb(167 243 208 / 0.16);
   --color-brand: #10b981;
-  --color-brand-secondary: #34d399;
   --color-accent: #34d399;
   --color-accent-strong: #6ee7b7;
   --color-code-bg: #16271f;

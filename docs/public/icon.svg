@@ -1,14 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <title>Tenchi</title>
   <style>
-    .tenchi-primary { fill: #047857; }
-    .tenchi-secondary { fill: #10b981; }
+    .tenchi-box { fill: #047857; }
+    .tenchi-letter { fill: #ecfdf5; }
     @media (prefers-color-scheme: dark) {
-      .tenchi-primary { fill: #10b981; }
-      .tenchi-secondary { fill: #34d399; }
+      .tenchi-box { fill: #10b981; }
+      .tenchi-letter { fill: #08110d; }
     }
   </style>
-  <path d="M28 20h8v24h-8z" class="tenchi-primary"/>
-  <path d="M4 15.5 32 6l28 9.5L32 25z" class="tenchi-primary"/>
-  <path d="M4 48.5 32 39l28 9.5L32 58z" class="tenchi-secondary"/>
+  <rect width="64" height="64" rx="18" class="tenchi-box"/>
+  <path d="M28 12h9v12h12v9H37v12.5c0 3 1.5 4.5 4.7 4.5H49v9h-8.5C32.2 59 28 54.7 28 46V33h-9v-9h9z" class="tenchi-letter"/>
 </svg>
