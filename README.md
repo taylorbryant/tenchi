@@ -245,6 +245,8 @@ bun run dev
 
 Run `bun run check` in `docs/` to lint, type-check, test, and build the static
 GitHub Pages export. Search data and `llms.txt` files are generated during the
-build from the registered MDX pages.
+build from the registered MDX pages. The shared UI follows Beignet's docs
+shell; read [`docs/SHELL_PARITY.md`](docs/SHELL_PARITY.md) before changing its
+components.
 
 Tenchi is licensed under the MIT License.

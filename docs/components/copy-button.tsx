@@ -17,11 +17,12 @@ export function CopyButton() {
       ?.closest("[data-code-block]")
       ?.querySelector("pre");
     if (!code) return;
+
     try {
       await navigator.clipboard.writeText(code.innerText.trimEnd());
       setCopied(true);
     } catch {
-      // Clipboard access can be unavailable in restricted browser contexts.
+      // Clipboard may be unavailable; fail silently.
     }
   }
 
@@ -32,7 +33,7 @@ export function CopyButton() {
       onClick={copy}
       aria-label={copied ? "Copied" : "Copy code"}
       title={copied ? "Copied" : "Copy code"}
-      className={`flex size-7 items-center justify-center rounded-md border border-border bg-bg/80 backdrop-blur-sm transition-all focus-visible:opacity-100 ${
+      className={`flex size-7 items-center justify-center rounded-md border border-border bg-bg/70 backdrop-blur-sm transition-[color,background-color,border-color,opacity] focus-visible:opacity-100 ${
         copied
           ? "text-accent opacity-100"
           : "text-ink-muted opacity-0 hover:text-ink group-hover:opacity-100"
@@ -44,6 +45,8 @@ export function CopyButton() {
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
           className="size-3.5"
           aria-hidden="true"
         >
@@ -55,6 +58,8 @@ export function CopyButton() {
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
           className="size-3.5"
           aria-hidden="true"
         >

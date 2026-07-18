@@ -47,8 +47,10 @@ function SidebarMeta({ version }: { version?: string }) {
       <div className="flex items-center gap-1.5">
         <a
           href="https://github.com/taylorbryant/tenchi"
+          target="_blank"
+          rel="noreferrer"
           title="Tenchi on GitHub"
-          className="flex size-7 items-center justify-center rounded-md text-ink-muted hover:bg-surface-muted hover:text-ink"
+          className="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
         >
           <span className="sr-only">Tenchi on GitHub</span>
           <svg
@@ -62,8 +64,10 @@ function SidebarMeta({ version }: { version?: string }) {
         </a>
         <a
           href="https://pypi.org/project/tenchi/"
+          target="_blank"
+          rel="noreferrer"
           title="Tenchi on PyPI"
-          className="flex size-7 items-center justify-center rounded-md font-mono text-xs font-semibold text-ink-muted hover:bg-surface-muted hover:text-ink"
+          className="flex size-7 items-center justify-center rounded-md font-mono text-xs font-semibold text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
         >
           <span className="sr-only">Tenchi on PyPI</span>Py
         </a>
@@ -81,14 +85,19 @@ function SidebarMeta({ version }: { version?: string }) {
 export function Nav({ version }: { version?: string }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
-  // biome-ignore lint/correctness/useExhaustiveDependencies: close the mobile menu after navigation
-  useEffect(() => setOpen(false), [pathname]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: close menu on route change
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
   useEffect(() => {
     if (!open) return;
-    const previous = document.body.style.overflow;
+
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+
     return () => {
-      document.body.style.overflow = previous;
+      document.body.style.overflow = previousOverflow;
     };
   }, [open]);
 
@@ -109,24 +118,29 @@ export function Nav({ version }: { version?: string }) {
             <button
               type="button"
               onClick={() => setOpen((value) => !value)}
-              className="-mr-1 flex flex-col gap-1 p-1"
+              className="-mr-1 flex touch-manipulation flex-col gap-1 p-1"
               aria-label={open ? "Close menu" : "Open menu"}
               aria-expanded={open}
             >
               <span
-                className={`block h-0.5 w-4 bg-ink transition-transform ${open ? "translate-y-[3px] rotate-45" : ""}`}
+                className={`block h-0.5 w-4 bg-ink transition-transform duration-200 ${open ? "translate-y-[3px] rotate-45" : ""}`}
               />
               <span
-                className={`block h-0.5 w-4 bg-ink transition-transform ${open ? "-translate-y-[3px] -rotate-45" : ""}`}
+                className={`block h-0.5 w-4 bg-ink transition-transform duration-200 ${open ? "-translate-y-[3px] -rotate-45" : ""}`}
               />
             </button>
           </div>
         </div>
       </nav>
       {open && (
-        <div className="fixed inset-x-0 bottom-0 top-[57px] z-40 overflow-y-auto border-t border-border bg-bg/95 backdrop-blur-sm xl:hidden">
+        <div className="fixed inset-x-0 bottom-0 top-[57px] z-40 overflow-y-auto overscroll-contain border-t border-border bg-bg/95 backdrop-blur-sm xl:hidden">
           <div className="mx-auto max-w-3xl px-6 py-5">
-            <NavLinks onNavigate={() => setOpen(false)} />
+            <NavLinks
+              onNavigate={() => {
+                window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+                setOpen(false);
+              }}
+            />
             <div className="mt-7">
               <SidebarMeta version={version} />
             </div>

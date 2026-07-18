@@ -24,6 +24,12 @@ html {
   scroll-behavior: smooth;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 html.dark {
   color-scheme: dark;
   --color-bg: #0b1120;
@@ -49,6 +55,11 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 3px;
+}
+
+/* The search row owns the visible focus ring for its full-width input. */
+.search-dialog-input:focus-visible {
+  outline: none;
 }
 
 html.dark .shiki,

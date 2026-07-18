@@ -10,6 +10,11 @@ const styles = {
   },
 } as const;
 
+const defaultLabels = {
+  note: "Note",
+  warning: "Warning",
+} as const;
+
 export function Callout({
   type = "note",
   title,
@@ -20,12 +25,13 @@ export function Callout({
   children: React.ReactNode;
 }) {
   const style = styles[type];
+
   return (
     <div
       className={`my-6 rounded-lg border px-4 py-3 ${style.container} [&_p]:mb-0 [&_p]:text-sm [&_p+p]:mt-2`}
     >
       <div className={`mb-1 text-sm font-medium ${style.label}`}>
-        {title ?? (type === "warning" ? "Warning" : "Note")}
+        {title ?? defaultLabels[type]}
       </div>
       <div className="text-sm leading-relaxed text-ink-light">{children}</div>
     </div>

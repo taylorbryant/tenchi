@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { withBasePath } from "@/lib/base-path";
@@ -17,8 +17,9 @@ function loadSearchIndex(): Promise<SearchEntry[]> {
   if (!indexPromise) {
     indexPromise = fetch(withBasePath("/search-index.json"))
       .then((response) => {
-        if (!response.ok)
-          throw new Error(`Search index failed: ${response.status}`);
+        if (!response.ok) {
+          throw new Error(`search index request failed: ${response.status}`);
+        }
         return response.json() as Promise<SearchEntry[]>;
       })
       .catch((error) => {
@@ -34,21 +35,21 @@ function escapeRegExp(value: string): string {
 }
 
 function Highlighted({ text, terms }: { text: string; terms: string[] }) {
-  const pattern = useMemo(
-    () =>
-      terms.length > 0
-        ? new RegExp(`(${terms.map(escapeRegExp).join("|")})`, "gi")
-        : null,
-    [terms],
-  );
+  const pattern = useMemo(() => {
+    if (terms.length === 0) return null;
+    return new RegExp(`(${terms.map(escapeRegExp).join("|")})`, "gi");
+  }, [terms]);
+
   if (!pattern) return <>{text}</>;
+
+  const parts = text.split(pattern);
   return (
     <>
-      {text.split(pattern).map((part, index) =>
+      {parts.map((part, index) =>
         index % 2 === 1 ? (
           <mark
-            // biome-ignore lint/suspicious/noArrayIndexKey: fragments are positional parts of one string
-            key={`${part}-${index}`}
+            // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional fragments of a single string
+            key={index}
             className="bg-transparent font-semibold text-accent"
           >
             {part}
@@ -62,13 +63,13 @@ function Highlighted({ text, terms }: { text: string; terms: string[] }) {
 }
 
 function resultHref(result: SearchResult): string {
-  return result.entry.headingId
-    ? `${result.entry.route}#${result.entry.headingId}`
-    : result.entry.route;
+  const { route, headingId } = result.entry;
+  return headingId ? `${route}#${headingId}` : route;
 }
 
 function SearchDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter();
+  const pathname = usePathname();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -84,29 +85,42 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let cancelled = false;
     loadSearchIndex()
-      .then((value) => {
-        if (!cancelled) setEntries(value);
+      .then((loaded) => {
+        if (!cancelled) setEntries(loaded);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  // Close if a navigation happens outside the palette while it is open.
+  const mountPathname = useRef(pathname);
+  useEffect(() => {
+    if (pathname !== mountPathname.current) onClose();
+  }, [pathname, onClose]);
+
+  useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      cancelled = true;
       document.body.style.overflow = previousOverflow;
     };
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when keyboard selection changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll the active option into view whenever selection or results change
   useEffect(() => {
-    listRef.current
-      ?.querySelector('[aria-selected="true"]')
-      ?.scrollIntoView({ block: "nearest" });
-  }, [activeIndex]);
+    const option = listRef.current?.querySelector('[aria-selected="true"]');
+    option?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, results]);
 
-  function openResult(result: SearchResult) {
+  function go(result: SearchResult) {
     onClose();
     router.push(resultHref(result));
   }
@@ -117,7 +131,11 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
       onClose();
       return;
     }
-    if (event.key === "Tab") event.preventDefault();
+    if (event.key === "Tab") {
+      // Keyboard-first palette: keep focus in the input.
+      event.preventDefault();
+      return;
+    }
     if (results.length === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -128,14 +146,23 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
     } else if (event.key === "Enter") {
       event.preventDefault();
       const result = results[activeIndex] ?? results[0];
-      if (result) openResult(result);
+      if (result) go(result);
     }
   }
 
+  const activeOptionId =
+    results.length > 0 ? `search-option-${activeIndex}` : undefined;
+  const showEmptyState =
+    entries !== null && terms.length > 0 && results.length === 0;
+
+  let previousLabel: string | null = null;
+
+  // Portal to <body> so ancestors with backdrop-filter or transform cannot
+  // become the containing block for the fixed-position overlay.
   return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click mirrors the Escape key
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-close mirrors Escape, which stays available
     <div
-      className="fixed inset-0 z-[100] overflow-y-auto bg-ink/20 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-ink/20 backdrop-blur-[2px]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -148,8 +175,8 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
         onKeyDown={onKeyDown}
       >
         <div className="overflow-hidden rounded-xl border border-border bg-bg shadow-2xl">
-          <div className="flex items-center gap-3 border-b border-border px-4">
-            <Magnifier className="size-4 shrink-0 text-ink-muted" />
+          <div className="flex items-center gap-3 border-b border-border px-4 focus-within:ring-2 focus-within:ring-inset focus-within:ring-accent/40">
+            <MagnifierIcon className="size-4 shrink-0 text-ink-muted" />
             <input
               ref={inputRef}
               value={query}
@@ -157,83 +184,115 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
                 setQuery(event.target.value);
                 setActiveIndex(0);
               }}
+              type="text"
+              name="documentation-search"
+              inputMode="search"
               placeholder="Search documentation…"
-              role="combobox"
-              aria-controls="search-results"
-              aria-expanded={results.length > 0}
-              aria-activedescendant={
-                results.length > 0 ? `search-result-${activeIndex}` : undefined
-              }
-              autoComplete="off"
               spellCheck={false}
-              className="w-full bg-transparent py-3.5 text-sm text-ink outline-none placeholder:text-ink-muted"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              role="combobox"
+              aria-expanded={results.length > 0}
+              aria-controls="search-listbox"
+              aria-activedescendant={activeOptionId}
+              aria-autocomplete="list"
+              aria-label="Search documentation"
+              className="search-dialog-input w-full bg-transparent py-3.5 text-base text-ink placeholder:text-ink-muted sm:text-sm"
             />
             <button
               type="button"
               onClick={onClose}
-              className="rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] text-ink-muted"
+              className="shrink-0 rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-muted transition-colors hover:text-ink-light"
             >
               esc
             </button>
           </div>
           <div
             ref={listRef}
-            id="search-results"
+            id="search-listbox"
             role="listbox"
-            className="max-h-[55vh] overflow-y-auto p-2"
+            aria-label="Search results"
+            className="max-h-[60vh] overflow-y-auto overscroll-contain p-2 sm:max-h-[50vh]"
           >
             {loadError && (
               <div className="px-3 py-6 text-center text-sm text-ink-muted">
-                Search is unavailable.
+                Search is unavailable right now.
               </div>
             )}
             {!loadError && entries === null && (
               <div className="px-3 py-6 text-center text-sm text-ink-muted">
-                Loading search…
+                Loading search index…
               </div>
             )}
-            {entries && terms.length > 0 && results.length === 0 && (
+            {showEmptyState && (
               <div className="px-3 py-6 text-center text-sm text-ink-muted">
                 No results for “{query.trim()}”
               </div>
             )}
-            {results.map((result, index) => (
-              <div
-                key={resultHref(result)}
-                id={`search-result-${index}`}
-                role="option"
-                aria-selected={index === activeIndex}
-                tabIndex={-1}
-                onMouseMove={() => setActiveIndex(index)}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => openResult(result)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") openResult(result);
-                }}
-                className={`cursor-pointer rounded-md px-3 py-2 ${index === activeIndex ? "bg-surface-muted" : ""}`}
-              >
-                <div className="flex items-baseline gap-2 text-sm">
-                  <span className="truncate font-medium text-ink">
-                    <Highlighted text={result.entry.heading} terms={terms} />
-                  </span>
-                  {result.entry.headingId && (
-                    <span className="shrink-0 text-xs text-ink-muted">
-                      {result.entry.pageTitle}
-                    </span>
+            {results.map((result, index) => {
+              const label = result.entry.sectionLabel;
+              const showLabel = label !== previousLabel;
+              previousLabel = label;
+              const active = index === activeIndex;
+              const isIntro = result.entry.headingId === "";
+              return (
+                <div key={resultHref(result)}>
+                  {showLabel && (
+                    <div className="px-3 pb-1 pt-3 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-muted first:pt-1.5">
+                      {label}
+                    </div>
                   )}
+                  {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard handling lives on the combobox input */}
+                  <div
+                    id={`search-option-${index}`}
+                    role="option"
+                    aria-selected={active}
+                    tabIndex={-1}
+                    onMouseMove={() => setActiveIndex(index)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => go(result)}
+                    className={`cursor-pointer rounded-md px-3 py-2 transition-colors ${
+                      active ? "bg-surface-muted" : ""
+                    }`}
+                  >
+                    <div className="flex items-baseline gap-2 text-sm">
+                      <span className="truncate font-medium text-ink">
+                        <Highlighted
+                          text={result.entry.heading}
+                          terms={terms}
+                        />
+                      </span>
+                      {!isIntro && (
+                        <span className="shrink-0 truncate text-xs text-ink-muted">
+                          <Highlighted
+                            text={result.entry.pageTitle}
+                            terms={terms}
+                          />
+                        </span>
+                      )}
+                    </div>
+                    {result.snippet && (
+                      <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-ink-light">
+                        <Highlighted text={result.snippet} terms={terms} />
+                      </p>
+                    )}
+                  </div>
                 </div>
-                {result.snippet && (
-                  <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-ink-light">
-                    <Highlighted text={result.snippet} terms={terms} />
-                  </p>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
-          <div className="flex gap-4 border-t border-border bg-surface px-4 py-2 text-[11px] text-ink-muted">
-            <span>↑↓ navigate</span>
-            <span>↵ open</span>
-            <span>esc close</span>
+
+          <div className="flex items-center gap-4 border-t border-border bg-surface px-4 py-2 text-[11px] text-ink-muted">
+            <span>
+              <kbd className="font-sans">↑↓</kbd> navigate
+            </span>
+            <span>
+              <kbd className="font-sans">↵</kbd> open
+            </span>
+            <span>
+              <kbd className="font-sans">esc</kbd> close
+            </span>
           </div>
         </div>
       </div>
@@ -242,13 +301,14 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function Magnifier({ className }: { className?: string }) {
+function MagnifierIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.5"
+      strokeLinecap="round"
       className={className}
       aria-hidden="true"
     >
@@ -258,15 +318,20 @@ function Magnifier({ className }: { className?: string }) {
   );
 }
 
-export function SearchButton({ className = "" }: { className?: string }) {
+export function SearchButton({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const [isMac, setIsMac] = useState(true);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => setIsMac(/Mac|iPhone|iPad/.test(navigator.platform)), []);
+  useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad/.test(navigator.platform));
+  }, []);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        // When several SearchButtons are mounted (for example mobile header
+        // and desktop sidebar), only the first one owns the shortcut so a
+        // single dialog opens.
         const triggers = document.querySelectorAll("[data-search-trigger]");
         if (triggers[0] !== buttonRef.current) return;
         event.preventDefault();
@@ -277,6 +342,11 @@ export function SearchButton({ className = "" }: { className?: string }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  function close() {
+    setOpen(false);
+    buttonRef.current?.focus();
+  }
+
   return (
     <>
       <button
@@ -286,22 +356,15 @@ export function SearchButton({ className = "" }: { className?: string }) {
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm text-ink-muted hover:border-ink-muted/50 hover:text-ink-light sm:px-3 ${className}`}
+        className={`flex touch-manipulation items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm text-ink-muted transition-colors hover:border-ink-muted/50 hover:text-ink-light sm:px-3 ${className ?? ""}`}
       >
-        <Magnifier className="size-3.5" />
+        <MagnifierIcon className="size-3.5 shrink-0" />
         <span className="sr-only sm:not-sr-only">Search</span>
-        <kbd className="ml-auto hidden rounded border border-border bg-bg px-1.5 py-0.5 font-sans text-[11px] sm:block">
+        <kbd className="ml-auto hidden rounded border border-border bg-bg px-1.5 py-0.5 font-sans text-[11px] font-medium text-ink-muted sm:block">
           {isMac ? "⌘" : "Ctrl"} K
         </kbd>
       </button>
-      {open && (
-        <SearchDialog
-          onClose={() => {
-            setOpen(false);
-            buttonRef.current?.focus();
-          }}
-        />
-      )}
+      {open && <SearchDialog onClose={close} />}
     </>
   );
 }

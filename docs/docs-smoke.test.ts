@@ -77,4 +77,28 @@ describe("documentation", () => {
     expect(cleaned).toContain("print(1)");
     expect(cleaned).not.toContain("# Title");
   });
+
+  test("shared shell keeps its mobile interaction safeguards", () => {
+    const searchSource = readFileSync(
+      path.join(docsRoot, "components/search.tsx"),
+      "utf8",
+    );
+    const themeSource = readFileSync(
+      path.join(docsRoot, "components/theme-toggle.tsx"),
+      "utf8",
+    );
+    const navSource = readFileSync(
+      path.join(docsRoot, "components/nav.tsx"),
+      "utf8",
+    );
+
+    // iOS Safari zooms focused inputs whose computed font size is below 16px.
+    expect(searchSource).toContain("text-base text-ink");
+    expect(searchSource).toContain("sm:text-sm");
+    expect(searchSource).toContain("overscroll-contain");
+
+    expect(themeSource).not.toMatch(/[☼◫☾]/);
+    expect(themeSource.match(/<svg/g)?.length).toBe(3);
+    expect(navSource).toContain("overscroll-contain");
+  });
 });

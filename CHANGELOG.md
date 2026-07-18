@@ -56,6 +56,13 @@ versions may change the public API.
   while unsupported declared charsets fail at composition. OpenAPI documents
   the 415 for every operation with a request body.
 
+### Fixed
+
+- The documentation shell now tracks Beignet's shared navigation, search,
+  theme, table-of-contents, and code-copying behavior. Search keeps a 16px
+  mobile input to prevent iOS Safari focus zoom, and mobile overlays contain
+  their scrolling.
+
 ### Removed
 
 - The experimental `SuccessDef`, `success()`, `contract(successes=...)`, and
