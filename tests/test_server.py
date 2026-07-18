@@ -648,3 +648,266 @@ async def test_create_app_rejects_duplicate_routes() -> None:
 
     with pytest.raises(ValueError, match="duplicate route GET /dup"):
         create_app(routes=routes, context_factory=lambda: Context(request_id=0))
+
+
+def test_create_app_rejects_equivalent_route_templates() -> None:
+    class FirstParams(BaseModel):
+        first: str
+
+    class SecondParams(BaseModel):
+        second: str
+
+    async def first(params: FirstParams, context: Context) -> Item:
+        return Item(name=params.first)
+
+    async def second(params: SecondParams, context: Context) -> Item:
+        return Item(name=params.second)
+
+    routes = route_group(
+        route(
+            contract(
+                method="GET",
+                path="/items/{first}",
+                params=FirstParams,
+                response=Item,
+            ),
+            first,
+        ),
+        route(
+            contract(
+                method="GET",
+                path="/items/{second}",
+                params=SecondParams,
+                response=Item,
+            ),
+            second,
+        ),
+    )
+
+    with pytest.raises(ConfigurationError, match="conflicting route templates"):
+        create_app(routes=routes, context_factory=lambda: Context(request_id=0))
+
+
+@pytest.mark.parametrize("head_first", [False, True])
+async def test_explicit_head_route_overrides_implicit_get(head_first: bool) -> None:
+    called: list[str] = []
+
+    async def get_item(context: Context) -> Item:
+        called.append("get")
+        return Item(name="x")
+
+    async def head_item(context: Context) -> None:
+        called.append("head")
+
+    get_route = route(contract(method="GET", path="/items", response=Item), get_item)
+    head_route = route(
+        contract(method="HEAD", path="/items", response=None, status=204),
+        head_item,
+    )
+    routes = (
+        route_group(head_route, get_route)
+        if head_first
+        else route_group(get_route, head_route)
+    )
+    client = await make_client(routes)
+
+    async with client:
+        response = await client.head("/items")
+
+    assert response.status_code == 204
+    assert called == ["head"]
+
+
+async def test_get_route_handles_head_when_none_is_declared() -> None:
+    called: list[str] = []
+
+    async def get_item(context: Context) -> Item:
+        called.append("get")
+        return Item(name="x")
+
+    client = await make_client(
+        route_group(
+            route(contract(method="GET", path="/items", response=Item), get_item)
+        )
+    )
+
+    async with client:
+        response = await client.head("/items")
+
+    assert response.status_code == 200
+    assert response.content == b""
+    assert called == ["get"]
+
+
+@pytest.mark.parametrize("dynamic_first", [False, True])
+async def test_static_route_precedes_overlapping_dynamic_route(
+    dynamic_first: bool,
+) -> None:
+    class Params(BaseModel):
+        item_id: str
+
+    called: list[str] = []
+
+    async def dynamic_item(params: Params, context: Context) -> Item:
+        called.append("dynamic")
+        return Item(name=params.item_id)
+
+    async def special_item(context: Context) -> Item:
+        called.append("special")
+        return Item(name="special")
+
+    dynamic_route = route(
+        contract(
+            method="GET",
+            path="/items/{item_id}",
+            params=Params,
+            response=Item,
+        ),
+        dynamic_item,
+    )
+    static_route = route(
+        contract(method="GET", path="/items/special", response=Item),
+        special_item,
+    )
+    routes = (
+        route_group(dynamic_route, static_route)
+        if dynamic_first
+        else route_group(static_route, dynamic_route)
+    )
+    client = await make_client(routes)
+
+    async with client:
+        response = await client.get("/items/special")
+
+    assert response.status_code == 200
+    assert response.json() == {"name": "special"}
+    assert called == ["special"]
+
+
+@pytest.mark.parametrize("get_first", [False, True])
+async def test_explicit_head_precedes_overlapping_dynamic_get(
+    get_first: bool,
+) -> None:
+    class Params(BaseModel):
+        item_id: str
+
+    called: list[str] = []
+
+    async def get_item(params: Params, context: Context) -> Item:
+        called.append("get")
+        return Item(name=params.item_id)
+
+    async def head_special(context: Context) -> None:
+        called.append("head")
+
+    get_route = route(
+        contract(
+            method="GET",
+            path="/items/{item_id}",
+            params=Params,
+            response=Item,
+        ),
+        get_item,
+    )
+    head_route = route(
+        contract(method="HEAD", path="/items/special", response=None, status=204),
+        head_special,
+    )
+    routes = (
+        route_group(get_route, head_route)
+        if get_first
+        else route_group(head_route, get_route)
+    )
+    client = await make_client(routes)
+
+    async with client:
+        response = await client.head("/items/special")
+
+    assert response.status_code == 204
+    assert called == ["head"]
+
+
+@pytest.mark.parametrize("get_first", [False, True])
+async def test_explicit_constrained_head_preserves_broader_get_fallback(
+    get_first: bool,
+) -> None:
+    class StringParams(BaseModel):
+        item_id: str
+
+    class IntParams(BaseModel):
+        item_id: int
+
+    called: list[str] = []
+
+    async def get_item(params: StringParams, context: Context) -> Item:
+        called.append(f"get:{params.item_id}")
+        return Item(name=params.item_id)
+
+    async def head_item(params: IntParams, context: Context) -> None:
+        called.append(f"head:{params.item_id}")
+
+    get_route = route(
+        contract(
+            method="GET",
+            path="/items/{item_id:str}",
+            params=StringParams,
+            response=Item,
+        ),
+        get_item,
+    )
+    head_route = route(
+        contract(
+            method="HEAD",
+            path="/items/{item_id:int}",
+            params=IntParams,
+            response=None,
+            status=204,
+        ),
+        head_item,
+    )
+    routes = (
+        route_group(get_route, head_route)
+        if get_first
+        else route_group(head_route, get_route)
+    )
+    client = await make_client(routes)
+
+    async with client:
+        constrained = await client.head("/items/123")
+        fallback = await client.head("/items/abc")
+
+    assert constrained.status_code == 204
+    assert fallback.status_code == 200
+    assert fallback.content == b""
+    assert called == ["head:123", "get:abc"]
+
+
+@pytest.mark.parametrize("head_first", [False, True])
+async def test_405_aggregates_methods_for_matching_path(head_first: bool) -> None:
+    async def get_item(context: Context) -> Item:
+        return Item(name="x")
+
+    async def head_item(context: Context) -> None:
+        return None
+
+    async def post_item(context: Context) -> Item:
+        return Item(name="x")
+
+    get_route = route(contract(method="GET", path="/items", response=Item), get_item)
+    head_route = route(
+        contract(method="HEAD", path="/items", response=None, status=204),
+        head_item,
+    )
+    post_route = route(contract(method="POST", path="/items", response=Item), post_item)
+    routes = (
+        route_group(head_route, get_route, post_route)
+        if head_first
+        else route_group(get_route, head_route, post_route)
+    )
+    client = await make_client(routes)
+
+    async with client:
+        response = await client.delete("/items")
+
+    assert response.status_code == 405
+    assert response.headers["allow"] == "GET, HEAD, POST"

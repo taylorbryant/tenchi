@@ -19,7 +19,6 @@ from pydantic import TypeAdapter
 
 from . import errors as tenchi_errors
 from .contracts import (
-    _PATH_PARAMETER,  # pyright: ignore[reportPrivateUsage]
     Contract,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
     _response_header_fields,  # pyright: ignore[reportPrivateUsage]
@@ -27,7 +26,13 @@ from .contracts import (
 )
 from .errors import ConfigurationError, ErrorDef
 from .responses import ResponseDef
-from .routes import Route, RouteGroup, route
+from .routes import (
+    Route,
+    RouteGroup,
+    _document_path,  # pyright: ignore[reportPrivateUsage]
+    _validate_route_identities,  # pyright: ignore[reportPrivateUsage]
+    route,
+)
 
 _ERROR_COMPONENT = "ErrorResponse"
 
@@ -74,17 +79,12 @@ def openapi_schema(
     paths: dict[str, dict[str, Any]] = {}
     operation_ids: dict[str, int] = {}
     error_schemas: list[dict[str, Any]] = []
+    _validate_route_identities(routes, label="openapi_schema")
 
     for item in routes:
         declared = item.contract
-        document_path = _PATH_PARAMETER.sub(
-            lambda match: "{" + match.group(1) + "}", declared.path
-        )
+        document_path = _document_path(declared.path)
         operations = paths.setdefault(document_path, {})
-        if declared.method.lower() in operations:
-            raise ConfigurationError(
-                f"openapi_schema: duplicate route {declared.method} {document_path}"
-            )
         try:
             operation = _operation(item, components, operation_ids, error_schemas)
         except ConfigurationError:

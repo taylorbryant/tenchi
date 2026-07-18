@@ -305,6 +305,54 @@ def test_converter_routes_that_collide_in_openapi_are_rejected() -> None:
         openapi_schema(group, title="X", version="1")
 
 
+def test_equivalent_templates_with_different_parameter_names_are_rejected() -> None:
+    class FirstParams(BaseModel):
+        first: str
+
+    class SecondParams(BaseModel):
+        second: str
+
+    first = contract(
+        method="GET", path="/items/{first}", params=FirstParams, response=Item
+    )
+    second = contract(
+        method="POST", path="/items/{second}", params=SecondParams, response=Item
+    )
+
+    async def get_item(params: FirstParams, context: Context) -> Item:
+        return Item(name=params.first)
+
+    async def replace_item(params: SecondParams, context: Context) -> Item:
+        return Item(name=params.second)
+
+    group = route_group(route(first, get_item), route(second, replace_item))
+
+    with pytest.raises(ConfigurationError, match="conflicting route templates"):
+        openapi_schema(group, title="X", version="1")
+
+
+def test_explicit_head_and_get_operations_share_one_document_path() -> None:
+    get_contract = contract(method="GET", path="/items", response=Item)
+    head_contract = contract(method="HEAD", path="/items", response=None, status=204)
+
+    async def get_items(context: Context) -> Item:
+        return Item(name="x")
+
+    async def head_items(context: Context) -> None:
+        return None
+
+    document = openapi_schema(
+        route_group(
+            route(get_contract, get_items),
+            route(head_contract, head_items),
+        ),
+        title="X",
+        version="1",
+    )
+
+    assert set(document["paths"]["/items"]) == {"get", "head"}
+
+
 def test_validation_error_response_tracks_validated_inputs() -> None:
     document = make_document()
 

@@ -242,6 +242,100 @@ def route_group(
     return RouteGroup(routes=tuple(flattened))
 
 
+def _document_path(path: str) -> str:
+    """Return the OpenAPI spelling of a Starlette path template."""
+    return _PATH_PARAMETER.sub(lambda match: "{" + match.group(1) + "}", path)
+
+
+def _route_shape(path: str) -> str:
+    """Return a path-template identity independent of parameter spelling."""
+    return _PATH_PARAMETER.sub("{}", path)
+
+
+def _runtime_route_priority(  # pyright: ignore[reportUnusedFunction]
+    item: Route,
+) -> tuple[int, int, tuple[int, ...], int, int, int, str, str]:
+    """Return a declaration-order-independent runtime routing priority.
+
+    Explicit HEAD operations come before GET routes because Starlette adds an
+    implicit HEAD method to every GET. Within one method class, literal and
+    constrained segments come before broad parameters, with the raw path as a
+    final deterministic tie-breaker.
+    """
+    path = item.contract.path
+    segments = tuple(path.removeprefix("/").split("/"))
+    static_segments = 0
+    segment_priorities: list[int] = []
+
+    for segment in segments:
+        placeholders = tuple(_PATH_PARAMETER.finditer(segment))
+        if not placeholders:
+            static_segments += 1
+            segment_priorities.append(0)
+            continue
+
+        literal = _PATH_PARAMETER.sub("", segment)
+        if literal:
+            segment_priorities.append(1)
+            continue
+
+        converters = {
+            match.group(0).partition(":")[2].removesuffix("}") or "str"
+            for match in placeholders
+        }
+        if "path" in converters:
+            segment_priorities.append(3)
+        elif converters == {"str"}:
+            segment_priorities.append(2)
+        else:
+            segment_priorities.append(1)
+
+    parameter_count = sum(1 for _ in _PATH_PARAMETER.finditer(path))
+    literal_characters = len(_PATH_PARAMETER.sub("", path))
+    return (
+        0 if item.contract.method == "HEAD" else 1,
+        -static_segments,
+        tuple(segment_priorities),
+        -literal_characters,
+        parameter_count,
+        -len(segments),
+        path,
+        item.contract.method,
+    )
+
+
+def _validate_route_identities(  # pyright: ignore[reportUnusedFunction]
+    routes: RouteGroup, *, label: str
+) -> None:
+    """Reject route declarations whose runtime or OpenAPI identities conflict.
+
+    OpenAPI treats templates with the same hierarchy but different parameter
+    names as identical paths. The same operation may therefore appear only
+    once, and every operation on one path shape must use the same parameter
+    names.
+    """
+    operations: set[tuple[str, str]] = set()
+    templates: dict[str, str] = {}
+    for item in routes:
+        declared = item.contract
+        document_path = _document_path(declared.path)
+        shape = _route_shape(declared.path)
+        existing = templates.setdefault(shape, document_path)
+        if existing != document_path:
+            raise ConfigurationError(
+                f"{label}: conflicting route templates {existing!r} and "
+                f"{document_path!r}; path parameter names must match for the "
+                "same route shape"
+            )
+
+        operation = (declared.method, document_path)
+        if operation in operations:
+            raise ConfigurationError(
+                f"{label}: duplicate route {declared.method} {document_path}"
+            )
+        operations.add(operation)
+
+
 def _amend(
     contract: Contract[Any, Any], prefix: str, errors: Sequence[ErrorDef]
 ) -> Contract[Any, Any]:

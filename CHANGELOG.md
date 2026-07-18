@@ -64,6 +64,11 @@ versions may change the public API.
 
 ### Fixed
 
+- Route composition now rejects equivalent templates whose path-parameter
+  names differ instead of allowing declaration order to silently choose a
+  handler. Runtime route specificity is deterministic, explicit `HEAD`
+  contracts take precedence over Starlette's implicit `HEAD` handling, and
+  405 responses report every method available at the matching path.
 - Documentation examples now show dependency arrows in their true direction,
   a complete repository adapter, and the full relationship between reusable
   authorization abilities and their declared failure semantics. Visibility

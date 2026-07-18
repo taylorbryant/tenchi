@@ -29,6 +29,9 @@ from typing import Any, Literal, Union, cast, get_args, get_origin, overload
 from uuid import uuid4
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
+from starlette import responses as _starlette_responses
+from starlette import routing as _starlette_routing
+from starlette import types as _starlette_types
 from starlette.applications import Starlette
 from starlette.datastructures import QueryParams
 from starlette.exceptions import HTTPException
@@ -66,7 +69,12 @@ from .responses import (
     ResponseDef,
     _is_unset,  # pyright: ignore[reportPrivateUsage]
 )
-from .routes import Route, RouteGroup
+from .routes import (
+    Route,
+    RouteGroup,
+    _runtime_route_priority,  # pyright: ignore[reportPrivateUsage]
+    _validate_route_identities,  # pyright: ignore[reportPrivateUsage]
+)
 
 logger = logging.getLogger("tenchi.server")
 
@@ -74,6 +82,49 @@ ContextFactory = Callable[..., Any]
 Lifespan = Callable[[], AbstractAsyncContextManager[Any]]
 
 _UNSET = object()
+
+_HTTP_METHOD_ORDER = {
+    method: index
+    for index, method in enumerate(
+        ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+    )
+}
+
+
+class _TenchiRoute(StarletteRoute):
+    """A Starlette route that reports every method matching the request path."""
+
+    _peers: Sequence[_TenchiRoute] = ()
+
+    def bind_peers(self, peers: Sequence[_TenchiRoute]) -> None:
+        self._peers = peers
+
+    async def handle(
+        self,
+        scope: _starlette_types.Scope,
+        receive: _starlette_types.Receive,
+        send: _starlette_types.Send,
+    ) -> None:
+        if self.methods and scope["method"] not in self.methods:
+            allowed = {
+                method
+                for peer in self._peers
+                if peer.matches(scope)[0] is not _starlette_routing.Match.NONE
+                for method in (peer.methods or ())
+            }
+            ordered = sorted(
+                allowed,
+                key=lambda method: (_HTTP_METHOD_ORDER.get(method, 100), method),
+            )
+            headers = {"Allow": ", ".join(ordered)}
+            if "app" in scope:
+                raise HTTPException(status_code=405, headers=headers)
+            response = _starlette_responses.PlainTextResponse(
+                "Method Not Allowed", status_code=405, headers=headers
+            )
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 class _ResponseContractViolation(Exception):
@@ -292,15 +343,10 @@ def create_app(
             "but no lifespan= was provided"
         )
     state = _LifespanState()
-    starlette_routes: list[StarletteRoute] = []
-    seen: set[tuple[str, str]] = set()
+    starlette_routes: list[tuple[Route, _TenchiRoute]] = []
+    _validate_route_identities(routes, label="create_app")
 
     for item in routes:
-        key = (item.contract.method, item.contract.path)
-        if key in seen:
-            raise ConfigurationError(f"create_app: duplicate route {key[0]} {key[1]}")
-        seen.add(key)
-
         params_adapter = _contract_adapter(item.contract, "params")
         query_adapter = _contract_adapter(item.contract, "query")
         headers_adapter = _contract_adapter(item.contract, "headers")
@@ -342,7 +388,7 @@ def create_app(
             ),
         )
         try:
-            starlette_route = StarletteRoute(
+            starlette_route = _TenchiRoute(
                 item.contract.path,
                 _make_endpoint(
                     bound,
@@ -360,10 +406,15 @@ def create_app(
                 f"create_app: route {item.contract.name!r} has invalid path "
                 f"{item.contract.path!r}: {exc}"
             ) from exc
-        starlette_routes.append(starlette_route)
+        starlette_routes.append((item, starlette_route))
+
+    starlette_routes.sort(key=lambda pair: _runtime_route_priority(pair[0]))
+    runtime_routes = tuple(item[1] for item in starlette_routes)
+    for runtime_route in runtime_routes:
+        runtime_route.bind_peers(runtime_routes)
 
     return Starlette(
-        routes=starlette_routes,
+        routes=runtime_routes,
         middleware=list(middleware),
         lifespan=_starlette_lifespan(lifespan, state) if lifespan else None,
         exception_handlers={

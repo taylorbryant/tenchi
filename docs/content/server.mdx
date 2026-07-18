@@ -72,8 +72,13 @@ routes = route_group(
 app = create_app(routes=routes, context_factory=create_context)
 ```
 
-`create_app()` returns a Starlette application and rejects duplicate routes or
-an invalid context-factory shape during composition.
+`create_app()` returns a Starlette application and rejects duplicate or
+equivalent route templates and invalid context-factory shapes during
+composition. Operations on one path shape must use the same path-parameter
+names. Runtime matching is independent of declaration order: literal and
+constrained paths take precedence over broader parameterized paths. A `GET`
+contract handles `HEAD` automatically unless a matching explicit `HEAD`
+contract takes precedence.
 
 ## Lifespan and request scopes
 
