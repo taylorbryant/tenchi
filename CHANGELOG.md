@@ -5,7 +5,7 @@ All notable changes to Tenchi are documented here. The format follows
 [Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
 versions may change the public API.
 
-## [Unreleased]
+## [0.8.0] - 2026-07-18
 
 ### Added
 
@@ -38,6 +38,8 @@ versions may change the public API.
 
 ### Changed
 
+- Official Python support now covers 3.12, 3.13, and 3.14, with the complete
+  CI suite running against every supported version.
 - The documentation now uses a green visual identity and a lowercase `t` mark
   in both light and dark themes, including its favicon and installable-site
   metadata.
