@@ -28,6 +28,7 @@ present (re-export of tenchi.responses.present)
 response (re-export of tenchi.responses.response)
 route (re-export of tenchi.routes.route)
 route_group (re-export of tenchi.routes.route_group)
+swagger_ui_route (re-export of tenchi.openapi.swagger_ui_route)
 
 # tenchi.client
 class Client
@@ -121,6 +122,7 @@ def health_route(*, path: 'str' = '/health', checks: 'Mapping[str, HealthCheck] 
 # tenchi.openapi
 def openapi_route(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, path: 'str' = '/openapi.json', tags: 'Sequence[str]' = ('docs',), public: 'bool' = True) -> 'Route'
 def openapi_schema(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None) -> 'dict[str, Any]'
+def swagger_ui_route(*, openapi_path: 'str' = '/openapi.json', path: 'str' = '/docs', title: 'str' = 'API Documentation', public: 'bool' = True, swagger_js_url: 'str' = 'https://unpkg.com/swagger-ui-dist@5.32.9/swagger-ui-bundle.js', swagger_css_url: 'str' = 'https://unpkg.com/swagger-ui-dist@5.32.9/swagger-ui.css', swagger_favicon_url: 'str | None' = None) -> 'Route'
 
 # tenchi.pagination
 class Page(BaseModel, Generic)

@@ -4,7 +4,7 @@ from app.server.context import AppContext
 from app.shared.errors import unauthorized
 from app.shared.users import OwnerScope
 from tenchi.health import health_route
-from tenchi.openapi import openapi_route
+from tenchi.openapi import openapi_route, swagger_ui_route
 from tenchi.routes import route_group
 
 OPENAPI_TITLE = "Taskboard"
@@ -32,5 +32,6 @@ routes = route_group(
         version=OPENAPI_VERSION,
         security=OPENAPI_SECURITY,
     ),
+    swagger_ui_route(title=f"{OPENAPI_TITLE} API"),
     health_route(checks={"database": database_ready}),
 )

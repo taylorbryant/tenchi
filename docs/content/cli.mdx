@@ -9,8 +9,9 @@ application, and keeps API changes reviewable.
 uvx tenchi new my_app
 ```
 
-Names use `snake_case`. The generated project includes a todos feature, memory
-adapter, strict checks, integration tests, and an OpenAPI snapshot.
+Names use `snake_case`. The generated project includes a todos feature,
+SQLite persistence with request-scoped transactions, a memory test adapter, strict checks,
+integration tests, Swagger UI, an OpenAPI snapshot, and GitHub Actions CI.
 
 ## Generate application slices
 
@@ -36,15 +37,21 @@ the composed HTTP surface.
 ## Manage OpenAPI
 
 ```shell
-uv run tenchi openapi
-uv run tenchi openapi --diff openapi.json
-uv run tenchi openapi --check openapi.json
-uv run tenchi openapi --write openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes --title my_app
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title my_app --diff openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title my_app --diff-ref origin/main --snapshot openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title my_app --check openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title my_app --write openapi.json
 ```
 
 Common metadata options are `--title`, `--version`, `--description`, and
-`--security`. See [OpenAPI and compatibility](/openapi) for the safe baseline
-workflow.
+`--security`. `--diff-ref` reads `--snapshot` (default `openapi.json`) from a
+Git commit instead of the working tree. See [OpenAPI and
+compatibility](/openapi) for the safe baseline workflow.
 
 ## Check architecture
 

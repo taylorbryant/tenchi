@@ -64,6 +64,12 @@ app = create_app(
 Configure HTTPS and forwarded headers at the trusted reverse proxy boundary.
 Keep host and origin allowlists explicit.
 
+The generated Swagger UI loads pinned CDN assets with subresource integrity.
+For an offline deployment, self-host the assets and pass their URLs to
+`swagger_ui_route()`. A content-security policy must also allow the page's
+fixed inline initializer and style, normally through their hashes. Protect the
+UI and `openapi_route()` together when the API description is not public.
+
 ## Health and readiness
 
 ```python
@@ -107,8 +113,10 @@ uv run ruff check .
 uv run pyright
 uv run pytest
 uv run tenchi doctor
-uv run tenchi openapi --diff openapi-baseline.json
-uv run tenchi openapi --check openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title my_app --diff-ref "$BASE_SHA" --snapshot openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title my_app --check openapi.json
 ```
 
 <Callout type="warning" title="Exercise lifespan in tests">

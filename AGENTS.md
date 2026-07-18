@@ -45,7 +45,8 @@ framework code, the CLI, docs, or the example apps.
     server's boundary guarantees from any entrypoint (workers, scripts).
   - `client.py` — the contract-driven typed httpx client.
   - `openapi.py` — OpenAPI 3.1 generation (`openapi_schema` is a pure
-    function; `openapi_route` serves it through Tenchi's own machinery).
+    function; `openapi_route` serves it and `swagger_ui_route` serves an
+    optional interactive UI through Tenchi's own machinery).
   - `compatibility.py` — conservative compatibility analysis between two
     Tenchi-generated OpenAPI documents.
   - `_schema_compatibility.py` — directional JSON Schema comparison used by
@@ -195,13 +196,14 @@ on the structural conventions (`app.server.routes:routes`,
 `app.server.asgi:app`); keep flags available to override, and keep
 `tenchi new` output aligned with `examples/todos` minus capabilities the
 starter intentionally omits.
-`openapi --write`, `openapi --check`, and `openapi --diff` use the same
-canonical format; checked-in example and generated-app snapshots must be
-reproducible with their documented metadata and security options. Run
-`openapi --diff` before accepting a changed snapshot: breaking and unknown
-changes fail, while additive and metadata-only changes pass. CI compatibility
-checks must obtain their baseline from the pull-request base or preceding push;
-comparing against the snapshot committed in the same change is only an equality
+`openapi --write`, `openapi --check`, `openapi --diff`, and Git-backed
+`openapi --diff-ref` use the same canonical format; checked-in example and
+generated-app snapshots must be reproducible with their documented metadata and
+security options. Run `openapi --diff` before accepting a changed snapshot:
+breaking and unknown changes fail, while additive and metadata-only changes
+pass. CI compatibility checks must obtain their baseline from the pull-request
+base or preceding push; prefer `--diff-ref` when that baseline is committed.
+Comparing against the snapshot committed in the same change is only an equality
 check and belongs to `openapi --check`.
 
 ## Testing conventions

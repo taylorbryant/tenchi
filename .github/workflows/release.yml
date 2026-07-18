@@ -63,6 +63,9 @@ jobs:
           uv run ruff check .
           uv run pyright
           uv run pytest
-          uv run tenchi openapi --check openapi.json
+          uv run tenchi openapi \
+            --routes app.server.routes:api_routes \
+            --title generated_app --version 0.1.0 \
+            --check openapi.json
           uv run tenchi doctor
       - run: uv publish --trusted-publishing always

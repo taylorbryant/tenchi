@@ -61,9 +61,12 @@ application error envelopes, and other wire-level behavior.
 
 ## Replace ports, not framework internals
 
-Build a fresh application around memory adapters for each integration test.
-Avoid monkeypatching route dispatch or internal Tenchi functions; the purpose
-of these tests is to exercise the real boundary.
+Build a fresh application around memory adapters for behavior-focused
+integration tests. Use temporary real adapters when lifecycle, transactions,
+or persistence are the behavior under test; the generated starter verifies
+that todos survive a new application instance against the same temporary
+SQLite database. Avoid monkeypatching route dispatch or internal Tenchi
+functions—the purpose of these tests is to exercise the real boundary.
 
 ## Keep OpenAPI reproducible
 

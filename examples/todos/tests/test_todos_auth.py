@@ -61,15 +61,18 @@ async def test_valid_key_is_accepted(
     assert response.status_code == 200
 
 
-async def test_openapi_document_stays_public(
+async def test_api_documentation_stays_public(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TODOS_API_KEY", "sekrit")
 
     response = await client.get("/openapi.json")
+    docs = await client.get("/docs")
 
     assert response.status_code == 200
+    assert docs.status_code == 200
+    assert docs.headers["content-type"] == "text/html; charset=utf-8"
     # The declared 401 shows up in the document for API routes.
     document = response.json()
     assert "401" in document["paths"]["/todos"]["get"]["responses"]

@@ -26,6 +26,7 @@ import importlib
 import json
 import keyword
 import re
+import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -82,6 +83,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             write=args.write,
             check=args.check,
             diff=args.diff,
+            diff_ref=args.diff_ref,
+            snapshot=args.snapshot,
             diff_format=args.diff_format,
         )
     if args.command == "doctor":
@@ -177,6 +180,18 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="BASELINE",
         help=("Classify changes from a baseline; fail on breaking or unknown changes"),
     )
+    openapi_mode.add_argument(
+        "--diff-ref",
+        default=None,
+        metavar="REF",
+        help="Classify changes from the snapshot committed at a Git ref",
+    )
+    openapi_parser.add_argument(
+        "--snapshot",
+        default=None,
+        metavar="PATH",
+        help="Snapshot path for --diff-ref (default: openapi.json)",
+    )
     openapi_parser.add_argument(
         "--diff-format",
         choices=("text", "json"),
@@ -228,6 +243,7 @@ def _new(name: str) -> int:
     print("  uv sync")
     print("  uv run pytest")
     print("  uv run tenchi dev")
+    print("  Swagger UI: http://127.0.0.1:8000/docs")
     return 0
 
 
@@ -385,10 +401,15 @@ def _openapi(
     write: str | None,
     check: str | None,
     diff: str | None,
+    diff_ref: str | None,
+    snapshot: str | None,
     diff_format: str,
 ) -> int:
-    if diff is None and diff_format != "text":
-        _fail("tenchi openapi: --diff-format requires --diff")
+    if diff is None and diff_ref is None and diff_format != "text":
+        _fail("tenchi openapi: --diff-format requires --diff or --diff-ref")
+        return 1
+    if snapshot is not None and diff_ref is None:
+        _fail("tenchi openapi: --snapshot requires --diff-ref")
         return 1
 
     group = _load_route_group("tenchi openapi", target)
@@ -435,6 +456,13 @@ def _openapi(
     if diff is not None:
         return _diff_openapi_snapshot(
             Path(diff),
+            document,
+            output_format=diff_format,
+        )
+    if diff_ref is not None:
+        return _diff_openapi_ref(
+            diff_ref,
+            Path(snapshot or "openapi.json"),
             document,
             output_format=diff_format,
         )
@@ -493,11 +521,114 @@ def _diff_openapi_snapshot(
     except (OSError, UnicodeError) as exc:
         _fail(f"tenchi openapi: could not read baseline {str(path)!r}: {exc}")
         return 1
+    return _compare_openapi_baseline(
+        baseline_text,
+        baseline_label=str(path),
+        current=current,
+        output_format=output_format,
+    )
+
+
+def _diff_openapi_ref(
+    ref: str,
+    snapshot: Path,
+    current: Mapping[str, object],
+    *,
+    output_format: str,
+) -> int:
+    baseline = _read_git_snapshot(ref, snapshot)
+    if baseline is None:
+        return 1
+    baseline_text, baseline_label = baseline
+    return _compare_openapi_baseline(
+        baseline_text,
+        baseline_label=baseline_label,
+        current=current,
+        output_format=output_format,
+    )
+
+
+def _read_git_snapshot(ref: str, snapshot: Path) -> tuple[str, str] | None:
+    if not ref.strip() or ref.startswith("-") or any(char.isspace() for char in ref):
+        _fail("tenchi openapi: --diff-ref must be a non-empty Git ref")
+        return None
+    try:
+        root_result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except FileNotFoundError:
+        _fail("tenchi openapi: could not run git; install Git to use --diff-ref")
+        return None
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi openapi: could not inspect the Git repository: {exc}")
+        return None
+    if root_result.returncode != 0:
+        reason = root_result.stderr.strip() or "not inside a Git repository"
+        _fail(f"tenchi openapi: could not inspect the Git repository: {reason}")
+        return None
+
+    root = Path(root_result.stdout.strip()).resolve()
+    resolved_snapshot = snapshot.resolve()
+    try:
+        relative_snapshot = resolved_snapshot.relative_to(root).as_posix()
+    except ValueError:
+        _fail(
+            "tenchi openapi: --snapshot must resolve inside the current Git repository"
+        )
+        return None
+
+    try:
+        ref_result = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi openapi: could not resolve Git ref {ref!r}: {exc}")
+        return None
+    if ref_result.returncode != 0:
+        reason = ref_result.stderr.strip() or "unknown ref"
+        _fail(f"tenchi openapi: could not resolve Git ref {ref!r}: {reason}")
+        return None
+
+    commit = ref_result.stdout.strip()
+    baseline_label = f"{ref}:{relative_snapshot}"
+    try:
+        show_result = subprocess.run(
+            ["git", "show", f"{commit}:{relative_snapshot}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi openapi: could not read baseline {baseline_label!r}: {exc}")
+        return None
+    if show_result.returncode != 0:
+        reason = show_result.stderr.strip() or "snapshot not found"
+        _fail(f"tenchi openapi: could not read baseline {baseline_label!r}: {reason}")
+        return None
+    return show_result.stdout, baseline_label
+
+
+def _compare_openapi_baseline(
+    baseline_text: str,
+    *,
+    baseline_label: str,
+    current: Mapping[str, object],
+    output_format: str,
+) -> int:
     try:
         baseline: object = json.loads(baseline_text)
     except json.JSONDecodeError as exc:
         _fail(
-            f"tenchi openapi: baseline {str(path)!r} is not valid JSON "
+            f"tenchi openapi: baseline {baseline_label!r} is not valid JSON "
             f"(line {exc.lineno}, column {exc.colno})"
         )
         return 1
@@ -505,17 +636,19 @@ def _diff_openapi_snapshot(
     try:
         report = analyze_openapi_compatibility(baseline, current)
     except ValueError as exc:
-        _fail(f"tenchi openapi: could not compare baseline {str(path)!r}: {exc}")
+        _fail(f"tenchi openapi: could not compare baseline {baseline_label!r}: {exc}")
         return 1
 
     if output_format == "json":
         payload: dict[str, object] = {
-            "baseline": str(path),
+            "baseline": baseline_label,
             **report.as_dict(),
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        sys.stdout.write(render_compatibility_report(report, baseline_path=str(path)))
+        sys.stdout.write(
+            render_compatibility_report(report, baseline_path=baseline_label)
+        )
     return 0 if report.compatible else 1
 
 

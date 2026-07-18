@@ -1,4 +1,4 @@
-"""The composed app end-to-end: lifespan-owned SQLite repository over HTTP.
+"""The composed app end-to-end: request-scoped SQLite transactions over HTTP.
 
 Mirrors ``app/server/asgi.py`` with a per-test database path, and simulates a
 server restart by composing the app twice against the same file.
@@ -11,8 +11,7 @@ from typing import Any
 
 from starlette.applications import Starlette
 
-from app.features.todos.ports import TodoRepository
-from app.infra.port_wiring import open_todo_repository
+from app.infra.port_wiring import ensure_schema, open_todo_repository
 from app.server.context import AppContext
 from app.server.routes import routes
 from tenchi.server import create_app
@@ -21,12 +20,14 @@ from tenchi.testing import open_http
 
 def make_app(database_path: str) -> Starlette:
     @asynccontextmanager
-    async def lifespan() -> AsyncGenerator[TodoRepository]:
-        async with open_todo_repository(database_path) as todos:
-            yield todos
+    async def lifespan() -> AsyncGenerator[str]:
+        await ensure_schema(database_path)
+        yield database_path
 
-    def create_context(todos: TodoRepository) -> AppContext:
-        return AppContext(todos=todos)
+    @asynccontextmanager
+    async def create_context(path: str) -> AsyncGenerator[AppContext]:
+        async with open_todo_repository(path) as todos:
+            yield AppContext(todos=todos)
 
     return create_app(routes=routes, context_factory=create_context, lifespan=lifespan)
 

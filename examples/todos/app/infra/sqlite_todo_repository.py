@@ -32,7 +32,6 @@ class SqliteTodoRepository:
             "INSERT INTO todos (id, title, completed) VALUES (?, ?, ?)",
             (todo.id, todo.title, int(todo.completed)),
         )
-        await self._connection.commit()
         return todo
 
     async def get(self, todo_id: str) -> Todo | None:
@@ -51,15 +50,31 @@ class SqliteTodoRepository:
         return [_row_to_todo(row) for row in rows]
 
 
+async def ensure_sqlite_todo_schema(database_path: str) -> None:
+    """Create the schema once during application startup."""
+    async with aiosqlite.connect(database_path) as connection:
+        await _configure_connection(connection)
+        await connection.execute(_SCHEMA)
+        await connection.commit()
+
+
 @asynccontextmanager
 async def open_sqlite_todo_repository(
     database_path: str,
 ) -> AsyncGenerator[SqliteTodoRepository]:
-    """Open a connection, ensure the schema, and close on exit."""
+    """Open one request's transaction and commit or roll it back on exit."""
     async with aiosqlite.connect(database_path) as connection:
-        await connection.execute(_SCHEMA)
-        await connection.commit()
-        yield SqliteTodoRepository(connection)
+        await _configure_connection(connection)
+        try:
+            yield SqliteTodoRepository(connection)
+            await connection.commit()
+        except BaseException:
+            await connection.rollback()
+            raise
+
+
+async def _configure_connection(connection: aiosqlite.Connection) -> None:
+    await connection.execute("PRAGMA busy_timeout = 5000")
 
 
 def _row_to_todo(row: Any) -> Todo:

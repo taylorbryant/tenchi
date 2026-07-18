@@ -5,7 +5,28 @@ All notable changes to Tenchi are documented here. The format follows
 [Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
 versions may change the public API.
 
-## [Unreleased]
+## [0.9.0] - 2026-07-18
+
+### Added
+
+- `swagger_ui_route()` serves an interactive Swagger UI for a separately
+  composed OpenAPI route. The root-path-safe page uses pinned CDN assets with
+  integrity metadata, supports self-hosted asset URLs, and follows the same
+  explicit public-route metadata as health and OpenAPI routes.
+- `tenchi openapi --diff-ref REF --snapshot PATH` reads a historical snapshot
+  directly from Git for pull-request compatibility gates, with the same text,
+  JSON, and exit semantics as file-based `--diff`.
+
+### Changed
+
+- `tenchi new` now creates a lifespan-managed SQLite application by default,
+  with schema setup at startup and an isolated commit-or-rollback transaction
+  for every request. It retains a memory adapter for unit tests, mounts health,
+  OpenAPI, and Swagger UI routes, tests persistence and rollback behavior
+  through Tenchi's testing helpers, and includes a GitHub Actions workflow with
+  a historical OpenAPI compatibility gate.
+- The default Swagger UI assets now use version 5.32.9, including its current
+  accessibility fixes, with updated subresource integrity metadata.
 
 ## [0.8.0] - 2026-07-18
 

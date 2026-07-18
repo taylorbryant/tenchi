@@ -291,9 +291,12 @@ async def test_pagination_over_http(harness: Harness) -> None:
 async def test_health_is_public_and_runs_the_database_check() -> None:
     async with open_http(make_app()) as http:
         response = await http.get("/health")
+        docs = await http.get("/docs")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "checks": {"database": "ok"}}
+    assert docs.status_code == 200
+    assert docs.headers["content-type"] == "text/html; charset=utf-8"
 
 
 async def test_typed_client_replays_task_creation_and_rejects_key_reuse(

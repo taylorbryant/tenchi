@@ -4,17 +4,16 @@ Run locally with:
 
     uvicorn app.server.asgi:app --reload
 
-The lifespan opens the SQLite-backed repository at startup and closes it at
-shutdown; the context wrapping it is rebuilt for every request by
-``create_context``.
+The lifespan ensures the SQLite schema at startup. Each request opens its own
+connection and transaction through ``create_context`` so concurrent requests
+cannot observe or commit each other's in-flight writes.
 """
 
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from app.features.todos.ports import TodoRepository
-from app.infra.port_wiring import open_todo_repository
+from app.infra.port_wiring import ensure_schema, open_todo_repository
 from app.server.context import AppContext
 from app.server.hooks import require_api_key
 from app.server.routes import routes
@@ -24,13 +23,15 @@ DATABASE_PATH = os.environ.get("TODOS_DATABASE", "todos.db")
 
 
 @asynccontextmanager
-async def lifespan() -> AsyncGenerator[TodoRepository]:
-    async with open_todo_repository(DATABASE_PATH) as todos:
-        yield todos
+async def lifespan() -> AsyncGenerator[str]:
+    await ensure_schema(DATABASE_PATH)
+    yield DATABASE_PATH
 
 
-def create_context(todos: TodoRepository) -> AppContext:
-    return AppContext(todos=todos)
+@asynccontextmanager
+async def create_context(database_path: str) -> AsyncGenerator[AppContext]:
+    async with open_todo_repository(database_path) as todos:
+        yield AppContext(todos=todos)
 
 
 app = create_app(

@@ -27,9 +27,10 @@ single route. Its important files are:
 | `app/features/todos/schemas.py` | Pydantic boundary and application data models |
 | `app/features/todos/use_cases/` | Plain application functions |
 | `app/features/todos/ports.py` | App-owned infrastructure protocols |
-| `app/infra/` | Concrete adapters and port wiring |
+| `app/infra/` | SQLite runtime adapter, memory test adapter, and port wiring |
 | `app/server/context.py` | Frozen context passed to use cases |
 | `app/server/asgi.py` | Composition root and ASGI application |
+| `.github/workflows/ci.yml` | Checks and historical API compatibility gate |
 
 ## Run the checks
 
@@ -50,6 +51,9 @@ HTTP server; integration tests exercise the composed ASGI application.
 uv run tenchi dev
 ```
 
+The runtime database defaults to `my_app.db`. Set `MY_APP_DATABASE` to choose a
+different path.
+
 In another terminal:
 
 ```shell
@@ -62,7 +66,13 @@ curl http://127.0.0.1:8000/todos
 ```
 
 The create response is validated as `Todo`, returns status `201`, and includes
-the declared `Location` header.
+the declared `Location` header. Restart the server and list again: the todo is
+still present because the startup lifespan ensures the SQLite schema while
+each request owns its own commit-or-rollback transaction.
+
+Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) to inspect and call
+the same contracts through Swagger UI. The underlying document is served at
+`/openapi.json`, and `/health` exposes the starter's liveness route.
 
 ## Make the first contract change
 
@@ -78,7 +88,10 @@ The server now rejects shorter input before the use case runs. Generate the
 current OpenAPI and compare it to the committed baseline:
 
 ```shell
-uv run tenchi openapi --diff openapi.json
+uv run tenchi openapi \
+  --routes app.server.routes:api_routes \
+  --title my_app \
+  --diff openapi.json
 ```
 
 Tightening a request constraint is breaking for existing callers, so the
@@ -95,14 +108,17 @@ The compatibility report now classifies the change as additive. After
 reviewing it, update the snapshot:
 
 ```shell
-uv run tenchi openapi --write openapi.json
+uv run tenchi openapi \
+  --routes app.server.routes:api_routes \
+  --title my_app \
+  --write openapi.json
 uv run pytest
 ```
 
 <Callout title="Keep the baseline historical">
-  Run `--diff` before replacing the snapshot. In CI, compare the branch against
-  the merge base or previous release; comparing a branch with its own updated
-  snapshot is only an equality check.
+  Run `--diff` before replacing the snapshot. The generated CI runs
+  `--diff-ref` against the pull request's base commit, so committing an updated
+  snapshot cannot hide an incompatible contract change.
 </Callout>
 
 ## Add another feature

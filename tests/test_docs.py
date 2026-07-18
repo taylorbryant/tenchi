@@ -59,6 +59,12 @@ def test_docs_cover_the_framework_workflow() -> None:
     for page in expected_pages - {"index"}:
         assert f'path: "/{page}"' in registry
 
+    openapi = (CONTENT / "openapi.mdx").read_text()
+    quickstart = (CONTENT / "getting-started.mdx").read_text()
+    assert "swagger_ui_route" in openapi
+    assert "--diff-ref" in openapi
+    assert "http://127.0.0.1:8000/docs" in quickstart
+
 
 def test_docs_python_examples_are_valid_syntax() -> None:
     blocks = [block for page in _pages() for block in _python_blocks(page.read_text())]

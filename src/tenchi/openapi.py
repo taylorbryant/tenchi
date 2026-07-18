@@ -11,8 +11,11 @@ document is served by the same machinery it describes.
 from __future__ import annotations
 
 import inspect
+import json
+import posixpath
 from collections.abc import Mapping, Sequence
 from datetime import UTC
+from html import escape
 from typing import Any, cast
 
 from pydantic import TypeAdapter
@@ -35,6 +38,20 @@ from .routes import (
 )
 
 _ERROR_COMPONENT = "ErrorResponse"
+
+_SWAGGER_UI_VERSION = "5.32.9"
+_SWAGGER_UI_CSS_URL = (
+    f"https://unpkg.com/swagger-ui-dist@{_SWAGGER_UI_VERSION}/swagger-ui.css"
+)
+_SWAGGER_UI_JS_URL = (
+    f"https://unpkg.com/swagger-ui-dist@{_SWAGGER_UI_VERSION}/swagger-ui-bundle.js"
+)
+_SWAGGER_UI_CSS_INTEGRITY = (
+    "sha384-9Q2fpS+xeS4ffJy6CagnwoUl+4ldAYhOs9pgZuEKxypVModhmZFzeMlvVsAjf7uT"
+)
+_SWAGGER_UI_JS_INTEGRITY = (
+    "sha384-7FpIrfnye9wip2SqkAsMf4AwNYHk26Vh4hFxfZsWK6dr1Zr2Ig5fk25hy9lNlGHq"
+)
 
 _ERROR_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -169,6 +186,188 @@ def openapi_route(
         ),
         get_openapi,
     )
+
+
+def swagger_ui_route(
+    *,
+    openapi_path: str = "/openapi.json",
+    path: str = "/docs",
+    title: str = "API Documentation",
+    public: bool = True,
+    swagger_js_url: str = _SWAGGER_UI_JS_URL,
+    swagger_css_url: str = _SWAGGER_UI_CSS_URL,
+    swagger_favicon_url: str | None = None,
+) -> Route:
+    """Build a route serving Swagger UI for a separately composed OpenAPI route.
+
+    The default JavaScript and stylesheet are pinned CDN assets with subresource
+    integrity metadata. Override their URLs to self-host the assets; custom URLs
+    intentionally omit the default assets' integrity hashes.
+
+    ``openapi_path`` is a static route path, not an external URL. The generated
+    page references it relatively so an application mounted below an ASGI
+    ``root_path`` keeps the UI and schema aligned.
+    """
+    _validate_swagger_ui_options(
+        openapi_path=openapi_path,
+        path=path,
+        title=title,
+        swagger_js_url=swagger_js_url,
+        swagger_css_url=swagger_css_url,
+        swagger_favicon_url=swagger_favicon_url,
+    )
+    openapi_url = _relative_route_url(path, openapi_path)
+    document = _swagger_ui_html(
+        title=title,
+        openapi_url=openapi_url,
+        swagger_js_url=swagger_js_url,
+        swagger_css_url=swagger_css_url,
+        swagger_favicon_url=swagger_favicon_url,
+    )
+
+    async def get_swagger_ui(context: object) -> str:
+        return document
+
+    return route(
+        contract(
+            method="GET",
+            path=path,
+            response=str,
+            response_media_type="text/html; charset=utf-8",
+            tags=("docs",),
+            public=public,
+        ),
+        get_swagger_ui,
+    )
+
+
+def _validate_swagger_ui_options(
+    *,
+    openapi_path: object,
+    path: object,
+    title: object,
+    swagger_js_url: object,
+    swagger_css_url: object,
+    swagger_favicon_url: object,
+) -> None:
+    for label, value in (("openapi_path", openapi_path), ("path", path)):
+        if (
+            not isinstance(value, str)
+            or not value.startswith("/")
+            or "?" in value
+            or "#" in value
+            or "{" in value
+            or "}" in value
+            or "//" in value
+            or "\\" in value
+            or any(segment in {".", ".."} for segment in value.split("/"))
+        ):
+            raise ConfigurationError(
+                f"swagger_ui_route: {label} must be a static absolute route path"
+            )
+    if openapi_path == path:
+        raise ConfigurationError(
+            "swagger_ui_route: openapi_path and path must be different"
+        )
+    if not isinstance(title, str) or not title.strip():
+        raise ConfigurationError("swagger_ui_route: title must be a non-empty string")
+    for label, value in (
+        ("swagger_js_url", swagger_js_url),
+        ("swagger_css_url", swagger_css_url),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigurationError(
+                f"swagger_ui_route: {label} must be a non-empty string"
+            )
+    if swagger_favicon_url is not None and (
+        not isinstance(swagger_favicon_url, str) or not swagger_favicon_url.strip()
+    ):
+        raise ConfigurationError(
+            "swagger_ui_route: swagger_favicon_url must be a non-empty string or None"
+        )
+
+
+def _relative_route_url(page_path: str, target_path: str) -> str:
+    page_directory = posixpath.dirname(page_path.removeprefix("/")) or "."
+    return posixpath.relpath(target_path.removeprefix("/"), start=page_directory)
+
+
+def _json_for_script(value: str) -> str:
+    return json.dumps(value).replace("<", "\\u003c")
+
+
+def _asset_tag(
+    *,
+    kind: str,
+    url: str,
+    default_url: str,
+    integrity: str,
+) -> str:
+    escaped_url = escape(url, quote=True)
+    security = (
+        f' integrity="{integrity}" crossorigin="anonymous"'
+        if url == default_url
+        else ""
+    )
+    if kind == "style":
+        return f'<link rel="stylesheet" href="{escaped_url}"{security} />'
+    return f'<script src="{escaped_url}"{security}></script>'
+
+
+def _swagger_ui_html(
+    *,
+    title: str,
+    openapi_url: str,
+    swagger_js_url: str,
+    swagger_css_url: str,
+    swagger_favicon_url: str | None,
+) -> str:
+    stylesheet = _asset_tag(
+        kind="style",
+        url=swagger_css_url,
+        default_url=_SWAGGER_UI_CSS_URL,
+        integrity=_SWAGGER_UI_CSS_INTEGRITY,
+    )
+    script = _asset_tag(
+        kind="script",
+        url=swagger_js_url,
+        default_url=_SWAGGER_UI_JS_URL,
+        integrity=_SWAGGER_UI_JS_INTEGRITY,
+    )
+    favicon = (
+        ""
+        if swagger_favicon_url is None
+        else f'<link rel="icon" href="{escape(swagger_favicon_url, quote=True)}" />'
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{escape(title)}</title>
+  {stylesheet}
+  {favicon}
+  <style>body {{ margin: 0; }} .topbar {{ display: none; }}</style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  {script}
+  <script>
+    window.onload = function () {{
+      window.ui = SwaggerUIBundle({{
+        url: {_json_for_script(openapi_url)},
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        filter: true,
+        showRequestHeaders: true,
+        tryItOutEnabled: true,
+        presets: [SwaggerUIBundle.presets.apis]
+      }});
+    }};
+  </script>
+</body>
+</html>
+"""
 
 
 def _validate_document_metadata(

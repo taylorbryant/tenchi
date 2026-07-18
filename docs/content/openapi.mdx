@@ -32,7 +32,7 @@ used by authentication hooks.
 ## Serve OpenAPI
 
 ```python
-from tenchi.openapi import openapi_route
+from tenchi.openapi import openapi_route, swagger_ui_route
 from tenchi.routes import route_group
 
 
@@ -43,17 +43,27 @@ routes = route_group(
         title="Todos",
         version="1.0.0",
     ),
+    swagger_ui_route(title="Todos API"),
 )
 ```
 
 The default path is `/openapi.json`. The serving route is public by default and
-does not include itself in the document.
+does not include itself in the document. Swagger UI defaults to `/docs` and
+loads that document through a relative URL, so ASGI `root_path` mounting keeps
+both routes aligned.
+
+The default Swagger JavaScript and stylesheet are pinned CDN assets with
+subresource integrity metadata. Override `swagger_js_url=`,
+`swagger_css_url=`, and `swagger_favicon_url=` to self-host them. Set
+`public=False` on both routes when the API description requires authentication.
 
 ## Store a canonical snapshot
 
 ```shell
-uv run tenchi openapi --write openapi.json
-uv run tenchi openapi --check openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title Todos --write openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title Todos --check openapi.json
 ```
 
 `--write` produces deterministic, key-sorted JSON. `--check` is an exact
@@ -62,7 +72,8 @@ equality check suitable for a repository test.
 ## Classify changes
 
 ```shell
-uv run tenchi openapi --diff openapi-baseline.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title Todos --diff openapi-baseline.json
 ```
 
 The analyzer classifies changes as:
@@ -85,10 +96,16 @@ Breaking and unknown changes return a failing exit status. Use
 ## CI pattern
 
 ```shell
-git show "${BASE_SHA}:openapi.json" > "${RUNNER_TEMP}/baseline.json"
-uv run tenchi openapi --diff "${RUNNER_TEMP}/baseline.json"
-uv run tenchi openapi --check openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title Todos --diff-ref "$BASE_SHA" --snapshot openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title Todos --check openapi.json
 ```
+
+`--diff-ref` resolves the snapshot inside the current Git repository and reads
+`REF:PATH` without changing the working tree. Missing refs and snapshots fail
+the command. Generated CI uses the pull request's base SHA; push checks retain
+exact snapshot validation without assuming a previous commit exists.
 
 Use identical routes, title, version, description, and security options for
 generation, comparison, and snapshot checks.

@@ -10,7 +10,7 @@ from .contracts import Contract, contract
 from .errors import AppError, ConfigurationError, ErrorDef, TenchiError
 from .execution import ExecutionError, execute
 from .health import health_route
-from .openapi import openapi_route, openapi_schema
+from .openapi import openapi_route, openapi_schema, swagger_ui_route
 from .pagination import Page, PageQuery, page
 from .responses import PresentedResponse, ResponseDef, present, response
 from .routes import Route, RouteGroup, route, route_group
@@ -49,4 +49,5 @@ __all__ = [
     "response",
     "route",
     "route_group",
+    "swagger_ui_route",
 ]

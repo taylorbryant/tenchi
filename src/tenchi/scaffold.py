@@ -1,9 +1,8 @@
 """File templates for ``tenchi new``.
 
 The scaffold is the prescribed starter subset: one todos feature with
-create/list use cases, protocol ports, a memory adapter, explicit wiring,
-and tests. Templates use ``__APP_NAME__`` as the only substitution marker so
-no escaping of braces or brackets is needed.
+create/list use cases, protocol ports, SQLite runtime persistence, a memory
+test adapter, explicit lifespan wiring, service routes, CI, and tests.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ _PYPROJECT = """\
 name = "__APP_NAME__"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["tenchi"]
+dependencies = ["aiosqlite>=0.20", "tenchi"]
 
 [dependency-groups]
 dev = [
@@ -52,15 +51,22 @@ uv sync                 # install dependencies
 uv run pytest           # run tests
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
-uv run tenchi openapi --diff openapi.json   # classify API changes
-uv run tenchi openapi --check openapi.json  # verify the API snapshot
-uv run tenchi openapi --write openapi.json  # accept an intentional change
+uv run tenchi openapi --routes app.server.routes:api_routes \\
+  --title __APP_NAME__ --diff openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \\
+  --title __APP_NAME__ --check openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \\
+  --title __APP_NAME__ --write openapi.json
 uv run tenchi doctor    # check dependency direction and structure
 ```
 
 Run `openapi --diff` before using `openapi --write` to replace the baseline. In
-CI, compare against a snapshot from the merge base or previous release, not
-the snapshot committed in the same change.
+CI, the generated workflow uses `--diff-ref` to compare against the pull
+request's base commit rather than the snapshot committed in the same change.
+
+The API persists to `__APP_NAME__.db` by default. Override the location with
+`__APP_ENV_PREFIX___DATABASE`. With the development server running, browse
+Swagger UI at http://127.0.0.1:8000/docs.
 """
 
 _GITIGNORE = """\
@@ -68,6 +74,9 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+*.db
+*.db-shm
+*.db-wal
 """
 
 _SCHEMAS = """\
@@ -219,14 +228,96 @@ class MemoryTodoRepository:
         return list(self._todos.values())
 """
 
+_SQLITE_REPOSITORY = """\
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import Any
+from uuid import uuid4
+
+import aiosqlite
+
+from app.features.todos.schemas import Todo
+
+_SCHEMA = \"\"\"
+CREATE TABLE IF NOT EXISTS todos (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0
+)
+\"\"\"
+
+
+class SqliteTodoRepository:
+    def __init__(self, connection: aiosqlite.Connection) -> None:
+        self._connection = connection
+
+    async def create(self, *, title: str) -> Todo:
+        todo = Todo(id=uuid4().hex, title=title, completed=False)
+        await self._connection.execute(
+            "INSERT INTO todos (id, title, completed) VALUES (?, ?, ?)",
+            (todo.id, todo.title, int(todo.completed)),
+        )
+        return todo
+
+    async def list(self) -> list[Todo]:
+        cursor = await self._connection.execute(
+            "SELECT id, title, completed FROM todos ORDER BY rowid"
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_todo(row) for row in rows]
+
+
+async def ensure_sqlite_todo_schema(database_path: str) -> None:
+    async with aiosqlite.connect(database_path) as connection:
+        await _configure_connection(connection)
+        await connection.execute(_SCHEMA)
+        await connection.commit()
+
+
+@asynccontextmanager
+async def open_sqlite_todo_repository(
+    database_path: str,
+) -> AsyncGenerator[SqliteTodoRepository]:
+    async with aiosqlite.connect(database_path) as connection:
+        await _configure_connection(connection)
+        try:
+            yield SqliteTodoRepository(connection)
+            await connection.commit()
+        except BaseException:
+            await connection.rollback()
+            raise
+
+
+async def _configure_connection(connection: aiosqlite.Connection) -> None:
+    await connection.execute("PRAGMA busy_timeout = 5000")
+
+
+def _row_to_todo(row: Any) -> Todo:
+    return Todo(id=row[0], title=row[1], completed=bool(row[2]))
+"""
+
 _PORT_WIRING = """\
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from app.features.todos.ports import TodoRepository
 
-from .memory_todo_repository import MemoryTodoRepository
+from .sqlite_todo_repository import (
+    ensure_sqlite_todo_schema,
+    open_sqlite_todo_repository,
+)
 
 
-def create_todo_repository() -> TodoRepository:
-    return MemoryTodoRepository()
+async def ensure_schema(database_path: str) -> None:
+    await ensure_sqlite_todo_schema(database_path)
+
+
+@asynccontextmanager
+async def open_todo_repository(
+    database_path: str,
+) -> AsyncGenerator[TodoRepository]:
+    async with open_sqlite_todo_repository(database_path) as repository:
+        yield repository
 """
 
 _CONTEXT = """\
@@ -241,11 +332,23 @@ class AppContext:
 """
 
 _SERVER_ROUTES = """\
+from tenchi.health import health_route
+from tenchi.openapi import openapi_route, swagger_ui_route
 from tenchi.routes import route_group
 
 from app.features.todos.routes import routes as todo_routes
 
-routes = route_group(todo_routes)
+OPENAPI_TITLE = "__APP_NAME__"
+OPENAPI_VERSION = "0.1.0"
+
+api_routes = route_group(todo_routes)
+
+routes = route_group(
+    api_routes,
+    openapi_route(api_routes, title=OPENAPI_TITLE, version=OPENAPI_VERSION),
+    swagger_ui_route(title=f"{OPENAPI_TITLE} API"),
+    health_route(),
+)
 """
 
 _SERVER_APP = """\
@@ -256,66 +359,160 @@ Run locally with:
     uv run tenchi dev
 \"\"\"
 
+import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
+from starlette.applications import Starlette
 from tenchi.server import create_app
 
-from app.infra.port_wiring import create_todo_repository
+from app.infra.port_wiring import ensure_schema, open_todo_repository
 from app.server.context import AppContext
 from app.server.routes import routes
 
-# Repositories are process-scoped; the context wrapping them is rebuilt for
-# every request by ``create_context``.
-todo_repository = create_todo_repository()
+DATABASE_PATH = os.environ.get("__APP_ENV_PREFIX___DATABASE", "__APP_NAME__.db")
 
 
-def create_context() -> AppContext:
-    return AppContext(todos=todo_repository)
+def build_app(database_path: str = DATABASE_PATH) -> Starlette:
+    @asynccontextmanager
+    async def lifespan() -> AsyncGenerator[str]:
+        await ensure_schema(database_path)
+        yield database_path
+
+    @asynccontextmanager
+    async def create_context(path: str) -> AsyncGenerator[AppContext]:
+        async with open_todo_repository(path) as todos:
+            yield AppContext(todos=todos)
+
+    return create_app(
+        routes=routes,
+        context_factory=create_context,
+        lifespan=lifespan,
+    )
 
 
-app = create_app(routes=routes, context_factory=create_context)
+app = build_app()
 """
 
 _HTTP_TEST = """\
-from collections.abc import AsyncIterator
+from pathlib import Path
 
-import httpx
 import pytest
-from tenchi.server import create_app
+from tenchi.testing import open_client, open_http
 
-from app.infra.memory_todo_repository import MemoryTodoRepository
-from app.server.context import AppContext
-from app.server.routes import routes
-
-
-@pytest.fixture
-async def client() -> AsyncIterator[httpx.AsyncClient]:
-    repository = MemoryTodoRepository()
-    app = create_app(
-        routes=routes,
-        context_factory=lambda: AppContext(todos=repository),
-    )
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver"
-    ) as client:
-        yield client
+from app.features.todos.contracts import create_todo_contract
+from app.features.todos.schemas import CreateTodo
+from app.infra.port_wiring import ensure_schema, open_todo_repository
+from app.server.asgi import build_app
 
 
-async def test_create_and_list_todos(client: httpx.AsyncClient) -> None:
-    created = await client.post("/todos", json={"title": "Buy milk"})
-    assert created.status_code == 201
-    assert created.headers["location"] == f"/todos/{created.json()['id']}"
+async def test_create_and_list_todos_across_a_restart(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with open_client(build_app(database_path)) as client:
+        created = await client.call_with_response(
+            create_todo_contract,
+            request=CreateTodo(title="Buy milk"),
+        )
 
-    listed = await client.get("/todos")
+    assert created.headers.location == f"/todos/{created.body.id}"
+
+    async with open_http(build_app(database_path)) as http:
+        listed = await http.get("/todos")
+
     assert listed.status_code == 200
-    assert listed.json() == [created.json()]
+    assert listed.json() == [created.body.model_dump()]
+
+
+async def test_service_routes_are_available(tmp_path: Path) -> None:
+    async with open_http(build_app(str(tmp_path / "todos.db"))) as http:
+        health = await http.get("/health")
+        openapi = await http.get("/openapi.json")
+        docs = await http.get("/docs")
+
+    assert health.status_code == 200
+    assert openapi.status_code == 200
+    assert docs.headers["content-type"] == "text/html; charset=utf-8"
+
+
+async def test_failed_repository_scope_rolls_back(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "todos.db")
+    await ensure_schema(database_path)
+
+    with pytest.raises(RuntimeError, match="abort request"):
+        async with open_todo_repository(database_path) as todos:
+            await todos.create(title="Do not persist")
+            raise RuntimeError("abort request")
+
+    async with open_todo_repository(database_path) as todos:
+        assert await todos.list() == []
 """
 
 _OPENAPI_TEST = """\
 from tenchi.cli import main
 
+from app.server.routes import OPENAPI_TITLE, OPENAPI_VERSION
+
 
 def test_openapi_snapshot_is_current() -> None:
-    assert main(["openapi", "--check", "openapi.json"]) == 0
+    assert (
+        main(
+            [
+                "openapi",
+                "--routes",
+                "app.server.routes:api_routes",
+                "--title",
+                OPENAPI_TITLE,
+                "--version",
+                OPENAPI_VERSION,
+                "--check",
+                "openapi.json",
+            ]
+        )
+        == 0
+    )
+"""
+
+_CI_WORKFLOW = """\
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run pyright
+      - run: uv run pytest
+      - run: uv run tenchi doctor
+      - name: Check OpenAPI snapshot
+        run: >-
+          uv run tenchi openapi
+          --routes app.server.routes:api_routes
+          --title __APP_NAME__ --version 0.1.0
+          --check openapi.json
+      - name: Check OpenAPI compatibility
+        if: github.event_name == 'pull_request'
+        run: >-
+          uv run tenchi openapi
+          --routes app.server.routes:api_routes
+          --title __APP_NAME__ --version 0.1.0
+          --diff-ref "${{ github.event.pull_request.base.sha }}"
+          --snapshot openapi.json
 """
 
 _OPENAPI_SNAPSHOT = """\
@@ -496,6 +693,7 @@ _FILES: dict[str, str] = {
     "pyproject.toml": _PYPROJECT,
     "README.md": _README,
     ".gitignore": _GITIGNORE,
+    ".github/workflows/ci.yml": _CI_WORKFLOW,
     "openapi.json": _OPENAPI_SNAPSHOT,
     "app/__init__.py": "",
     "app/features/__init__.py": "",
@@ -512,6 +710,7 @@ _FILES: dict[str, str] = {
     "app/infra/__init__.py": "",
     "app/infra/memory_todo_repository.py": _MEMORY_REPOSITORY,
     "app/infra/port_wiring.py": _PORT_WIRING,
+    "app/infra/sqlite_todo_repository.py": _SQLITE_REPOSITORY,
     "app/server/__init__.py": "",
     "app/server/asgi.py": _SERVER_APP,
     "app/server/context.py": _CONTEXT,
@@ -526,7 +725,9 @@ _FILES: dict[str, str] = {
 def app_files(app_name: str) -> dict[str, str]:
     """Return the scaffold as a mapping of relative path to file content."""
     return {
-        path: content.replace("__APP_NAME__", app_name).replace(
+        path: content.replace("__APP_NAME__", app_name)
+        .replace("__APP_ENV_PREFIX__", app_name.upper())
+        .replace(
             "__UNSUPPORTED_MEDIA_TYPE_DESCRIPTION__",
             "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
         )

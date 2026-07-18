@@ -22,8 +22,9 @@ uv sync
 uv run tenchi dev
 ```
 
-The generated app includes a todos feature, an in-memory adapter, tests, and
-explicit server wiring. With the server running:
+The generated app includes a todos feature, SQLite persistence, memory-backed
+unit tests, Swagger UI, health and OpenAPI routes, and a CI compatibility gate.
+With the server running, open `http://127.0.0.1:8000/docs` or call it directly:
 
 ```sh
 curl -X POST http://127.0.0.1:8000/todos \
@@ -114,7 +115,8 @@ The main pieces are:
 - Declared application errors with a stable JSON envelope.
 - A named exception hierarchy that distinguishes configuration mistakes from
   runtime application and transport failures.
-- A contract-driven async client and OpenAPI 3.1 generation.
+- A contract-driven async client, OpenAPI 3.1 generation, and optional Swagger
+  UI route.
 - Lifespan resources, request-scoped contexts, authentication hooks, middleware,
   request deadlines, outcome observers, pagination, health checks, and
   in-process testing helpers.
@@ -134,7 +136,8 @@ def authenticate(info: RequestInfo, context: AppContext) -> AppContext | None:
 
 When OpenAPI security schemes are configured, public operations receive an
 empty per-operation security requirement. `health_route()` and
-`openapi_route()` are public by default; pass `public=False` to protect them.
+`openapi_route()` and `swagger_ui_route()` are public by default; pass
+`public=False` to protect them.
 The metadata itself does not authenticate requests—application hooks remain in
 control.
 
@@ -204,6 +207,7 @@ tenchi make use-case notes create_note
 tenchi routes
 tenchi openapi
 tenchi openapi --diff openapi.json
+tenchi openapi --diff-ref origin/main --snapshot openapi.json
 tenchi openapi --check openapi.json
 tenchi openapi --write openapi.json
 tenchi doctor
@@ -214,13 +218,13 @@ tenchi dev
 snapshot, run `openapi --diff` to classify changes as breaking, additive,
 metadata-only, or unknown. Breaking and unknown changes return a non-zero
 status; additive and metadata-only changes pass. Use `--diff-format json` for
-machine-readable output. `openapi --check` remains the exact drift check for
-tests and CI. Pass the same `--routes`, `--title`, `--version`, `--description`,
-and `--security` options in every command when your document uses them. Run
-`--diff` before replacing the baseline with `--write`; in CI, compare
-against the snapshot from the merge base or previous release rather than the
-snapshot committed in the same change. `--output` and `-o` remain aliases for
-`--write`. For programmatic checks, import `analyze_openapi_compatibility` from
+machine-readable output. `--diff-ref` reads the snapshot at a Git commit, which
+keeps a pull-request gate historical even when the branch updates its snapshot.
+`openapi --check` remains the exact drift check for tests and CI. Pass the same
+`--routes`, `--title`, `--version`, `--description`, and `--security` options in
+every command when your document uses them. Run `--diff` before replacing the
+baseline with `--write`. `--output` and `-o` remain aliases for `--write`. For
+programmatic checks, import `analyze_openapi_compatibility` from
 `tenchi.compatibility`.
 
 Run `tenchi <command> --help` for command options.

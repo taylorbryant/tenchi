@@ -9,6 +9,26 @@ from tenchi.cli import main
 EXAMPLE_DIR = Path(__file__).parent.parent / "examples" / "todos"
 
 
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def _tenchi(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "tenchi.cli", *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def test_new_scaffolds_a_working_app(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -25,9 +45,11 @@ def test_new_scaffolds_a_working_app(
     )
     assert (root / "app/features/todos/use_cases/create_todo.py").is_file()
     assert (root / "app/infra/port_wiring.py").is_file()
+    assert (root / "app/infra/sqlite_todo_repository.py").is_file()
     assert (root / "app/shared/errors.py").is_file()
     assert (root / "openapi.json").is_file()
     assert (root / "tests/test_openapi_snapshot.py").is_file()
+    assert (root / ".github/workflows/ci.yml").is_file()
 
     # The generated app imports and composes an ASGI application using the
     # tenchi installed in this environment.
@@ -45,19 +67,133 @@ def test_new_scaffolds_a_working_app(
     assert result.stdout.strip() == "Starlette"
 
 
-def test_generated_app_tests_pass(
+def test_generated_app_checks_pass(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     assert main(["new", "my_app"]) == 0
 
-    result = subprocess.run(
+    commands = [
+        [sys.executable, "-m", "ruff", "format", "--check", "."],
+        [sys.executable, "-m", "ruff", "check", "."],
+        ["pyright"],
         [sys.executable, "-m", "pytest", "-q"],
-        cwd=tmp_path / "my_app",
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "tenchi.cli", "doctor"],
+    ]
+    for command in commands:
+        result = subprocess.run(
+            command,
+            cwd=tmp_path / "my_app",
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_openapi_diff_ref_reads_the_snapshot_from_git(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline")
+    capsys.readouterr()
+
+    command = [
+        "openapi",
+        "--routes",
+        "app.server.routes:api_routes",
+        "--title",
+        "my_app",
+        "--version",
+        "0.1.0",
+    ]
+    compatible_result = _tenchi(
+        root, *command, "--diff-ref", "HEAD", "--diff-format", "json"
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert compatible_result.returncode == 0, compatible_result.stderr
+    compatible = json.loads(compatible_result.stdout)
+    assert compatible["baseline"] == "HEAD:openapi.json"
+    assert compatible["compatible"] is True
+
+    snapshot = json.loads((root / "openapi.json").read_text())
+    snapshot["paths"]["/todos"]["post"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ]["properties"]["title"]["minLength"] = 0
+    (root / "openapi.json").write_text(json.dumps(snapshot))
+    _git(root, "add", "openapi.json")
+    _git(root, "commit", "-qm", "looser baseline")
+
+    breaking_result = _tenchi(root, *command, "--diff-ref", "HEAD")
+    assert breaking_result.returncode == 1
+    report = breaking_result.stdout
+    assert "HEAD:openapi.json" in report
+    assert "BREAKING" in report
+
+
+def test_openapi_diff_ref_reports_git_and_path_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline")
+    capsys.readouterr()
+    command = [
+        "openapi",
+        "--routes",
+        "app.server.routes:api_routes",
+        "--title",
+        "my_app",
+    ]
+
+    missing = _tenchi(root, *command, "--diff-ref", "missing")
+    assert missing.returncode == 1
+    assert "could not resolve Git ref" in missing.stderr
+
+    missing_snapshot = _tenchi(
+        root, *command, "--diff-ref", "HEAD", "--snapshot", "missing.json"
+    )
+    assert missing_snapshot.returncode == 1
+    assert "could not read baseline" in missing_snapshot.stderr
+
+    (root / "invalid.json").write_text("not JSON")
+    _git(root, "add", "invalid.json")
+    _git(root, "commit", "-qm", "invalid baseline")
+    invalid_snapshot = _tenchi(
+        root, *command, "--diff-ref", "HEAD", "--snapshot", "invalid.json"
+    )
+    assert invalid_snapshot.returncode == 1
+    assert "is not valid JSON" in invalid_snapshot.stderr
+
+    outside = _tenchi(
+        root,
+        *command,
+        "--diff-ref",
+        "HEAD",
+        "--snapshot",
+        str(tmp_path.parent / "outside.json"),
+    )
+    assert outside.returncode == 1
+    assert "must resolve inside" in outside.stderr
+
+    snapshot_only = _tenchi(root, *command, "--snapshot", "openapi.json")
+    assert snapshot_only.returncode == 1
+    assert "--snapshot requires --diff-ref" in snapshot_only.stderr
 
 
 def test_new_rejects_invalid_names(

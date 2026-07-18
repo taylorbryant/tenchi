@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, computed_field, create_model
 
 from tenchi.contracts import contract
 from tenchi.errors import ConfigurationError, ErrorDef
-from tenchi.openapi import openapi_route, openapi_schema
+from tenchi.openapi import openapi_route, openapi_schema, swagger_ui_route
 from tenchi.routes import route, route_group
 from tenchi.server import create_app
 
@@ -847,6 +847,98 @@ def test_openapi_route_is_public_by_default_and_can_be_protected() -> None:
         openapi_route(group, title="Items", version="1", public=False).contract.public
         is False
     )
+
+
+async def test_swagger_ui_route_serves_a_pinned_root_path_safe_page() -> None:
+    group = make_group()
+    app = create_app(
+        routes=route_group(
+            group,
+            openapi_route(group, title="Items", version="1.2.3"),
+            swagger_ui_route(title="Items <API>"),
+        ),
+        context_factory=Context,
+    )
+
+    transport = httpx.ASGITransport(app=app, root_path="/service")
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver/service"
+    ) as client:
+        response = await client.get("/docs")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    assert "<title>Items &lt;API&gt;</title>" in response.text
+    assert 'url: "openapi.json"' in response.text
+    assert "swagger-ui-dist@5.32.9" in response.text
+    assert (
+        'integrity="sha384-9Q2fpS+xeS4ffJy6CagnwoUl+4ldAYhOs9pgZuEKxypVModhmZFzeMlvVsAjf7uT"'
+        in response.text
+    )
+    assert (
+        'integrity="sha384-7FpIrfnye9wip2SqkAsMf4AwNYHk26Vh4hFxfZsWK6dr1Zr2Ig5fk25hy9lNlGHq"'
+        in response.text
+    )
+
+
+async def test_swagger_ui_route_supports_protection_and_self_hosted_assets() -> None:
+    group = make_group()
+    declared = swagger_ui_route(
+        path="/internal/docs/ui",
+        openapi_path="/internal/openapi.json",
+        public=False,
+        swagger_js_url="/assets/swagger.js",
+        swagger_css_url="/assets/swagger.css",
+        swagger_favicon_url="/assets/favicon.svg",
+    )
+
+    assert declared.contract.public is False
+    assert declared.contract.response_media_type == "text/html; charset=utf-8"
+
+    app = create_app(
+        routes=route_group(
+            group,
+            openapi_route(
+                group,
+                title="Items",
+                version="1",
+                path="/internal/openapi.json",
+            ),
+            declared,
+        ),
+        context_factory=Context,
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
+        response = await client.get("/internal/docs/ui")
+
+    assert 'url: "../openapi.json"' in response.text
+    assert 'src="/assets/swagger.js"' in response.text
+    assert 'href="/assets/swagger.css"' in response.text
+    assert 'href="/assets/favicon.svg"' in response.text
+    assert "integrity=" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"path": "docs"}, "path must be a static absolute route path"),
+        ({"path": "/docs/../ui"}, "path must be a static absolute route path"),
+        ({"openapi_path": "/openapi/{name}"}, "openapi_path must be"),
+        ({"openapi_path": "/docs"}, "must be different"),
+        ({"title": " "}, "title must be a non-empty string"),
+        ({"swagger_js_url": ""}, "swagger_js_url must be"),
+        ({"swagger_css_url": ""}, "swagger_css_url must be"),
+        ({"swagger_favicon_url": ""}, "swagger_favicon_url must be"),
+    ],
+)
+def test_swagger_ui_route_rejects_invalid_options(
+    kwargs: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        swagger_ui_route(**kwargs)  # pyright: ignore[reportArgumentType]
 
 
 def test_request_bodies_document_framework_body_errors() -> None:
