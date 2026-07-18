@@ -1,8 +1,5 @@
-"use client";
-
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { docsRoutes } from "@/lib/docs";
+import { type DocsPath, getAdjacentDocsRoutes } from "@/lib/docs";
 
 function Card({
   label,
@@ -30,15 +27,8 @@ function Card({
   );
 }
 
-export function PrevNext() {
-  const pathname = usePathname();
-  const index = docsRoutes.findIndex((route) => route.path === pathname);
-
-  if (index === -1) return null;
-
-  const previous = index > 0 ? docsRoutes[index - 1] : undefined;
-  const next =
-    index < docsRoutes.length - 1 ? docsRoutes[index + 1] : undefined;
+export function PrevNext({ path }: { path: DocsPath }) {
+  const { previous, next } = getAdjacentDocsRoutes(path);
 
   if (!previous && !next) return null;
 

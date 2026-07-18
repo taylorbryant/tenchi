@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import GithubSlugger from "github-slugger";
-import { docsRoutes } from "./lib/docs";
+import { docsRoutes, getAdjacentDocsRoutes } from "./lib/docs";
 import { cleanPage } from "./scripts/build-llms-txt";
 
 const docsRoot = import.meta.dir;
@@ -39,6 +39,21 @@ describe("documentation", () => {
         .map((route) => pagePath(route.path))
         .filter((file) => !existsSync(file)),
     ).toEqual([]);
+  });
+
+  test("every registered route has canonical previous and next navigation", () => {
+    for (const [index, route] of docsRoutes.entries()) {
+      expect(getAdjacentDocsRoutes(route.path)).toEqual({
+        previous: index > 0 ? docsRoutes[index - 1] : undefined,
+        next: index < docsRoutes.length - 1 ? docsRoutes[index + 1] : undefined,
+      });
+    }
+
+    const pageSource = readFileSync(
+      path.join(docsRoot, "app/[[...slug]]/page.tsx"),
+      "utf8",
+    );
+    expect(pageSource).toContain("<PrevNext path={path} />");
   });
 
   test("internal links resolve to registered pages and headings", () => {

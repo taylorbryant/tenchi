@@ -189,6 +189,17 @@ export function getDocsRoute(path: DocsPath) {
   return docsRoutes.find((route) => route.path === path);
 }
 
+export function getAdjacentDocsRoutes(path: DocsPath): {
+  previous: DocsRoute | undefined;
+  next: DocsRoute | undefined;
+} {
+  const index = docsRoutes.findIndex((route) => route.path === path);
+  return {
+    previous: index > 0 ? docsRoutes[index - 1] : undefined,
+    next: index < docsRoutes.length - 1 ? docsRoutes[index + 1] : undefined,
+  };
+}
+
 export function getSectionLabel(path: string): string | undefined {
   return docsSections.find((section) =>
     section.routes.some((route) => route.path === path),

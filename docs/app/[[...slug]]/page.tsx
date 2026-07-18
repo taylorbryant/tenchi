@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PrevNext } from "@/components/prev-next";
 import { docsContent } from "@/lib/content";
 import { type DocsPath, docsRoutes, getDocsRoute } from "@/lib/docs";
 import { createPageMetadata } from "@/lib/seo";
@@ -34,5 +35,10 @@ export default async function DocsPage({ params }: PageProps) {
   const path = knownPath((await params).slug);
   if (!path) notFound();
   const Content = docsContent[path];
-  return <Content />;
+  return (
+    <>
+      <Content />
+      <PrevNext path={path} />
+    </>
+  );
 }

@@ -3,7 +3,6 @@ import path from "node:path";
 import type { Metadata } from "next";
 import { Footer } from "@/components/footer";
 import { Nav } from "@/components/nav";
-import { PrevNext } from "@/components/prev-next";
 import { Toc } from "@/components/toc";
 import { withBasePath } from "@/lib/base-path";
 import { getSiteUrl, siteDescription, siteName } from "@/lib/seo";
@@ -69,7 +68,6 @@ export default function RootLayout({
           className="mx-auto max-w-3xl px-6 py-14 lg:px-12 lg:py-20"
         >
           {children}
-          <PrevNext />
         </main>
         <Toc />
         <Footer />
