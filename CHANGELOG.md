@@ -40,6 +40,8 @@ versions may change the public API.
 - The documentation now uses a green visual identity and a lowercase `t` mark
   in both light and dark themes, including its favicon and installable-site
   metadata.
+- Dark-mode code blocks now use a custom emerald, sage, and warm-amber syntax
+  palette designed for the documentation site's green visual identity.
 - Multiple successful responses now have one authoritative declaration:
   `response(Body, status=...)` returns a `ResponseDef`,
   `contract(responses=(...))` derives the aggregate body and header types, and
@@ -61,10 +63,10 @@ versions may change the public API.
 
 ### Fixed
 
-- The documentation shell now tracks Beignet's shared navigation, search,
-  theme, table-of-contents, and code-copying behavior. Search keeps a 16px
-  mobile input to prevent iOS Safari focus zoom, and mobile overlays contain
-  their scrolling.
+- The documentation shell now has consistent navigation, search, theme,
+  table-of-contents, and code-copying behavior. Search keeps a 16px mobile
+  input to prevent iOS Safari focus zoom, and mobile overlays contain their
+  scrolling.
 
 ### Removed
 

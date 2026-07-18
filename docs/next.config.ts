@@ -1,5 +1,6 @@
 import createMDX from "@next/mdx";
 import type { NextConfig } from "next";
+import { tenchiDarkTheme } from "./lib/syntax-theme";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -10,7 +11,7 @@ const withMDX = createMDX({
       [
         "@shikijs/rehype",
         {
-          themes: { light: "github-light", dark: "dracula" },
+          themes: { light: "github-light", dark: tenchiDarkTheme },
           addLanguageClass: true,
         },
       ],
