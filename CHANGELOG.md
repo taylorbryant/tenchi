@@ -11,7 +11,8 @@ versions may change the public API.
 
 - A version-aware Next.js documentation site with task-oriented MDX guides,
   responsive navigation, local search, anchored tables of contents, light and
-  dark themes, generated `llms.txt` files, and a static GitHub Pages export.
+  dark themes, generated `llms.txt` files, and a static GitHub Pages export at
+  [tenchi.io](https://tenchi.io/).
   The site now separates the quickstart, mental model, core runtime,
   authentication, testing, operations, comparisons, and API reference into a
   coherent learning path.

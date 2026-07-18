@@ -38,8 +38,7 @@ jobs:
       - name: Build documentation
         working-directory: docs
         env:
-          NEXT_PUBLIC_BASE_PATH: /tenchi
-          NEXT_PUBLIC_SITE_URL: https://taylorbryant.github.io/tenchi
+          NEXT_PUBLIC_SITE_URL: https://tenchi.io
         run: bun run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
