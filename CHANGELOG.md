@@ -5,6 +5,8 @@ All notable changes to Tenchi are documented here. The format follows
 [Semantic Versioning](https://semver.org/) with pre-1.0 semantics: minor
 versions may change the public API.
 
+## [Unreleased]
+
 ## [0.8.0] - 2026-07-18
 
 ### Added
