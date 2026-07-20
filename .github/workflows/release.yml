@@ -59,13 +59,5 @@ jobs:
           uv add "$wheel"
           uv run tenchi make feature notes
           uv run tenchi make use-case notes create_note
-          uv run ruff format --check .
-          uv run ruff check .
-          uv run pyright
-          uv run pytest
-          uv run tenchi openapi \
-            --routes app.server.routes:api_routes \
-            --title generated_app --version 0.1.0 \
-            --check openapi.json
-          uv run tenchi doctor
+          uv run tenchi check
       - run: uv publish --trusted-publishing always

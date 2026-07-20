@@ -10,18 +10,24 @@ uvx tenchi new my_app
 ```
 
 Names use `snake_case`. The generated project includes a todos feature,
-SQLite persistence with request-scoped transactions, a memory test adapter, strict checks,
-integration tests, Swagger UI, an OpenAPI snapshot, and GitHub Actions CI.
+SQLite persistence with request-scoped transactions, a memory test adapter,
+strict checks, integration tests, Swagger UI, an OpenAPI snapshot, a concise
+`AGENTS.md`, and GitHub Actions CI.
 
 ## Generate application slices
 
 ```shell
 uv run tenchi make feature notes
+uv run tenchi make feature notes --dry-run
 uv run tenchi make use-case notes create_note
+uv run tenchi make use-case notes create_note --json
 ```
 
 Generators create files and print explicit wiring instructions. They never
-rewrite route or infrastructure modules.
+rewrite route or infrastructure modules. `--dry-run` validates the operation
+and lists every file without writing it. `--json` emits the same result as a
+versioned object with the app root, artifact identity, files, follow-up steps,
+and any error.
 
 ## Inspect routes
 
@@ -57,10 +63,31 @@ compatibility](/openapi) for the safe baseline workflow.
 
 ```shell
 uv run tenchi doctor
+uv run tenchi doctor --json
 ```
 
 Doctor validates the canonical application structure, dependency direction,
-and authorization consistency. Findings include the file and line involved.
+and authorization consistency. Findings include a stable code, severity, file,
+line, and message in the versioned JSON result.
+
+## Run every check
+
+```shell
+uv run tenchi check
+uv run tenchi check --json
+```
+
+Check runs Ruff format, Ruff lint, Pyright, pytest, doctor, and the exact OpenAPI
+snapshot check. Every step runs even when an earlier one fails. Human output
+shows a compact status list; JSON includes stable step names, commands, exit
+codes, durations, and bounded failure output. Use `--timeout` to change the
+per-step limit.
+
+OpenAPI defaults come from literal top-level `OPENAPI_TITLE`, `OPENAPI_VERSION`,
+optional `OPENAPI_DESCRIPTION`, and optional `OPENAPI_SECURITY` declarations in
+the module selected by `--routes`; command flags override them. The route target
+defaults to `app.server.routes:api_routes`, and the snapshot defaults to
+`openapi.json`.
 
 ## Run development
 

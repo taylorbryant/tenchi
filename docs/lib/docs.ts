@@ -142,7 +142,7 @@ export const docsSections = [
         path: "/cli",
         title: "CLI",
         description:
-          "Create applications, generate slices, inspect routes, manage OpenAPI snapshots, check architecture, and run development servers.",
+          "Create applications, preview generated slices, inspect routes, manage OpenAPI snapshots, and run versioned agent-readable checks.",
         priority: 0.85,
       },
       {

@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -48,8 +49,12 @@ def test_new_scaffolds_a_working_app(
     assert (root / "app/infra/sqlite_todo_repository.py").is_file()
     assert (root / "app/shared/errors.py").is_file()
     assert (root / "openapi.json").is_file()
+    assert (root / "AGENTS.md").is_file()
     assert (root / "tests/test_openapi_snapshot.py").is_file()
     assert (root / ".github/workflows/ci.yml").is_file()
+    assert "uv run tenchi check" in (root / "AGENTS.md").read_text()
+    assert "app.server.routes:api_routes" in (root / "AGENTS.md").read_text()
+    assert "uv run tenchi check" in (root / ".github/workflows/ci.yml").read_text()
 
     # The generated app imports and composes an ASGI application using the
     # tenchi installed in this environment.
@@ -73,21 +78,67 @@ def test_generated_app_checks_pass(
     monkeypatch.chdir(tmp_path)
     assert main(["new", "my_app"]) == 0
 
-    commands = [
-        [sys.executable, "-m", "ruff", "format", "--check", "."],
-        [sys.executable, "-m", "ruff", "check", "."],
-        ["pyright"],
-        [sys.executable, "-m", "pytest", "-q"],
-        [sys.executable, "-m", "tenchi.cli", "doctor"],
+    result = _tenchi(tmp_path / "my_app", "check", "--json")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["schema_version"] == 1
+    assert report["ok"] is True
+    assert report["counts"] == {"passed": 6, "failed": 0, "total": 6}
+    assert [step["name"] for step in report["steps"]] == [
+        "ruff format",
+        "ruff",
+        "pyright",
+        "pytest",
+        "doctor",
+        "openapi",
     ]
-    for command in commands:
-        result = subprocess.run(
-            command,
-            cwd=tmp_path / "my_app",
-            capture_output=True,
-            text=True,
+
+
+def test_check_discovers_an_openapi_description(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    routes_path = root / "app/server/routes.py"
+    routes_path.write_text(
+        routes_path.read_text().replace(
+            "OPENAPI_DESCRIPTION: str | None = None",
+            'OPENAPI_DESCRIPTION: str | None = "Generated API"',
         )
-        assert result.returncode == 0, result.stdout + result.stderr
+    )
+    written = _tenchi(
+        root,
+        "openapi",
+        "--routes",
+        "app.server.routes:api_routes",
+        "--title",
+        "my_app",
+        "--version",
+        "0.1.0",
+        "--description",
+        "Generated API",
+        "--write",
+        "openapi.json",
+    )
+    assert written.returncode == 0, written.stderr
+
+    result = _tenchi(root, "check", "--json")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    openapi_step = report["steps"][-1]
+    assert openapi_step["status"] == "passed"
+    assert openapi_step["command"][8:10] == ["--description", "Generated API"]
+
+
+@pytest.mark.parametrize("timeout", ["nan", "inf", "0", "-1"])
+def test_check_rejects_non_finite_or_non_positive_timeouts(timeout: str) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["check", "--timeout", timeout])
+
+    assert raised.value.code == 2
 
 
 def test_openapi_diff_ref_reads_the_snapshot_from_git(
@@ -273,6 +324,106 @@ def test_make_feature_scaffolds_importable_skeleton(
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "0"
+
+
+def test_make_dry_run_and_json_share_a_versioned_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    capsys.readouterr()
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+
+    assert main(["make", "feature", "notes", "--dry-run", "--json"]) == 0
+    planned = json.loads(capsys.readouterr().out)
+
+    assert planned["schema_version"] == 1
+    assert planned["ok"] is True
+    assert planned["dry_run"] is True
+    assert planned["artifact"] == "feature"
+    assert "app/features/notes/contracts.py" in planned["files"]
+    assert not (root / "app/features/notes").exists()
+
+    assert main(["make", "feature", "notes", "--json"]) == 0
+    created = json.loads(capsys.readouterr().out)
+    assert created["files"] == planned["files"]
+    assert created["dry_run"] is False
+    assert (root / "app/features/notes/contracts.py").is_file()
+
+    assert (
+        main(
+            [
+                "make",
+                "use-case",
+                "notes",
+                "create_note",
+                "--dry-run",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    use_case = json.loads(capsys.readouterr().out)
+    assert use_case["feature"] == "notes"
+    assert use_case["files"] == [
+        "app/features/notes/use_cases/create_note.py",
+        "app/features/notes/tests/test_create_note.py",
+    ]
+    assert not (root / "app/features/notes/use_cases/create_note.py").exists()
+
+
+def test_make_json_reports_errors_without_writing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["make", "feature", "notes", "--json"]) == 1
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["schema_version"] == 1
+    assert result["ok"] is False
+    assert result["files"] == []
+    assert "app/features/ not found" in result["error"]
+
+
+def test_make_json_rolls_back_a_partial_filesystem_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+    capsys.readouterr()
+
+    original_replace = Path.replace
+    replace_calls = 0
+
+    def fail_second_replace(source: Path, target: Path) -> Path:
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 2:
+            raise OSError("simulated filesystem failure")
+        return original_replace(source, target)
+
+    with monkeypatch.context() as failure:
+        failure.setattr(Path, "replace", fail_second_replace)
+        assert main(["make", "feature", "notes", "--json"]) == 1
+
+    failed = json.loads(capsys.readouterr().out)
+    assert failed["ok"] is False
+    assert failed["files"] == []
+    assert "could not create files" in failed["error"]
+    assert not (root / "app/features/notes").exists()
+
+    assert main(["make", "feature", "notes", "--json"]) == 0
+    assert (root / "app/features/notes/contracts.py").is_file()
 
 
 def test_make_feature_requires_app_root_and_refuses_duplicates(

@@ -19,12 +19,14 @@ Create and run a working application:
 uvx tenchi new my_app
 cd my_app
 uv sync
+uv run tenchi check
 uv run tenchi dev
 ```
 
 The generated app includes a todos feature, SQLite persistence, memory-backed
-unit tests, Swagger UI, health and OpenAPI routes, and a CI compatibility gate.
-With the server running, open `http://127.0.0.1:8000/docs` or call it directly:
+unit tests, Swagger UI, health and OpenAPI routes, an agent guide, and a CI
+compatibility gate. With the server running, open
+`http://127.0.0.1:8000/docs` or call it directly:
 
 ```sh
 curl -X POST http://127.0.0.1:8000/todos \
@@ -202,15 +204,17 @@ outcomes, request observation, deadlines, and background work.
 
 ```sh
 tenchi new my_app
-tenchi make feature notes
-tenchi make use-case notes create_note
+tenchi make feature notes --dry-run
+tenchi make feature notes --json
+tenchi make use-case notes create_note --dry-run
 tenchi routes
 tenchi openapi
 tenchi openapi --diff openapi.json
 tenchi openapi --diff-ref origin/main --snapshot openapi.json
 tenchi openapi --check openapi.json
 tenchi openapi --write openapi.json
-tenchi doctor
+tenchi doctor --json
+tenchi check
 tenchi dev
 ```
 
@@ -226,6 +230,12 @@ every command when your document uses them. Run `--diff` before replacing the
 baseline with `--write`. `--output` and `-o` remain aliases for `--write`. For
 programmatic checks, import `analyze_openapi_compatibility` from
 `tenchi.compatibility`.
+
+Generator `--dry-run` output lists every file without writing it. `make`,
+`doctor`, and `check` accept `--json` and return versioned results for agents and
+automation. `tenchi check` runs Ruff formatting and linting, Pyright, pytest,
+doctor, and the OpenAPI snapshot check even when an earlier step fails; failed
+output is bounded and each step reports its duration.
 
 Run `tenchi <command> --help` for command options.
 

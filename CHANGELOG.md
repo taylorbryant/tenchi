@@ -7,6 +7,24 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- Agent-ready CLI results: `tenchi doctor --json` emits stable diagnostic
+  codes, `tenchi make feature|use-case` supports `--dry-run` and versioned JSON,
+  and `tenchi check` runs Ruff, Pyright, pytest, doctor, and the OpenAPI snapshot
+  check in one complete pass with durations and bounded failure output.
+- `tenchi new` now includes a concise `AGENTS.md` describing the application
+  structure, dependency rules, generator workflow, and validation loop. The
+  generated README and CI use `tenchi check` as the canonical project gate.
+
+### Fixed
+
+- `tenchi check` now discovers literal OpenAPI descriptions, keeps subprocess
+  output bounded in memory while commands run, and supplies the active virtual
+  environment when invoked through an absolute console-script path.
+- Failed feature and use-case generation now returns a structured error and
+  rolls back files and directories created by the interrupted operation.
+
 ## [0.9.0] - 2026-07-18
 
 ### Added

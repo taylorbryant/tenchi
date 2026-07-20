@@ -48,7 +48,7 @@ A [Tenchi](https://github.com/taylorbryant/tenchi) application.
 
 ```sh
 uv sync                 # install dependencies
-uv run pytest           # run tests
+uv run tenchi check     # run every project check
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
 uv run tenchi openapi --routes app.server.routes:api_routes \\
@@ -67,6 +67,60 @@ request's base commit rather than the snapshot committed in the same change.
 The API persists to `__APP_NAME__.db` by default. Override the location with
 `__APP_ENV_PREFIX___DATABASE`. With the development server running, browse
 Swagger UI at http://127.0.0.1:8000/docs.
+"""
+
+_AGENTS = """\
+# Tenchi application guide
+
+This application uses Tenchi's prescribed architecture: contracts define the
+HTTP boundary, plain async use cases own behavior, protocols describe required
+infrastructure, and server composition wires concrete adapters.
+
+## Working loop
+
+1. Read the feature's schemas, contracts, routes, use cases, ports, and tests
+   before changing it.
+2. Prefer `uv run tenchi make feature <name> --dry-run` and
+   `uv run tenchi make use-case <feature> <name> --dry-run` before creating
+   framework-shaped files manually.
+3. Keep explicit wiring visible in `app/server/routes.py`,
+   `app/infra/port_wiring.py`, and `app/server/asgi.py`.
+4. Run `uv run tenchi check` after a coherent change and treat every failed
+   step as unfinished work.
+
+Use `--json` with `tenchi routes`, `tenchi doctor`, `tenchi check`, and
+`tenchi make ...` when structured output is more useful than terminal text.
+
+## Placement and dependency direction
+
+- `app/features/<feature>/contracts.py` owns HTTP declarations.
+- `schemas.py` owns Pydantic boundary and domain models.
+- `ports.py` owns `typing.Protocol` interfaces needed by the feature.
+- `policy.py` owns pure authorization rules for subjects in the feature.
+- `routes.py` binds contracts to use cases; it never imports infrastructure.
+- `use_cases/` contains one plain async function per workflow. Use cases may
+  depend on schemas, ports, policies, shared code, and `app.server.context`, but
+  never concrete infrastructure, routes, or the Tenchi/Starlette runtime.
+- `app/infra/` implements ports and never imports use cases, contracts, routes,
+  or server composition.
+- `app/server/` is the composition root and may import every application layer.
+- `app/shared/` never imports features.
+
+Authentication belongs in boundary hooks. Authorization belongs in use cases
+and pure policy functions. Declare every expected `AppError` on its contract or
+route group; undeclared application errors intentionally become framework 500s.
+
+## Change checklist
+
+- Update the contract, use case, route binding, tests, and OpenAPI snapshot
+  together when an operation changes.
+- Test use cases directly with memory adapters; use `tenchi.testing` for HTTP
+  integration tests so lifespan resources run.
+- Run `tenchi openapi --routes app.server.routes:api_routes --title __APP_NAME__
+  --version 0.1.0 --diff openapi.json` before replacing the snapshot with
+  `--write`; preserve those metadata flags when writing it.
+- Do not hand-edit generated files into a different application structure to
+  avoid a doctor finding; fix the dependency or placement problem instead.
 """
 
 _GITIGNORE = """\
@@ -340,12 +394,18 @@ from app.features.todos.routes import routes as todo_routes
 
 OPENAPI_TITLE = "__APP_NAME__"
 OPENAPI_VERSION = "0.1.0"
+OPENAPI_DESCRIPTION: str | None = None
 
 api_routes = route_group(todo_routes)
 
 routes = route_group(
     api_routes,
-    openapi_route(api_routes, title=OPENAPI_TITLE, version=OPENAPI_VERSION),
+    openapi_route(
+        api_routes,
+        title=OPENAPI_TITLE,
+        version=OPENAPI_VERSION,
+        description=OPENAPI_DESCRIPTION,
+    ),
     swagger_ui_route(title=f"{OPENAPI_TITLE} API"),
     health_route(),
 )
@@ -450,20 +510,26 @@ async def test_failed_repository_scope_rolls_back(tmp_path: Path) -> None:
 _OPENAPI_TEST = """\
 from tenchi.cli import main
 
-from app.server.routes import OPENAPI_TITLE, OPENAPI_VERSION
+from app.server.routes import OPENAPI_DESCRIPTION, OPENAPI_TITLE, OPENAPI_VERSION
+
+OPENAPI_ARGS = [
+    "openapi",
+    "--routes",
+    "app.server.routes:api_routes",
+    "--title",
+    OPENAPI_TITLE,
+    "--version",
+    OPENAPI_VERSION,
+]
+if OPENAPI_DESCRIPTION is not None:
+    OPENAPI_ARGS.extend(("--description", OPENAPI_DESCRIPTION))
 
 
 def test_openapi_snapshot_is_current() -> None:
     assert (
         main(
             [
-                "openapi",
-                "--routes",
-                "app.server.routes:api_routes",
-                "--title",
-                OPENAPI_TITLE,
-                "--version",
-                OPENAPI_VERSION,
+                *OPENAPI_ARGS,
                 "--check",
                 "openapi.json",
             ]
@@ -494,17 +560,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
-      - run: uv run ruff format --check .
-      - run: uv run ruff check .
-      - run: uv run pyright
-      - run: uv run pytest
-      - run: uv run tenchi doctor
-      - name: Check OpenAPI snapshot
-        run: >-
-          uv run tenchi openapi
-          --routes app.server.routes:api_routes
-          --title __APP_NAME__ --version 0.1.0
-          --check openapi.json
+      - run: uv run tenchi check
       - name: Check OpenAPI compatibility
         if: github.event_name == 'pull_request'
         run: >-
@@ -692,6 +748,7 @@ _OPENAPI_SNAPSHOT = """\
 _FILES: dict[str, str] = {
     "pyproject.toml": _PYPROJECT,
     "README.md": _README,
+    "AGENTS.md": _AGENTS,
     ".gitignore": _GITIGNORE,
     ".github/workflows/ci.yml": _CI_WORKFLOW,
     "openapi.json": _OPENAPI_SNAPSHOT,

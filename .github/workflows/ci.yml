@@ -44,9 +44,7 @@ jobs:
           --check openapi.json
       # The taskboard example is a standalone project consuming tenchi as
       # a path dependency; it gets its own environment and checks.
-      - run: uv run --directory examples/taskboard pytest
-      - run: uv run --directory examples/taskboard pyright
-      - run: uv run --directory examples/taskboard tenchi doctor
+      - run: uv run --directory examples/taskboard tenchi check
       - name: Check taskboard OpenAPI compatibility
         run: >-
           uv run --directory examples/taskboard tenchi openapi
@@ -54,10 +52,3 @@ jobs:
           --title Taskboard --version 0.1.0
           --security '{"bearerAuth":{"type":"http","scheme":"bearer"}}'
           --diff "${RUNNER_TEMP}/taskboard-openapi-baseline.json"
-      - name: Check taskboard OpenAPI snapshot
-        run: >-
-          uv run --directory examples/taskboard tenchi openapi
-          --routes app.server.routes:api_routes
-          --title Taskboard --version 0.1.0
-          --security '{"bearerAuth":{"type":"http","scheme":"bearer"}}'
-          --check openapi.json

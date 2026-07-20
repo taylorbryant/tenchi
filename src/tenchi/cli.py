@@ -12,6 +12,7 @@ Commands are intentionally few and reliable:
 - ``tenchi openapi`` prints, writes, checks, or compatibility-diffs the
   application's canonical OpenAPI document.
 - ``tenchi doctor`` checks dependency direction and prescribed structure.
+- ``tenchi check`` runs the complete application validation loop.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
 The ``routes``, ``openapi``, and ``dev`` commands rely on the structural
@@ -24,8 +25,8 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
-import keyword
-import re
+import math
+import shlex
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -33,31 +34,43 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from ._checks import run_check
+from ._cli_operations import (
+    doctor_result,
+    make_feature_result,
+    make_use_case_result,
+    openapi_defaults,
+    valid_name,
+    write_files,
+)
+from ._cli_results import CheckResult, MakeResult
 from .compatibility import (
     analyze_openapi_compatibility,
     render_compatibility_report,
 )
-from .doctor import run_doctor
 from .errors import ConfigurationError
 from .openapi import openapi_schema
 from .routes import RouteGroup
-from .scaffold import app_files, feature_files, use_case_files
+from .scaffold import app_files
 from .snapshots import (
     describe_openapi_drift,
     openapi_snapshot_diff,
     render_openapi_snapshot,
 )
 
-_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
-
-def _valid_name(name: str) -> bool:
-    """Snake_case and not a Python keyword — generated code containing
-    ``async def return(...)`` or ``app/features/import/`` cannot work."""
-    return bool(_NAME.match(name)) and not keyword.iskeyword(name)
+def _positive_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a finite number greater than zero")
+    return parsed
 
 
 _DEFAULT_ROUTES = "app.server.routes:routes"
+_DEFAULT_API_ROUTES = "app.server.routes:api_routes"
 _DEFAULT_APP = "app.server.asgi:app"
 
 
@@ -69,8 +82,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _new(args.name)
     if args.command == "make":
         if args.artifact == "feature":
-            return _make_feature(args.name)
-        return _make_use_case(args.feature, args.name)
+            return _make_feature(args.name, dry_run=args.dry_run, as_json=args.json)
+        return _make_use_case(
+            args.feature,
+            args.name,
+            dry_run=args.dry_run,
+            as_json=args.json,
+        )
     if args.command == "routes":
         return _routes(args.target, as_json=args.json)
     if args.command == "openapi":
@@ -88,7 +106,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             diff_format=args.diff_format,
         )
     if args.command == "doctor":
-        return _doctor()
+        return _doctor(as_json=args.json)
+    if args.command == "check":
+        return _check(
+            routes=args.routes,
+            title=args.title,
+            version=args.version,
+            description=args.description,
+            snapshot=args.snapshot,
+            security_json=args.security,
+            timeout_seconds=args.timeout,
+            as_json=args.json,
+        )
     return _dev(args.app, args.host, args.port, reload=not args.no_reload)
 
 
@@ -115,6 +144,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     use_case_parser.add_argument("feature", help="Existing feature name")
     use_case_parser.add_argument("name", help="Use case name, in snake_case")
+    for generator_parser in (feature_parser, use_case_parser):
+        generator_parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Preview files and follow-up steps without writing",
+        )
+        generator_parser.add_argument(
+            "--json",
+            action="store_true",
+            help="Emit a versioned machine-readable result",
+        )
 
     routes_parser = subparsers.add_parser(
         "routes", help="Print the application's bound routes"
@@ -199,9 +239,70 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Compatibility report format (default: %(default)s)",
     )
 
-    subparsers.add_parser(
+    doctor_parser = subparsers.add_parser(
         "doctor",
         help="Check dependency direction and the prescribed structure",
+    )
+    doctor_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit versioned diagnostics as JSON",
+    )
+
+    check_parser = subparsers.add_parser(
+        "check", help="Run formatting, lint, types, tests, doctor, and OpenAPI checks"
+    )
+    check_parser.add_argument(
+        "--routes",
+        default=_DEFAULT_API_ROUTES,
+        help="module:attribute of the API RouteGroup (default: %(default)s)",
+    )
+    check_parser.add_argument(
+        "--title",
+        default=None,
+        help=(
+            "OpenAPI title (default: literal OPENAPI_TITLE in the route module "
+            "or the current directory name)"
+        ),
+    )
+    check_parser.add_argument(
+        "--version",
+        default=None,
+        help=(
+            "OpenAPI version (default: literal OPENAPI_VERSION in the route module "
+            "or 0.1.0)"
+        ),
+    )
+    check_parser.add_argument(
+        "--description",
+        default=None,
+        help=(
+            "OpenAPI description (default: literal OPENAPI_DESCRIPTION in the "
+            "route module)"
+        ),
+    )
+    check_parser.add_argument(
+        "--security",
+        default=None,
+        metavar="JSON",
+        help="OpenAPI security schemes as a JSON object",
+    )
+    check_parser.add_argument(
+        "--snapshot",
+        default="openapi.json",
+        help="OpenAPI snapshot to check (default: %(default)s)",
+    )
+    check_parser.add_argument(
+        "--timeout",
+        default=600.0,
+        type=_positive_float,
+        metavar="SECONDS",
+        help="Per-step timeout (default: %(default)s)",
+    )
+    check_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a versioned result with bounded failure output",
     )
 
     dev_parser = subparsers.add_parser(
@@ -222,7 +323,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _new(name: str) -> int:
-    if not _valid_name(name):
+    if not valid_name(name):
         _fail(
             f"tenchi new: {name!r} is not a valid application name; "
             "use snake_case, such as 'my_app'"
@@ -234,108 +335,147 @@ def _new(name: str) -> int:
         _fail(f"tenchi new: {name}/ already exists")
         return 1
 
-    _write_files(target, app_files(name))
+    write_files(target, app_files(name))
 
     print(f"Created {name}/")
     print()
     print("Next steps:")
     print(f"  cd {name}")
     print("  uv sync")
-    print("  uv run pytest")
+    print("  uv run tenchi check")
     print("  uv run tenchi dev")
     print("  Swagger UI: http://127.0.0.1:8000/docs")
     return 0
 
 
-def _make_feature(name: str) -> int:
-    if not _valid_name(name):
-        _fail(
-            f"tenchi make feature: {name!r} is not a valid feature name; "
-            "use snake_case, such as 'notes'"
-        )
+def _make_feature(name: str, *, dry_run: bool, as_json: bool) -> int:
+    result = make_feature_result(Path.cwd(), name=name, dry_run=dry_run)
+    return _render_make_result(result, as_json=as_json)
+
+
+def _make_use_case(feature: str, name: str, *, dry_run: bool, as_json: bool) -> int:
+    result = make_use_case_result(
+        Path.cwd(), feature=feature, name=name, dry_run=dry_run
+    )
+    return _render_make_result(result, as_json=as_json)
+
+
+def _render_make_result(result: MakeResult, *, as_json: bool) -> int:
+    if as_json:
+        _print_json(result.as_dict())
+        return 0 if result.ok else 1
+    if not result.ok:
+        _fail(result.error or "tenchi make: generation failed")
         return 1
 
-    features_root = Path("app") / "features"
-    if not features_root.is_dir():
-        _fail(
-            "tenchi make feature: app/features/ not found; "
-            "run this from an application root"
-        )
-        return 1
-
-    feature_root = features_root / name
-    if feature_root.exists():
-        _fail(f"tenchi make feature: {feature_root} already exists")
-        return 1
-
-    _write_files(feature_root, feature_files(name))
-
-    print(f"Created {feature_root}/")
+    if result.dry_run:
+        for path in result.files:
+            print(f"Would create {path}")
+    elif result.artifact == "feature":
+        print(f"Created app/features/{result.name}/")
+    else:
+        for path in result.files:
+            print(f"Created {path}")
     print()
     print("Next steps:")
-    print(f"  1. Declare models in {feature_root}/schemas.py")
-    print(f"  2. Declare ports in {feature_root}/ports.py")
-    print(f"  3. Declare contracts in {feature_root}/contracts.py")
-    print(f"  4. Generate use cases: tenchi make use-case {name} <use_case_name>")
-    print(f"  5. Compose app.features.{name}.routes in app/server/routes.py")
+    for index, step in enumerate(result.next_steps, start=1):
+        print(f"  {index}. {step}")
     return 0
 
 
-def _make_use_case(feature: str, name: str) -> int:
-    if not _valid_name(name):
-        _fail(
-            f"tenchi make use-case: {name!r} is not a valid use case name; "
-            "use snake_case, such as 'create_note'"
-        )
-        return 1
-    if not _valid_name(feature):
-        _fail(
-            f"tenchi make use-case: {feature!r} is not a valid feature name; "
-            "use snake_case, such as 'notes'"
-        )
-        return 1
-
-    feature_root = Path("app") / "features" / feature
-    if not feature_root.is_dir():
-        _fail(
-            f"tenchi make use-case: {feature_root} not found; "
-            f"create it first with: tenchi make feature {feature}"
-        )
-        return 1
-
-    files = use_case_files(feature, name)
-    existing = [path for path in files if (feature_root / path).exists()]
-    if existing:
-        _fail(f"tenchi make use-case: {feature_root / existing[0]} already exists")
-        return 1
-
-    _write_files(feature_root, files)
-
-    print(f"Created {feature_root}/use_cases/{name}.py")
-    print(f"Created {feature_root}/tests/test_{name}.py")
-    print()
-    print("Next steps:")
-    print(f"  1. Implement {name} and its test")
-    print(f"  2. Bind it to a contract in {feature_root}/routes.py")
-    return 0
-
-
-def _doctor() -> int:
+def _doctor(*, as_json: bool) -> int:
     root = Path.cwd()
-    if not (root / "app").is_dir():
-        _fail("tenchi doctor: app/ not found; run this from an application root")
+    result = doctor_result(root)
+    if as_json:
+        _print_json(result.as_dict())
+        return 0 if result.ok else 1
+    if (
+        result.diagnostics
+        and result.diagnostics[0].code == "TENCHI_DOCTOR_APP_ROOT_NOT_FOUND"
+    ):
+        _fail(f"tenchi doctor: {result.diagnostics[0].message}")
         return 1
 
-    findings = run_doctor(root)
-    if not findings:
+    if result.ok:
         print("doctor: no problems found")
         return 0
 
-    for finding in findings:
-        print(finding.render())
+    for diagnostic in result.diagnostics:
+        location = (
+            f"{diagnostic.path}:{diagnostic.line}"
+            if diagnostic.line is not None
+            else diagnostic.path
+        )
+        print(f"{location}  {diagnostic.message}")
     print()
-    print(f"doctor: {len(findings)} problem(s) found")
+    print(f"doctor: {len(result.diagnostics)} problem(s) found")
     return 1
+
+
+def _check(
+    *,
+    routes: str,
+    title: str | None,
+    version: str | None,
+    description: str | None,
+    snapshot: str,
+    security_json: str | None,
+    timeout_seconds: float,
+    as_json: bool,
+) -> int:
+    root = Path.cwd()
+    title, version, description, security_json = openapi_defaults(
+        root,
+        routes=routes,
+        title=title,
+        version=version,
+        description=description,
+        security_json=security_json,
+    )
+    result = run_check(
+        root,
+        routes=routes,
+        title=title,
+        version=version,
+        description=description,
+        snapshot=snapshot,
+        security_json=security_json,
+        timeout_seconds=timeout_seconds,
+    )
+    if as_json:
+        _print_json(result.as_dict())
+    else:
+        _render_check_result(result)
+    return 0 if result.ok else 1
+
+
+def _render_check_result(result: CheckResult) -> None:
+    if result.error is not None:
+        _fail(f"tenchi check: {result.error}")
+        return
+
+    for step in result.steps:
+        print(f"[{step.status}] {step.name} ({step.duration_seconds:.2f}s)")
+        if step.status == "passed":
+            continue
+        print(f"  command: {shlex.join(step.command)}")
+        if step.stdout:
+            marker = " (tail retained)" if step.stdout_truncated else ""
+            print(f"  stdout{marker}:")
+            print(step.stdout.rstrip())
+        if step.stderr:
+            marker = " (tail retained)" if step.stderr_truncated else ""
+            print(f"  stderr{marker}:")
+            print(step.stderr.rstrip())
+
+    passed = sum(step.status == "passed" for step in result.steps)
+    total = len(result.steps)
+    summary = "passed" if result.ok else "failed"
+    print()
+    print(
+        f"check: {summary} ({passed}/{total} steps passed in "
+        f"{result.duration_seconds:.2f}s)"
+    )
 
 
 def _routes(target: str, *, as_json: bool = False) -> int:
@@ -720,11 +860,8 @@ def format_routes(group: RouteGroup) -> list[str]:
     ]
 
 
-def _write_files(root: Path, files: dict[str, str]) -> None:
-    for relative_path, content in files.items():
-        path = root / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+def _print_json(value: Mapping[str, object]) -> None:
+    print(json.dumps(value, indent=2))
 
 
 def _fail(message: str) -> None:

@@ -30,20 +30,20 @@ single route. Its important files are:
 | `app/infra/` | SQLite runtime adapter, memory test adapter, and port wiring |
 | `app/server/context.py` | Frozen context passed to use cases |
 | `app/server/asgi.py` | Composition root and ASGI application |
+| `AGENTS.md` | Placement rules and the complete agent validation loop |
 | `.github/workflows/ci.yml` | Checks and historical API compatibility gate |
 
 ## Run the checks
 
 ```shell
-uv run ruff format --check .
-uv run ruff check .
-uv run pyright
-uv run pytest
-uv run tenchi doctor
+uv run tenchi check
 ```
 
-Generated code passes these checks without edits. Use-case tests run without an
-HTTP server; integration tests exercise the composed ASGI application.
+The command runs Ruff formatting and linting, Pyright, pytest, doctor, and the
+OpenAPI snapshot check. It runs every step even after a failure so one pass
+reports the complete repair list. Generated code passes untouched. Use-case
+tests run without an HTTP server; integration tests exercise the composed ASGI
+application.
 
 ## Start the server
 
@@ -130,6 +130,7 @@ uv run tenchi make use-case notes create_note
 
 Generators create files and print the wiring steps. They do not edit existing
 composition modules, keeping dependency wiring visible and app-owned.
+Add `--dry-run` to preview every file or `--json` for a versioned result.
 
 Next, read the [mental model](/concepts), then follow [app
 architecture](/architecture) when deciding where new code belongs.

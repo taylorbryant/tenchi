@@ -136,6 +136,7 @@ class Finding:
     path: str
     line: int
     message: str
+    code: str
 
     def render(self) -> str:
         location = f"{self.path}:{self.line}" if self.line else self.path
@@ -162,9 +163,10 @@ def run_doctor(root: Path) -> list[Finding]:
         except SyntaxError as exc:
             findings.append(
                 Finding(
-                    relative.as_posix(),
-                    exc.lineno or 0,
-                    f"could not parse: {exc.msg}",
+                    path=relative.as_posix(),
+                    line=exc.lineno or 0,
+                    message=f"could not parse: {exc.msg}",
+                    code="TENCHI_DOCTOR_SYNTAX_ERROR",
                 )
             )
             continue
@@ -189,11 +191,14 @@ def _placement_findings(
         return []
     return [
         Finding(
-            relative.as_posix(),
-            0,
-            "unrecognized feature module: features contain schemas.py, "
-            "ports.py, contracts.py, routes.py, policy.py, use_cases/, "
-            "and tests/ only",
+            path=relative.as_posix(),
+            line=0,
+            message=(
+                "unrecognized feature module: features contain schemas.py, "
+                "ports.py, contracts.py, routes.py, policy.py, use_cases/, "
+                "and tests/ only"
+            ),
+            code="TENCHI_DOCTOR_UNRECOGNIZED_FEATURE_MODULE",
         )
     ]
 
@@ -230,11 +235,14 @@ def _authorization_findings(root: Path) -> list[Finding]:
 
     return [
         Finding(
-            relative.as_posix(),
-            0,
-            "use case makes no authorization reference while other use "
-            "cases in this app do; call require_user or a policy, read "
-            f"context.user, or mark deliberate exposure with {_PUBLIC_PRAGMA!r}",
+            path=relative.as_posix(),
+            line=0,
+            message=(
+                "use case makes no authorization reference while other use "
+                "cases in this app do; call require_user or a policy, read "
+                f"context.user, or mark deliberate exposure with {_PUBLIC_PRAGMA!r}"
+            ),
+            code="TENCHI_DOCTOR_AUTHORIZATION_INCONSISTENT",
         )
         for relative, guarded, has_pragma in surveyed
         if not guarded and not has_pragma
@@ -283,7 +291,12 @@ def _references_authorization(tree: ast.Module, relative: Path) -> bool:
 
 def _structure_findings(root: Path) -> list[Finding]:
     return [
-        Finding(rel, 0, "missing (expected by the prescribed structure)")
+        Finding(
+            path=rel,
+            line=0,
+            message="missing (expected by the prescribed structure)",
+            code="TENCHI_DOCTOR_MISSING_STRUCTURE",
+        )
         for rel in _STRUCTURE
         if not (root / rel).is_file()
     ]
@@ -306,7 +319,12 @@ def _import_findings(
             continue
         seen.add((line, dotted))
         findings.append(
-            Finding(relative.as_posix(), line, f"imports {dotted}: {reason}")
+            Finding(
+                path=relative.as_posix(),
+                line=line,
+                message=f"imports {dotted}: {reason}",
+                code="TENCHI_DOCTOR_FORBIDDEN_IMPORT",
+            )
         )
     return findings
 

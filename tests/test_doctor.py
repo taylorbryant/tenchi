@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,7 @@ def test_use_case_importing_infra_is_flagged(app_root: Path) -> None:
     findings = run_doctor(app_root)
 
     assert len(findings) == 1
+    assert findings[0].code == "TENCHI_DOCTOR_FORBIDDEN_IMPORT"
     assert findings[0].path == "app/features/todos/use_cases/create_todo.py"
     assert findings[0].line == 1
     assert "use cases must not import concrete infrastructure" in findings[0].message
@@ -230,6 +232,7 @@ def test_unguarded_use_case_in_an_auth_using_app_is_flagged(
 
     assert len(findings) == 1
     assert findings[0].path == "app/features/todos/use_cases/list_todos.py"
+    assert findings[0].code == "TENCHI_DOCTOR_AUTHORIZATION_INCONSISTENT"
     assert "no authorization reference" in findings[0].message
 
 
@@ -277,6 +280,7 @@ def test_missing_prescribed_modules_are_flagged(app_root: Path) -> None:
     assert messages(findings) == [
         "app/server/asgi.py  missing (expected by the prescribed structure)"
     ]
+    assert findings[0].code == "TENCHI_DOCTOR_MISSING_STRUCTURE"
 
 
 def test_feature_tests_are_exempt(app_root: Path) -> None:
@@ -292,6 +296,7 @@ def test_unparseable_module_is_reported_not_crashed(app_root: Path) -> None:
     findings = run_doctor(app_root)
 
     assert any("could not parse" in m for m in messages(findings))
+    assert findings[0].code == "TENCHI_DOCTOR_SYNTAX_ERROR"
 
 
 def test_doctor_cli_reports_and_exits_nonzero(
@@ -307,6 +312,32 @@ def test_doctor_cli_reports_and_exits_nonzero(
     out = capsys.readouterr().out
     assert "app/features/todos/use_cases/create_todo.py:1" in out
     assert "1 problem(s) found" in out
+
+
+def test_doctor_json_has_versioned_stable_diagnostics(
+    app_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["doctor", "--json"]) == 0
+    clean = json.loads(capsys.readouterr().out)
+    assert clean["schema_version"] == 1
+    assert clean["ok"] is True
+    assert clean["diagnostics"] == []
+
+    use_case = app_root / "app/features/todos/use_cases/create_todo.py"
+    use_case.write_text("import app.infra.port_wiring\n" + use_case.read_text())
+
+    assert main(["doctor", "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is False
+    assert report["diagnostics"] == [
+        {
+            "code": "TENCHI_DOCTOR_FORBIDDEN_IMPORT",
+            "severity": "error",
+            "message": report["diagnostics"][0]["message"],
+            "path": "app/features/todos/use_cases/create_todo.py",
+            "line": 1,
+        }
+    ]
 
 
 def test_doctor_cli_requires_app_root(
@@ -408,6 +439,7 @@ def test_unrecognized_feature_module_is_flagged(app_root: Path) -> None:
     findings = run_doctor(app_root)
 
     assert any("unrecognized feature module" in m for m in messages(findings))
+    assert findings[0].code == "TENCHI_DOCTOR_UNRECOGNIZED_FEATURE_MODULE"
 
 
 def test_use_case_importing_tenchi_execution_is_flagged(app_root: Path) -> None:

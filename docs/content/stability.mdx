@@ -22,7 +22,8 @@ release is source-compatible.
 
 1. Read the release entry in `CHANGELOG.md`.
 2. Upgrade Tenchi in a branch and refresh the lockfile.
-3. Run Ruff, Pyright, pytest, and `tenchi doctor`.
+3. Run `tenchi check` to verify formatting, lint, types, tests, architecture,
+   and the current OpenAPI snapshot.
 4. Run `tenchi openapi --diff` against the pre-upgrade snapshot.
 5. Review application wiring and generated-code convention changes.
 6. Update the snapshot only after accepting the compatibility report.

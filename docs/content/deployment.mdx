@@ -108,16 +108,14 @@ the application deliberately redacts them.
 ## Pre-deploy checks
 
 ```shell
-uv run ruff format --check .
-uv run ruff check .
-uv run pyright
-uv run pytest
-uv run tenchi doctor
+uv run tenchi check
 uv run tenchi openapi --routes app.server.routes:api_routes \
   --title my_app --diff-ref "$BASE_SHA" --snapshot openapi.json
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --check openapi.json
 ```
+
+`tenchi check` includes the exact OpenAPI snapshot check. The separate
+historical compatibility command remains necessary because it compares the
+working contract with a baseline from before the deployment change.
 
 <Callout type="warning" title="Exercise lifespan in tests">
   Raw `httpx.ASGITransport` does not run lifespan by itself. Prefer
