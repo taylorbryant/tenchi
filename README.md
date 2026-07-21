@@ -208,6 +208,8 @@ tenchi make feature notes --dry-run
 tenchi make feature notes --json
 tenchi make use-case notes create_note --dry-run
 tenchi routes
+tenchi map
+tenchi map --feature notes --kind route,use-case,port --json
 tenchi openapi
 tenchi openapi --diff openapi.json
 tenchi openapi --diff-ref origin/main --snapshot openapi.json
@@ -231,11 +233,18 @@ baseline with `--write`. `--output` and `-o` remain aliases for `--write`. For
 programmatic checks, import `analyze_openapi_compatibility` from
 `tenchi.compatibility`.
 
+`tenchi map` combines source declarations with the composed route group into a
+deterministic graph of features, contracts, routes, use cases, policies, ports,
+adapters, context, entrypoints, and tests. Every relationship includes source
+evidence and a confidence level. Use `--feature` for a feature plus its direct
+cross-feature dependencies, `--kind` for a comma-separated node projection,
+and `--json` for the versioned result.
+
 Generator `--dry-run` output lists every file without writing it. `make`,
-`doctor`, and `check` accept `--json` and return versioned results for agents and
-automation. `tenchi check` runs Ruff formatting and linting, Pyright, pytest,
-doctor, and the OpenAPI snapshot check even when an earlier step fails; failed
-output is bounded and each step reports its duration.
+`map`, `doctor`, and `check` accept `--json` and return versioned results for
+agents and automation. `tenchi check` runs Ruff formatting and linting,
+Pyright, pytest, doctor, and the OpenAPI snapshot check even when an earlier
+step fails; failed output is bounded and each step reports its duration.
 
 Run `tenchi <command> --help` for command options.
 

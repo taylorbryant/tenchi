@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "root": "<ROOT>",
+  "summary": {
+    "features": 1,
+    "contracts": 1,
+    "routes": 1,
+    "use_cases": 1,
+    "policies": 1,
+    "ports": 1,
+    "adapters": 1,
+    "contexts": 1,
+    "entrypoints": 1,
+    "tests": 1,
+    "diagnostics": 1,
+    "unresolved": 1
+  },
+  "nodes": [
+    {
+      "id": "feature:example",
+      "kind": "feature",
+      "name": "example-feature",
+      "feature": "example",
+      "source": {
+        "path": "app/feature.py",
+        "line": 1,
+        "symbol": "example_feature"
+      },
+      "status": "registered",
+      "details": {
+        "boolean": true,
+        "empty": null,
+        "integer": 200,
+        "integers": [
+          200,
+          201
+        ],
+        "number": 1.5,
+        "string": "value",
+        "strings": [
+          "one",
+          "two"
+        ]
+      }
+    },
+    {
+      "id": "contract:example",
+      "kind": "contract",
+      "name": "example-contract",
+      "feature": "example",
+      "source": {
+        "path": "app/contract.py",
+        "line": null,
+        "symbol": null
+      },
+      "status": "declared",
+      "details": {}
+    },
+    {
+      "id": "route:example",
+      "kind": "route",
+      "name": "example-route",
+      "feature": "example",
+      "source": {
+        "path": "app/route.py",
+        "line": 3,
+        "symbol": "example_route"
+      },
+      "status": "registered",
+      "details": {}
+    },
+    {
+      "id": "use-case:example",
+      "kind": "use-case",
+      "name": "example-use-case",
+      "feature": "example",
+      "source": {
+        "path": "app/use-case.py",
+        "line": null,
+        "symbol": null
+      },
+      "status": "declared",
+      "details": {}
+    },
+    {
+      "id": "policy:example",
+      "kind": "policy",
+      "name": "example-policy",
+      "feature": "example",
+      "source": {
+        "path": "app/policy.py",
+        "line": 5,
+        "symbol": "example_policy"
+      },
+      "status": "registered",
+      "details": {}
+    },
+    {
+      "id": "port:example",
+      "kind": "port",
+      "name": "example-port",
+      "feature": "example",
+      "source": {
+        "path": "app/port.py",
+        "line": null,
+        "symbol": null
+      },
+      "status": "declared",
+      "details": {}
+    },
+    {
+      "id": "adapter:example",
+      "kind": "adapter",
+      "name": "example-adapter",
+      "feature": "example",
+      "source": {
+        "path": "app/adapter.py",
+        "line": 7,
+        "symbol": "example_adapter"
+      },
+      "status": "registered",
+      "details": {}
+    },
+    {
+      "id": "context:example",
+      "kind": "context",
+      "name": "example-context",
+      "feature": null,
+      "source": {
+        "path": "app/context.py",
+        "line": null,
+        "symbol": null
+      },
+      "status": "declared",
+      "details": {}
+    },
+    {
+      "id": "entrypoint:example",
+      "kind": "entrypoint",
+      "name": "example-entrypoint",
+      "feature": null,
+      "source": {
+        "path": "app/entrypoint.py",
+        "line": 9,
+        "symbol": "example_entrypoint"
+      },
+      "status": "registered",
+      "details": {}
+    },
+    {
+      "id": "test:example",
+      "kind": "test",
+      "name": "example-test",
+      "feature": null,
+      "source": {
+        "path": "app/test.py",
+        "line": null,
+        "symbol": null
+      },
+      "status": "declared",
+      "details": {}
+    }
+  ],
+  "edges": [
+    {
+      "kind": "owns",
+      "source": "feature:example",
+      "target": "contract:example",
+      "evidence": {
+        "path": "app/wiring.py",
+        "line": 10,
+        "symbol": null
+      },
+      "confidence": "exact"
+    },
+    {
+      "kind": "binds",
+      "source": "contract:example",
+      "target": "route:example",
+      "evidence": {
+        "path": "app/wiring.py",
+        "line": 11,
+        "symbol": null
+      },
+      "confidence": "inferred"
+    },
+    {
+      "kind": "depends-on",
+      "source": "route:example",
+      "target": "use-case:example",
+      "evidence": {
+        "path": "app/wiring.py",
+        "line": 12,
+        "symbol": null
+      },
+      "confidence": "exact"
+    },
+    {
+      "kind": "implements",
+      "source": "use-case:example",
+      "target": "policy:example",
+      "evidence": {
+        "path": "app/wiring.py",
+        "line": 13,
+        "symbol": null
+      },
+      "confidence": "inferred"
+    },
+    {
+      "kind": "authorizes",
+      "source": "policy:example",
+      "target": "port:example",
+      "evidence": {
+        "path": "app/wiring.py",
+        "line": 14,
+        "symbol": null
+      },
+      "confidence": "exact"
+    },
+    {
+      "kind": "contains-test",
+      "source": "port:example",
+      "target": "adapter:example",
+      "evidence": {
+        "path": "app/wiring.py",
+        "line": 15,
+        "symbol": null
+      },
+      "confidence": "inferred"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "TENCHI_DOCTOR_EXAMPLE",
+      "severity": "warning",
+      "message": "example diagnostic",
+      "path": "app/example.py",
+      "line": null
+    }
+  ],
+  "unresolved": [
+    {
+      "code": "TENCHI_MAP_EXAMPLE",
+      "message": "example unresolved reference",
+      "source": {
+        "path": "app/example.py",
+        "line": 42,
+        "symbol": null
+      }
+    }
+  ]
+}

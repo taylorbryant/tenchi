@@ -53,6 +53,10 @@ def test_new_scaffolds_a_working_app(
     assert (root / "tests/test_openapi_snapshot.py").is_file()
     assert (root / ".github/workflows/ci.yml").is_file()
     assert "uv run tenchi check" in (root / "AGENTS.md").read_text()
+    assert (
+        "uv run tenchi map --feature <name> --json" in (root / "AGENTS.md").read_text()
+    )
+    assert "uv run tenchi map" in (root / "README.md").read_text()
     assert "app.server.routes:api_routes" in (root / "AGENTS.md").read_text()
     assert "uv run tenchi check" in (root / ".github/workflows/ci.yml").read_text()
 
@@ -70,6 +74,25 @@ def test_new_scaffolds_a_working_app(
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "Starlette"
+
+    mapped = _tenchi(root, "map", "--json")
+    assert mapped.returncode == 0, mapped.stdout + mapped.stderr
+    app_map = json.loads(mapped.stdout)
+    assert app_map["schema_version"] == 1
+    assert app_map["summary"] == {
+        "features": 1,
+        "contracts": 2,
+        "routes": 2,
+        "use_cases": 2,
+        "policies": 0,
+        "ports": 1,
+        "adapters": 2,
+        "contexts": 1,
+        "entrypoints": 1,
+        "tests": 3,
+        "diagnostics": 0,
+        "unresolved": 0,
+    }
 
 
 def test_generated_app_checks_pass(

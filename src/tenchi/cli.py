@@ -9,15 +9,17 @@ Commands are intentionally few and reliable:
   Generators create files and print wiring instructions — they never edit
   existing modules, because dependency wiring stays explicit and app-owned.
 - ``tenchi routes`` prints the application's bound route table.
+- ``tenchi map`` builds a source-backed graph of the application.
 - ``tenchi openapi`` prints, writes, checks, or compatibility-diffs the
   application's canonical OpenAPI document.
 - ``tenchi doctor`` checks dependency direction and prescribed structure.
 - ``tenchi check`` runs the complete application validation loop.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
-The ``routes``, ``openapi``, and ``dev`` commands rely on the structural
-convention that ``app/server/routes.py`` exposes ``routes`` and
-``app/server/asgi.py`` exposes ``app``; both can be overridden by flag.
+The ``routes``, ``map``, ``openapi``, ``check``, and ``dev`` commands rely on
+the structural convention that ``app/server/routes.py`` exposes ``routes`` and
+``api_routes`` and ``app/server/asgi.py`` exposes ``app``; targets can be
+overridden by flag.
 """
 
 from __future__ import annotations
@@ -34,6 +36,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from ._app_map import (
+    AppMapNodeKind,
+    app_map_node_kinds,
+    format_app_map,
+    map_app,
+    project_app_map,
+)
 from ._checks import run_check
 from ._cli_operations import (
     doctor_result,
@@ -69,6 +78,18 @@ def _positive_float(value: str) -> float:
     return parsed
 
 
+def _app_map_kind_list(value: str) -> tuple[AppMapNodeKind, ...]:
+    raw_kinds = tuple(dict.fromkeys(item.strip() for item in value.split(",")))
+    invalid = [item for item in raw_kinds if item not in app_map_node_kinds]
+    if not raw_kinds or "" in raw_kinds or invalid:
+        choices = ", ".join(app_map_node_kinds)
+        received = invalid[0] if invalid else value
+        raise argparse.ArgumentTypeError(
+            f"unknown app-map node kind {received!r}; choose from: {choices}"
+        )
+    return tuple(cast(AppMapNodeKind, item) for item in raw_kinds)
+
+
 _DEFAULT_ROUTES = "app.server.routes:routes"
 _DEFAULT_API_ROUTES = "app.server.routes:api_routes"
 _DEFAULT_APP = "app.server.asgi:app"
@@ -91,6 +112,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if args.command == "routes":
         return _routes(args.target, as_json=args.json)
+    if args.command == "map":
+        return _map_app(
+            args.target,
+            feature=args.feature,
+            kinds=args.kinds,
+            as_json=args.json,
+        )
     if args.command == "openapi":
         return _openapi(
             args.target,
@@ -168,7 +196,35 @@ def _build_parser() -> argparse.ArgumentParser:
     routes_parser.add_argument(
         "--json",
         action="store_true",
-        help="Emit the route table as JSON (a machine-readable app map)",
+        help="Emit the route table as JSON",
+    )
+
+    map_parser = subparsers.add_parser(
+        "map", help="Build a deterministic, source-backed application graph"
+    )
+    map_parser.add_argument(
+        "--routes",
+        dest="target",
+        default=_DEFAULT_API_ROUTES,
+        help="module:attribute of the API RouteGroup (default: %(default)s)",
+    )
+    map_parser.add_argument(
+        "--feature",
+        default=None,
+        help="Project one feature and its directly related nodes",
+    )
+    map_parser.add_argument(
+        "--kind",
+        dest="kinds",
+        default=None,
+        type=_app_map_kind_list,
+        metavar="KINDS",
+        help="Comma-separated node kinds to include",
+    )
+    map_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the versioned application graph as JSON",
     )
 
     openapi_parser = subparsers.add_parser(
@@ -488,6 +544,35 @@ def _routes(target: str, *, as_json: bool = False) -> int:
         return 0
     for line in format_routes(group):
         print(line)
+    return 0
+
+
+def _map_app(
+    target: str,
+    *,
+    feature: str | None,
+    kinds: Sequence[AppMapNodeKind] | None,
+    as_json: bool,
+) -> int:
+    group = _load_route_group("tenchi map", target)
+    if group is None:
+        return 1
+
+    result = map_app(Path.cwd(), group)
+    if feature is not None:
+        features = sorted(node.name for node in result.nodes if node.kind == "feature")
+        if feature not in features:
+            available = ", ".join(features) if features else "none"
+            _fail(
+                f"tenchi map: unknown feature {feature!r}; "
+                f"available features: {available}"
+            )
+            return 1
+    result = project_app_map(result, feature=feature, kinds=kinds)
+    if as_json:
+        _print_json(result.as_dict())
+    else:
+        print(format_app_map(result))
     return 0
 
 

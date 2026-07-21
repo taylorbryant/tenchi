@@ -80,8 +80,10 @@ on it.
 - Infrastructure implements ports, but never imports use cases or routes.
 - Server composition wires the complete graph.
 
-Run `uv run tenchi doctor` to check these conventions alone, or
-`uv run tenchi check` for the complete validation loop.
+Run `uv run tenchi map --feature <name>` to inspect one feature and its direct
+dependencies, `uv run tenchi doctor` to check these conventions alone, or
+`uv run tenchi check` for the complete validation loop. Add `--json` to the map
+when an agent or other tool will consume it.
 
 <Callout title="Types without runtime coupling">
   Use `TYPE_CHECKING` imports when a use case needs the `AppContext` annotation

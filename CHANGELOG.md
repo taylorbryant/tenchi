@@ -9,6 +9,11 @@ versions may change the public API.
 
 ### Added
 
+- `tenchi map` builds a deterministic, source-backed application graph across
+  features, contracts, routes, use cases, policies, ports, adapters, context,
+  entrypoints, and tests. Its versioned JSON includes relationship evidence,
+  confidence, doctor diagnostics, unresolved references, and feature/kind
+  projections for coding agents and automation.
 - Agent-ready CLI results: `tenchi doctor --json` emits stable diagnostic
   codes, `tenchi make feature|use-case` supports `--dry-run` and versioned JSON,
   and `tenchi check` runs Ruff, Pyright, pytest, doctor, and the OpenAPI snapshot
@@ -19,6 +24,9 @@ versions may change the public API.
 
 ### Fixed
 
+- App-map analysis now follows adapter factories only when they are reachable
+  from an entrypoint, resolves guarded, local, and module-qualified imports per
+  definition, and excludes async generators from use-case discovery.
 - `tenchi check` now discovers literal OpenAPI descriptions, keeps subprocess
   output bounded in memory while commands run, and supplies the active virtual
   environment when invoked through an absolute console-script path.

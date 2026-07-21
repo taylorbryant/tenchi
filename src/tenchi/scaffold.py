@@ -51,6 +51,7 @@ uv sync                 # install dependencies
 uv run tenchi check     # run every project check
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
+uv run tenchi map       # inspect the complete application graph
 uv run tenchi openapi --routes app.server.routes:api_routes \\
   --title __APP_NAME__ --diff openapi.json
 uv run tenchi openapi --routes app.server.routes:api_routes \\
@@ -78,8 +79,8 @@ infrastructure, and server composition wires concrete adapters.
 
 ## Working loop
 
-1. Read the feature's schemas, contracts, routes, use cases, ports, and tests
-   before changing it.
+1. Run `uv run tenchi map --feature <name> --json`, then read the feature's
+   schemas, contracts, routes, use cases, ports, and tests before changing it.
 2. Prefer `uv run tenchi make feature <name> --dry-run` and
    `uv run tenchi make use-case <feature> <name> --dry-run` before creating
    framework-shaped files manually.
@@ -88,8 +89,9 @@ infrastructure, and server composition wires concrete adapters.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
 
-Use `--json` with `tenchi routes`, `tenchi doctor`, `tenchi check`, and
-`tenchi make ...` when structured output is more useful than terminal text.
+Use `--json` with `tenchi map`, `tenchi routes`, `tenchi doctor`, `tenchi
+check`, and `tenchi make ...` when structured output is more useful than
+terminal text.
 
 ## Placement and dependency direction
 

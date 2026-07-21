@@ -37,8 +37,34 @@ uv run tenchi routes --json
 ```
 
 The default target is `app.server.routes:routes`. Override it with
-`--routes module:attribute`. JSON output is a small machine-readable map of
-the composed HTTP surface.
+`--routes module:attribute`. JSON output is a machine-readable table of the
+composed HTTP surface.
+
+## Map the application
+
+```shell
+uv run tenchi map
+uv run tenchi map --json
+uv run tenchi map --feature notes --json
+uv run tenchi map --feature notes --kind route,use-case,policy,port --json
+```
+
+Map combines the canonical source layout with the composed API route group. It
+returns a deterministic, versioned graph covering features, contracts, routes,
+use cases, policies, ports, adapters, context types, entrypoints, and tests.
+Edges describe ownership, route bindings, dependencies, authorization,
+implementations, and feature tests. Each edge carries project-relative source
+evidence and an `exact` or `inferred` confidence value.
+
+`--feature` keeps the selected feature and its directly connected nodes, which
+makes cross-feature policy and shared-port dependencies visible without loading
+the entire application. `--kind` accepts a comma-separated projection of node
+kinds. The default route target is `app.server.routes:api_routes`; override it
+with `--routes module:attribute`.
+
+The JSON result also embeds `tenchi doctor` diagnostics and unresolved source
+relationships. Agents should inspect both before editing and use stable node
+IDs and source locations to choose the files involved in a change.
 
 ## Manage OpenAPI
 
