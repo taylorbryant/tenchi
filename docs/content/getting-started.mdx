@@ -126,11 +126,18 @@ uv run pytest
 ```shell
 uv run tenchi make feature notes
 uv run tenchi make use-case notes create_note
+uv run tenchi map --feature notes
 ```
 
 Generators create files and print the wiring steps. They do not edit existing
 composition modules, keeping dependency wiring visible and app-owned.
 Add `--dry-run` to preview every file or `--json` for a versioned result.
+The map shows the new declarations before they are wired. Runtime-bound
+contracts, use cases, and adapters become registered after you follow the
+printed composition steps. Use
+`tenchi map --feature notes --json` when an agent or another tool will consume
+the graph. See [coding agents](/agents) for the complete inspect, preview, edit,
+and validate loop.
 
 Next, read the [mental model](/concepts), then follow [app
 architecture](/architecture) when deciding where new code belongs.

@@ -77,6 +77,8 @@ This application uses Tenchi's prescribed architecture: contracts define the
 HTTP boundary, plain async use cases own behavior, protocols describe required
 infrastructure, and server composition wires concrete adapters.
 
+Framework agent workflow: https://tenchi.io/agents
+
 ## Working loop
 
 1. Run `uv run tenchi map --feature <name> --json`, then read the feature's

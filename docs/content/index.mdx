@@ -48,6 +48,9 @@ an OpenAPI snapshot, an agent guide, and CI. The
 - **Architecture is explicit.** `tenchi doctor` checks dependency direction
   without introducing a dependency-injection container or framework base
   classes.
+- **Tooling is agent-readable.** Versioned maps, mutation previews, structured
+  diagnostics, and one complete check command give coding agents the same
+  evidence used by people and CI.
 - **HTTP is one entrypoint.** Workers and scripts can execute the same use cases
   with the same request validation and context-scoping guarantees.
 
@@ -85,4 +88,6 @@ as OpenAPI 3.1, and compared against a previous release.
 - [Quickstart](/getting-started) creates and changes a complete application.
 - [Mental model](/concepts) defines the small vocabulary used by the framework.
 - [Contracts](/contracts) covers the complete HTTP declaration.
+- [Coding agents](/agents) defines the inspect, preview, edit, and validate
+  protocol for automated changes.
 - [Comparisons](/comparisons) explains where Tenchi fits and where it does not.

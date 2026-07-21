@@ -48,6 +48,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "testing",
         "openapi",
         "cli",
+        "agents",
         "deployment",
         "reference",
         "stability",
@@ -61,9 +62,13 @@ def test_docs_cover_the_framework_workflow() -> None:
 
     openapi = (CONTENT / "openapi.mdx").read_text()
     quickstart = (CONTENT / "getting-started.mdx").read_text()
+    agents = (CONTENT / "agents.mdx").read_text()
     assert "swagger_ui_route" in openapi
     assert "--diff-ref" in openapi
     assert "http://127.0.0.1:8000/docs" in quickstart
+    assert "tenchi map --json" in agents
+    assert "tenchi check --json" in agents
+    assert "/llms.txt" in agents
 
 
 def test_docs_python_examples_are_valid_syntax() -> None:

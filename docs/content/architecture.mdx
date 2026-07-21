@@ -87,6 +87,8 @@ when an agent or other tool will consume it.
 
 <Callout title="Types without runtime coupling">
   Use `TYPE_CHECKING` imports when a use case needs the `AppContext` annotation
-  without importing server composition at runtime. Tenchi resolves only the
-  annotations it needs for boundary validation.
+  without importing server composition at runtime. Route binding deliberately
+  ignores this app-owned context type while still checking every contract-owned
+  boundary annotation. `tenchi map` reads the guarded import from source and
+  records the context dependency without adding runtime coupling.
 </Callout>

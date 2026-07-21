@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import Agents from "@/content/agents.mdx";
 import Application from "@/content/application.mdx";
 import Architecture from "@/content/architecture.mdx";
 import Authentication from "@/content/authentication.mdx";
@@ -39,6 +40,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/testing": Testing,
   "/openapi": OpenApi,
   "/cli": Cli,
+  "/agents": Agents,
   "/deployment": Deployment,
   "/reference": Reference,
   "/stability": Stability,

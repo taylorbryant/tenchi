@@ -21,6 +21,9 @@ versions may change the public API.
 - `tenchi new` now includes a concise `AGENTS.md` describing the application
   structure, dependency rules, generator workflow, and validation loop. The
   generated README and CI use `tenchi check` as the canonical project gate.
+- A public coding-agent guide documents the complete inspect, preview, edit,
+  validate, and compatibility workflow; generated `AGENTS.md` files link back
+  to it for framework-level details.
 
 ### Fixed
 

@@ -142,8 +142,16 @@ export const docsSections = [
         path: "/cli",
         title: "CLI",
         description:
-          "Create applications, preview generated slices, inspect routes, manage OpenAPI snapshots, and run versioned agent-readable checks.",
+          "Create applications, preview generated slices, map application architecture, manage OpenAPI snapshots, and run versioned agent-readable checks.",
         priority: 0.85,
+      },
+      {
+        path: "/agents",
+        title: "Coding agents",
+        navLabel: "Agents",
+        description:
+          "Use Tenchi's deterministic maps, mutation previews, structured diagnostics, and complete validation loop from a coding agent.",
+        priority: 0.84,
       },
       {
         path: "/deployment",

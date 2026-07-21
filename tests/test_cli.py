@@ -53,6 +53,7 @@ def test_new_scaffolds_a_working_app(
     assert (root / "tests/test_openapi_snapshot.py").is_file()
     assert (root / ".github/workflows/ci.yml").is_file()
     assert "uv run tenchi check" in (root / "AGENTS.md").read_text()
+    assert "https://tenchi.io/agents" in (root / "AGENTS.md").read_text()
     assert (
         "uv run tenchi map --feature <name> --json" in (root / "AGENTS.md").read_text()
     )

@@ -1,0 +1,201 @@
+import { Callout } from "@/components/callout";
+
+# Coding agents
+
+If your coding agent can read files and run shell commands, it can work with a
+Tenchi application without a special plugin. Tenchi gives it deterministic
+inspection, previewable generation, structured diagnostics, and one complete
+validation command.
+
+You remain in control because contracts, use cases, ports, and composition stay
+in ordinary Python files. The agent inspects evidence, edits those files
+directly, and runs the same checks you use locally and in CI.
+
+## Give an agent a Tenchi task
+
+Generated applications include an `AGENTS.md`, so most agents will discover
+the local rules automatically. For an explicit first instruction, adapt this
+prompt:
+
+```text
+Read AGENTS.md before editing. Run tenchi map for the affected feature and
+inspect its diagnostics and unresolved references. Explain the intended files
+and relationships before changing them. Preview any generated structure with
+tenchi make --dry-run. Implement the change without hiding explicit wiring,
+then run tenchi check. If a contract changed, run the OpenAPI compatibility
+diff before updating its snapshot. Report the files changed and every check.
+```
+
+If you already know the feature, include its name in the task so the agent can
+start with `uv run tenchi map --feature <name> --json` instead of loading the
+complete application graph.
+
+## What Tenchi provides
+
+| Design choice | What it gives an agent |
+| --- | --- |
+| Canonical application structure | Predictable locations for contracts, behavior, ports, policies, adapters, and composition |
+| `AGENTS.md` in every generated app | Repository-local placement rules, dependency direction, and a validation loop |
+| `tenchi map --json` | A versioned graph with stable node IDs, source locations, registration state, and relationship evidence |
+| `tenchi make --dry-run --json` | A mutation preview with the files and follow-up wiring steps before anything is written |
+| `tenchi doctor --json` | Stable diagnostic codes and source locations for architectural violations |
+| `tenchi check --json` | One bounded, complete result for formatting, linting, types, tests, architecture, and OpenAPI drift |
+| OpenAPI compatibility commands | A historical contract baseline that an agent cannot accidentally replace and then compare to itself |
+
+Tenchi's documentation is also published as [/llms.txt](/llms.txt) for compact
+navigation and [/llms-full.txt](/llms-full.txt) for the complete guide.
+
+## Use the recommended working loop
+
+### 1. Read the local rules
+
+Start with the generated `AGENTS.md`. It describes the application's file
+layout, allowed dependency direction, explicit composition points, error and
+authorization conventions, and the commands that define done.
+
+Tell the agent to follow those repository instructions ahead of generic
+framework advice; your application may add stricter local conventions.
+
+### 2. Map before reading broadly
+
+```shell
+uv run tenchi map --json
+uv run tenchi map --feature notes --json
+uv run tenchi map --feature notes \
+  --kind contract,route,use-case,policy,port,adapter --json
+```
+
+The complete map combines source declarations with the composed API route
+group. A feature projection retains directly connected shared and
+cross-feature nodes, giving an agent a bounded starting context without hiding
+the dependencies that cross the feature directory.
+
+Inspect these fields before editing:
+
+- `nodes` identify concepts and their source declarations. Runtime-bound kinds
+  such as contracts, routes, use cases, and adapters become `registered` when
+  composition reaches them; source-only declarations remain `declared`.
+- `edges` explain ownership, route bindings, dependencies, authorization,
+  implementations, and feature tests. Evidence points to the source that
+  supports each relationship.
+- `confidence` is `exact` when the relationship is directly proven and
+  `inferred` when it follows a documented naming convention.
+- `diagnostics` embeds the current doctor findings.
+- `unresolved` records relationships the analyzer could not prove. Treat these
+  as missing context, not as permission to assume the dependency is absent.
+
+Node IDs, result keys, and diagnostic codes are stable within the declared
+`schema_version`. If your tooling parses the JSON directly, check that version
+before relying on the rest of the result.
+
+### 3. Preview generated structure
+
+```shell
+uv run tenchi make feature notes --dry-run --json
+uv run tenchi make use-case notes create_note --dry-run --json
+```
+
+Dry runs perform the same naming and conflict validation as a real generation
+without writing files. The result lists every planned path and the explicit
+wiring steps that remain app-owned.
+
+After accepting the preview, run the command without `--dry-run`. Generators
+create files but do not rewrite route or infrastructure modules. The agent must
+make those composition changes in the application files, where you can review
+them.
+
+### 4. Edit through the application boundaries
+
+Follow the [application architecture](/architecture) rather than placing code
+where it is merely convenient:
+
+- Contracts own the HTTP boundary.
+- Plain async use cases own behavior.
+- Pure policies own authorization decisions.
+- Feature-owned protocols define infrastructure needs.
+- Adapters implement those ports under `app/infra/`.
+- Server modules explicitly compose routes, contexts, hooks, and concrete
+  adapters.
+
+If the graph and the task disagree, inspect the source evidence and unresolved
+references before expanding the edit. `tenchi map` is an orientation tool, not
+a substitute for reading the definitions that will change.
+
+### 5. Validate once, completely
+
+```shell
+uv run tenchi check --json
+```
+
+Check runs every step even after one fails, so you receive a complete repair
+list in one pass. Each step reports its command, exit code, duration, bounded
+standard output and error output, and whether either stream was truncated.
+
+Treat `ok: false` as unfinished work. Do not stop after fixing only the first
+failed step, and do not silently weaken Ruff, Pyright, pytest, doctor, or the
+OpenAPI snapshot to make the aggregate pass.
+
+### 6. Compare API changes historically
+
+For a contract change, compare before replacing the snapshot:
+
+```shell
+uv run tenchi openapi \
+  --routes app.server.routes:api_routes \
+  --title my_app \
+  --diff openapi.json
+
+uv run tenchi openapi \
+  --routes app.server.routes:api_routes \
+  --title my_app \
+  --diff-ref origin/main \
+  --snapshot openapi.json
+```
+
+Breaking and unknown changes fail closed. A baseline from the merge base,
+previous push, or previous release remains meaningful even when the branch also
+updates its committed snapshot. See [OpenAPI and compatibility](/openapi) for
+the complete workflow.
+
+<Callout type="warning" title="Never replace the evidence first">
+  Do not use `--write` before reviewing `--diff`. Comparing the generated
+  document with the snapshot updated in the same change proves equality, not
+  compatibility.
+</Callout>
+
+## Choose the right command
+
+| Command | Structured result |
+| --- | --- |
+| `tenchi map --json` | Root, summary, nodes, edges, diagnostics, and unresolved references |
+| `tenchi make ... --json` | Artifact identity, dry-run state, files, next steps, and structured failure |
+| `tenchi doctor --json` | Overall status and source-anchored diagnostics with stable codes |
+| `tenchi check --json` | Overall status, counts, duration, and every validation step |
+| `tenchi routes --json` | The composed HTTP route table for a smaller boundary-only inspection |
+| `tenchi openapi --diff-format json` | A machine-readable compatibility report |
+
+Human and JSON modes represent the same operation. Use JSON when another tool
+will make a decision; use human output when a person is reviewing the work in a
+terminal.
+
+## Know when to inspect the source yourself
+
+The application map is source-backed and conservative. Python permits dynamic
+imports, factories, decorators, and runtime mutation that static analysis may
+not be able to prove. Tenchi reports unresolved relationships rather than
+inventing certainty, and inferred edges remain visibly different from exact
+ones.
+
+The map also does not prove business correctness. An agent still needs to read
+the relevant contract, use case, policy, port, and tests, then rely on the full
+validation loop.
+
+<Callout title="No special integration required">
+  Any agent that can run shell commands can use this workflow through the CLI
+  and generated `AGENTS.md`. If your agent supports custom tools, you can wrap
+  the JSON commands, but an MCP server is not required.
+</Callout>
+
+Continue with the [CLI reference](/cli) for every option or [stability and
+releases](/stability) for the compatibility guarantees around these result
+schemas.
