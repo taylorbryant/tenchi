@@ -27,6 +27,9 @@ versions may change the public API.
 
 ### Fixed
 
+- Asynchronous health checks now run concurrently while retaining
+  declaration-order results, so multiple dependency checks share one readiness
+  window instead of adding their individual response times together.
 - App-map analysis now follows adapter factories only when they are reachable
   from an entrypoint, resolves guarded, local, and module-qualified imports per
   definition, and excludes async generators from use-case discovery.

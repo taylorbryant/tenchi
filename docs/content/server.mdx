@@ -46,32 +46,46 @@ composition, not hidden runtime behavior.
 ## Create the ASGI application
 
 ```python
-from tenchi.health import health_route
-from tenchi.openapi import openapi_route, swagger_ui_route
-from tenchi.routes import route_group
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from starlette.applications import Starlette
 from tenchi.server import create_app
 
-from app.infra.port_wiring import create_todo_repository
+from app.infra.port_wiring import ensure_schema, open_todo_repository
 from app.server.context import AppContext
-from app.server.routes import api_routes
+from app.server.routes import routes
+
+DATABASE_PATH = os.environ.get("APP_DATABASE", "app.db")
 
 
-repository = create_todo_repository()
+def build_app(database_path: str = DATABASE_PATH) -> Starlette:
+    @asynccontextmanager
+    async def lifespan() -> AsyncIterator[str]:
+        await ensure_schema(database_path)
+        yield database_path
+
+    @asynccontextmanager
+    async def create_context(path: str) -> AsyncIterator[AppContext]:
+        async with open_todo_repository(path) as todos:
+            yield AppContext(todos=todos)
+
+    return create_app(
+        routes=routes,
+        context_factory=create_context,
+        lifespan=lifespan,
+    )
 
 
-def create_context() -> AppContext:
-    return AppContext(todos=repository)
-
-
-routes = route_group(
-    api_routes,
-    openapi_route(api_routes, title="Todos", version="1.0.0"),
-    swagger_ui_route(title="Todos API"),
-    health_route(),
-)
-
-app = create_app(routes=routes, context_factory=create_context)
+app = build_app()
 ```
+
+This matches the generated application's resource model. The lifespan prepares
+the database schema once at startup. Each request enters its own repository
+scope, which can commit on success, roll back on failure, and close before
+Tenchi finalizes the response. `app.server.routes:routes` composes the API,
+OpenAPI, Swagger UI, and health routes at the composition root.
 
 `create_app()` returns a Starlette application and rejects duplicate or
 equivalent route templates and invalid context-factory shapes during

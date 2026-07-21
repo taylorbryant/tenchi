@@ -11,6 +11,7 @@ import Contracts from "@/content/contracts.mdx";
 import Deployment from "@/content/deployment.mdx";
 import Errors from "@/content/errors.mdx";
 import Execution from "@/content/execution.mdx";
+import ExistingProject from "@/content/existing-project.mdx";
 import GettingStarted from "@/content/getting-started.mdx";
 import Overview from "@/content/index.mdx";
 import OpenApi from "@/content/openapi.mdx";
@@ -25,6 +26,7 @@ import type { DocsPath } from "@/lib/docs";
 export const docsContent: Record<DocsPath, ComponentType> = {
   "/": Overview,
   "/getting-started": GettingStarted,
+  "/existing-project": ExistingProject,
   "/concepts": Concepts,
   "/architecture": Architecture,
   "/comparisons": Comparisons,

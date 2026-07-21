@@ -1,0 +1,241 @@
+# Add Tenchi to an existing project
+
+Use this path when you already have a Python project and want to add a Tenchi
+API without starting from the generated application. The result is one working
+JSON operation, a direct use-case test, OpenAPI and health routes, and the same
+complete validation command used by generated projects.
+
+## Install Tenchi and development tools
+
+Tenchi requires Python 3.12 or newer. From the project root, add the runtime and
+local development dependencies:
+
+```shell
+uv add tenchi
+uv add --dev uvicorn ruff pyright pytest pytest-asyncio
+```
+
+Create this initial structure. Empty `__init__.py` files make each package
+explicit:
+
+```text
+app/
+  __init__.py
+  features/
+    __init__.py
+    greetings/
+      __init__.py
+      contracts.py
+      routes.py
+      schemas.py
+      use_cases/
+        __init__.py
+        greet.py
+      tests/
+        __init__.py
+        test_greet.py
+  server/
+    __init__.py
+    asgi.py
+    context.py
+    routes.py
+```
+
+## Declare the boundary
+
+Define the validated query and response in
+`app/features/greetings/schemas.py`:
+
+```python
+from pydantic import BaseModel, Field
+
+
+class GreetQuery(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class Greeting(BaseModel):
+    message: str
+```
+
+Describe the HTTP operation in `app/features/greetings/contracts.py`:
+
+```python
+from tenchi.contracts import contract
+
+from .schemas import Greeting, GreetQuery
+
+greet_contract = contract(
+    method="GET",
+    path="/greet",
+    query=GreetQuery,
+    response=Greeting,
+    name="greet",
+    summary="Greet someone",
+    public=True,
+)
+```
+
+`public=True` gives a future authentication hook an explicit exemption signal.
+It does not change access by itself.
+
+## Implement and bind the use case
+
+Create the application context in `app/server/context.py`. This first operation
+has no external dependencies, so the context is empty:
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    pass
+```
+
+Implement the behavior in `app/features/greetings/use_cases/greet.py`:
+
+```python
+from app.server.context import AppContext
+
+from ..schemas import Greeting, GreetQuery
+
+
+async def greet(query: GreetQuery, context: AppContext) -> Greeting:
+    return Greeting(message=f"Hello, {query.name}!")
+```
+
+Bind the contract to the use case in `app/features/greetings/routes.py`:
+
+```python
+from tenchi.routes import route, route_group
+
+from .contracts import greet_contract
+from .use_cases.greet import greet
+
+routes = route_group(route(greet_contract, greet))
+```
+
+`route()` checks the query and return annotations immediately. Importing this
+module fails if the use-case signature no longer matches the contract.
+
+## Compose the ASGI application
+
+Compose the application and documentation routes in `app/server/routes.py`:
+
+```python
+from tenchi.health import health_route
+from tenchi.openapi import openapi_route, swagger_ui_route
+from tenchi.routes import route_group
+
+from app.features.greetings.routes import routes as greeting_routes
+
+OPENAPI_TITLE = "Existing app"
+OPENAPI_VERSION = "0.1.0"
+OPENAPI_DESCRIPTION = "Greeting API"
+
+api_routes = route_group(greeting_routes)
+
+routes = route_group(
+    api_routes,
+    openapi_route(
+        api_routes,
+        title=OPENAPI_TITLE,
+        version=OPENAPI_VERSION,
+        description=OPENAPI_DESCRIPTION,
+    ),
+    swagger_ui_route(title=f"{OPENAPI_TITLE} documentation"),
+    health_route(),
+)
+```
+
+Expose the Starlette application from `app/server/asgi.py`:
+
+```python
+from tenchi.server import create_app
+
+from app.server.context import AppContext
+from app.server.routes import routes
+
+
+def create_context() -> AppContext:
+    return AppContext()
+
+
+app = create_app(routes=routes, context_factory=create_context)
+```
+
+When the application needs a database or SDK client, replace the direct context
+factory with the lifespan and request-scope pattern from [routes and
+server](/server).
+
+## Add a direct behavior test
+
+Create `app/features/greetings/tests/test_greet.py`:
+
+```python
+from app.features.greetings.schemas import GreetQuery
+from app.features.greetings.use_cases.greet import greet
+from app.server.context import AppContext
+
+
+async def test_greet() -> None:
+    result = await greet(GreetQuery(name="Tenchi"), AppContext())
+
+    assert result.message == "Hello, Tenchi!"
+```
+
+Merge these settings into `pyproject.toml` so the aggregate check knows where
+to find the application and tests:
+
+```toml
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["app"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+include = ["app"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+```
+
+Keep any existing test and source paths when merging these tables into the
+project's configuration.
+
+## Create the baseline and verify the app
+
+Write the first canonical OpenAPI snapshot, then run the complete project gate:
+
+```shell
+uv run tenchi openapi \
+  --routes app.server.routes:api_routes \
+  --title "Existing app" \
+  --version 0.1.0 \
+  --description "Greeting API" \
+  --write openapi.json
+uv run tenchi check
+```
+
+Start the development server after the checks pass:
+
+```shell
+uv run tenchi dev
+```
+
+Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), or call the
+operation directly:
+
+```shell
+curl "http://127.0.0.1:8000/greet?name=Tenchi"
+```
+
+The response is `{"message":"Hello, Tenchi!"}`. Continue with [app
+architecture](/architecture) before adding ports, adapters, policies, and
+authenticated operations.

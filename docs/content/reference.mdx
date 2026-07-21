@@ -1,31 +1,58 @@
 # Module reference
 
-Tenchi's public modules each own one small responsibility. Public declarations
-are also re-exported selectively from `tenchi` for compact application imports.
-This page maps those modules and names; the task guides explain how they work
-together.
+Tenchi's supported Python modules each own one small responsibility. Import
+from the module that owns a declaration when you want its full API, or use the
+selected package-root re-exports for compact application code.
+
+## Package-root imports
+
+`tenchi` re-exports the declarations most applications use:
+
+```python
+from tenchi import (
+    AppError,
+    Client,
+    ErrorDef,
+    Page,
+    PageQuery,
+    contract,
+    create_app,
+    execute,
+    health_route,
+    openapi_route,
+    page,
+    present,
+    response,
+    route,
+    route_group,
+    swagger_ui_route,
+)
+```
+
+Canonical examples use the owning submodule when that makes the responsibility
+clearer.
 
 ## Core declarations
 
-| Module | Public surface |
+| Module | Public names |
 | --- | --- |
 | `tenchi.contracts` | `Contract`, `contract()` |
-| `tenchi.routes` | `Route`, `RouteGroup`, `RouteBindingError`, `route()`, `route_group()` |
+| `tenchi.routes` | `Route`, `RouteGroup`, `RouteBindingError`, `UseCase`, `route()`, `route_group()` |
 | `tenchi.responses` | `ResponseDef`, `PresentedResponse`, `response()`, `present()` |
-| `tenchi.errors` | `ErrorDef`, `AppError`, `TenchiError`, `ConfigurationError`, `error_body()` |
+| `tenchi.errors` | `ErrorDef`, `AppError`, `TenchiError`, `ConfigurationError`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER`, `error_body()` |
 
 Contracts describe HTTP. Routes bind contracts to use cases. Response
-definitions describe status-specific success. Error definitions describe
-expected application failure.
+definitions describe successful wire outcomes. Error definitions describe
+expected application failures.
 
 ## Runtime
 
-| Module | Public surface |
+| Module | Public names |
 | --- | --- |
-| `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver` |
+| `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver`, `ContextFactory`, `Lifespan`, `DEFAULT_MAX_REQUEST_BYTES`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER` |
 | `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError` |
 | `tenchi.client` | `Client`, `ClientResponse`, `UnexpectedResponseError` |
-| `tenchi.testing` | `open_client()`, `open_http()` |
+| `tenchi.testing` | `open_client()`, `open_http()`, `ASGIApp` |
 
 `create_app()` owns HTTP dispatch and lifecycle composition. `execute()` runs
 the application boundary without HTTP. `Client` enforces contracts against
@@ -33,32 +60,24 @@ remote or in-process servers.
 
 ## Schema and operations
 
-| Module | Public surface |
+| Module | Public names |
 | --- | --- |
 | `tenchi.openapi` | `openapi_schema()`, `openapi_route()`, `swagger_ui_route()` |
-| `tenchi.compatibility` | `analyze_openapi_compatibility()`, `CompatibilityReport`, rendering helpers |
-| `tenchi.snapshots` | Canonical rendering and exact drift diagnostics |
+| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `render_compatibility_report()` |
 | `tenchi.pagination` | `Page`, `PageQuery`, `page()` |
-| `tenchi.health` | `HealthReport`, `health_route()` |
+| `tenchi.health` | `HealthCheck`, `HealthReport`, `health_route()` |
 
-## Tooling
-
-| Module | Responsibility |
-| --- | --- |
-| `tenchi.cli` | Versioned generator, route listing, application-map, doctor, and check command surfaces |
-| `tenchi.doctor` | Structural and dependency-direction findings |
-| `tenchi.scaffold` | Application, feature, and use-case templates |
-
-Application code should normally call the CLI rather than import tooling
-modules. `tenchi.compatibility` is public for CI systems that need a structured
-report instead of command output.
+Use the [`tenchi` CLI](/cli) for scaffolding, application inspection,
+architecture diagnostics, project checks, and OpenAPI snapshots. Modules such
+as `tenchi.cli`, `tenchi.doctor`, `tenchi.scaffold`, and `tenchi.snapshots`
+implement that command surface; they are not supported application imports.
 
 ## Exact signatures
 
-The package ships inline type information and is checked with strict Pyright.
-For overloads and parameter types, use editor completion or inspect the public
-source on [GitHub](https://github.com/taylorbryant/tenchi/tree/main/src/tenchi).
+Tenchi ships inline type information and is checked with strict Pyright. Use
+editor completion for overloads and parameter types, or inspect the supported
+module source on
+[GitHub](https://github.com/taylorbryant/tenchi/tree/main/src/tenchi).
 
-Public API drift is guarded by a checked-in signature snapshot in the
-repository. Intentional changes update that snapshot and the changelog in the
-same release.
+Pre-1.0 releases may change these APIs between minor versions. Follow the
+[safe upgrade workflow](/stability) before updating an application.

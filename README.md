@@ -40,6 +40,9 @@ To add Tenchi to an existing project instead:
 uv add tenchi
 ```
 
+Follow the [existing-project guide](https://tenchi.io/existing-project) to add
+the first contract, use case, ASGI application, test, and OpenAPI baseline.
+
 ## How it works
 
 A contract declares the HTTP boundary:

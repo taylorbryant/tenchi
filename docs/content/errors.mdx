@@ -37,6 +37,30 @@ async def get_todo(params: GetTodoParams, context: AppContext) -> Todo:
     return todo
 ```
 
+## Return declared error headers
+
+List any application-owned response headers on the definition, then provide
+their values when raising the error:
+
+```python
+rate_limited = ErrorDef(
+    code="RATE_LIMITED",
+    status=429,
+    message="Too many requests",
+    headers=("Retry-After",),
+)
+
+
+async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
+    if not await context.limits.allow_create():
+        raise AppError(rate_limited, headers={"Retry-After": "30"})
+    return await context.todos.create(title=request.title)
+```
+
+Tenchi rejects undeclared or unsafe header values, documents declared headers
+in OpenAPI, and validates them in the typed client. Declare `rate_limited` on
+the contract or a containing route group like any other application error.
+
 ## The honesty rule
 
 An `AppError` maps to its declared status only when the matched contract or a

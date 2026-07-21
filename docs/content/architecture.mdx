@@ -86,9 +86,26 @@ dependencies, `uv run tenchi doctor` to check these conventions alone, or
 when an agent or other tool will consume it.
 
 <Callout title="Types without runtime coupling">
-  Use `TYPE_CHECKING` imports when a use case needs the `AppContext` annotation
-  without importing server composition at runtime. Route binding deliberately
-  ignores this app-owned context type while still checking every contract-owned
-  boundary annotation. `tenchi map` reads the guarded import from source and
-  records the context dependency without adding runtime coupling.
+  A normal `from app.server.context import AppContext` import is the clearest
+  default. If an application needs to avoid that runtime import, enable
+  postponed annotations with `from __future__ import annotations`, then import
+  `AppContext` inside an `if TYPE_CHECKING:` block. Without postponed or quoted
+  annotations, Python raises `NameError` when it defines the use case. Route
+  binding ignores this app-owned context annotation while still checking every
+  contract-owned boundary annotation.
 </Callout>
+
+```python
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from app.features.todos.schemas import CreateTodo, Todo
+
+if TYPE_CHECKING:
+    from app.server.context import AppContext
+
+
+async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
+    return await context.todos.create(title=request.title)
+```

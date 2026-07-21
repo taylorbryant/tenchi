@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 
 from tenchi.errors import ERROR_SOURCE_HEADER
@@ -12,9 +13,19 @@ class Context:
     database_ok: bool = True
 
 
-def make_app(*, checks: dict[str, object] | None = None, ok: bool = True):
+def make_app(
+    *,
+    checks: dict[str, object] | None = None,
+    ok: bool = True,
+    check_timeout: float = 5.0,
+):
     return create_app(
-        routes=route_group(health_route(checks=checks)),  # pyright: ignore[reportArgumentType]
+        routes=route_group(
+            health_route(
+                checks=checks,  # pyright: ignore[reportArgumentType]
+                check_timeout=check_timeout,
+            )
+        ),
         context_factory=lambda: Context(database_ok=ok),
     )
 
@@ -44,6 +55,29 @@ async def test_healthy_checks_report_ok() -> None:
         "status": "ok",
         "checks": {"sync": "ok", "async": "ok"},
     }
+
+
+async def test_async_health_checks_run_concurrently() -> None:
+    database_started = asyncio.Event()
+    cache_started = asyncio.Event()
+
+    async def database(context: Context) -> None:
+        assert context.database_ok
+        database_started.set()
+        await cache_started.wait()
+
+    async def cache(context: Context) -> None:
+        assert context.database_ok
+        cache_started.set()
+        await database_started.wait()
+
+    app = make_app(checks={"database": database, "cache": cache}, check_timeout=0.1)
+
+    async with open_http(app) as http:
+        response = await http.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["checks"] == {"database": "ok", "cache": "ok"}
 
 
 async def test_failing_check_maps_to_503_without_leaking_messages() -> None:
@@ -90,8 +124,6 @@ async def test_custom_path() -> None:
 
 
 async def test_hung_check_times_out_to_503() -> None:
-    import asyncio
-
     async def hangs(context: object) -> None:
         await asyncio.sleep(60)
 

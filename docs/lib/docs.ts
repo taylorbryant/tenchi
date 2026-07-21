@@ -24,6 +24,14 @@ export const docsSections = [
         priority: 0.95,
       },
       {
+        path: "/existing-project",
+        title: "Add to an existing project",
+        navLabel: "Existing project",
+        description:
+          "Add Tenchi to an existing Python project and build the first complete contract, use case, ASGI application, test, and OpenAPI baseline.",
+        priority: 0.94,
+      },
+      {
         path: "/concepts",
         title: "Mental model",
         description:

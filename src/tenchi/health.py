@@ -8,10 +8,10 @@ Compose :func:`health_route` alongside the application's routes:
     )
 
 Checks receive the request context (so they can reach ports) and signal
-failure by raising. A healthy service returns 200 with per-check statuses;
-any failure returns the standard error envelope with status 503 and the
-``UNHEALTHY`` code. Failure details expose only exception class names —
-full tracebacks go to the log.
+failure by raising. Asynchronous checks run concurrently. A healthy service
+returns 200 with per-check statuses; any failure returns the standard error
+envelope with status 503 and the ``UNHEALTHY`` code. Failure details expose
+only exception class names — full tracebacks go to the log.
 
 The route declares ``public=True`` by default so authentication hooks can
 exempt it through explicit contract metadata.
@@ -78,18 +78,21 @@ def health_route(
     registered = dict(checks or {})
 
     async def get_health(context: Any) -> HealthReport:
-        results: dict[str, str] = {}
-        failed = False
-        for name, check in registered.items():
+        async def run_check(name: str, check: HealthCheck) -> tuple[str, str, bool]:
             try:
                 outcome = check(context)
                 if inspect.isawaitable(outcome):
                     await asyncio.wait_for(_ensure_future(outcome), check_timeout)
-                results[name] = "ok"
+                return name, "ok", False
             except Exception as exc:
-                failed = True
-                results[name] = f"failed: {type(exc).__name__}"
                 logger.exception("Health check %r failed", name)
+                return name, f"failed: {type(exc).__name__}", True
+
+        outcomes = await asyncio.gather(
+            *(run_check(name, check) for name, check in registered.items())
+        )
+        results = {name: status for name, status, _ in outcomes}
+        failed = any(failed for _, _, failed in outcomes)
         if failed:
             raise AppError(unhealthy, details={"checks": results})
         return HealthReport(checks=results)

@@ -18,12 +18,13 @@ the local rules automatically. For an explicit first instruction, adapt this
 prompt:
 
 ```text
-Read AGENTS.md before editing. Run tenchi map for the affected feature and
-inspect its diagnostics and unresolved references. Explain the intended files
-and relationships before changing them. Preview any generated structure with
-tenchi make --dry-run. Implement the change without hiding explicit wiring,
-then run tenchi check. If a contract changed, run the OpenAPI compatibility
-diff before updating its snapshot. Report the files changed and every check.
+Read AGENTS.md before editing. Run `uv run tenchi map` for the affected feature
+and inspect its diagnostics and unresolved references. Explain the intended
+files and relationships before changing them. Preview any generated structure
+with `uv run tenchi make --dry-run`. Implement the change without hiding
+explicit wiring, then run `uv run tenchi check`. If a contract changed, run the
+OpenAPI compatibility diff before updating its snapshot. Report the files
+changed and every check.
 ```
 
 If you already know the feature, include its name in the task so the agent can
