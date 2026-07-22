@@ -21,6 +21,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
+    "tenchi[mcp]",
     "uvicorn>=0.30",
 ]
 
@@ -52,6 +53,7 @@ uv run tenchi check     # run every project check
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
 uv run tenchi map       # inspect the complete application graph
+uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
 uv run tenchi openapi --routes app.server.routes:api_routes \\
   --title __APP_NAME__ --diff openapi.json
 uv run tenchi openapi --routes app.server.routes:api_routes \\
@@ -68,6 +70,10 @@ request's base commit rather than the snapshot committed in the same change.
 The API persists to `__APP_NAME__.db` by default. Override the location with
 `__APP_ENV_PREFIX___DATABASE`. With the development server running, browse
 Swagger UI at http://127.0.0.1:8000/docs.
+
+The checked-in `.mcp.json` registers `uv run tenchi mcp --root .` for clients
+that support project-local MCP configuration. The same inspection and
+validation operations remain available through the CLI.
 """
 
 _AGENTS = """\
@@ -94,6 +100,12 @@ Framework agent workflow: https://tenchi.io/agents
 Use `--json` with `tenchi map`, `tenchi routes`, `tenchi doctor`, `tenchi
 check`, and `tenchi make ...` when structured output is more useful than
 terminal text.
+
+For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
+`app_map`, `routes`, `doctor`, `openapi_diff`, `make_preview`, and `check` tools
+return the same versioned results. Inspection and preview tools never write
+application files; `check` runs the project's normal validation commands. The
+agent still makes ordinary, reviewable source edits.
 
 ## Placement and dependency direction
 
@@ -135,6 +147,17 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+"""
+
+_MCP_JSON = """\
+{
+  "mcpServers": {
+    "tenchi": {
+      "command": "uv",
+      "args": ["run", "tenchi", "mcp", "--root", "."]
+    }
+  }
+}
 """
 
 _SCHEMAS = """\
@@ -753,6 +776,7 @@ _FILES: dict[str, str] = {
     "pyproject.toml": _PYPROJECT,
     "README.md": _README,
     "AGENTS.md": _AGENTS,
+    ".mcp.json": _MCP_JSON,
     ".gitignore": _GITIGNORE,
     ".github/workflows/ci.yml": _CI_WORKFLOW,
     "openapi.json": _OPENAPI_SNAPSHOT,

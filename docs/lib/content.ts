@@ -14,6 +14,7 @@ import Execution from "@/content/execution.mdx";
 import ExistingProject from "@/content/existing-project.mdx";
 import GettingStarted from "@/content/getting-started.mdx";
 import Overview from "@/content/index.mdx";
+import Mcp from "@/content/mcp.mdx";
 import OpenApi from "@/content/openapi.mdx";
 import Pagination from "@/content/pagination.mdx";
 import Reference from "@/content/reference.mdx";
@@ -43,6 +44,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/openapi": OpenApi,
   "/cli": Cli,
   "/agents": Agents,
+  "/mcp": Mcp,
   "/deployment": Deployment,
   "/reference": Reference,
   "/stability": Stability,

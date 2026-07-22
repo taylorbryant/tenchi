@@ -12,7 +12,7 @@ uvx tenchi new my_app
 Names use `snake_case`. The generated project includes a todos feature,
 SQLite persistence with request-scoped transactions, a memory test adapter,
 strict checks, integration tests, Swagger UI, an OpenAPI snapshot, a concise
-`AGENTS.md`, and GitHub Actions CI.
+`AGENTS.md`, project-local MCP configuration, and GitHub Actions CI.
 
 ## Generate application slices
 
@@ -37,8 +37,8 @@ uv run tenchi routes --json
 ```
 
 The default target is `app.server.routes:routes`. Override it with
-`--routes module:attribute`. JSON output is a machine-readable table of the
-composed HTTP surface.
+`--routes module:attribute`. JSON output is a versioned object containing the
+application root and the composed HTTP surface under `routes`.
 
 ## Map the application
 
@@ -87,6 +87,10 @@ Common metadata options are `--title`, `--version`, `--description`, and
 Git commit instead of the working tree. See [OpenAPI and
 compatibility](/openapi) for the safe baseline workflow.
 
+When `--diff-format json` is selected, the versioned result includes the
+application root, baseline label, compatibility status, severity counts, and
+classified changes.
+
 ## Check architecture
 
 ```shell
@@ -116,6 +120,25 @@ optional `OPENAPI_DESCRIPTION`, and optional `OPENAPI_SECURITY` declarations in
 the module selected by `--routes`; command flags override them. The route target
 defaults to `app.server.routes:api_routes`, and the snapshot defaults to
 `openapi.json`.
+
+## Serve MCP tools
+
+```shell
+uv run tenchi mcp
+uv run tenchi mcp --root path/to/application
+```
+
+MCP support is installed through the `tenchi[mcp]` extra. Generated
+applications include it as a development dependency and register the default
+command in `.mcp.json`.
+`--routes`, `--api-routes`, and `--snapshot` override the conventions captured
+by the server when it starts. `--title`, `--version`, `--description`, and
+`--security` override discovered OpenAPI metadata for the diff and check tools.
+The command uses stdio and waits for an MCP client; it does not start an HTTP
+listener.
+
+See [connect an MCP-aware coding agent](/mcp) for tool behavior, safety, and
+client configuration.
 
 ## Run development
 

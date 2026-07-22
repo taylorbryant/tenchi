@@ -25,7 +25,9 @@ uv run tenchi dev
 
 The generated app includes a todos feature, SQLite persistence, memory-backed
 unit tests, Swagger UI, health and OpenAPI routes, an agent guide, and a CI
-compatibility gate. With the server running, open
+compatibility gate. It also includes `.mcp.json`, so MCP-aware coding agents can
+use Tenchi's structured inspection and validation tools after `uv sync`. With
+the server running, open
 `http://127.0.0.1:8000/docs` or call it directly:
 
 ```sh
@@ -39,6 +41,9 @@ To add Tenchi to an existing project instead:
 ```sh
 uv add tenchi
 ```
+
+Add MCP support with `uv add --dev "tenchi[mcp]"` and follow the [MCP server
+guide](https://tenchi.io/mcp) to connect a coding agent.
 
 Follow the [existing-project guide](https://tenchi.io/existing-project) to add
 the first contract, use case, ASGI application, test, and OpenAPI baseline.
@@ -220,6 +225,7 @@ tenchi openapi --check openapi.json
 tenchi openapi --write openapi.json
 tenchi doctor --json
 tenchi check
+tenchi mcp
 tenchi dev
 ```
 
@@ -250,6 +256,13 @@ Pyright, pytest, doctor, and the OpenAPI snapshot check even when an earlier
 step fails; failed output is bounded and each step reports its duration.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
 inspect, preview, edit, validate, and compatibility loop.
+
+`tenchi mcp` serves the same versioned map, route, doctor, generator-preview,
+OpenAPI-diff, and check results over stdio. Inspection and preview tools do not
+write application files; project-owned commands executed by `check` retain
+their normal side effects. Generated apps register the command in `.mcp.json`.
+Existing apps install the optional development dependency with
+`uv add --dev "tenchi[mcp]"`.
 
 Run `tenchi <command> --help` for command options.
 

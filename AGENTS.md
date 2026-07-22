@@ -55,6 +55,8 @@ framework code, the CLI, docs, or the example apps.
     diagnostics used by the CLI.
   - `doctor.py` — dependency-direction and structure checks.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
+  - `_mcp_server.py` — optional stdio MCP adapter over the CLI result
+    operations; it is loaded only when the `mcp` extra is installed.
 - `tests/` — framework tests, roughly one file per module plus
   cross-cutting files (`test_hooks.py`, `test_lifespan.py`,
   `test_request_scope.py`, `test_request_ids.py`, `test_middleware.py`,
@@ -191,8 +193,8 @@ API shape:
 The CLI is product surface. Generated code must pass Ruff, Ruff format,
 Pyright strict, pytest, and `tenchi doctor` untouched — CI-grade, as
 generated. Generators create files and print wiring instructions; they
-never edit existing modules. `routes`, `map`, `openapi`, `doctor`, and `dev`
-rely on the structural conventions (`app.server.routes:routes`,
+never edit existing modules. `routes`, `map`, `openapi`, `check`, `mcp`, and
+`dev` rely on the structural conventions (`app.server.routes:routes`,
 `app.server.routes:api_routes`, `app.server.asgi:app`); keep flags available to
 override, and keep `tenchi new` output aligned with `examples/todos` minus
 capabilities the starter intentionally omits.
@@ -200,6 +202,11 @@ capabilities the starter intentionally omits.
 deterministic, source-backed, and versioned in JSON. Feature projections retain
 directly related cross-feature and shared nodes; kind projections never leave
 dangling edges.
+`mcp` is a thin, stdio-only adapter over the same renderer-independent
+operations. Inspection and preview tools never write files, every path stays
+inside the captured app root, stdout belongs exclusively to JSON-RPC, and the
+`check` tool must cancel its active subprocess and its process group where the
+platform supports one when the client cancels.
 `openapi --write`, `openapi --check`, `openapi --diff`, and Git-backed
 `openapi --diff-ref` use the same canonical format; checked-in example and
 generated-app snapshots must be reproducible with their documented metadata and

@@ -9,9 +9,9 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, TypedDict, cast
 
-from ._cli_results import DiagnosticResult
+from ._cli_results import DiagnosticPayload, DiagnosticResult
 from .contracts import Contract
 from .doctor import run_doctor
 from .routes import Route, RouteGroup
@@ -41,6 +41,63 @@ type AppMapConfidence = Literal["exact", "inferred"]
 type AppMapDetailValue = (
     str | int | float | bool | None | tuple[str, ...] | tuple[int, ...]
 )
+type AppMapDetailPayloadValue = str | int | float | bool | None | list[str] | list[int]
+
+
+class AppMapSourcePayload(TypedDict):
+    path: str
+    line: int | None
+    symbol: str | None
+
+
+class AppMapNodePayload(TypedDict):
+    id: str
+    kind: AppMapNodeKind
+    name: str
+    feature: str | None
+    source: AppMapSourcePayload
+    status: AppMapNodeStatus
+    details: dict[str, AppMapDetailPayloadValue]
+
+
+class AppMapEdgePayload(TypedDict):
+    kind: AppMapEdgeKind
+    source: str
+    target: str
+    evidence: AppMapSourcePayload
+    confidence: AppMapConfidence
+
+
+class AppMapUnresolvedPayload(TypedDict):
+    code: str
+    message: str
+    source: AppMapSourcePayload
+
+
+class AppMapSummaryPayload(TypedDict):
+    features: int
+    contracts: int
+    routes: int
+    use_cases: int
+    policies: int
+    ports: int
+    adapters: int
+    contexts: int
+    entrypoints: int
+    tests: int
+    diagnostics: int
+    unresolved: int
+
+
+class AppMapPayload(TypedDict):
+    schema_version: Literal[1]
+    root: str
+    summary: AppMapSummaryPayload
+    nodes: list[AppMapNodePayload]
+    edges: list[AppMapEdgePayload]
+    diagnostics: list[DiagnosticPayload]
+    unresolved: list[AppMapUnresolvedPayload]
+
 
 app_map_node_kinds: tuple[AppMapNodeKind, ...] = (
     "feature",
@@ -64,7 +121,7 @@ class AppMapSource:
     line: int | None = None
     symbol: str | None = None
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> AppMapSourcePayload:
         return {"path": self.path, "line": self.line, "symbol": self.symbol}
 
 
@@ -80,7 +137,14 @@ class AppMapNode:
     feature: str | None = None
     details: tuple[tuple[str, AppMapDetailValue], ...] = ()
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> AppMapNodePayload:
+        details: dict[str, AppMapDetailPayloadValue] = {}
+        for key, value in self.details:
+            details[key] = (
+                cast(AppMapDetailPayloadValue, list(value))
+                if isinstance(value, tuple)
+                else value
+            )
         return {
             "id": self.id,
             "kind": self.kind,
@@ -88,10 +152,7 @@ class AppMapNode:
             "feature": self.feature,
             "source": self.source.as_dict(),
             "status": self.status,
-            "details": {
-                key: list(value) if isinstance(value, tuple) else value
-                for key, value in self.details
-            },
+            "details": details,
         }
 
 
@@ -105,7 +166,7 @@ class AppMapEdge:
     evidence: AppMapSource
     confidence: AppMapConfidence
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> AppMapEdgePayload:
         return {
             "kind": self.kind,
             "source": self.source,
@@ -123,7 +184,7 @@ class AppMapUnresolvedReference:
     message: str
     source: AppMapSource
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> AppMapUnresolvedPayload:
         return {
             "code": self.code,
             "message": self.message,
@@ -148,7 +209,7 @@ class AppMapSummary:
     diagnostics: int
     unresolved: int
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> AppMapSummaryPayload:
         return {
             "features": self.features,
             "contracts": self.contracts,
@@ -177,7 +238,7 @@ class AppMapResult:
     unresolved: tuple[AppMapUnresolvedReference, ...]
     schema_version: Literal[1] = 1
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> AppMapPayload:
         return {
             "schema_version": self.schema_version,
             "root": self.root,

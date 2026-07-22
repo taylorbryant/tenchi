@@ -14,25 +14,23 @@ Commands are intentionally few and reliable:
   application's canonical OpenAPI document.
 - ``tenchi doctor`` checks dependency direction and prescribed structure.
 - ``tenchi check`` runs the complete application validation loop.
+- ``tenchi mcp`` serves the same structured operations to MCP-aware agents.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
-The ``routes``, ``map``, ``openapi``, ``check``, and ``dev`` commands rely on
-the structural convention that ``app/server/routes.py`` exposes ``routes`` and
-``api_routes`` and ``app/server/asgi.py`` exposes ``app``; targets can be
-overridden by flag.
+The ``routes``, ``map``, ``openapi``, ``check``, ``mcp``, and ``dev`` commands
+rely on the structural convention that ``app/server/routes.py`` exposes
+``routes`` and ``api_routes`` and ``app/server/asgi.py`` exposes ``app``;
+targets can be overridden by flag.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import math
 import shlex
-import subprocess
 import sys
 from collections.abc import Mapping, Sequence
-from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -49,14 +47,18 @@ from ._cli_operations import (
     make_feature_result,
     make_use_case_result,
     openapi_defaults,
+    routes_result,
     valid_name,
     write_files,
 )
 from ._cli_results import CheckResult, MakeResult
-from .compatibility import (
-    analyze_openapi_compatibility,
-    render_compatibility_report,
+from ._openapi_operations import (
+    OperationError,
+    compare_openapi_baseline,
+    load_route_group,
+    read_git_snapshot,
 )
+from .compatibility import render_compatibility_report
 from .errors import ConfigurationError
 from .openapi import openapi_schema
 from .routes import RouteGroup
@@ -145,6 +147,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             security_json=args.security,
             timeout_seconds=args.timeout,
             as_json=args.json,
+        )
+    if args.command == "mcp":
+        return _mcp(
+            root=args.root,
+            routes=args.routes,
+            api_routes=args.api_routes,
+            snapshot=args.snapshot,
+            title=args.title,
+            version=args.version,
+            description=args.description,
+            security_json=args.security,
         )
     return _dev(args.app, args.host, args.port, reload=not args.no_reload)
 
@@ -361,6 +374,53 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit a versioned result with bounded failure output",
     )
 
+    mcp_parser = subparsers.add_parser(
+        "mcp", help="Serve agent-readable Tenchi tools over MCP stdio"
+    )
+    mcp_parser.add_argument(
+        "--root",
+        default=".",
+        help="Application root captured by every tool (default: %(default)s)",
+    )
+    mcp_parser.add_argument(
+        "--routes",
+        default=_DEFAULT_ROUTES,
+        help="module:attribute used by the routes tool (default: %(default)s)",
+    )
+    mcp_parser.add_argument(
+        "--api-routes",
+        default=_DEFAULT_API_ROUTES,
+        help=(
+            "module:attribute used by app-map and OpenAPI tools (default: %(default)s)"
+        ),
+    )
+    mcp_parser.add_argument(
+        "--snapshot",
+        default="openapi.json",
+        help="Default project-relative OpenAPI baseline (default: %(default)s)",
+    )
+    mcp_parser.add_argument(
+        "--title",
+        default=None,
+        help="OpenAPI title override (default: discover from the route module)",
+    )
+    mcp_parser.add_argument(
+        "--version",
+        default=None,
+        help="OpenAPI version override (default: discover from the route module)",
+    )
+    mcp_parser.add_argument(
+        "--description",
+        default=None,
+        help="OpenAPI description override (default: discover from the route module)",
+    )
+    mcp_parser.add_argument(
+        "--security",
+        default=None,
+        metavar="JSON",
+        help="OpenAPI security schemes as a JSON object",
+    )
+
     dev_parser = subparsers.add_parser(
         "dev", help="Serve the application with uvicorn and reload"
     )
@@ -539,8 +599,9 @@ def _routes(target: str, *, as_json: bool = False) -> int:
     if group is None:
         return 1
 
+    result = routes_result(Path.cwd(), group)
     if as_json:
-        print(json.dumps(route_map(group), indent=2))
+        _print_json(result.as_dict())
         return 0
     for line in format_routes(group):
         print(line)
@@ -578,42 +639,8 @@ def _map_app(
 
 def route_map(group: RouteGroup) -> list[dict[str, object]]:
     """The route table as data: one entry per bound route, stable keys."""
-    entries: list[dict[str, object]] = []
-    for item in group:
-        declared = item.contract
-        entries.append(
-            {
-                "method": declared.method,
-                "path": declared.path,
-                "status": declared.status if not declared.responses else None,
-                "responses": [
-                    {"status": definition.status} for definition in declared.responses
-                ],
-                "use_case": f"{item.use_case.__module__}.{item.use_case.__qualname__}",
-                "errors": [
-                    {"code": e.code, "status": e.status} for e in declared.errors
-                ],
-                "tags": list(declared.tags),
-                "public": declared.public,
-                "summary": declared.summary,
-                "response_headers": (
-                    getattr(declared.response_headers, "__name__", None)
-                    if declared.response_headers is not None
-                    else None
-                ),
-                "deprecated": (
-                    declared.deprecated.isoformat()
-                    if isinstance(declared.deprecated, datetime)
-                    else declared.deprecated
-                ),
-                "sunset": (
-                    declared.sunset.isoformat() if declared.sunset is not None else None
-                ),
-                "max_request_bytes": declared.max_request_bytes,
-                "timeout": declared.timeout,
-            }
-        )
-    return entries
+    result = routes_result(Path.cwd(), group)
+    return [dict(entry) for entry in result.as_dict()["routes"]]
 
 
 def _openapi(
@@ -761,85 +788,19 @@ def _diff_openapi_ref(
     *,
     output_format: str,
 ) -> int:
-    baseline = _read_git_snapshot(ref, snapshot)
-    if baseline is None:
+    try:
+        baseline_text, baseline_label = read_git_snapshot(
+            Path.cwd(), ref=ref, snapshot=snapshot
+        )
+    except OperationError as exc:
+        _fail(f"tenchi openapi: {exc}")
         return 1
-    baseline_text, baseline_label = baseline
     return _compare_openapi_baseline(
         baseline_text,
         baseline_label=baseline_label,
         current=current,
         output_format=output_format,
     )
-
-
-def _read_git_snapshot(ref: str, snapshot: Path) -> tuple[str, str] | None:
-    if not ref.strip() or ref.startswith("-") or any(char.isspace() for char in ref):
-        _fail("tenchi openapi: --diff-ref must be a non-empty Git ref")
-        return None
-    try:
-        root_result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-    except FileNotFoundError:
-        _fail("tenchi openapi: could not run git; install Git to use --diff-ref")
-        return None
-    except (OSError, UnicodeError) as exc:
-        _fail(f"tenchi openapi: could not inspect the Git repository: {exc}")
-        return None
-    if root_result.returncode != 0:
-        reason = root_result.stderr.strip() or "not inside a Git repository"
-        _fail(f"tenchi openapi: could not inspect the Git repository: {reason}")
-        return None
-
-    root = Path(root_result.stdout.strip()).resolve()
-    resolved_snapshot = snapshot.resolve()
-    try:
-        relative_snapshot = resolved_snapshot.relative_to(root).as_posix()
-    except ValueError:
-        _fail(
-            "tenchi openapi: --snapshot must resolve inside the current Git repository"
-        )
-        return None
-
-    try:
-        ref_result = subprocess.run(
-            ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-    except (OSError, UnicodeError) as exc:
-        _fail(f"tenchi openapi: could not resolve Git ref {ref!r}: {exc}")
-        return None
-    if ref_result.returncode != 0:
-        reason = ref_result.stderr.strip() or "unknown ref"
-        _fail(f"tenchi openapi: could not resolve Git ref {ref!r}: {reason}")
-        return None
-
-    commit = ref_result.stdout.strip()
-    baseline_label = f"{ref}:{relative_snapshot}"
-    try:
-        show_result = subprocess.run(
-            ["git", "show", f"{commit}:{relative_snapshot}"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-    except (OSError, UnicodeError) as exc:
-        _fail(f"tenchi openapi: could not read baseline {baseline_label!r}: {exc}")
-        return None
-    if show_result.returncode != 0:
-        reason = show_result.stderr.strip() or "snapshot not found"
-        _fail(f"tenchi openapi: could not read baseline {baseline_label!r}: {reason}")
-        return None
-    return show_result.stdout, baseline_label
 
 
 def _compare_openapi_baseline(
@@ -850,31 +811,64 @@ def _compare_openapi_baseline(
     output_format: str,
 ) -> int:
     try:
-        baseline: object = json.loads(baseline_text)
-    except json.JSONDecodeError as exc:
-        _fail(
-            f"tenchi openapi: baseline {baseline_label!r} is not valid JSON "
-            f"(line {exc.lineno}, column {exc.colno})"
+        result = compare_openapi_baseline(
+            Path.cwd(),
+            baseline_text=baseline_text,
+            baseline_label=baseline_label,
+            current=current,
         )
-        return 1
-
-    try:
-        report = analyze_openapi_compatibility(baseline, current)
-    except ValueError as exc:
-        _fail(f"tenchi openapi: could not compare baseline {baseline_label!r}: {exc}")
+    except OperationError as exc:
+        _fail(f"tenchi openapi: {exc}")
         return 1
 
     if output_format == "json":
-        payload: dict[str, object] = {
-            "baseline": baseline_label,
-            **report.as_dict(),
-        }
-        print(json.dumps(payload, indent=2, sort_keys=True))
+        _print_json(result.as_dict())
     else:
         sys.stdout.write(
-            render_compatibility_report(report, baseline_path=baseline_label)
+            render_compatibility_report(result.report, baseline_path=baseline_label)
         )
-    return 0 if report.compatible else 1
+    return 0 if result.report.compatible else 1
+
+
+def _mcp(
+    *,
+    root: str,
+    routes: str,
+    api_routes: str,
+    snapshot: str,
+    title: str | None,
+    version: str | None,
+    description: str | None,
+    security_json: str | None,
+) -> int:
+    try:
+        from ._mcp_server import McpServerOptions, run_mcp_server
+    except ImportError as exc:
+        if exc.name == "mcp" or (exc.name is not None and exc.name.startswith("mcp.")):
+            _fail(
+                "tenchi mcp: MCP support is not installed; "
+                'run: uv add --dev "tenchi[mcp]"'
+            )
+            return 1
+        raise
+
+    try:
+        run_mcp_server(
+            McpServerOptions(
+                root=Path(root),
+                routes=routes,
+                api_routes=api_routes,
+                snapshot=snapshot,
+                title=title,
+                version=version,
+                description=description,
+                security_json=security_json,
+            )
+        )
+    except OperationError as exc:
+        _fail(f"tenchi mcp: {exc}")
+        return 1
+    return 0
 
 
 def _dev(app_target: str, host: str, port: int, *, reload: bool) -> int:
@@ -890,32 +884,11 @@ def _dev(app_target: str, host: str, port: int, *, reload: bool) -> int:
 
 
 def _load_route_group(command: str, target: str) -> RouteGroup | None:
-    module_name, _, attribute = target.partition(":")
-    if not module_name or not attribute:
-        _fail(f"{command}: expected module:attribute, got {target!r}")
-        return None
-
-    cwd = str(Path.cwd())
-    if cwd not in sys.path:
-        sys.path.insert(0, cwd)
-
     try:
-        module = importlib.import_module(module_name)
-    except Exception as exc:  # import-time app failures are user errors
-        _fail(f"{command}: could not import {module_name!r}: {exc}")
+        return load_route_group(Path.cwd(), target)
+    except OperationError as exc:
+        _fail(f"{command}: {exc}")
         return None
-
-    if not hasattr(module, attribute):
-        _fail(f"{command}: module {module_name!r} has no attribute {attribute!r}")
-        return None
-    group = getattr(module, attribute)
-    if not isinstance(group, RouteGroup):
-        _fail(
-            f"{command}: {target!r} is not a tenchi RouteGroup "
-            f"(got {type(group).__name__})"
-        )
-        return None
-    return group
 
 
 def format_routes(group: RouteGroup) -> list[str]:

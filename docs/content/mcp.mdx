@@ -1,0 +1,114 @@
+import { Callout } from "@/components/callout";
+
+# Connect an MCP-aware coding agent
+
+Tenchi's MCP server gives a coding agent structured access to the application
+map, route table, architecture diagnostics, generator previews, OpenAPI
+compatibility, and the complete validation loop. Inspection and preview tools
+do not edit application files; `check` runs the project's own validation
+commands and can have their usual side effects.
+
+New applications include the required development dependency and a
+project-local `.mcp.json`. After `uv sync`, an MCP client that recognizes this
+file can start the server with no additional Tenchi configuration.
+
+## Add MCP to an existing application
+
+Install the optional dependency:
+
+```shell
+uv add --dev "tenchi[mcp]"
+```
+
+Create `.mcp.json` at the application root:
+
+```json
+{
+  "mcpServers": {
+    "tenchi": {
+      "command": "uv",
+      "args": ["run", "tenchi", "mcp", "--root", "."]
+    }
+  }
+}
+```
+
+If your client does not read project-local MCP configuration, register the
+same command and arguments through that client's MCP settings. The server uses
+stdio; starting `tenchi mcp` directly leaves it waiting for an MCP client on
+standard input.
+
+## Give the agent project context
+
+The `tenchi://project/agents` resource contains the application's `AGENTS.md`.
+Ask the agent to read it before changing code. If the file is absent, the
+resource supplies a short fallback workflow and a link to the full coding-agent
+guide.
+
+The server captures one application root when it starts. Every tool operates
+inside that root, and OpenAPI snapshot paths cannot escape it. Inspection tools
+reload the application's source for each call, so a server that stays open sees
+edits made during the agent session.
+
+## Use the tools
+
+| Tool | Result |
+| --- | --- |
+| `app_map` | Versioned nodes, relationships, evidence, diagnostics, and unresolved references; accepts feature and node-kind projections |
+| `routes` | The composed route table with use cases, responses, errors, access metadata, and runtime limits |
+| `doctor` | Source-anchored architecture and dependency diagnostics |
+| `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true` |
+| `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
+| `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI snapshot check |
+
+Every tool returns structured content with a `schema_version`. A doctor finding,
+failed check, generator conflict, or incompatible API is a valid result with
+`ok: false` or `compatible: false`; malformed arguments and unreadable or
+unsafe paths are MCP errors.
+
+<Callout type="warning" title="Check runs project-owned commands">
+  `check` executes the application's tests and validation commands. Those
+  commands can have their usual filesystem, database, or network side effects.
+  MCP clients should treat it as an action rather than a read-only inspection.
+  Cancelling the tool stops the active validation process.
+</Callout>
+
+## Follow the agent loop
+
+For a feature change, give the agent this sequence:
+
+1. Read `tenchi://project/agents`.
+2. Call `app_map` with the feature name and inspect diagnostics and unresolved
+   relationships.
+3. Call `make_preview` when new framework-shaped files are needed.
+4. Edit ordinary Python files through the agent's normal filesystem tools.
+5. Call `check` and resolve every failed step.
+6. Call `openapi_diff` before accepting a changed OpenAPI snapshot.
+
+The agent must still make route and infrastructure wiring explicit in the
+application source. MCP previews follow the same rule as `tenchi make`: they
+describe the remaining wiring instead of silently changing composition files.
+
+## Override application conventions
+
+The generated structure works with the defaults. For an application using
+different module targets or snapshot location, change the registered command:
+
+```shell
+uv run tenchi mcp \
+  --root . \
+  --routes my_app.server.routes:routes \
+  --api-routes my_app.server.routes:api_routes \
+  --snapshot api/openapi.json \
+  --title "My API" \
+  --version 1.0.0
+```
+
+`routes` uses `--routes`. The map, OpenAPI diff, and `check` tools use
+`--api-routes`. OpenAPI title, version, description, and security defaults come
+from the same literal route-module declarations used by `tenchi check`.
+`--title`, `--version`, `--description`, and `--security` provide the same
+explicit overrides when an application does not keep that metadata as literals.
+
+Continue with [coding agents](/agents) for the complete source-editing workflow
+or the [CLI reference](/cli) when an agent can run shell commands but not MCP.

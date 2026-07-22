@@ -55,9 +55,15 @@ jobs:
           uv pip install --python "$smoke_dir/venv/bin/python" "$wheel"
           cd "$smoke_dir"
           "$smoke_dir/venv/bin/tenchi" new generated_app
+          if "$smoke_dir/venv/bin/tenchi" mcp --root generated_app </dev/null 2>mcp-error.txt; then
+            echo "tenchi mcp unexpectedly started without the mcp extra"
+            exit 1
+          fi
+          grep -F 'tenchi[mcp]' mcp-error.txt
           cd "$smoke_dir/generated_app"
           uv add "$wheel"
           uv run tenchi make feature notes
           uv run tenchi make use-case notes create_note
           uv run tenchi check
+          uv run python "$GITHUB_WORKSPACE/.github/scripts/mcp_smoke.py" .
       - run: uv publish --trusted-publishing always

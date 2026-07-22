@@ -7,12 +7,20 @@ import json
 import keyword
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
 
-from ._cli_results import DiagnosticResult, DoctorResult, MakeResult
+from ._cli_results import (
+    DiagnosticResult,
+    DoctorResult,
+    MakeResult,
+    RouteEntryResult,
+    RoutesResult,
+)
 from .doctor import run_doctor
+from .routes import RouteGroup
 from .scaffold import feature_files, use_case_files
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -21,6 +29,42 @@ _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 def valid_name(name: str) -> bool:
     """Return whether *name* can safely appear in generated Python code."""
     return bool(_NAME.match(name)) and not keyword.iskeyword(name)
+
+
+def routes_result(root: Path, group: RouteGroup) -> RoutesResult:
+    """Return the stable, versioned route table for *group*."""
+    entries: list[RouteEntryResult] = []
+    for item in group:
+        declared = item.contract
+        entries.append(
+            RouteEntryResult(
+                method=declared.method,
+                path=declared.path,
+                status=declared.status if not declared.responses else None,
+                responses=tuple(definition.status for definition in declared.responses),
+                use_case=(f"{item.use_case.__module__}.{item.use_case.__qualname__}"),
+                errors=tuple((error.code, error.status) for error in declared.errors),
+                tags=declared.tags,
+                public=declared.public,
+                summary=declared.summary,
+                response_headers=(
+                    getattr(declared.response_headers, "__name__", None)
+                    if declared.response_headers is not None
+                    else None
+                ),
+                deprecated=(
+                    declared.deprecated.isoformat()
+                    if isinstance(declared.deprecated, datetime)
+                    else declared.deprecated
+                ),
+                sunset=(
+                    declared.sunset.isoformat() if declared.sunset is not None else None
+                ),
+                max_request_bytes=declared.max_request_bytes,
+                timeout=declared.timeout,
+            )
+        )
+    return RoutesResult(root=str(root.resolve()), routes=tuple(entries))
 
 
 def write_files(root: Path, files: Mapping[str, str]) -> None:

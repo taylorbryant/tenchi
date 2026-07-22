@@ -50,6 +50,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "openapi",
         "cli",
         "agents",
+        "mcp",
         "deployment",
         "reference",
         "stability",

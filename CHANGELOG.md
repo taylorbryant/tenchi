@@ -9,6 +9,16 @@ versions may change the public API.
 
 ### Added
 
+- Optional `tenchi[mcp]` support with a stdio MCP server for application maps,
+  route inspection, architecture diagnostics, dry-run generation, OpenAPI
+  compatibility, and the complete validation loop. Generated applications
+  include the extra as a development dependency and add project-local
+  `.mcp.json` registration without adding MCP to runtime dependencies.
+- The MCP server exposes repository instructions through
+  `tenchi://project/agents`, keeps framework-selected file access inside the
+  configured app root, reloads project source for each inspection, reports
+  structured failures without losing their diagnostics, and stops the active
+  validation process when a check call is cancelled.
 - `tenchi map` builds a deterministic, source-backed application graph across
   features, contracts, routes, use cases, policies, ports, adapters, context,
   entrypoints, and tests. Its versioned JSON includes relationship evidence,
@@ -24,6 +34,12 @@ versions may change the public API.
 - A public coding-agent guide documents the complete inspect, preview, edit,
   validate, and compatibility workflow; generated `AGENTS.md` files link back
   to it for framework-level details.
+
+### Changed
+
+- `tenchi routes --json` and OpenAPI compatibility JSON now include
+  `schema_version` and `root` envelopes, aligning every agent-readable CLI and
+  MCP result around an explicit versioned schema.
 
 ### Fixed
 

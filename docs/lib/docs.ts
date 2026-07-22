@@ -162,6 +162,13 @@ export const docsSections = [
         priority: 0.84,
       },
       {
+        path: "/mcp",
+        title: "MCP server",
+        description:
+          "Connect an MCP-aware coding agent to Tenchi's application map, previews, diagnostics, compatibility report, and validation loop.",
+        priority: 0.83,
+      },
+      {
         path: "/deployment",
         title: "Deployment",
         description:

@@ -2,10 +2,11 @@ import { Callout } from "@/components/callout";
 
 # Coding agents
 
-If your coding agent can read files and run shell commands, it can work with a
-Tenchi application without a special plugin. Tenchi gives it deterministic
-inspection, previewable generation, structured diagnostics, and one complete
-validation command.
+Tenchi gives coding agents deterministic inspection, previewable generation,
+structured diagnostics, and one complete validation command. An MCP-aware
+agent can access those operations directly through the [Tenchi MCP
+server](/mcp); an agent with filesystem and shell access can use the equivalent
+CLI workflow.
 
 You remain in control because contracts, use cases, ports, and composition stay
 in ordinary Python files. The agent inspects evidence, edits those files
@@ -37,6 +38,7 @@ complete application graph.
 | --- | --- |
 | Canonical application structure | Predictable locations for contracts, behavior, ports, policies, adapters, and composition |
 | `AGENTS.md` in every generated app | Repository-local placement rules, dependency direction, and a validation loop |
+| `.mcp.json` in every generated app | Project-local registration for Tenchi's MCP tools and instructions resource |
 | `tenchi map --json` | A versioned graph with stable node IDs, source locations, registration state, and relationship evidence |
 | `tenchi make --dry-run --json` | A mutation preview with the files and follow-up wiring steps before anything is written |
 | `tenchi doctor --json` | Stable diagnostic codes and source locations for architectural violations |
@@ -172,7 +174,7 @@ the complete workflow.
 | `tenchi make ... --json` | Artifact identity, dry-run state, files, next steps, and structured failure |
 | `tenchi doctor --json` | Overall status and source-anchored diagnostics with stable codes |
 | `tenchi check --json` | Overall status, counts, duration, and every validation step |
-| `tenchi routes --json` | The composed HTTP route table for a smaller boundary-only inspection |
+| `tenchi routes --json` | A versioned result containing the app root and composed HTTP route table |
 | `tenchi openapi --diff-format json` | A machine-readable compatibility report |
 
 Human and JSON modes represent the same operation. Use JSON when another tool
@@ -191,12 +193,14 @@ The map also does not prove business correctness. An agent still needs to read
 the relevant contract, use case, policy, port, and tests, then rely on the full
 validation loop.
 
-<Callout title="No special integration required">
-  Any agent that can run shell commands can use this workflow through the CLI
-  and generated `AGENTS.md`. If your agent supports custom tools, you can wrap
-  the JSON commands, but an MCP server is not required.
+<Callout title="Use MCP or the same CLI operations">
+  Generated applications include `.mcp.json` for MCP-aware clients. Agents that
+  only have shell access can follow the same workflow through the CLI and
+  generated `AGENTS.md`; the result schemas and validation semantics stay the
+  same.
 </Callout>
 
-Continue with the [CLI reference](/cli) for every option or [stability and
+Continue with the [MCP server guide](/mcp) to connect a client, the [CLI
+reference](/cli) for every command option, or [stability and
 releases](/stability) for the compatibility guarantees around these result
 schemas.

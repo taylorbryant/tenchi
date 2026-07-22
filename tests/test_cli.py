@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,7 @@ def test_new_scaffolds_a_working_app(
     assert (root / "app/shared/errors.py").is_file()
     assert (root / "openapi.json").is_file()
     assert (root / "AGENTS.md").is_file()
+    assert (root / ".mcp.json").is_file()
     assert (root / "tests/test_openapi_snapshot.py").is_file()
     assert (root / ".github/workflows/ci.yml").is_file()
     assert "uv run tenchi check" in (root / "AGENTS.md").read_text()
@@ -60,6 +62,17 @@ def test_new_scaffolds_a_working_app(
     assert "uv run tenchi map" in (root / "README.md").read_text()
     assert "app.server.routes:api_routes" in (root / "AGENTS.md").read_text()
     assert "uv run tenchi check" in (root / ".github/workflows/ci.yml").read_text()
+    project_config = tomllib.loads((root / "pyproject.toml").read_text())
+    assert project_config["project"]["dependencies"] == [
+        "aiosqlite>=0.20",
+        "tenchi",
+    ]
+    assert "tenchi[mcp]" in project_config["dependency-groups"]["dev"]
+    mcp_config = json.loads((root / ".mcp.json").read_text())
+    assert mcp_config["mcpServers"]["tenchi"] == {
+        "command": "uv",
+        "args": ["run", "tenchi", "mcp", "--root", "."],
+    }
 
     # The generated app imports and composes an ASGI application using the
     # tenchi installed in this environment.
@@ -196,6 +209,8 @@ def test_openapi_diff_ref_reads_the_snapshot_from_git(
     )
     assert compatible_result.returncode == 0, compatible_result.stderr
     compatible = json.loads(compatible_result.stdout)
+    assert compatible["schema_version"] == 1
+    assert compatible["root"] == str(root)
     assert compatible["baseline"] == "HEAD:openapi.json"
     assert compatible["compatible"] is True
 
@@ -954,8 +969,11 @@ def test_routes_json_emits_a_machine_readable_map(
 
     assert main(["routes", "--json"]) == 0
 
-    entries = cast(list[dict[str, Any]], json.loads(capsys.readouterr().out))
-    assert isinstance(entries, list) and entries
+    result = cast(dict[str, Any], json.loads(capsys.readouterr().out))
+    assert result["schema_version"] == 1
+    assert result["root"] == str(EXAMPLE_DIR)
+    entries = cast(list[dict[str, Any]], result["routes"])
+    assert entries
     create = next(e for e in entries if e["method"] == "POST" and e["path"] == "/todos")
     assert create["status"] == 201
     assert str(create["use_case"]).endswith("create_todo")
