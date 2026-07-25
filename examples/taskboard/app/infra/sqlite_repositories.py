@@ -9,7 +9,7 @@ rolls back uncommitted work when closed after an error.
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import aiosqlite
@@ -157,6 +157,39 @@ class SqliteProjectRepository:
             (owner.owner_id,),
         )
         return [_row_to_project(row) for row in await cursor.fetchall()]
+
+    async def repair_invalid_member_ids(
+        self,
+        *,
+        dry_run: bool,
+    ) -> tuple[int, int]:
+        cursor = await self._connection.execute(
+            "SELECT id, member_ids FROM projects ORDER BY rowid"
+        )
+        scanned = 0
+        repaired = 0
+        while rows := list(await cursor.fetchmany(100)):
+            invalid_ids: list[str] = []
+            scanned += len(rows)
+            for project_id, raw_member_ids in rows:
+                try:
+                    parsed: object = json.loads(raw_member_ids)
+                except (TypeError, json.JSONDecodeError):
+                    parsed = None
+                parsed_items = (
+                    cast(list[object], parsed) if isinstance(parsed, list) else []
+                )
+                if not isinstance(parsed, list) or not all(
+                    isinstance(member_id, str) for member_id in parsed_items
+                ):
+                    invalid_ids.append(str(project_id))
+            repaired += len(invalid_ids)
+            if not dry_run and invalid_ids:
+                await self._connection.executemany(
+                    "UPDATE projects SET member_ids = '[]' WHERE id = ?",
+                    ((project_id,) for project_id in invalid_ids),
+                )
+        return scanned, repaired
 
 
 class SqliteTaskRepository:

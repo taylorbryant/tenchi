@@ -36,17 +36,18 @@ def test_app_map_is_deterministic_and_versioned() -> None:
     second = map_app(EXAMPLE_DIR, api_routes)
 
     assert first.as_dict() == second.as_dict()
-    assert first.schema_version == 1
+    assert first.schema_version == 2
     assert first.summary.features == 1
     assert first.summary.contracts == 3
     assert first.summary.routes == 3
+    assert first.summary.tasks == 0
     assert first.summary.use_cases == 3
     assert first.summary.ports == 1
     assert first.summary.adapters == 2
     assert first.diagnostics == ()
     assert first.unresolved == ()
     assert len({node.id for node in first.nodes}) == len(first.nodes)
-    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 1
+    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 2
 
 
 def test_app_map_json_wire_format_matches_snapshot() -> None:
@@ -54,6 +55,7 @@ def test_app_map_json_wire_format_matches_snapshot() -> None:
         "feature",
         "contract",
         "route",
+        "task",
         "use-case",
         "policy",
         "port",
@@ -112,6 +114,7 @@ def test_app_map_json_wire_format_matches_snapshot() -> None:
             features=1,
             contracts=1,
             routes=1,
+            tasks=1,
             use_cases=1,
             policies=1,
             ports=1,
@@ -314,9 +317,9 @@ def test_app_map_registers_only_adapters_reachable_from_an_entrypoint(
         "    return open_second()\n",
         encoding="utf-8",
     )
-    asgi = root / "app/server/asgi.py"
-    asgi.write_text(
-        asgi.read_text()
+    runtime = root / "app/server/runtime.py"
+    runtime.write_text(
+        runtime.read_text()
         .replace(
             "from app.infra.port_wiring import ensure_schema, open_todo_repository",
             "from app.infra.port_wiring import (\n"
@@ -547,7 +550,7 @@ def test_map_cli_supports_json_human_and_projections() -> None:
     complete = _tenchi("map", "--json")
     assert complete.returncode == 0, complete.stderr
     payload = json.loads(complete.stdout)
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["summary"]["routes"] == 3
 
     projected = _tenchi(

@@ -13,6 +13,16 @@ class AddProjectMember(BaseModel):
     user_id: str
 
 
+class RepairProjectMembersInput(BaseModel):
+    dry_run: bool = True
+
+
+class RepairProjectMembersResult(BaseModel):
+    scanned: int
+    repaired: int
+    dry_run: bool
+
+
 class MemberAdded(BaseModel):
     """Payload of the ``member_added`` outbox job.
 

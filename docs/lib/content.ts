@@ -26,6 +26,7 @@ import Reliability from "@/content/reliability.mdx";
 import Responses from "@/content/responses.mdx";
 import Server from "@/content/server.mdx";
 import Stability from "@/content/stability.mdx";
+import Tasks from "@/content/tasks.mdx";
 import Testing from "@/content/testing.mdx";
 import type { DocsPath } from "@/lib/docs";
 
@@ -45,6 +46,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/pagination": Pagination,
   "/authentication": Authentication,
   "/execution": Execution,
+  "/tasks": Tasks,
   "/testing": Testing,
   "/production": Production,
   "/configuration": Configuration,

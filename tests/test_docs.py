@@ -46,6 +46,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "pagination",
         "authentication",
         "execution",
+        "tasks",
         "testing",
         "production",
         "configuration",

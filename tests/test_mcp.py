@@ -51,6 +51,7 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
         "app_map",
         "routes",
         "doctor",
+        "task_list",
         "openapi_diff",
         "make_preview",
         "check",
@@ -67,6 +68,15 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
             assert tool.annotations.readOnlyHint is True
             assert tool.annotations.openWorldHint is False
 
+    enabled = build_mcp_server(McpServerOptions(EXAMPLE_ROOT, allow_task_runs=True))
+    enabled_tools = await enabled.list_tools()
+    task_run = next(tool for tool in enabled_tools if tool.name == "task_run")
+    assert task_run.annotations is not None
+    assert task_run.annotations.readOnlyHint is False
+    assert task_run.annotations.destructiveHint is True
+    assert task_run.annotations.idempotentHint is False
+    assert task_run.annotations.openWorldHint is True
+
 
 async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> None:
     server = build_mcp_server(McpServerOptions(EXAMPLE_ROOT))
@@ -77,6 +87,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
             "app_map", {"feature": "todos", "kinds": ["contract", "route"]}
         )
         doctor = await session.call_tool("doctor", {})
+        tasks = await session.call_tool("task_list", {})
         preview = await session.call_tool(
             "make_preview", {"artifact": "feature", "name": "notes"}
         )
@@ -87,7 +98,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert routes.isError is False
     assert routes.structuredContent is not None
-    assert routes.structuredContent["schema_version"] == 1
+    assert routes.structuredContent["schema_version"] == 2
     assert routes.structuredContent["root"] == str(EXAMPLE_ROOT)
     assert any(item["path"] == "/todos" for item in routes.structuredContent["routes"])
 
@@ -101,7 +112,12 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert doctor.isError is False
     assert doctor.structuredContent is not None
-    assert doctor.structuredContent["schema_version"] == 1
+    assert doctor.structuredContent["schema_version"] == 2
+
+    assert tasks.isError is False
+    assert tasks.structuredContent is not None
+    assert tasks.structuredContent["schema_version"] == 2
+    assert tasks.structuredContent["tasks"] == []
 
     assert preview.isError is False
     assert preview.structuredContent is not None
@@ -115,8 +131,80 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert diff.isError is False
     assert diff.structuredContent is not None
-    assert diff.structuredContent["schema_version"] == 1
+    assert diff.structuredContent["schema_version"] == 2
     assert diff.structuredContent["compatible"] is True
+
+
+async def test_mcp_task_execution_is_opt_in_and_returns_structured_results(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app").mkdir()
+    (tmp_path / "operations.py").write_text(
+        "from pydantic import BaseModel\n"
+        "from tenchi.tasks import create_task_runner, task, task_group\n"
+        "class Input(BaseModel):\n"
+        "    value: int\n"
+        "class Result(BaseModel):\n"
+        "    doubled: int\n"
+        "async def double(request: Input, context: object) -> Result:\n"
+        "    print('task chatter')\n"
+        "    return Result(doubled=request.value * 2)\n"
+        "async def optional(\n"
+        "    request: str | None = 'default', context: object = None\n"
+        ") -> str:\n"
+        "    return 'null' if request is None else request\n"
+        "runner = create_task_runner(\n"
+        "    tasks=task_group(\n"
+        "        task('numbers.double', double),\n"
+        "        task('numbers.optional', optional),\n"
+        "    ),\n"
+        "    context_factory=lambda: object(),\n"
+        ")\n"
+    )
+    disabled = build_mcp_server(McpServerOptions(tmp_path, tasks="operations:runner"))
+    assert "task_run" not in {tool.name for tool in await disabled.list_tools()}
+
+    enabled = build_mcp_server(
+        McpServerOptions(
+            tmp_path,
+            tasks="operations:runner",
+            allow_task_runs=True,
+        )
+    )
+    async with create_connected_server_and_client_session(enabled) as session:
+        listed = await session.call_tool("task_list", {})
+        ran = await session.call_tool(
+            "task_run",
+            {"name": "numbers.double", "input": {"value": 4}},
+        )
+        invalid = await session.call_tool(
+            "task_run",
+            {"name": "numbers.double", "input": {"value": "bad"}},
+        )
+        omitted = await session.call_tool(
+            "task_run",
+            {"name": "numbers.optional"},
+        )
+        explicit_null = await session.call_tool(
+            "task_run",
+            {"name": "numbers.optional", "input": None},
+        )
+
+    assert listed.isError is False
+    assert listed.structuredContent is not None
+    assert listed.structuredContent["tasks"][0]["name"] == "numbers.double"
+    assert ran.isError is False
+    assert ran.structuredContent is not None
+    assert ran.structuredContent["ok"] is True
+    assert ran.structuredContent["output"] == {"doubled": 8}
+    assert invalid.isError is False
+    assert invalid.structuredContent is not None
+    assert invalid.structuredContent["ok"] is False
+    assert invalid.structuredContent["error"]["kind"] == "invalid_input"
+    assert omitted.structuredContent is not None
+    assert omitted.structuredContent["output"] == "default"
+    assert explicit_null.structuredContent is not None
+    assert explicit_null.structuredContent["output"] == "null"
 
 
 async def test_mcp_returns_tool_errors_for_invalid_boundaries() -> None:
@@ -288,6 +376,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
         "app_map",
         "routes",
         "doctor",
+        "task_list",
         "openapi_diff",
         "make_preview",
         "check",
@@ -296,7 +385,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
     assert initialized.serverInfo.version == __version__
     assert routes.isError is False
     assert routes.structuredContent is not None
-    assert routes.structuredContent["schema_version"] == 1
+    assert routes.structuredContent["schema_version"] == 2
     assert diff.isError is False
     assert diff.structuredContent is not None
     assert diff.structuredContent["counts"]["metadata"] == 1

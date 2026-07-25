@@ -39,6 +39,8 @@ app/
     asgi.py
     context.py
     routes.py
+    runtime.py
+    tasks.py
 ```
 
 ## Declare the boundary
@@ -149,17 +151,23 @@ routes = route_group(
 )
 ```
 
+Put entrypoint-neutral context wiring in `app/server/runtime.py`:
+
+```python
+from app.server.context import AppContext
+
+
+def create_context() -> AppContext:
+    return AppContext()
+```
+
 Expose the Starlette application from `app/server/asgi.py`:
 
 ```python
 from tenchi.server import create_app
 
-from app.server.context import AppContext
 from app.server.routes import routes
-
-
-def create_context() -> AppContext:
-    return AppContext()
+from app.server.runtime import create_context
 
 
 app = create_app(routes=routes, context_factory=create_context)
@@ -168,6 +176,22 @@ app = create_app(routes=routes, context_factory=create_context)
 When the application needs a database or SDK client, replace the direct context
 factory with the lifespan and request-scope pattern from [routes and
 server](/server).
+
+Create an empty operational runner in `app/server/tasks.py`:
+
+```python
+from tenchi.tasks import create_task_runner, task_group
+
+from app.server.runtime import create_context
+
+
+tasks = task_group()
+runner = create_task_runner(tasks=tasks, context_factory=create_context)
+```
+
+This keeps `tenchi map` and `tenchi task list` useful before the application
+has a maintenance command. Add tasks later by following [Operational
+tasks](/tasks).
 
 ## Add a direct behavior test
 
@@ -221,6 +245,7 @@ uv run tenchi openapi \
   --description "Greeting API" \
   --write openapi.json
 uv run tenchi check
+uv run tenchi task list
 ```
 
 Start the development server after the checks pass:

@@ -13,6 +13,8 @@ from ._cli_results import (
     DoctorPayload,
     MakePayload,
     RoutesPayload,
+    TaskListPayload,
+    TaskRunPayload,
 )
 from ._openapi_operations import OpenApiDiffPayload
 
@@ -23,6 +25,8 @@ type AgentResultName = Literal[
     "openapi_diff",
     "make",
     "check",
+    "task_list",
+    "task_run",
 ]
 type JsonObject = dict[str, object]
 
@@ -33,6 +37,8 @@ AGENT_RESULT_ADAPTERS: dict[AgentResultName, TypeAdapter[object]] = {
     "openapi_diff": cast(TypeAdapter[object], TypeAdapter(OpenApiDiffPayload)),
     "make": cast(TypeAdapter[object], TypeAdapter(MakePayload)),
     "check": cast(TypeAdapter[object], TypeAdapter(CheckPayload)),
+    "task_list": cast(TypeAdapter[object], TypeAdapter(TaskListPayload)),
+    "task_run": cast(TypeAdapter[object], TypeAdapter(TaskRunPayload)),
 }
 AGENT_RESULT_NAMES: tuple[AgentResultName, ...] = tuple(AGENT_RESULT_ADAPTERS)
 

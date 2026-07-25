@@ -4,9 +4,9 @@ import { Callout } from "@/components/callout";
 
 Tenchi's MCP server gives a coding agent structured access to the application
 map, route table, architecture diagnostics, generator previews, OpenAPI
-compatibility, and the complete validation loop. Inspection and preview tools
-do not edit application files; `check` runs the project's own validation
-commands and can have their usual side effects.
+compatibility, operational-task discovery, and the complete validation loop.
+Inspection and preview tools do not edit application files; `check` runs the
+project's own validation commands and can have their usual side effects.
 
 New applications include the required development dependency and a
 project-local `.mcp.json`. After `uv sync`, an MCP client that recognizes this
@@ -57,9 +57,22 @@ edits made during the agent session.
 | `app_map` | Versioned nodes, relationships, evidence, diagnostics, and unresolved references; accepts feature and node-kind projections |
 | `routes` | The composed route table with use cases, responses, errors, access metadata, and runtime limits |
 | `doctor` | Source-anchored architecture and dependency diagnostics |
+| `task_list` | Registered operational tasks with validated input and output JSON Schemas |
 | `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true` |
 | `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
 | `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI snapshot check |
+
+`task_run` is absent by default. Start the server with
+`--allow-task-runs` to expose it:
+
+```shell
+uv run tenchi mcp --allow-task-runs
+```
+
+The tool can change application state and uses the credentials available to
+the MCP server process. Only enable it for an agent and environment authorized
+to perform operational work. See [Operational tasks](/tasks) for the complete
+workflow.
 
 Every tool returns structured content with a `schema_version`. A doctor finding,
 failed check, generator conflict, or incompatible API is a valid result with
@@ -100,14 +113,16 @@ uv run tenchi mcp \
   --root . \
   --routes my_app.server.routes:routes \
   --api-routes my_app.server.routes:api_routes \
+  --tasks my_app.server.tasks:runner \
   --snapshot api/openapi.json \
   --title "My API" \
   --version 1.0.0
 ```
 
 `routes` uses `--routes`. The map, OpenAPI diff, and `check` tools use
-`--api-routes`. OpenAPI title, version, description, and security defaults come
-from the same literal route-module declarations used by `tenchi check`.
+`--api-routes`; the task tools use `--tasks`. OpenAPI title, version,
+description, and security defaults come from the same literal route-module
+declarations used by `tenchi check`.
 `--title`, `--version`, `--description`, and `--security` provide the same
 explicit overrides when an application does not keep that metadata as literals.
 

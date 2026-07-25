@@ -1,0 +1,162 @@
+import { Callout } from "@/components/callout";
+
+# Operational tasks
+
+Operational tasks give backfills, repairs, replays, and maintenance commands a
+named, validated entrypoint. They run ordinary async use cases with the same
+application lifespan, scoped context, and use-case observers as the HTTP
+application.
+
+Tenchi does not schedule tasks or turn them into a queue. Your deployment
+decides who may invoke them, when they run, and whether a failed operation
+should be retried.
+
+## Declare the input, result, and use case
+
+Use Pydantic models for inputs and results. A safe maintenance command normally
+supports a dry run:
+
+```python
+from pydantic import BaseModel
+
+from app.server.context import AppContext
+
+
+class RepairMembersInput(BaseModel):
+    dry_run: bool = True
+
+
+class RepairMembersResult(BaseModel):
+    scanned: int
+    repaired: int
+    dry_run: bool
+
+
+async def repair_project_members(
+    request: RepairMembersInput,
+    context: AppContext,
+) -> RepairMembersResult:
+    scanned, repaired = await context.projects.repair_invalid_member_ids(
+        dry_run=request.dry_run,
+    )
+    return RepairMembersResult(
+        scanned=scanned,
+        repaired=repaired,
+        dry_run=request.dry_run,
+    )
+```
+
+Keep this function in the feature's `use_cases/` directory and test it directly
+with memory adapters. It remains application behavior rather than CLI code.
+
+## Give the task a stable name
+
+Bind the use case in `app/features/projects/tasks.py`:
+
+```python
+from tenchi.tasks import task, task_group
+
+from .use_cases.repair_project_members import repair_project_members
+
+
+repair_project_members_task = task(
+    "projects.repair_members",
+    repair_project_members,
+    description="Replace malformed project member lists with an empty list.",
+)
+
+tasks = task_group(repair_project_members_task)
+```
+
+Task names use dotted `snake_case`. Treat them as operator-facing API names:
+scripts and agents may keep them long after the Python function moves.
+`task()` checks the use-case signature and builds the input and result
+validators when the module is imported.
+
+## Compose the runner
+
+HTTP and tasks should share application resource wiring. A small
+`app/server/runtime.py` can own `create_context` and the lifespan factory. Then
+compose tasks in `app/server/tasks.py`:
+
+```python
+from app.features.projects.tasks import tasks as project_tasks
+from app.server.observability import observe_use_case
+from app.server.runtime import DATABASE_PATH, create_context, create_lifespan
+from tenchi.tasks import create_task_runner, task_group
+
+
+tasks = task_group(project_tasks)
+
+runner = create_task_runner(
+    tasks=tasks,
+    context_factory=create_context,
+    lifespan=create_lifespan(DATABASE_PATH),
+    use_case_observers=(observe_use_case,),
+)
+```
+
+The default CLI target is `app.server.tasks:runner`. Use `--tasks
+module:attribute` when your composition root lives elsewhere.
+
+## Discover and run tasks
+
+List names and their JSON Schemas before invoking anything:
+
+```shell
+uv run tenchi task list
+uv run tenchi task list --json
+```
+
+Run the dry run first, inspect its result, then opt into the write:
+
+```shell
+uv run tenchi task run projects.repair_members \
+  --input '{"dry_run": true}'
+
+uv run tenchi task run projects.repair_members \
+  --input '{"dry_run": false}' \
+  --json
+```
+
+Input is validated before the lifespan or context opens. Output is validated
+before the scoped context commits, so an invalid result rolls back
+transactional work. Application errors, invalid input, invalid results, and
+unexpected failures have distinct codes in JSON output. Task input is not
+echoed into the result.
+
+Cancellation propagates through the use case and both cleanup scopes. A
+cancelled process or MCP call can therefore roll back the same way as another
+failure, provided the database adapter follows the documented context-manager
+pattern.
+
+Use-case observers receive `entrypoint="task"` so task telemetry stays
+distinguishable from HTTP and direct `execute()` calls.
+
+<Callout type="warning" title="The caller is the operational security boundary">
+  `tenchi task run` uses the process's credentials and application context. Run
+  it only from an operator-controlled environment. Authentication hooks are an
+  HTTP concern and do not run here; keep business authorization in reusable use
+  cases when a task acts for a user.
+</Callout>
+
+## Let an agent discover tasks
+
+The MCP server always exposes the read-only `task_list` tool. Task execution is
+disabled unless the server starts with an explicit capability:
+
+```shell
+uv run tenchi mcp --allow-task-runs
+```
+
+That flag adds the state-changing `task_run` tool. Give it only to an agent and
+environment that are allowed to perform operational writes. The tool returns
+the same versioned result shape as `tenchi task run --json`.
+
+`tenchi map` also includes task nodes and their bindings to use cases. This
+lets an operator or coding agent see the behavior and dependencies behind a
+task before running or changing it.
+
+For recurring or event-driven work, keep the consumer's acknowledgement,
+retry, and dead-letter policy around [`execute()`](/execution). See [Retries
+and background work](/reliability) for that boundary.

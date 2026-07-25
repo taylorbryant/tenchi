@@ -104,10 +104,10 @@ Applications use this structure:
 
 ```text
 app/
-  features/<feature>/   # contracts, schemas, ports, routes, use cases
+  features/<feature>/   # contracts, schemas, ports, routes, tasks, use cases
   shared/               # shared errors and domain concepts
   infra/                # concrete port implementations
-  server/               # context, hooks, route composition, ASGI app
+  server/               # context, shared runtime, route/task composition, ASGI app
 tests/                  # HTTP integration tests
 ```
 
@@ -202,8 +202,22 @@ catches the injected cancellation. `create_app(observers=...)` delivers an
 immutable `RequestOutcome`, including a read-only header mapping, after each
 matched route has finalized. Observer failures are logged and never change the
 response. `create_app(use_case_observers=...)` and
-`execute(use_case_observers=...)` deliver the same immutable `UseCaseOutcome`
-after context cleanup for every use case that was actually invoked.
+`execute(use_case_observers=...)` and task runners deliver the same immutable
+`UseCaseOutcome` after context cleanup for every use case that was actually
+invoked.
+
+Named operational tasks add validated input and result contracts plus
+application lifecycle wiring around selected use cases. Use them for
+operator-invoked backfills, repairs, replays, and maintenance—not scheduling or
+queue consumption:
+
+```python
+repair_members_task = task(
+    "projects.repair_members",
+    repair_project_members,
+    description="Replace malformed project member lists.",
+)
+```
 
 See [`examples/todos`](examples/todos) for the small teaching app and
 [`examples/taskboard`](examples/taskboard) for a larger application with
@@ -228,6 +242,8 @@ tenchi openapi --check openapi.json
 tenchi openapi --write openapi.json
 tenchi doctor --json
 tenchi check
+tenchi task list
+tenchi task run projects.repair_members --input '{"dry_run": true}'
 tenchi mcp
 tenchi dev
 ```
@@ -246,11 +262,16 @@ programmatic checks, import `analyze_openapi_compatibility` from
 `tenchi.compatibility`.
 
 `tenchi map` combines source declarations with the composed route group into a
-deterministic graph of features, contracts, routes, use cases, policies, ports,
-adapters, context, entrypoints, and tests. Every relationship includes source
-evidence and a confidence level. Use `--feature` for a feature plus its direct
-cross-feature dependencies, `--kind` for a comma-separated node projection,
-and `--json` for the versioned result.
+deterministic graph of features, contracts, routes, operational tasks, use
+cases, policies, ports, adapters, context, entrypoints, and tests. Every
+relationship includes source evidence and a confidence level. Use `--feature`
+for a feature plus its direct cross-feature dependencies, `--kind` for a
+comma-separated node projection, and `--json` for the versioned result.
+
+`tenchi task list` reports the runner's task names and JSON Schemas. `tenchi
+task run` validates input, owns one application lifespan and scoped context,
+and validates output before transactional cleanup commits. Both commands
+support versioned JSON results.
 
 Generator `--dry-run` output lists every file without writing it. `make`,
 `map`, `doctor`, and `check` accept `--json` and return versioned results for
@@ -262,12 +283,13 @@ breaking protocol changes require a new `schema_version`.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
 inspect, preview, edit, validate, and compatibility loop.
 
-`tenchi mcp` serves the same versioned map, route, doctor, generator-preview,
-OpenAPI-diff, and check results over stdio. Inspection and preview tools do not
-write application files; project-owned commands executed by `check` retain
-their normal side effects. Generated apps register the command in `.mcp.json`.
-Existing apps install the optional development dependency with
-`uv add --dev "tenchi[mcp]"`.
+`tenchi mcp` serves the same versioned map, route, task-discovery, doctor,
+generator-preview, OpenAPI-diff, and check results over stdio. Task execution
+is absent unless the server starts with `--allow-task-runs`. Inspection and
+preview tools do not write application files; project-owned commands executed
+by `check` retain their normal side effects. Generated apps register the
+command in `.mcp.json`. Existing apps install the optional development
+dependency with `uv add --dev "tenchi[mcp]"`.
 
 Run `tenchi <command> --help` for command options.
 

@@ -40,6 +40,7 @@ complete application graph.
 | `AGENTS.md` in every generated app | Repository-local placement rules, dependency direction, and a validation loop |
 | `.mcp.json` in every generated app | Project-local registration for Tenchi's MCP tools and instructions resource |
 | `tenchi map --json` | A versioned graph with stable node IDs, source locations, registration state, and relationship evidence |
+| `tenchi task list --json` | Validated operational task names and their input/output JSON Schemas |
 | `tenchi make --dry-run --json` | A mutation preview with the files and follow-up wiring steps before anything is written |
 | `tenchi doctor --json` | Stable diagnostic codes and source locations for architectural violations |
 | `tenchi check --json` | One bounded, complete result for formatting, linting, types, tests, architecture, and OpenAPI drift |
@@ -76,8 +77,8 @@ the dependencies that cross the feature directory.
 Inspect these fields before editing:
 
 - `nodes` identify concepts and their source declarations. Runtime-bound kinds
-  such as contracts, routes, use cases, and adapters become `registered` when
-  composition reaches them; source-only declarations remain `declared`.
+  such as contracts, routes, tasks, use cases, and adapters become `registered`
+  when composition reaches them; source-only declarations remain `declared`.
 - `edges` explain ownership, route bindings, dependencies, authorization,
   implementations, and feature tests. Evidence points to the source that
   supports each relationship.

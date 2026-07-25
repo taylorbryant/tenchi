@@ -9,11 +9,22 @@ versions may change the public API.
 
 ### Added
 
+- Validated operational tasks for backfills, repairs, replays, and maintenance:
+  `task()` and `task_group()` bind stable dotted names to plain async use cases,
+  while `create_task_runner()` applies input and result validation, application
+  lifespan/context scoping, cancellation cleanup, and shared use-case
+  observers whose outcomes identify the `task` entrypoint. `tenchi task
+  list|run` expose human and versioned JSON results; the application map
+  includes task nodes and bindings; MCP provides read-only `task_list` plus an
+  explicitly enabled `task_run` tool.
+- Agent protocol v2 adds operational-task CLI/MCP results and task nodes to the
+  application map. The complete v1 snapshot remains intact as immutable
+  protocol history.
 - Unified use-case outcomes: `UseCaseOutcome` and `UseCaseObserver` report
   success, application errors, unexpected failures, and cancellation through
-  the same observer contract for HTTP routes and `execute()`. Observers run
-  after context cleanup, remain isolated from application behavior, and expose
-  no request, result, or exception payloads by default.
+  the same observer contract for HTTP routes, `execute()`, and operational
+  tasks. Observers run after context cleanup, remain isolated from application
+  behavior, and expose no request, result, or exception payloads by default.
 
 ## [0.10.0] - 2026-07-24
 

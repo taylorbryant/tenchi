@@ -8,6 +8,7 @@ Doctor enforces the dependency direction that keeps Tenchi apps honest:
 - Policies take their subjects as arguments: they import schemas, domain
   types, and shared errors, and nothing with I/O behind it.
 - Routes bind contracts to use cases but must not import infrastructure.
+- Tasks bind operational names to use cases but must not import infrastructure.
 - Shared code must not depend on features.
 - Infrastructure implements ports; it must not import use cases, routes,
   contracts, or server composition.
@@ -45,6 +46,7 @@ _FEATURE_KINDS: dict[str, Category] = {
     "ports": "ports",
     "contracts": "contracts",
     "routes": "routes",
+    "tasks": "tasks",
     "use_cases": "use_cases",
     "policy": "policy",
     "tests": "tests",
@@ -60,6 +62,19 @@ _HTTP_RULES: dict[Category, str] = {
 _RUNTIME_REEXPORTS = frozenset(
     {"create_app", "execute", "Client", "UnexpectedResponseError", "RequestInfo"}
 )
+_TASK_REEXPORTS = frozenset(
+    {
+        "create_task_runner",
+        "task",
+        "task_group",
+        "Task",
+        "TaskBindingError",
+        "TaskGroup",
+        "TaskNotFoundError",
+        "TaskResultError",
+        "TaskRunner",
+    }
+)
 
 # Forbidden import targets per source category, with the rule each enforces.
 _RULES: dict[Category, dict[Category, str]] = {
@@ -67,12 +82,14 @@ _RULES: dict[Category, dict[Category, str]] = {
         "infra": "domain and schema code must not import infrastructure",
         "server": "domain and schema code must not import server composition",
         "context": "domain and schema code must not import the app context",
+        "tasks": "domain and schema code must not import task declarations",
         **{k: f"domain and schema code {v}" for k, v in _HTTP_RULES.items()},
     },
     "ports": {
         "infra": "ports describe needs; they must not import infrastructure",
         "server": "ports must not import server composition",
         "context": "ports must not import the app context",
+        "tasks": "ports must not import task declarations",
         **{k: f"ports {v}" for k, v in _HTTP_RULES.items()},
     },
     "contracts": {
@@ -80,6 +97,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "server": "contracts must not import server composition",
         "context": "contracts must not import the app context",
         "use_cases": "contracts must not import use cases",
+        "tasks": "contracts must not import tasks",
         **{k: f"contracts {v}" for k, v in _HTTP_RULES.items()},
     },
     "policy": {
@@ -90,6 +108,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "use_cases": "policies must not import use cases",
         "routes": "policies must not import routes",
         "contracts": "policies must not import contracts",
+        "tasks": "policies must not import tasks",
         **{k: f"policies {v}" for k, v in _HTTP_RULES.items()},
     },
     "use_cases": {
@@ -99,12 +118,22 @@ _RULES: dict[Category, dict[Category, str]] = {
             "but no other server composition module"
         ),
         "routes": "use cases must not import routes",
+        "tasks": "use cases must not import task declarations",
         **{k: f"use cases {v}" for k, v in _HTTP_RULES.items()},
     },
     "routes": {
         "infra": "routes must not import concrete infrastructure",
         "server": "routes must not import server composition",
+        "tasks": "routes must not import task declarations",
         **{k: f"routes {v}" for k, v in _HTTP_RULES.items()},
+    },
+    "tasks": {
+        "infra": "tasks must not import concrete infrastructure",
+        "server": "tasks must not import server composition",
+        "context": "tasks bind use cases; they must not import the app context",
+        "routes": "tasks must not import routes",
+        "contracts": "tasks must not import contracts",
+        **{k: f"tasks {v}" for k, v in _HTTP_RULES.items()},
     },
     "shared": {
         "infra": "shared code must not import infrastructure",
@@ -116,6 +145,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "routes": "shared code must not depend on features",
         "use_cases": "shared code must not depend on features",
         "policy": "shared code must not depend on features",
+        "tasks": "shared code must not depend on features",
         **{k: f"shared code {v}" for k, v in _HTTP_RULES.items()},
     },
     "infra": {
@@ -124,6 +154,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "use_cases": "infrastructure implements ports; it must not import use cases",
         "routes": "infrastructure must not import routes",
         "contracts": "infrastructure must not import contracts",
+        "tasks": "infrastructure must not import tasks",
     },
     "server": {},
 }
@@ -195,8 +226,8 @@ def _placement_findings(
             line=0,
             message=(
                 "unrecognized feature module: features contain schemas.py, "
-                "ports.py, contracts.py, routes.py, policy.py, use_cases/, "
-                "and tests/ only"
+                "ports.py, contracts.py, routes.py, tasks.py, policy.py, "
+                "use_cases/, and tests/ only"
             ),
             code="TENCHI_DOCTOR_UNRECOGNIZED_FEATURE_MODULE",
         )
@@ -378,11 +409,15 @@ def _classify_module(parts: tuple[str, ...]) -> Category | None:
             ("execution",),
         ):
             return "tenchi_runtime"
+        if parts[0] == "tenchi" and parts[1:2] == ("tasks",):
+            return "tasks"
         # Root re-exports reach the same runtime: `from tenchi import
         # execute` must not slip past what `from tenchi.execution import
         # execute` is denied.
         if parts[0] == "tenchi" and parts[1:2] and parts[1] in _RUNTIME_REEXPORTS:
             return "tenchi_runtime"
+        if parts[0] == "tenchi" and parts[1:2] and parts[1] in _TASK_REEXPORTS:
+            return "tasks"
         return None
     if parts[1:2] == ("infra",):
         return "infra"

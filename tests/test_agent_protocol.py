@@ -54,6 +54,8 @@ MCP_RESULT_NAMES: dict[str, AgentResultName] = {
     "openapi_diff": "openapi_diff",
     "make_preview": "make",
     "check": "check",
+    "task_list": "task_list",
+    "task_run": "task_run",
 }
 
 type JsonObject = dict[str, object]
@@ -76,7 +78,7 @@ class _ChangeSink:
 
 async def _render_agent_protocol() -> JsonObject:
     cli_results = agent_result_schemas()
-    server = build_mcp_server(McpServerOptions(EXAMPLE_ROOT))
+    server = build_mcp_server(McpServerOptions(EXAMPLE_ROOT, allow_task_runs=True))
     mcp_tools: dict[str, JsonObject] = {}
     for tool in await server.list_tools():
         assert tool.outputSchema is not None, (
@@ -277,6 +279,7 @@ def test_same_version_guard_allows_optional_tool_inputs() -> None:
 
 def test_git_history_rejects_same_version_breaking_changes() -> None:
     baseline = _load_snapshot()
+    historical = SNAPSHOT_DIRECTORY / "agent_protocol_v1_snapshot.json"
     current = deepcopy(baseline)
     cli_results = _object(current["cli_results"])
     doctor = _object(cli_results["doctor"])
@@ -285,23 +288,30 @@ def test_git_history_rejects_same_version_breaking_changes() -> None:
     with pytest.raises(AssertionError, match="changed incompatibly"):
         _assert_git_history(
             base_ref="base",
-            baseline_snapshots={1: _render_json(baseline)},
-            local_snapshots={1: SNAPSHOT_PATH},
+            baseline_snapshots={
+                1: historical.read_text(encoding="utf-8"),
+                2: _render_json(baseline),
+            },
+            local_snapshots={1: historical, 2: SNAPSHOT_PATH},
             current=current,
-            current_version=1,
+            current_version=2,
         )
 
 
 def test_git_history_rejects_changed_historical_snapshots(tmp_path: Path) -> None:
     baseline = _load_snapshot()
-    changed = tmp_path / SNAPSHOT_PATH.name
+    historical = SNAPSHOT_DIRECTORY / "agent_protocol_v1_snapshot.json"
+    changed = tmp_path / historical.name
     changed.write_text(_render_json({"schema_version": 1}), encoding="utf-8")
 
     with pytest.raises(AssertionError, match="historical"):
         _assert_git_history(
             base_ref="base",
-            baseline_snapshots={1: _render_json(baseline)},
-            local_snapshots={1: changed},
+            baseline_snapshots={
+                1: historical.read_text(encoding="utf-8"),
+                2: _render_json(baseline),
+            },
+            local_snapshots={1: changed, 2: SNAPSHOT_PATH},
             current=baseline,
             current_version=2,
         )

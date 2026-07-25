@@ -21,6 +21,12 @@ A plain async function that implements one application action. Its parameters
 are named boundary values such as `request`, `params`, `query`, `headers`, and
 `context`. It does not receive a Starlette request.
 
+## Operational task
+
+A stable name bound to a use case for a backfill, repair, replay, or maintenance
+command. A task validates its input and result and runs with application
+lifecycle resources. It is an invocation boundary, not a scheduler or queue.
+
 ## Port
 
 An interface the application needs, declared with `typing.Protocol`. The

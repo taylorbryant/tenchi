@@ -51,7 +51,8 @@ uv run tenchi map --feature notes --kind route,use-case,policy,port --json
 
 Map combines the canonical source layout with the composed API route group. It
 returns a deterministic, versioned graph covering features, contracts, routes,
-use cases, policies, ports, adapters, context types, entrypoints, and tests.
+operational tasks, use cases, policies, ports, adapters, context types,
+entrypoints, and tests.
 Edges describe ownership, route bindings, dependencies, authorization,
 implementations, and feature tests. Each edge carries project-relative source
 evidence and an `exact` or `inferred` confidence value.
@@ -121,6 +122,27 @@ the module selected by `--routes`; command flags override them. The route target
 defaults to `app.server.routes:api_routes`, and the snapshot defaults to
 `openapi.json`.
 
+## Run operational tasks
+
+```shell
+uv run tenchi task list
+uv run tenchi task list --json
+uv run tenchi task run projects.repair_members \
+  --input '{"dry_run": true}'
+uv run tenchi task run projects.repair_members \
+  --input '{"dry_run": false}' \
+  --json
+```
+
+`task list` discovers `app.server.tasks:runner` and reports every task's input
+and output JSON Schema. `task run` validates input, opens the application
+lifespan and scoped context, invokes the use case, validates its result before
+the context commits, and returns a non-zero exit status for failure results.
+Use `--tasks module:attribute` to override the runner target.
+
+See [Operational tasks](/tasks) for declarations, composition, dry-run design,
+failure semantics, and MCP access.
+
 ## Serve MCP tools
 
 ```shell
@@ -131,9 +153,11 @@ uv run tenchi mcp --root path/to/application
 MCP support is installed through the `tenchi[mcp]` extra. Generated
 applications include it as a development dependency and register the default
 command in `.mcp.json`.
-`--routes`, `--api-routes`, and `--snapshot` override the conventions captured
-by the server when it starts. `--title`, `--version`, `--description`, and
-`--security` override discovered OpenAPI metadata for the diff and check tools.
+`--routes`, `--api-routes`, `--tasks`, and `--snapshot` override the
+conventions captured by the server when it starts. `--title`, `--version`,
+`--description`, and `--security` override discovered OpenAPI metadata for the
+diff and check tools. Pass `--allow-task-runs` only when the connected agent
+may perform operational writes; task discovery remains available without it.
 The command uses stdio and waits for an MCP client; it does not start an HTTP
 listener.
 

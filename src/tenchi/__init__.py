@@ -15,6 +15,17 @@ from .pagination import Page, PageQuery, page
 from .responses import PresentedResponse, ResponseDef, present, response
 from .routes import Route, RouteGroup, route, route_group
 from .server import OutcomeObserver, RequestInfo, RequestOutcome, create_app
+from .tasks import (
+    Task,
+    TaskBindingError,
+    TaskGroup,
+    TaskNotFoundError,
+    TaskResultError,
+    TaskRunner,
+    create_task_runner,
+    task,
+    task_group,
+)
 
 __version__ = "0.11.0"
 
@@ -35,6 +46,12 @@ __all__ = [
     "ResponseDef",
     "Route",
     "RouteGroup",
+    "Task",
+    "TaskBindingError",
+    "TaskGroup",
+    "TaskNotFoundError",
+    "TaskResultError",
+    "TaskRunner",
     "TenchiError",
     "UnexpectedResponseError",
     "UseCaseObserver",
@@ -42,6 +59,7 @@ __all__ = [
     "__version__",
     "contract",
     "create_app",
+    "create_task_runner",
     "execute",
     "health_route",
     "openapi_route",
@@ -52,4 +70,6 @@ __all__ = [
     "route",
     "route_group",
     "swagger_ui_route",
+    "task",
+    "task_group",
 ]

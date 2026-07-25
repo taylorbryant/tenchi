@@ -68,24 +68,25 @@ returns. Export through a non-blocking logging or telemetry pipeline.
 
 ## Observe use cases across entrypoints
 
-`UseCaseOutcome` reports every use case that was actually invoked through HTTP
-or `execute()`:
+`UseCaseOutcome` reports every use case that was actually invoked through HTTP,
+an operational task, or `execute()`:
 
 | Field | Meaning |
 | --- | --- |
 | `use_case` | The invoked async function |
-| `entrypoint` | `http` or `execute` |
+| `entrypoint` | `http`, `execute`, or `task` |
 | `status` | `succeeded`, `app_error`, `failed`, or `cancelled` |
 | `duration_seconds` | Time spent inside the use-case function |
 | `error_code` | The stable `AppError` code for `app_error`; otherwise `None` |
 
-Pass the observer to `create_app(use_case_observers=...)` for HTTP and
+Pass the observer to `create_app(use_case_observers=...)` for HTTP,
 `execute(use_case_observers=...)` for workers, schedules, scripts, and direct
-calls. It runs after the surrounding context scope closes, so transactional
-cleanup finishes before telemetry is exported. Input values, return values,
-and exception objects are never included.
+calls, or `create_task_runner(use_case_observers=...)` for operational tasks.
+It runs after the surrounding context scope closes, so transactional cleanup
+finishes before telemetry is exported. Input values, return values, and
+exception objects are never included.
 
-Keep use-case observers fast too. Both HTTP and `execute()` wait for the
+Keep use-case observers fast too. HTTP, tasks, and `execute()` all wait for the
 observer chain after scope cleanup.
 
 Validation, hook, and context-acquisition failures that happen before
@@ -134,7 +135,7 @@ transport-specific metadata and acknowledgement.
 | Need | Use |
 | --- | --- |
 | Final HTTP status, duration, contract, request ID, error ownership | `RequestOutcome` observer |
-| Use-case status and duration across HTTP and `execute()` | `UseCaseOutcome` observer |
+| Use-case status and duration across HTTP, tasks, and `execute()` | `UseCaseOutcome` observer |
 | Trace the full ASGI lifecycle, unmatched routes, or streaming bodies | ASGI/OpenTelemetry middleware |
 | Database and outbound HTTP spans | Driver or SDK instrumentation |
 | Use-case-specific business measurements | An application port called by the use case |

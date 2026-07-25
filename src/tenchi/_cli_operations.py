@@ -156,6 +156,7 @@ def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
             f"Declare contracts in {relative_root}/contracts.py",
             f"Generate use cases: tenchi make use-case {name} <use_case_name>",
             f"Compose app.features.{name}.routes in app/server/routes.py",
+            f"Compose app.features.{name}.tasks in app/server/tasks.py",
         ),
     )
 

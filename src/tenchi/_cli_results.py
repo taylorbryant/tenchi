@@ -15,9 +15,16 @@ from typing_extensions import TypedDict
 type DiagnosticSeverity = Literal["error", "warning", "hint"]
 type GeneratedArtifact = Literal["feature", "use-case"]
 type CheckStepStatus = Literal["passed", "failed"]
-type AgentProtocolVersion = Literal[1]
+type TaskRunErrorKind = Literal[
+    "unknown_task",
+    "invalid_input",
+    "application_error",
+    "invalid_result",
+    "failed",
+]
+type AgentProtocolVersion = Literal[2]
 
-AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 1
+AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 2
 
 
 class DiagnosticPayload(TypedDict):
@@ -106,6 +113,39 @@ class RoutesPayload(TypedDict):
     schema_version: AgentProtocolVersion
     root: str
     routes: list[RouteEntryPayload]
+
+
+class TaskEntryPayload(TypedDict):
+    name: str
+    description: str | None
+    input_required: bool
+    input_schema: dict[str, object] | None
+    output_schema: dict[str, object]
+
+
+class TaskListPayload(TypedDict):
+    schema_version: AgentProtocolVersion
+    root: str
+    target: str
+    tasks: list[TaskEntryPayload]
+
+
+class TaskRunErrorPayload(TypedDict):
+    kind: TaskRunErrorKind
+    code: str
+    message: str
+    details: object | None
+
+
+class TaskRunPayload(TypedDict):
+    schema_version: AgentProtocolVersion
+    root: str
+    target: str
+    name: str
+    ok: bool
+    duration_seconds: float
+    output: object | None
+    error: TaskRunErrorPayload | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,4 +326,86 @@ class RoutesResult:
             "schema_version": self.schema_version,
             "root": self.root,
             "routes": [route.as_dict() for route in self.routes],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TaskEntryResult:
+    """One discoverable operational task and its input/output contracts."""
+
+    name: str
+    description: str | None
+    input_required: bool
+    input_schema: dict[str, object] | None
+    output_schema: dict[str, object]
+
+    def as_dict(self) -> TaskEntryPayload:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_required": self.input_required,
+            "input_schema": self.input_schema,
+            "output_schema": self.output_schema,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TaskListResult:
+    """Versioned discovery result for an application's operational tasks."""
+
+    root: str
+    target: str
+    tasks: tuple[TaskEntryResult, ...]
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
+
+    def as_dict(self) -> TaskListPayload:
+        return {
+            "schema_version": self.schema_version,
+            "root": self.root,
+            "target": self.target,
+            "tasks": [item.as_dict() for item in self.tasks],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TaskRunErrorResult:
+    """Structured failure from invoking an operational task."""
+
+    kind: TaskRunErrorKind
+    code: str
+    message: str
+    details: object | None = None
+
+    def as_dict(self) -> TaskRunErrorPayload:
+        return {
+            "kind": self.kind,
+            "code": self.code,
+            "message": self.message,
+            "details": self.details,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TaskRunResult:
+    """Versioned result of invoking one operational task."""
+
+    root: str
+    target: str
+    name: str
+    ok: bool
+    duration_seconds: float
+    output: object | None = None
+    error: TaskRunErrorResult | None = None
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
+
+    def as_dict(self) -> TaskRunPayload:
+        return {
+            "schema_version": self.schema_version,
+            "root": self.root,
+            "target": self.target,
+            "name": self.name,
+            "ok": self.ok,
+            "duration_seconds": self.duration_seconds,
+            "output": self.output,
+            "error": self.error.as_dict() if self.error is not None else None,
         }

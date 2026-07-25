@@ -127,6 +127,13 @@ export const docsSections = [
         priority: 0.78,
       },
       {
+        path: "/tasks",
+        title: "Operational tasks",
+        description:
+          "Declare, discover, and safely run validated backfills, repairs, replays, and maintenance commands.",
+        priority: 0.79,
+      },
+      {
         path: "/testing",
         title: "Testing",
         description:

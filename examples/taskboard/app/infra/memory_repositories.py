@@ -44,6 +44,14 @@ class MemoryProjectRepository:
     async def list_owned_by(self, owner: OwnerScope) -> list[Project]:
         return [p for p in self.projects.values() if p.owner_id == owner.owner_id]
 
+    async def repair_invalid_member_ids(
+        self,
+        *,
+        dry_run: bool,
+    ) -> tuple[int, int]:
+        del dry_run
+        return len(self.projects), 0
+
 
 class MemoryTaskRepository:
     """Task store; ownership scoping resolves through the project store."""

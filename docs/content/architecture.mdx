@@ -13,6 +13,7 @@ app/
     ports.py
     policy.py
     routes.py
+    tasks.py
     use_cases/
     tests/
   shared/
@@ -21,6 +22,8 @@ app/
     context.py
     hooks.py
     routes.py
+    runtime.py
+    tasks.py
     asgi.py
 tests/
 ```
@@ -30,7 +33,8 @@ tests/
 `contracts.py` owns HTTP declarations. `schemas.py` owns Pydantic models shared
 by contracts, ports, and use cases. `ports.py` defines the interfaces the
 feature needs. `policy.py` owns pure authorization rules. `routes.py` binds
-contracts to use cases.
+contracts to use cases. `tasks.py` gives selected use cases stable operational
+names.
 
 Each file in `use_cases/` contains one plain async function. Unit tests sit
 beside the feature and call those functions directly with memory adapters.
@@ -54,6 +58,8 @@ The `app/server/` package is the application root:
 - `context.py` declares the frozen `AppContext`.
 - `hooks.py` implements HTTP-boundary concerns such as authentication.
 - `routes.py` combines feature route groups and shared error declarations.
+- `runtime.py` owns resources shared by HTTP and operational entrypoints.
+- `tasks.py` composes the application's operational task runner.
 - `asgi.py` creates adapters, lifecycle resources, hooks, middleware, and the
   final Starlette application.
 

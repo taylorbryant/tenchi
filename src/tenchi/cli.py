@@ -14,23 +14,27 @@ Commands are intentionally few and reliable:
   application's canonical OpenAPI document.
 - ``tenchi doctor`` checks dependency direction and prescribed structure.
 - ``tenchi check`` runs the complete application validation loop.
+- ``tenchi task`` discovers and runs validated operational tasks.
 - ``tenchi mcp`` serves the same structured operations to MCP-aware agents.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
-The ``routes``, ``map``, ``openapi``, ``check``, ``mcp``, and ``dev`` commands
-rely on the structural convention that ``app/server/routes.py`` exposes
-``routes`` and ``api_routes`` and ``app/server/asgi.py`` exposes ``app``;
-targets can be overridden by flag.
+The ``routes``, ``map``, ``openapi``, ``check``, ``task``, ``mcp``, and ``dev``
+commands rely on the structural convention that ``app/server/routes.py``
+exposes ``routes`` and ``api_routes``, ``app/server/tasks.py`` exposes
+``runner``, and ``app/server/asgi.py`` exposes ``app``; targets can be
+overridden by flag.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import math
 import shlex
 import sys
 from collections.abc import Mapping, Sequence
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any, cast
 
@@ -59,6 +63,7 @@ from ._openapi_operations import (
     load_route_group,
     read_git_snapshot,
 )
+from ._task_operations import load_task_runner, task_list_result, task_run_result
 from .compatibility import render_compatibility_report
 from .errors import ConfigurationError
 from .openapi import openapi_schema
@@ -96,6 +101,7 @@ def _app_map_kind_list(value: str) -> tuple[AppMapNodeKind, ...]:
 _DEFAULT_ROUTES = "app.server.routes:routes"
 _DEFAULT_API_ROUTES = "app.server.routes:api_routes"
 _DEFAULT_APP = "app.server.asgi:app"
+_DEFAULT_TASKS = "app.server.tasks:runner"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -118,6 +124,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "map":
         return _map_app(
             args.target,
+            tasks_target=args.tasks,
             feature=args.feature,
             kinds=args.kinds,
             as_json=args.json,
@@ -149,6 +156,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout_seconds=args.timeout,
             as_json=args.json,
         )
+    if args.command == "task":
+        if args.task_command == "list":
+            return _task_list(args.target, as_json=args.json)
+        return _task_run(
+            args.target,
+            args.name,
+            input_json=args.input,
+            as_json=args.json,
+        )
     if args.command == "mcp":
         return _mcp(
             root=args.root,
@@ -159,6 +175,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             version=args.version,
             description=args.description,
             security_json=args.security,
+            tasks=args.tasks,
+            allow_task_runs=args.allow_task_runs,
         )
     return _dev(args.app, args.host, args.port, reload=not args.no_reload)
 
@@ -221,6 +239,11 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="target",
         default=_DEFAULT_API_ROUTES,
         help="module:attribute of the API RouteGroup (default: %(default)s)",
+    )
+    map_parser.add_argument(
+        "--tasks",
+        default=_DEFAULT_TASKS,
+        help="module:attribute of the TaskRunner (default: %(default)s)",
     )
     map_parser.add_argument(
         "--feature",
@@ -375,6 +398,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit a versioned result with bounded failure output",
     )
 
+    task_parser = subparsers.add_parser(
+        "task", help="Discover and run validated operational tasks"
+    )
+    task_subparsers = task_parser.add_subparsers(dest="task_command", required=True)
+    task_list_parser = task_subparsers.add_parser(
+        "list", help="List registered operational tasks and their contracts"
+    )
+    task_run_parser = task_subparsers.add_parser("run", help="Run one operational task")
+    task_run_parser.add_argument("name", help="Stable dotted task name")
+    task_run_parser.add_argument(
+        "--input",
+        default=None,
+        metavar="JSON",
+        help="Task input as JSON; omit for tasks without required input",
+    )
+    for operation_parser in (task_list_parser, task_run_parser):
+        operation_parser.add_argument(
+            "--tasks",
+            dest="target",
+            default=_DEFAULT_TASKS,
+            help="module:attribute of the TaskRunner (default: %(default)s)",
+        )
+        operation_parser.add_argument(
+            "--json",
+            action="store_true",
+            help="Emit a versioned machine-readable result",
+        )
+
     mcp_parser = subparsers.add_parser(
         "mcp", help="Serve agent-readable Tenchi tools over MCP stdio"
     )
@@ -394,6 +445,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "module:attribute used by app-map and OpenAPI tools (default: %(default)s)"
         ),
+    )
+    mcp_parser.add_argument(
+        "--tasks",
+        default=_DEFAULT_TASKS,
+        help="module:attribute used by task tools (default: %(default)s)",
+    )
+    mcp_parser.add_argument(
+        "--allow-task-runs",
+        action="store_true",
+        help="Expose the state-changing task_run tool (disabled by default)",
     )
     mcp_parser.add_argument(
         "--snapshot",
@@ -612,6 +673,7 @@ def _routes(target: str, *, as_json: bool = False) -> int:
 def _map_app(
     target: str,
     *,
+    tasks_target: str,
     feature: str | None,
     kinds: Sequence[AppMapNodeKind] | None,
     as_json: bool,
@@ -619,8 +681,13 @@ def _map_app(
     group = _load_route_group("tenchi map", target)
     if group is None:
         return 1
+    try:
+        runner = load_task_runner(Path.cwd(), tasks_target)
+    except OperationError as exc:
+        _fail(f"tenchi map: {exc}")
+        return 1
 
-    result = map_app(Path.cwd(), group)
+    result = map_app(Path.cwd(), group, runner.tasks)
     if feature is not None:
         features = sorted(node.name for node in result.nodes if node.kind == "feature")
         if feature not in features:
@@ -642,6 +709,74 @@ def route_map(group: RouteGroup) -> list[dict[str, object]]:
     """The route table as data: one entry per bound route, stable keys."""
     result = routes_result(Path.cwd(), group)
     return [dict(entry) for entry in result.as_dict()["routes"]]
+
+
+def _task_list(target: str, *, as_json: bool) -> int:
+    try:
+        with redirect_stdout(sys.stderr if as_json else sys.stdout):
+            runner = load_task_runner(Path.cwd(), target)
+            result = task_list_result(Path.cwd(), target, runner)
+    except OperationError as exc:
+        _fail(f"tenchi task list: {exc}")
+        return 1
+    if as_json:
+        _print_agent_json("task_list", result.as_dict())
+        return 0
+    if not result.tasks:
+        print("No operational tasks are registered.")
+        return 0
+    width = max(len(item.name) for item in result.tasks)
+    for item in result.tasks:
+        input_label = (
+            "required"
+            if item.input_required
+            else "optional"
+            if item.input_schema is not None
+            else "none"
+        )
+        description = f"  {item.description}" if item.description else ""
+        print(f"{item.name:<{width}}  input: {input_label}{description}")
+    return 0
+
+
+def _task_run(
+    target: str,
+    name: str,
+    *,
+    input_json: str | None,
+    as_json: bool,
+) -> int:
+    try:
+        # Application code owns ordinary stdout. Keep structured CLI stdout
+        # exclusively machine-readable by moving task prints to stderr.
+        with redirect_stdout(sys.stderr if as_json else sys.stdout):
+            runner = load_task_runner(Path.cwd(), target)
+            result = asyncio.run(
+                task_run_result(
+                    Path.cwd(),
+                    target,
+                    runner,
+                    name=name,
+                    input_json=input_json,
+                )
+            )
+    except OperationError as exc:
+        _fail(f"tenchi task run: {exc}")
+        return 1
+    if as_json:
+        _print_agent_json("task_run", result.as_dict())
+    elif result.ok:
+        print(f"Task {name!r} completed in {result.duration_seconds:.2f}s")
+        if result.output is not None:
+            json.dump(result.output, sys.stdout, indent=2, sort_keys=True)
+            print()
+    else:
+        assert result.error is not None
+        _fail(f"tenchi task run: [{result.error.code}] {result.error.message}")
+        if result.error.details is not None:
+            json.dump(result.error.details, sys.stderr, indent=2, sort_keys=True)
+            print(file=sys.stderr)
+    return 0 if result.ok else 1
 
 
 def _openapi(
@@ -836,6 +971,8 @@ def _mcp(
     root: str,
     routes: str,
     api_routes: str,
+    tasks: str,
+    allow_task_runs: bool,
     snapshot: str,
     title: str | None,
     version: str | None,
@@ -859,6 +996,8 @@ def _mcp(
                 root=Path(root),
                 routes=routes,
                 api_routes=api_routes,
+                tasks=tasks,
+                allow_task_runs=allow_task_runs,
                 snapshot=snapshot,
                 title=title,
                 version=version,

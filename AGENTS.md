@@ -106,6 +106,7 @@ app/
     ports.py       # typing.Protocol interfaces the feature needs
     policy.py      # authorization rules; abilities live with their subject
     routes.py      # binds contracts to use cases via route()/route_group()
+    tasks.py       # binds operational names to use cases via task()/task_group()
     use_cases/     # one plain async function per module
     tests/         # use-case tests, no HTTP required
   shared/          # app-wide errors and shared-kernel concepts (users, ...)
@@ -114,6 +115,8 @@ app/
     context.py     # frozen AppContext dataclass of ports (+ user identity)
     hooks.py       # HTTP-boundary hooks (authentication)
     routes.py      # composes feature groups; group-level error declarations
+    runtime.py     # resources shared by HTTP and operational entrypoints
+    tasks.py       # composes the operational task runner
     asgi.py        # concrete wiring, lifespan, hooks; exposes `app`
 tests/             # integration tests over HTTP / the typed client
 ```
@@ -130,6 +133,8 @@ example and template:
   ability lives in the feature that owns the subject it inspects, and
   read-path ownership failures surface as not-found, not forbidden.
 - Routes bind contracts to use cases; they never import infrastructure.
+- Tasks bind stable operational names to use cases; they never import
+  infrastructure.
 - Shared code never depends on features.
 - Infrastructure implements ports; it never imports use cases, routes,
   contracts, or server composition.
@@ -205,11 +210,17 @@ capabilities the starter intentionally omits.
 deterministic, source-backed, and versioned in JSON. Feature projections retain
 directly related cross-feature and shared nodes; kind projections never leave
 dangling edges.
+`task list|run` loads `app.server.tasks:runner` by default. Tasks provide named,
+validated operator entrypoints for backfills, repairs, replays, and maintenance;
+they do not schedule, retry, queue, lock, or persist progress.
 `mcp` is a thin, stdio-only adapter over the same renderer-independent
 operations. Inspection and preview tools never write files, every path stays
 inside the captured app root, stdout belongs exclusively to JSON-RPC, and the
 `check` tool must cancel its active subprocess and its process group where the
 platform supports one when the client cancels.
+Task discovery is read-only. MCP task execution must remain explicitly opt-in,
+propagate cancellation through lifespan and context cleanup, and never expose
+task input in its result.
 Structured CLI results and MCP tool inputs and outputs share one agent protocol
 version. Additive changes may update its current canonical snapshot; breaking
 or unknown changes require a version bump and a new snapshot, leaving earlier

@@ -1,10 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "root": "<ROOT>",
   "summary": {
     "features": 1,
     "contracts": 1,
     "routes": 1,
+    "tasks": 1,
     "use_cases": 1,
     "policies": 1,
     "ports": 1,
@@ -70,16 +71,29 @@
       "details": {}
     },
     {
+      "id": "task:example",
+      "kind": "task",
+      "name": "example-task",
+      "feature": "example",
+      "source": {
+        "path": "app/task.py",
+        "line": null,
+        "symbol": null
+      },
+      "status": "declared",
+      "details": {}
+    },
+    {
       "id": "use-case:example",
       "kind": "use-case",
       "name": "example-use-case",
       "feature": "example",
       "source": {
         "path": "app/use-case.py",
-        "line": null,
-        "symbol": null
+        "line": 5,
+        "symbol": "example_use-case"
       },
-      "status": "declared",
+      "status": "registered",
       "details": {}
     },
     {
@@ -89,10 +103,10 @@
       "feature": "example",
       "source": {
         "path": "app/policy.py",
-        "line": 5,
-        "symbol": "example_policy"
+        "line": null,
+        "symbol": null
       },
-      "status": "registered",
+      "status": "declared",
       "details": {}
     },
     {
@@ -102,23 +116,23 @@
       "feature": "example",
       "source": {
         "path": "app/port.py",
-        "line": null,
-        "symbol": null
+        "line": 7,
+        "symbol": "example_port"
       },
-      "status": "declared",
+      "status": "registered",
       "details": {}
     },
     {
       "id": "adapter:example",
       "kind": "adapter",
       "name": "example-adapter",
-      "feature": "example",
+      "feature": null,
       "source": {
         "path": "app/adapter.py",
-        "line": 7,
-        "symbol": "example_adapter"
+        "line": null,
+        "symbol": null
       },
-      "status": "registered",
+      "status": "declared",
       "details": {}
     },
     {
@@ -128,10 +142,10 @@
       "feature": null,
       "source": {
         "path": "app/context.py",
-        "line": null,
-        "symbol": null
+        "line": 9,
+        "symbol": "example_context"
       },
-      "status": "declared",
+      "status": "registered",
       "details": {}
     },
     {
@@ -141,10 +155,10 @@
       "feature": null,
       "source": {
         "path": "app/entrypoint.py",
-        "line": 9,
-        "symbol": "example_entrypoint"
+        "line": null,
+        "symbol": null
       },
-      "status": "registered",
+      "status": "declared",
       "details": {}
     },
     {
@@ -154,10 +168,10 @@
       "feature": null,
       "source": {
         "path": "app/test.py",
-        "line": null,
-        "symbol": null
+        "line": 11,
+        "symbol": "example_test"
       },
-      "status": "declared",
+      "status": "registered",
       "details": {}
     }
   ],
@@ -187,7 +201,7 @@
     {
       "kind": "depends-on",
       "source": "route:example",
-      "target": "use-case:example",
+      "target": "task:example",
       "evidence": {
         "path": "app/wiring.py",
         "line": 12,
@@ -197,8 +211,8 @@
     },
     {
       "kind": "implements",
-      "source": "use-case:example",
-      "target": "policy:example",
+      "source": "task:example",
+      "target": "use-case:example",
       "evidence": {
         "path": "app/wiring.py",
         "line": 13,
@@ -208,8 +222,8 @@
     },
     {
       "kind": "authorizes",
-      "source": "policy:example",
-      "target": "port:example",
+      "source": "use-case:example",
+      "target": "policy:example",
       "evidence": {
         "path": "app/wiring.py",
         "line": 14,
@@ -219,8 +233,8 @@
     },
     {
       "kind": "contains-test",
-      "source": "port:example",
-      "target": "adapter:example",
+      "source": "policy:example",
+      "target": "port:example",
       "evidence": {
         "path": "app/wiring.py",
         "line": 15,

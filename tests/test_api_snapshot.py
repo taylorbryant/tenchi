@@ -33,6 +33,7 @@ PUBLIC_MODULES = (
     "tenchi.responses",
     "tenchi.server",
     "tenchi.testing",
+    "tenchi.tasks",
 )
 
 SNAPSHOT_PATH = Path(__file__).parent / "api_snapshot.txt"
@@ -89,6 +90,8 @@ def _render_class(cls: type) -> list[str]:
 
     if dataclasses.is_dataclass(cls):
         for field in dataclasses.fields(cls):
+            if field.name.startswith("_"):
+                continue
             default = ""
             if field.default is not dataclasses.MISSING:
                 default = f" = {field.default!r}"

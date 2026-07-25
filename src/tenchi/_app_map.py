@@ -22,11 +22,13 @@ from ._cli_results import (
 from .contracts import Contract
 from .doctor import run_doctor
 from .routes import Route, RouteGroup
+from .tasks import Task, TaskGroup
 
 type AppMapNodeKind = Literal[
     "feature",
     "contract",
     "route",
+    "task",
     "use-case",
     "policy",
     "port",
@@ -85,6 +87,7 @@ class AppMapSummaryPayload(TypedDict):
     features: int
     contracts: int
     routes: int
+    tasks: int
     use_cases: int
     policies: int
     ports: int
@@ -110,6 +113,7 @@ app_map_node_kinds: tuple[AppMapNodeKind, ...] = (
     "feature",
     "contract",
     "route",
+    "task",
     "use-case",
     "policy",
     "port",
@@ -206,6 +210,7 @@ class AppMapSummary:
     features: int
     contracts: int
     routes: int
+    tasks: int
     use_cases: int
     policies: int
     ports: int
@@ -221,6 +226,7 @@ class AppMapSummary:
             "features": self.features,
             "contracts": self.contracts,
             "routes": self.routes,
+            "tasks": self.tasks,
             "use_cases": self.use_cases,
             "policies": self.policies,
             "ports": self.ports,
@@ -291,6 +297,16 @@ class _RouteBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class _TaskRecord:
+    node_id: str
+    module: str
+    symbol: str
+    name: str | None
+    use_case: _SymbolRef | None
+    source: AppMapSource
+
+
+@dataclass(frozen=True, slots=True)
 class _ImportBinding:
     reference: _SymbolRef
     line: int
@@ -348,15 +364,20 @@ class _GraphBuilder:
         )
 
 
-def map_app(root: Path, routes: RouteGroup) -> AppMapResult:
+def map_app(
+    root: Path,
+    routes: RouteGroup,
+    tasks: TaskGroup | None = None,
+) -> AppMapResult:
     """Inspect *root* and combine its source graph with exact route bindings."""
     resolved_root = root.resolve()
     builder = _GraphBuilder()
     modules = _read_modules(resolved_root, builder)
     contracts: dict[str, _ContractRecord] = {}
+    task_records: list[_TaskRecord] = []
 
     _discover_features(resolved_root, builder)
-    _discover_source_nodes(modules, builder, contracts)
+    _discover_source_nodes(modules, builder, contracts, task_records)
     _discover_adapters(modules, builder)
     _register_wired_adapters(modules, builder)
     _add_ownership_edges(builder)
@@ -365,6 +386,8 @@ def map_app(root: Path, routes: RouteGroup) -> AppMapResult:
     _add_use_case_port_edges(modules, builder, context_fields)
     bindings = _route_bindings(modules)
     _add_runtime_routes(routes, builder, contracts, bindings, resolved_root)
+    if tasks is not None:
+        _add_runtime_tasks(tasks, builder, task_records, resolved_root)
 
     diagnostics = tuple(
         sorted(
@@ -487,6 +510,7 @@ def format_app_map(result: AppMapResult) -> str:
             "Summary: "
             f"{summary.features} features, {summary.contracts} contracts, "
             f"{summary.routes} routes, {summary.use_cases} use cases, "
+            f"{summary.tasks} tasks, "
             f"{summary.ports} ports, {summary.adapters} adapters, "
             f"{len(result.edges)} relationships"
         ),
@@ -595,6 +619,7 @@ def _discover_source_nodes(
     modules: Sequence[_ModuleInfo],
     builder: _GraphBuilder,
     contracts: dict[str, _ContractRecord],
+    task_records: list[_TaskRecord],
 ) -> None:
     for info in modules:
         if _is_test_path(info.relative):
@@ -610,6 +635,8 @@ def _discover_source_nodes(
             continue
         if info.relative.endswith("/contracts.py"):
             _discover_contracts(info, builder, contracts)
+        if info.relative.endswith("/tasks.py"):
+            _discover_tasks(info, builder, task_records)
         if "/use_cases/" in info.relative:
             _discover_functions(info, builder, kind="use-case")
         if info.relative.endswith("/policy.py"):
@@ -692,6 +719,58 @@ def _discover_contracts(
             method=method,
             path=path,
             contract_name=contract_name,
+        )
+
+
+def _discover_tasks(
+    info: _ModuleInfo,
+    builder: _GraphBuilder,
+    records: list[_TaskRecord],
+) -> None:
+    for statement in info.tree.body:
+        symbol, call = _assigned_call(statement)
+        if symbol is None or call is None or _terminal_name(call.func) != "task":
+            continue
+        name = _literal_expression(call.args[0], str) if len(call.args) >= 1 else None
+        use_case = (
+            _expression_reference(call.args[1], info) if len(call.args) >= 2 else None
+        )
+        description = _literal_keyword(call, "description", str)
+        node_id = (
+            f"task:{name}"
+            if name is not None
+            else _symbol_id("task", info.feature, info.module, symbol)
+        )
+        source = AppMapSource(
+            path=info.relative,
+            line=statement.lineno,
+            symbol=symbol,
+        )
+        builder.add_node(
+            AppMapNode(
+                id=node_id,
+                kind="task",
+                name=name or symbol,
+                source=source,
+                status="declared",
+                feature=info.feature,
+                details=_details(
+                    export_name=symbol,
+                    description=description,
+                ),
+            ),
+            module=info.module,
+            symbol=symbol,
+        )
+        records.append(
+            _TaskRecord(
+                node_id=node_id,
+                module=info.module,
+                symbol=symbol,
+                name=name,
+                use_case=use_case,
+                source=source,
+            )
         )
 
 
@@ -1192,6 +1271,79 @@ def _add_runtime_routes(
             )
 
 
+def _add_runtime_tasks(
+    tasks: TaskGroup,
+    builder: _GraphBuilder,
+    records: Sequence[_TaskRecord],
+    root: Path,
+) -> None:
+    for item in tasks:
+        use_case_ref = _task_callable_reference(item)
+        use_case_id = (
+            builder.symbol_nodes.get((use_case_ref.module, use_case_ref.symbol))
+            if use_case_ref is not None and use_case_ref.symbol is not None
+            else None
+        )
+        candidates = [
+            record
+            for record in records
+            if record.name == item.name
+            and (record.use_case is None or record.use_case == use_case_ref)
+        ]
+        record = candidates[0] if len(candidates) == 1 else None
+        node_id = record.node_id if record is not None else f"task:{item.name}"
+        source = (
+            record.source if record is not None else _task_fallback_source(item, root)
+        )
+        feature = (
+            builder.nodes[record.node_id].feature
+            if record is not None and record.node_id in builder.nodes
+            else _node_feature(use_case_id, builder)
+        )
+        builder.add_node(
+            AppMapNode(
+                id=node_id,
+                kind="task",
+                name=item.name,
+                source=source,
+                status="registered",
+                feature=feature,
+                details=_details(
+                    export_name=record.symbol if record is not None else None,
+                    description=item.description,
+                    input_required=item.request_required,
+                ),
+            )
+        )
+        if feature is not None:
+            builder.add_edge(
+                AppMapEdge(
+                    kind="owns",
+                    source=_feature_id(feature),
+                    target=node_id,
+                    evidence=source,
+                    confidence="exact",
+                )
+            )
+        if use_case_id is None:
+            builder.add_unresolved(
+                "TENCHI_MAP_TASK_USE_CASE_SOURCE_UNRESOLVED",
+                f"could not locate the use case for task {item.name!r}",
+                source,
+            )
+            continue
+        builder.register(use_case_id)
+        builder.add_edge(
+            AppMapEdge(
+                kind="binds",
+                source=node_id,
+                target=use_case_id,
+                evidence=source,
+                confidence="exact",
+            )
+        )
+
+
 def _matching_binding(
     route: Route,
     use_case: _SymbolRef | None,
@@ -1283,6 +1435,15 @@ def _callable_reference(route: Route) -> _SymbolRef | None:
     return None
 
 
+def _task_callable_reference(item: Task) -> _SymbolRef | None:
+    value = inspect.unwrap(item.use_case)
+    module = getattr(value, "__module__", None)
+    name = getattr(value, "__name__", None)
+    if isinstance(module, str) and isinstance(name, str):
+        return _SymbolRef(module=module, symbol=name)
+    return None
+
+
 def _route_fallback_source(route: Route, root: Path) -> AppMapSource:
     value = inspect.unwrap(route.use_case)
     try:
@@ -1298,6 +1459,26 @@ def _route_fallback_source(route: Route, root: Path) -> AppMapSource:
         relative = path
     return AppMapSource(
         path=relative, line=line, symbol=getattr(value, "__name__", None)
+    )
+
+
+def _task_fallback_source(item: Task, root: Path) -> AppMapSource:
+    value = inspect.unwrap(item.use_case)
+    try:
+        path = inspect.getsourcefile(value)
+        _, line = inspect.getsourcelines(value)
+    except (OSError, TypeError):
+        return AppMapSource(path="<runtime>")
+    if path is None:
+        return AppMapSource(path="<runtime>", line=line)
+    try:
+        relative = Path(path).resolve().relative_to(root).as_posix()
+    except ValueError:
+        relative = path
+    return AppMapSource(
+        path=relative,
+        line=line,
+        symbol=getattr(value, "__name__", None),
     )
 
 
@@ -1325,6 +1506,7 @@ def _summary(
         features=counts.get("feature", 0),
         contracts=counts.get("contract", 0),
         routes=counts.get("route", 0),
+        tasks=counts.get("task", 0),
         use_cases=counts.get("use-case", 0),
         policies=counts.get("policy", 0),
         ports=counts.get("port", 0),
@@ -1416,17 +1598,24 @@ def _assigned_call(statement: ast.stmt) -> tuple[str | None, ast.Call | None]:
     return None, None
 
 
+def _literal_expression[ValueT: (str, int, bool)](
+    value: ast.expr,
+    expected: type[ValueT],
+) -> ValueT | None:
+    try:
+        literal = ast.literal_eval(value)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return None
+    return literal if type(literal) is expected else None
+
+
 def _literal_keyword[ValueT: (str, int, bool)](
     call: ast.Call, name: str, expected: type[ValueT]
 ) -> ValueT | None:
     value = next((item.value for item in call.keywords if item.arg == name), None)
     if value is None:
         return None
-    try:
-        literal = ast.literal_eval(value)
-    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-        return None
-    return literal if type(literal) is expected else None
+    return _literal_expression(value, expected)
 
 
 def _keyword_value(call: ast.Call, name: str) -> ast.expr | None:

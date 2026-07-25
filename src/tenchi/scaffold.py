@@ -53,6 +53,7 @@ uv run tenchi check     # run every project check
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
 uv run tenchi map       # inspect the complete application graph
+uv run tenchi task list # discover operational tasks
 uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
 uv run tenchi openapi --routes app.server.routes:api_routes \\
   --title __APP_NAME__ --diff openapi.json
@@ -93,19 +94,22 @@ Framework agent workflow: https://tenchi.io/agents
    `uv run tenchi make use-case <feature> <name> --dry-run` before creating
    framework-shaped files manually.
 3. Keep explicit wiring visible in `app/server/routes.py`,
+   `app/server/tasks.py`, `app/server/runtime.py`,
    `app/infra/port_wiring.py`, and `app/server/asgi.py`.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
 
-Use `--json` with `tenchi map`, `tenchi routes`, `tenchi doctor`, `tenchi
-check`, and `tenchi make ...` when structured output is more useful than
-terminal text.
+Use `--json` with `tenchi map`, `tenchi routes`, `tenchi task`, `tenchi
+doctor`, `tenchi check`, and `tenchi make ...` when structured output is more
+useful than terminal text.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
-`app_map`, `routes`, `doctor`, `openapi_diff`, `make_preview`, and `check` tools
-return the same versioned results. Inspection and preview tools never write
-application files; `check` runs the project's normal validation commands. The
-agent still makes ordinary, reviewable source edits.
+`app_map`, `routes`, `task_list`, `doctor`, `openapi_diff`, `make_preview`, and
+`check` tools return the same versioned results. Inspection and preview tools
+never write application files; `check` runs the project's normal validation
+commands. Task execution is not exposed unless an operator deliberately starts
+the server with `--allow-task-runs`. The agent still makes ordinary,
+reviewable source edits.
 
 ## Placement and dependency direction
 
@@ -114,12 +118,16 @@ agent still makes ordinary, reviewable source edits.
 - `ports.py` owns `typing.Protocol` interfaces needed by the feature.
 - `policy.py` owns pure authorization rules for subjects in the feature.
 - `routes.py` binds contracts to use cases; it never imports infrastructure.
+- `tasks.py` gives selected use cases stable operational names; it never
+  imports infrastructure.
 - `use_cases/` contains one plain async function per workflow. Use cases may
   depend on schemas, ports, policies, shared code, and `app.server.context`, but
   never concrete infrastructure, routes, or the Tenchi/Starlette runtime.
 - `app/infra/` implements ports and never imports use cases, contracts, routes,
   or server composition.
 - `app/server/` is the composition root and may import every application layer.
+  Shared lifespan/context wiring lives in `runtime.py`; task composition lives
+  in `tasks.py`.
 - `app/shared/` never imports features.
 
 Authentication belongs in boundary hooks. Authorization belongs in use cases
@@ -438,6 +446,34 @@ routes = route_group(
 )
 """
 
+_SERVER_RUNTIME = """\
+import os
+from collections.abc import AsyncGenerator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+
+from app.infra.port_wiring import ensure_schema, open_todo_repository
+from app.server.context import AppContext
+
+DATABASE_PATH = os.environ.get("__APP_ENV_PREFIX___DATABASE", "__APP_NAME__.db")
+
+
+def create_lifespan(
+    database_path: str,
+) -> Callable[[], AbstractAsyncContextManager[str]]:
+    @asynccontextmanager
+    async def lifespan() -> AsyncGenerator[str]:
+        await ensure_schema(database_path)
+        yield database_path
+
+    return lifespan
+
+
+@asynccontextmanager
+async def create_context(database_path: str) -> AsyncGenerator[AppContext]:
+    async with open_todo_repository(database_path) as todos:
+        yield AppContext(todos=todos)
+"""
+
 _SERVER_APP = """\
 \"\"\"Server composition: concrete wiring and the ASGI application.
 
@@ -446,39 +482,37 @@ Run locally with:
     uv run tenchi dev
 \"\"\"
 
-import os
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-
 from starlette.applications import Starlette
 from tenchi.server import create_app
 
-from app.infra.port_wiring import ensure_schema, open_todo_repository
-from app.server.context import AppContext
 from app.server.routes import routes
-
-DATABASE_PATH = os.environ.get("__APP_ENV_PREFIX___DATABASE", "__APP_NAME__.db")
+from app.server.runtime import DATABASE_PATH, create_context, create_lifespan
 
 
 def build_app(database_path: str = DATABASE_PATH) -> Starlette:
-    @asynccontextmanager
-    async def lifespan() -> AsyncGenerator[str]:
-        await ensure_schema(database_path)
-        yield database_path
-
-    @asynccontextmanager
-    async def create_context(path: str) -> AsyncGenerator[AppContext]:
-        async with open_todo_repository(path) as todos:
-            yield AppContext(todos=todos)
-
     return create_app(
         routes=routes,
         context_factory=create_context,
-        lifespan=lifespan,
+        lifespan=create_lifespan(database_path),
     )
 
 
 app = build_app()
+"""
+
+_SERVER_TASKS = """\
+from tenchi.tasks import create_task_runner, task_group
+
+from app.server.runtime import DATABASE_PATH, create_context, create_lifespan
+
+# Import feature task groups here as operational capabilities are added.
+tasks = task_group()
+
+runner = create_task_runner(
+    tasks=tasks,
+    context_factory=create_context,
+    lifespan=create_lifespan(DATABASE_PATH),
+)
 """
 
 _HTTP_TEST = """\
@@ -800,6 +834,8 @@ _FILES: dict[str, str] = {
     "app/server/asgi.py": _SERVER_APP,
     "app/server/context.py": _CONTEXT,
     "app/server/routes.py": _SERVER_ROUTES,
+    "app/server/runtime.py": _SERVER_RUNTIME,
+    "app/server/tasks.py": _SERVER_TASKS,
     "app/shared/__init__.py": "",
     "app/shared/errors.py": _SHARED_ERRORS,
     "tests/test_http.py": _HTTP_TEST,
@@ -833,6 +869,18 @@ from tenchi.routes import route_group
 routes = route_group()
 '''
 
+_MAKE_FEATURE_TASKS = '''\
+"""Operational tasks for the __FEATURE__ feature.
+
+Bind selected use cases with task(name, use_case), then compose this group
+in app/server/tasks.py.
+"""
+
+from tenchi.tasks import task_group
+
+tasks = task_group()
+'''
+
 
 def feature_files(feature: str) -> dict[str, str]:
     """Return a feature skeleton, relative to ``app/features/<feature>/``."""
@@ -852,6 +900,7 @@ def feature_files(feature: str) -> dict[str, str]:
             'AppError; use cases fetch, then ask.\n"""\n'
         ),
         "routes.py": _MAKE_FEATURE_ROUTES.replace("__FEATURE__", feature),
+        "tasks.py": _MAKE_FEATURE_TASKS.replace("__FEATURE__", feature),
         "use_cases/__init__.py": "",
         "tests/__init__.py": "",
     }

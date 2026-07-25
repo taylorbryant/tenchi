@@ -26,11 +26,13 @@ async def main() -> None:
         initialized = await session.initialize()
         tools = await session.list_tools()
         routes = await session.call_tool("routes", {})
+        tasks = await session.call_tool("task_list", {})
     names = {tool.name for tool in tools.tools}
     expected = {
         "app_map",
         "routes",
         "doctor",
+        "task_list",
         "openapi_diff",
         "make_preview",
         "check",
@@ -43,8 +45,14 @@ async def main() -> None:
         raise RuntimeError("MCP server reported the wrong Tenchi version")
     if routes.isError or routes.structuredContent is None:
         raise RuntimeError("routes MCP smoke call failed")
-    if routes.structuredContent.get("schema_version") != 1:
+    if routes.structuredContent.get("schema_version") != 2:
         raise RuntimeError("routes MCP result is not versioned")
+    if tasks.isError or tasks.structuredContent is None:
+        raise RuntimeError("task_list MCP smoke call failed")
+    if tasks.structuredContent.get("schema_version") != 2:
+        raise RuntimeError("task_list MCP result is not versioned")
+    if tasks.structuredContent.get("tasks") != []:
+        raise RuntimeError("generated app unexpectedly registered operational tasks")
 
 
 if __name__ == "__main__":

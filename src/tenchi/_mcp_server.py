@@ -40,6 +40,8 @@ from ._cli_results import (
     GeneratedArtifact,
     MakePayload,
     RoutesPayload,
+    TaskListPayload,
+    TaskRunPayload,
 )
 from ._openapi_operations import (
     OpenApiDiffPayload,
@@ -49,6 +51,11 @@ from ._openapi_operations import (
     openapi_diff_result,
     project_path,
 )
+from ._task_operations import (
+    load_task_runner,
+    task_list_result,
+    task_run_result,
+)
 
 _READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 _CHECK_ANNOTATIONS = ToolAnnotations(
@@ -57,6 +64,19 @@ _CHECK_ANNOTATIONS = ToolAnnotations(
     idempotentHint=False,
     openWorldHint=True,
 )
+_TASK_RUN_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=False,
+    openWorldHint=True,
+)
+
+
+class _MissingTaskInput:
+    pass
+
+
+_MISSING_TASK_INPUT = _MissingTaskInput()
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +86,8 @@ class McpServerOptions:
     root: Path
     routes: str = "app.server.routes:routes"
     api_routes: str = "app.server.routes:api_routes"
+    tasks: str = "app.server.tasks:runner"
+    allow_task_runs: bool = False
     snapshot: str = "openapi.json"
     title: str | None = None
     version: str | None = None
@@ -84,7 +106,8 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
     operation_lock = asyncio.Lock()
     progress_tasks: set[asyncio.Task[None]] = set()
     module_names = tuple(
-        target.partition(":")[0] for target in (options.routes, options.api_routes)
+        target.partition(":")[0]
+        for target in (options.routes, options.api_routes, options.tasks)
     )
 
     def finish_progress(task: asyncio.Task[None]) -> None:
@@ -96,10 +119,11 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         "Tenchi",
         instructions=(
             "Inspect the project instructions first, map the affected feature, "
-            "preview generated structure before editing, validate with check, "
-            "and compare OpenAPI before accepting a changed snapshot. Tenchi MCP "
-            "inspection and preview tools do not write application files; check "
-            "runs project-owned validation commands."
+            "preview generated structure before editing, discover operational "
+            "tasks before invoking one, validate with check, and compare OpenAPI "
+            "before accepting a changed snapshot. Tenchi MCP inspection and "
+            "preview tools do not write application files; check runs "
+            "project-owned validation commands."
         ),
         website_url="https://tenchi.io/mcp",
     )
@@ -131,7 +155,8 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
     ) -> AppMapPayload:
         def operation() -> AppMapPayload:
             group = load_route_group(root, options.api_routes)
-            result = map_app(root, group)
+            runner = load_task_runner(root, options.tasks)
+            result = map_app(root, group, runner.tasks)
             if feature is not None:
                 available = sorted(
                     node.name for node in result.nodes if node.kind == "feature"
@@ -170,6 +195,68 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
     )
     async def doctor() -> DoctorPayload:  # pyright: ignore[reportUnusedFunction]
         return await call(lambda: doctor_result(root).as_dict())
+
+    @server.tool(
+        name="task_list",
+        description=(
+            "List registered operational tasks with their descriptions and "
+            "validated input/output JSON Schemas. This never runs a task."
+        ),
+        annotations=_READ_ONLY,
+    )
+    async def task_list() -> TaskListPayload:  # pyright: ignore[reportUnusedFunction]
+        return await call(
+            lambda: task_list_result(
+                root,
+                options.tasks,
+                load_task_runner(root, options.tasks),
+            ).as_dict()
+        )
+
+    if options.allow_task_runs:
+
+        @server.tool(
+            name="task_run",
+            description=(
+                "Run one registered operational task with JSON-compatible "
+                "input. Omit input when the task has no required input. "
+                "This may change application state."
+            ),
+            annotations=_TASK_RUN_ANNOTATIONS,
+        )
+        async def task_run(  # pyright: ignore[reportUnusedFunction]
+            name: str,
+            input: Annotated[
+                object,
+                Field(default_factory=lambda: _MISSING_TASK_INPUT),
+            ],
+        ) -> TaskRunPayload:
+            async with operation_lock:
+                try:
+                    with (
+                        isolated_project_imports(
+                            root,
+                            module_names=module_names,
+                        ),
+                        redirect_stdout(sys.stderr),
+                    ):
+                        runner = load_task_runner(root, options.tasks)
+                        return (
+                            await task_run_result(
+                                root,
+                                options.tasks,
+                                runner,
+                                name=name,
+                                input_json=None,
+                                **(
+                                    {"input": input}
+                                    if input is not _MISSING_TASK_INPUT
+                                    else {}
+                                ),
+                            )
+                        ).as_dict()
+                except OperationError as exc:
+                    raise ToolError(str(exc)) from exc
 
     @server.tool(
         name="openapi_diff",
@@ -343,6 +430,8 @@ def run_mcp_server(options: McpServerOptions) -> None:
             root=root,
             routes=options.routes,
             api_routes=options.api_routes,
+            tasks=options.tasks,
+            allow_task_runs=options.allow_task_runs,
             snapshot=options.snapshot,
             title=options.title,
             version=options.version,
@@ -376,6 +465,7 @@ def _fallback_agent_instructions() -> str:
    behind protocols, and wiring explicit in the server composition root.
 4. Run `check` after a coherent change.
 5. Run `openapi_diff` before accepting a changed OpenAPI snapshot.
+6. Use `task_list` before any separately authorized operational task run.
 
 Full guidance: https://tenchi.io/agents
 """

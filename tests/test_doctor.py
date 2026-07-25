@@ -319,7 +319,7 @@ def test_doctor_json_has_versioned_stable_diagnostics(
 ) -> None:
     assert main(["doctor", "--json"]) == 0
     clean = json.loads(capsys.readouterr().out)
-    assert clean["schema_version"] == 1
+    assert clean["schema_version"] == 2
     assert clean["ok"] is True
     assert clean["diagnostics"] == []
 
@@ -440,6 +440,83 @@ def test_unrecognized_feature_module_is_flagged(app_root: Path) -> None:
 
     assert any("unrecognized feature module" in m for m in messages(findings))
     assert findings[0].code == "TENCHI_DOCTOR_UNRECOGNIZED_FEATURE_MODULE"
+
+
+def test_feature_tasks_may_bind_use_cases_but_not_infrastructure(
+    app_root: Path,
+) -> None:
+    tasks = app_root / "app/features/todos/tasks.py"
+    tasks.write_text(
+        "from app.features.todos.use_cases.create_todo import create_todo\n"
+        "from tenchi.tasks import task\n"
+        "create_task = task('todos.create', create_todo)\n"
+    )
+
+    assert not any(
+        finding.path == tasks.relative_to(app_root).as_posix()
+        for finding in run_doctor(app_root)
+    )
+
+    tasks.write_text(
+        tasks.read_text()
+        + "from app.infra.memory_todo_repository import MemoryTodoRepository\n"
+    )
+    assert any(
+        finding.path == tasks.relative_to(app_root).as_posix()
+        and "must not import concrete infrastructure" in finding.message
+        for finding in run_doctor(app_root)
+    )
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "from tenchi.tasks import task",
+        "from tenchi import create_task_runner",
+    ],
+)
+def test_use_cases_must_not_import_task_declarations(
+    app_root: Path,
+    statement: str,
+) -> None:
+    use_case = app_root / "app/features/todos/use_cases/create_todo.py"
+    use_case.write_text(f"{statement}\n" + use_case.read_text())
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        finding.path == use_case.relative_to(app_root).as_posix()
+        and "use cases must not import task declarations" in finding.message
+        for finding in findings
+    )
+
+
+@pytest.mark.parametrize(
+    ("relative", "message"),
+    [
+        (
+            "app/features/todos/schemas.py",
+            "domain and schema code must not import task declarations",
+        ),
+        (
+            "app/features/todos/ports.py",
+            "ports must not import task declarations",
+        ),
+    ],
+)
+def test_lower_feature_layers_must_not_import_task_declarations(
+    app_root: Path,
+    relative: str,
+    message: str,
+) -> None:
+    module = app_root / relative
+    module.write_text("from tenchi.tasks import task\n" + module.read_text())
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        finding.path == relative and message in finding.message for finding in findings
+    )
 
 
 def test_use_case_importing_tenchi_execution_is_flagged(app_root: Path) -> None:

@@ -31,3 +31,9 @@ class ProjectRepository(Protocol):
     async def save(self, project: Project) -> Project: ...
 
     async def list_owned_by(self, owner: OwnerScope) -> list[Project]: ...
+
+    async def repair_invalid_member_ids(
+        self,
+        *,
+        dry_run: bool,
+    ) -> tuple[int, int]: ...
