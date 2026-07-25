@@ -1,0 +1,2184 @@
+{
+  "cli_results": {
+    "app_map": {
+      "$defs": {
+        "AgentProtocolVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "AppMapConfidence": {
+          "enum": [
+            "exact",
+            "inferred"
+          ],
+          "type": "string"
+        },
+        "AppMapDetailPayloadValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "AppMapEdgeKind": {
+          "enum": [
+            "owns",
+            "binds",
+            "depends-on",
+            "implements",
+            "authorizes",
+            "contains-test"
+          ],
+          "type": "string"
+        },
+        "AppMapEdgePayload": {
+          "properties": {
+            "confidence": {
+              "$ref": "#/$defs/AppMapConfidence"
+            },
+            "evidence": {
+              "$ref": "#/$defs/AppMapSourcePayload"
+            },
+            "kind": {
+              "$ref": "#/$defs/AppMapEdgeKind"
+            },
+            "source": {
+              "title": "Source",
+              "type": "string"
+            },
+            "target": {
+              "title": "Target",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "source",
+            "target",
+            "evidence",
+            "confidence"
+          ],
+          "title": "AppMapEdgePayload",
+          "type": "object"
+        },
+        "AppMapNodeKind": {
+          "enum": [
+            "feature",
+            "contract",
+            "route",
+            "use-case",
+            "policy",
+            "port",
+            "adapter",
+            "context",
+            "entrypoint",
+            "test"
+          ],
+          "type": "string"
+        },
+        "AppMapNodePayload": {
+          "properties": {
+            "details": {
+              "additionalProperties": {
+                "$ref": "#/$defs/AppMapDetailPayloadValue"
+              },
+              "title": "Details",
+              "type": "object"
+            },
+            "feature": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Feature"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/AppMapNodeKind"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/AppMapSourcePayload"
+            },
+            "status": {
+              "$ref": "#/$defs/AppMapNodeStatus"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "name",
+            "feature",
+            "source",
+            "status",
+            "details"
+          ],
+          "title": "AppMapNodePayload",
+          "type": "object"
+        },
+        "AppMapNodeStatus": {
+          "enum": [
+            "declared",
+            "registered"
+          ],
+          "type": "string"
+        },
+        "AppMapSourcePayload": {
+          "properties": {
+            "line": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "symbol": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Symbol"
+            }
+          },
+          "required": [
+            "path",
+            "line",
+            "symbol"
+          ],
+          "title": "AppMapSourcePayload",
+          "type": "object"
+        },
+        "AppMapSummaryPayload": {
+          "properties": {
+            "adapters": {
+              "title": "Adapters",
+              "type": "integer"
+            },
+            "contexts": {
+              "title": "Contexts",
+              "type": "integer"
+            },
+            "contracts": {
+              "title": "Contracts",
+              "type": "integer"
+            },
+            "diagnostics": {
+              "title": "Diagnostics",
+              "type": "integer"
+            },
+            "entrypoints": {
+              "title": "Entrypoints",
+              "type": "integer"
+            },
+            "features": {
+              "title": "Features",
+              "type": "integer"
+            },
+            "policies": {
+              "title": "Policies",
+              "type": "integer"
+            },
+            "ports": {
+              "title": "Ports",
+              "type": "integer"
+            },
+            "routes": {
+              "title": "Routes",
+              "type": "integer"
+            },
+            "tests": {
+              "title": "Tests",
+              "type": "integer"
+            },
+            "unresolved": {
+              "title": "Unresolved",
+              "type": "integer"
+            },
+            "use_cases": {
+              "title": "Use Cases",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "features",
+            "contracts",
+            "routes",
+            "use_cases",
+            "policies",
+            "ports",
+            "adapters",
+            "contexts",
+            "entrypoints",
+            "tests",
+            "diagnostics",
+            "unresolved"
+          ],
+          "title": "AppMapSummaryPayload",
+          "type": "object"
+        },
+        "AppMapUnresolvedPayload": {
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/AppMapSourcePayload"
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "source"
+          ],
+          "title": "AppMapUnresolvedPayload",
+          "type": "object"
+        },
+        "DiagnosticPayload": {
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "line": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "severity": {
+              "$ref": "#/$defs/DiagnosticSeverity"
+            }
+          },
+          "required": [
+            "code",
+            "severity",
+            "message",
+            "path",
+            "line"
+          ],
+          "title": "DiagnosticPayload",
+          "type": "object"
+        },
+        "DiagnosticSeverity": {
+          "enum": [
+            "error",
+            "warning",
+            "hint"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/DiagnosticPayload"
+          },
+          "title": "Diagnostics",
+          "type": "array"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/AppMapEdgePayload"
+          },
+          "title": "Edges",
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/AppMapNodePayload"
+          },
+          "title": "Nodes",
+          "type": "array"
+        },
+        "root": {
+          "title": "Root",
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/AgentProtocolVersion"
+        },
+        "summary": {
+          "$ref": "#/$defs/AppMapSummaryPayload"
+        },
+        "unresolved": {
+          "items": {
+            "$ref": "#/$defs/AppMapUnresolvedPayload"
+          },
+          "title": "Unresolved",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "root",
+        "summary",
+        "nodes",
+        "edges",
+        "diagnostics",
+        "unresolved"
+      ],
+      "title": "AppMapPayload",
+      "type": "object"
+    },
+    "check": {
+      "$defs": {
+        "AgentProtocolVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "CheckCountsPayload": {
+          "properties": {
+            "failed": {
+              "title": "Failed",
+              "type": "integer"
+            },
+            "passed": {
+              "title": "Passed",
+              "type": "integer"
+            },
+            "total": {
+              "title": "Total",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "passed",
+            "failed",
+            "total"
+          ],
+          "title": "CheckCountsPayload",
+          "type": "object"
+        },
+        "CheckStepPayload": {
+          "properties": {
+            "command": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Command",
+              "type": "array"
+            },
+            "duration_seconds": {
+              "title": "Duration Seconds",
+              "type": "number"
+            },
+            "exit_code": {
+              "title": "Exit Code",
+              "type": "integer"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/CheckStepStatus"
+            },
+            "stderr": {
+              "title": "Stderr",
+              "type": "string"
+            },
+            "stderr_truncated": {
+              "title": "Stderr Truncated",
+              "type": "boolean"
+            },
+            "stdout": {
+              "title": "Stdout",
+              "type": "string"
+            },
+            "stdout_truncated": {
+              "title": "Stdout Truncated",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "command",
+            "status",
+            "exit_code",
+            "duration_seconds",
+            "stdout",
+            "stderr",
+            "stdout_truncated",
+            "stderr_truncated"
+          ],
+          "title": "CheckStepPayload",
+          "type": "object"
+        },
+        "CheckStepStatus": {
+          "enum": [
+            "passed",
+            "failed"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "counts": {
+          "$ref": "#/$defs/CheckCountsPayload"
+        },
+        "duration_seconds": {
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "root": {
+          "title": "Root",
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/AgentProtocolVersion"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/CheckStepPayload"
+          },
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "root",
+        "ok",
+        "counts",
+        "duration_seconds",
+        "steps",
+        "error"
+      ],
+      "title": "CheckPayload",
+      "type": "object"
+    },
+    "doctor": {
+      "$defs": {
+        "AgentProtocolVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "DiagnosticPayload": {
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "line": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "severity": {
+              "$ref": "#/$defs/DiagnosticSeverity"
+            }
+          },
+          "required": [
+            "code",
+            "severity",
+            "message",
+            "path",
+            "line"
+          ],
+          "title": "DiagnosticPayload",
+          "type": "object"
+        },
+        "DiagnosticSeverity": {
+          "enum": [
+            "error",
+            "warning",
+            "hint"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/DiagnosticPayload"
+          },
+          "title": "Diagnostics",
+          "type": "array"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "root": {
+          "title": "Root",
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/AgentProtocolVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "root",
+        "ok",
+        "diagnostics"
+      ],
+      "title": "DoctorPayload",
+      "type": "object"
+    },
+    "make": {
+      "$defs": {
+        "AgentProtocolVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "GeneratedArtifact": {
+          "enum": [
+            "feature",
+            "use-case"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/GeneratedArtifact"
+        },
+        "dry_run": {
+          "title": "Dry Run",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "feature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Feature"
+        },
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "next_steps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Steps",
+          "type": "array"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "root": {
+          "title": "Root",
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/AgentProtocolVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "root",
+        "artifact",
+        "name",
+        "feature",
+        "dry_run",
+        "ok",
+        "files",
+        "next_steps",
+        "error"
+      ],
+      "title": "MakePayload",
+      "type": "object"
+    },
+    "openapi_diff": {
+      "$defs": {
+        "AgentProtocolVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "ChangeSeverity": {
+          "enum": [
+            "breaking",
+            "additive",
+            "metadata",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "CompatibilityStatus": {
+          "enum": [
+            "compatible",
+            "incompatible",
+            "review required"
+          ],
+          "type": "string"
+        },
+        "OpenApiChangePayload": {
+          "properties": {
+            "location": {
+              "title": "Location",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "severity": {
+              "$ref": "#/$defs/ChangeSeverity"
+            }
+          },
+          "required": [
+            "severity",
+            "location",
+            "message"
+          ],
+          "title": "OpenApiChangePayload",
+          "type": "object"
+        },
+        "OpenApiCountsPayload": {
+          "properties": {
+            "additive": {
+              "title": "Additive",
+              "type": "integer"
+            },
+            "breaking": {
+              "title": "Breaking",
+              "type": "integer"
+            },
+            "metadata": {
+              "title": "Metadata",
+              "type": "integer"
+            },
+            "unknown": {
+              "title": "Unknown",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "breaking",
+            "additive",
+            "metadata",
+            "unknown"
+          ],
+          "title": "OpenApiCountsPayload",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "baseline": {
+          "title": "Baseline",
+          "type": "string"
+        },
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/OpenApiChangePayload"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "compatible": {
+          "title": "Compatible",
+          "type": "boolean"
+        },
+        "counts": {
+          "$ref": "#/$defs/OpenApiCountsPayload"
+        },
+        "root": {
+          "title": "Root",
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/AgentProtocolVersion"
+        },
+        "status": {
+          "$ref": "#/$defs/CompatibilityStatus"
+        }
+      },
+      "required": [
+        "schema_version",
+        "root",
+        "baseline",
+        "status",
+        "compatible",
+        "counts",
+        "changes"
+      ],
+      "title": "OpenApiDiffPayload",
+      "type": "object"
+    },
+    "routes": {
+      "$defs": {
+        "AgentProtocolVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "RouteEntryPayload": {
+          "properties": {
+            "deprecated": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "title": "Deprecated"
+            },
+            "errors": {
+              "items": {
+                "$ref": "#/$defs/RouteErrorPayload"
+              },
+              "title": "Errors",
+              "type": "array"
+            },
+            "max_request_bytes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Request Bytes"
+            },
+            "method": {
+              "title": "Method",
+              "type": "string"
+            },
+            "path": {
+              "title": "Path",
+              "type": "string"
+            },
+            "public": {
+              "title": "Public",
+              "type": "boolean"
+            },
+            "response_headers": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Response Headers"
+            },
+            "responses": {
+              "items": {
+                "$ref": "#/$defs/RouteResponsePayload"
+              },
+              "title": "Responses",
+              "type": "array"
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            },
+            "summary": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Summary"
+            },
+            "sunset": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sunset"
+            },
+            "tags": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Tags",
+              "type": "array"
+            },
+            "timeout": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timeout"
+            },
+            "use_case": {
+              "title": "Use Case",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "path",
+            "status",
+            "responses",
+            "use_case",
+            "errors",
+            "tags",
+            "public",
+            "summary",
+            "response_headers",
+            "deprecated",
+            "sunset",
+            "max_request_bytes",
+            "timeout"
+          ],
+          "title": "RouteEntryPayload",
+          "type": "object"
+        },
+        "RouteErrorPayload": {
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "status": {
+              "title": "Status",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "status"
+          ],
+          "title": "RouteErrorPayload",
+          "type": "object"
+        },
+        "RouteResponsePayload": {
+          "properties": {
+            "status": {
+              "title": "Status",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "title": "RouteResponsePayload",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "root": {
+          "title": "Root",
+          "type": "string"
+        },
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/RouteEntryPayload"
+          },
+          "title": "Routes",
+          "type": "array"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/AgentProtocolVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "root",
+        "routes"
+      ],
+      "title": "RoutesPayload",
+      "type": "object"
+    }
+  },
+  "mcp_tools": {
+    "app_map": {
+      "input": {
+        "$defs": {
+          "AppMapNodeKind": {
+            "enum": [
+              "feature",
+              "contract",
+              "route",
+              "use-case",
+              "policy",
+              "port",
+              "adapter",
+              "context",
+              "entrypoint",
+              "test"
+            ],
+            "type": "string"
+          }
+        },
+        "properties": {
+          "feature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Feature"
+          },
+          "kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/AppMapNodeKind"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kinds"
+          }
+        },
+        "title": "app_mapArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "AgentProtocolVersion": {
+            "const": 1,
+            "type": "integer"
+          },
+          "AppMapConfidence": {
+            "enum": [
+              "exact",
+              "inferred"
+            ],
+            "type": "string"
+          },
+          "AppMapDetailPayloadValue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "AppMapEdgeKind": {
+            "enum": [
+              "owns",
+              "binds",
+              "depends-on",
+              "implements",
+              "authorizes",
+              "contains-test"
+            ],
+            "type": "string"
+          },
+          "AppMapEdgePayload": {
+            "properties": {
+              "confidence": {
+                "$ref": "#/$defs/AppMapConfidence"
+              },
+              "evidence": {
+                "$ref": "#/$defs/AppMapSourcePayload"
+              },
+              "kind": {
+                "$ref": "#/$defs/AppMapEdgeKind"
+              },
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "target": {
+                "title": "Target",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "source",
+              "target",
+              "evidence",
+              "confidence"
+            ],
+            "title": "AppMapEdgePayload",
+            "type": "object"
+          },
+          "AppMapNodeKind": {
+            "enum": [
+              "feature",
+              "contract",
+              "route",
+              "use-case",
+              "policy",
+              "port",
+              "adapter",
+              "context",
+              "entrypoint",
+              "test"
+            ],
+            "type": "string"
+          },
+          "AppMapNodePayload": {
+            "properties": {
+              "details": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/AppMapDetailPayloadValue"
+                },
+                "title": "Details",
+                "type": "object"
+              },
+              "feature": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Feature"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/AppMapNodeKind"
+              },
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "source": {
+                "$ref": "#/$defs/AppMapSourcePayload"
+              },
+              "status": {
+                "$ref": "#/$defs/AppMapNodeStatus"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "name",
+              "feature",
+              "source",
+              "status",
+              "details"
+            ],
+            "title": "AppMapNodePayload",
+            "type": "object"
+          },
+          "AppMapNodeStatus": {
+            "enum": [
+              "declared",
+              "registered"
+            ],
+            "type": "string"
+          },
+          "AppMapSourcePayload": {
+            "properties": {
+              "line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Line"
+              },
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "symbol": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Symbol"
+              }
+            },
+            "required": [
+              "path",
+              "line",
+              "symbol"
+            ],
+            "title": "AppMapSourcePayload",
+            "type": "object"
+          },
+          "AppMapSummaryPayload": {
+            "properties": {
+              "adapters": {
+                "title": "Adapters",
+                "type": "integer"
+              },
+              "contexts": {
+                "title": "Contexts",
+                "type": "integer"
+              },
+              "contracts": {
+                "title": "Contracts",
+                "type": "integer"
+              },
+              "diagnostics": {
+                "title": "Diagnostics",
+                "type": "integer"
+              },
+              "entrypoints": {
+                "title": "Entrypoints",
+                "type": "integer"
+              },
+              "features": {
+                "title": "Features",
+                "type": "integer"
+              },
+              "policies": {
+                "title": "Policies",
+                "type": "integer"
+              },
+              "ports": {
+                "title": "Ports",
+                "type": "integer"
+              },
+              "routes": {
+                "title": "Routes",
+                "type": "integer"
+              },
+              "tests": {
+                "title": "Tests",
+                "type": "integer"
+              },
+              "unresolved": {
+                "title": "Unresolved",
+                "type": "integer"
+              },
+              "use_cases": {
+                "title": "Use Cases",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "features",
+              "contracts",
+              "routes",
+              "use_cases",
+              "policies",
+              "ports",
+              "adapters",
+              "contexts",
+              "entrypoints",
+              "tests",
+              "diagnostics",
+              "unresolved"
+            ],
+            "title": "AppMapSummaryPayload",
+            "type": "object"
+          },
+          "AppMapUnresolvedPayload": {
+            "properties": {
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "source": {
+                "$ref": "#/$defs/AppMapSourcePayload"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "source"
+            ],
+            "title": "AppMapUnresolvedPayload",
+            "type": "object"
+          },
+          "DiagnosticPayload": {
+            "properties": {
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Line"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "severity": {
+                "$ref": "#/$defs/DiagnosticSeverity"
+              }
+            },
+            "required": [
+              "code",
+              "severity",
+              "message",
+              "path",
+              "line"
+            ],
+            "title": "DiagnosticPayload",
+            "type": "object"
+          },
+          "DiagnosticSeverity": {
+            "enum": [
+              "error",
+              "warning",
+              "hint"
+            ],
+            "type": "string"
+          }
+        },
+        "properties": {
+          "diagnostics": {
+            "items": {
+              "$ref": "#/$defs/DiagnosticPayload"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/$defs/AppMapEdgePayload"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/$defs/AppMapNodePayload"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/$defs/AgentProtocolVersion"
+          },
+          "summary": {
+            "$ref": "#/$defs/AppMapSummaryPayload"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/$defs/AppMapUnresolvedPayload"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "root",
+          "summary",
+          "nodes",
+          "edges",
+          "diagnostics",
+          "unresolved"
+        ],
+        "title": "AppMapPayload",
+        "type": "object"
+      }
+    },
+    "check": {
+      "input": {
+        "properties": {
+          "timeout_seconds": {
+            "default": 600.0,
+            "exclusiveMinimum": 0,
+            "maximum": 3600,
+            "title": "Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "title": "checkArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "AgentProtocolVersion": {
+            "const": 1,
+            "type": "integer"
+          },
+          "CheckCountsPayload": {
+            "properties": {
+              "failed": {
+                "title": "Failed",
+                "type": "integer"
+              },
+              "passed": {
+                "title": "Passed",
+                "type": "integer"
+              },
+              "total": {
+                "title": "Total",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "passed",
+              "failed",
+              "total"
+            ],
+            "title": "CheckCountsPayload",
+            "type": "object"
+          },
+          "CheckStepPayload": {
+            "properties": {
+              "command": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Command",
+                "type": "array"
+              },
+              "duration_seconds": {
+                "title": "Duration Seconds",
+                "type": "number"
+              },
+              "exit_code": {
+                "title": "Exit Code",
+                "type": "integer"
+              },
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/$defs/CheckStepStatus"
+              },
+              "stderr": {
+                "title": "Stderr",
+                "type": "string"
+              },
+              "stderr_truncated": {
+                "title": "Stderr Truncated",
+                "type": "boolean"
+              },
+              "stdout": {
+                "title": "Stdout",
+                "type": "string"
+              },
+              "stdout_truncated": {
+                "title": "Stdout Truncated",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "command",
+              "status",
+              "exit_code",
+              "duration_seconds",
+              "stdout",
+              "stderr",
+              "stdout_truncated",
+              "stderr_truncated"
+            ],
+            "title": "CheckStepPayload",
+            "type": "object"
+          },
+          "CheckStepStatus": {
+            "enum": [
+              "passed",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "properties": {
+          "counts": {
+            "$ref": "#/$defs/CheckCountsPayload"
+          },
+          "duration_seconds": {
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/$defs/AgentProtocolVersion"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/$defs/CheckStepPayload"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "root",
+          "ok",
+          "counts",
+          "duration_seconds",
+          "steps",
+          "error"
+        ],
+        "title": "CheckPayload",
+        "type": "object"
+      }
+    },
+    "doctor": {
+      "input": {
+        "properties": {},
+        "title": "doctorArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "AgentProtocolVersion": {
+            "const": 1,
+            "type": "integer"
+          },
+          "DiagnosticPayload": {
+            "properties": {
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Line"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "severity": {
+                "$ref": "#/$defs/DiagnosticSeverity"
+              }
+            },
+            "required": [
+              "code",
+              "severity",
+              "message",
+              "path",
+              "line"
+            ],
+            "title": "DiagnosticPayload",
+            "type": "object"
+          },
+          "DiagnosticSeverity": {
+            "enum": [
+              "error",
+              "warning",
+              "hint"
+            ],
+            "type": "string"
+          }
+        },
+        "properties": {
+          "diagnostics": {
+            "items": {
+              "$ref": "#/$defs/DiagnosticPayload"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/$defs/AgentProtocolVersion"
+          }
+        },
+        "required": [
+          "schema_version",
+          "root",
+          "ok",
+          "diagnostics"
+        ],
+        "title": "DoctorPayload",
+        "type": "object"
+      }
+    },
+    "make_preview": {
+      "input": {
+        "$defs": {
+          "GeneratedArtifact": {
+            "enum": [
+              "feature",
+              "use-case"
+            ],
+            "type": "string"
+          }
+        },
+        "properties": {
+          "artifact": {
+            "$ref": "#/$defs/GeneratedArtifact"
+          },
+          "feature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Feature"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact",
+          "name"
+        ],
+        "title": "make_previewArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "AgentProtocolVersion": {
+            "const": 1,
+            "type": "integer"
+          },
+          "GeneratedArtifact": {
+            "enum": [
+              "feature",
+              "use-case"
+            ],
+            "type": "string"
+          }
+        },
+        "properties": {
+          "artifact": {
+            "$ref": "#/$defs/GeneratedArtifact"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "feature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_steps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Next Steps",
+            "type": "array"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/$defs/AgentProtocolVersion"
+          }
+        },
+        "required": [
+          "schema_version",
+          "root",
+          "artifact",
+          "name",
+          "feature",
+          "dry_run",
+          "ok",
+          "files",
+          "next_steps",
+          "error"
+        ],
+        "title": "MakePayload",
+        "type": "object"
+      }
+    },
+    "openapi_diff": {
+      "input": {
+        "properties": {
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ref"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Snapshot"
+          }
+        },
+        "title": "openapi_diffArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "AgentProtocolVersion": {
+            "const": 1,
+            "type": "integer"
+          },
+          "ChangeSeverity": {
+            "enum": [
+              "breaking",
+              "additive",
+              "metadata",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "CompatibilityStatus": {
+            "enum": [
+              "compatible",
+              "incompatible",
+              "review required"
+            ],
+            "type": "string"
+          },
+          "OpenApiChangePayload": {
+            "properties": {
+              "location": {
+                "title": "Location",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              },
+              "severity": {
+                "$ref": "#/$defs/ChangeSeverity"
+              }
+            },
+            "required": [
+              "severity",
+              "location",
+              "message"
+            ],
+            "title": "OpenApiChangePayload",
+            "type": "object"
+          },
+          "OpenApiCountsPayload": {
+            "properties": {
+              "additive": {
+                "title": "Additive",
+                "type": "integer"
+              },
+              "breaking": {
+                "title": "Breaking",
+                "type": "integer"
+              },
+              "metadata": {
+                "title": "Metadata",
+                "type": "integer"
+              },
+              "unknown": {
+                "title": "Unknown",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "breaking",
+              "additive",
+              "metadata",
+              "unknown"
+            ],
+            "title": "OpenApiCountsPayload",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "baseline": {
+            "title": "Baseline",
+            "type": "string"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/$defs/OpenApiChangePayload"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "compatible": {
+            "title": "Compatible",
+            "type": "boolean"
+          },
+          "counts": {
+            "$ref": "#/$defs/OpenApiCountsPayload"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/$defs/AgentProtocolVersion"
+          },
+          "status": {
+            "$ref": "#/$defs/CompatibilityStatus"
+          }
+        },
+        "required": [
+          "schema_version",
+          "root",
+          "baseline",
+          "status",
+          "compatible",
+          "counts",
+          "changes"
+        ],
+        "title": "OpenApiDiffPayload",
+        "type": "object"
+      }
+    },
+    "routes": {
+      "input": {
+        "properties": {},
+        "title": "routesArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "AgentProtocolVersion": {
+            "const": 1,
+            "type": "integer"
+          },
+          "RouteEntryPayload": {
+            "properties": {
+              "deprecated": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "title": "Deprecated"
+              },
+              "errors": {
+                "items": {
+                  "$ref": "#/$defs/RouteErrorPayload"
+                },
+                "title": "Errors",
+                "type": "array"
+              },
+              "max_request_bytes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Max Request Bytes"
+              },
+              "method": {
+                "title": "Method",
+                "type": "string"
+              },
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "public": {
+                "title": "Public",
+                "type": "boolean"
+              },
+              "response_headers": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Response Headers"
+              },
+              "responses": {
+                "items": {
+                  "$ref": "#/$defs/RouteResponsePayload"
+                },
+                "title": "Responses",
+                "type": "array"
+              },
+              "status": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Status"
+              },
+              "summary": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Summary"
+              },
+              "sunset": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Sunset"
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Tags",
+                "type": "array"
+              },
+              "timeout": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Timeout"
+              },
+              "use_case": {
+                "title": "Use Case",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method",
+              "path",
+              "status",
+              "responses",
+              "use_case",
+              "errors",
+              "tags",
+              "public",
+              "summary",
+              "response_headers",
+              "deprecated",
+              "sunset",
+              "max_request_bytes",
+              "timeout"
+            ],
+            "title": "RouteEntryPayload",
+            "type": "object"
+          },
+          "RouteErrorPayload": {
+            "properties": {
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "status": {
+                "title": "Status",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "status"
+            ],
+            "title": "RouteErrorPayload",
+            "type": "object"
+          },
+          "RouteResponsePayload": {
+            "properties": {
+              "status": {
+                "title": "Status",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "title": "RouteResponsePayload",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/$defs/RouteEntryPayload"
+            },
+            "title": "Routes",
+            "type": "array"
+          },
+          "schema_version": {
+            "$ref": "#/$defs/AgentProtocolVersion"
+          }
+        },
+        "required": [
+          "schema_version",
+          "root",
+          "routes"
+        ],
+        "title": "RoutesPayload",
+        "type": "object"
+      }
+    }
+  },
+  "schema_version": 1
+}

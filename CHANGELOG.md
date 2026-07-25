@@ -34,6 +34,10 @@ versions may change the public API.
 - A public coding-agent guide documents the complete inspect, preview, edit,
   validate, and compatibility workflow; generated `AGENTS.md` files link back
   to it for framework-level details.
+- Canonical, versioned JSON Schema snapshots now guard every structured CLI
+  result and every MCP tool input and output. CLI and MCP output schemas must
+  remain identical, and breaking or unknown schema changes require a new agent
+  protocol version instead of replacing the existing baseline.
 
 ### Changed
 

@@ -8,11 +8,16 @@ letting a serializer silently turn implementation details into a public schema.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Literal
+
+from typing_extensions import TypedDict
 
 type DiagnosticSeverity = Literal["error", "warning", "hint"]
 type GeneratedArtifact = Literal["feature", "use-case"]
 type CheckStepStatus = Literal["passed", "failed"]
+type AgentProtocolVersion = Literal[1]
+
+AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 1
 
 
 class DiagnosticPayload(TypedDict):
@@ -24,14 +29,14 @@ class DiagnosticPayload(TypedDict):
 
 
 class DoctorPayload(TypedDict):
-    schema_version: Literal[1]
+    schema_version: AgentProtocolVersion
     root: str
     ok: bool
     diagnostics: list[DiagnosticPayload]
 
 
 class MakePayload(TypedDict):
-    schema_version: Literal[1]
+    schema_version: AgentProtocolVersion
     root: str
     artifact: GeneratedArtifact
     name: str
@@ -62,7 +67,7 @@ class CheckCountsPayload(TypedDict):
 
 
 class CheckPayload(TypedDict):
-    schema_version: Literal[1]
+    schema_version: AgentProtocolVersion
     root: str
     ok: bool
     counts: CheckCountsPayload
@@ -98,7 +103,7 @@ class RouteEntryPayload(TypedDict):
 
 
 class RoutesPayload(TypedDict):
-    schema_version: Literal[1]
+    schema_version: AgentProtocolVersion
     root: str
     routes: list[RouteEntryPayload]
 
@@ -130,7 +135,7 @@ class DoctorResult:
     root: str
     ok: bool
     diagnostics: tuple[DiagnosticResult, ...]
-    schema_version: Literal[1] = 1
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
 
     def as_dict(self) -> DoctorPayload:
         return {
@@ -154,7 +159,7 @@ class MakeResult:
     files: tuple[str, ...]
     next_steps: tuple[str, ...]
     error: str | None = None
-    schema_version: Literal[1] = 1
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
 
     def as_dict(self) -> MakePayload:
         return {
@@ -208,7 +213,7 @@ class CheckResult:
     steps: tuple[CheckStepResult, ...]
     duration_seconds: float
     error: str | None = None
-    schema_version: Literal[1] = 1
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
 
     def as_dict(self) -> CheckPayload:
         passed = sum(step.status == "passed" for step in self.steps)
@@ -274,7 +279,7 @@ class RoutesResult:
 
     root: str
     routes: tuple[RouteEntryResult, ...]
-    schema_version: Literal[1] = 1
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
 
     def as_dict(self) -> RoutesPayload:
         return {

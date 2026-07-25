@@ -64,7 +64,8 @@ edits made during the agent session.
 Every tool returns structured content with a `schema_version`. A doctor finding,
 failed check, generator conflict, or incompatible API is a valid result with
 `ok: false` or `compatible: false`; malformed arguments and unreadable or
-unsafe paths are MCP errors.
+unsafe paths are MCP errors. Tenchi snapshots every tool's input and output
+schema in CI; breaking or unknown changes require a new protocol version.
 
 <Callout type="warning" title="Check runs project-owned commands">
   `check` executes the application's tests and validation commands. Those

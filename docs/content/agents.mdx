@@ -89,7 +89,10 @@ Inspect these fields before editing:
 
 Node IDs, result keys, and diagnostic codes are stable within the declared
 `schema_version`. If your tooling parses the JSON directly, check that version
-before relying on the rest of the result.
+before relying on the rest of the result. Tenchi snapshots the JSON Schema for
+every structured CLI result and MCP tool input and output in CI. Additive
+changes may retain the current version; breaking or unknown changes require a
+new version and preserve the older baseline.
 
 ### 3. Preview generated structure
 

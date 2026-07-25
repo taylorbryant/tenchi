@@ -9,9 +9,16 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, TypedDict, cast
+from typing import Literal, cast
 
-from ._cli_results import DiagnosticPayload, DiagnosticResult
+from typing_extensions import TypedDict
+
+from ._cli_results import (
+    AGENT_PROTOCOL_VERSION,
+    AgentProtocolVersion,
+    DiagnosticPayload,
+    DiagnosticResult,
+)
 from .contracts import Contract
 from .doctor import run_doctor
 from .routes import Route, RouteGroup
@@ -90,7 +97,7 @@ class AppMapSummaryPayload(TypedDict):
 
 
 class AppMapPayload(TypedDict):
-    schema_version: Literal[1]
+    schema_version: AgentProtocolVersion
     root: str
     summary: AppMapSummaryPayload
     nodes: list[AppMapNodePayload]
@@ -228,7 +235,7 @@ class AppMapSummary:
 
 @dataclass(frozen=True, slots=True)
 class AppMapResult:
-    """Version 1 source-backed graph for one Tenchi application."""
+    """Versioned source-backed graph for one Tenchi application."""
 
     root: str
     summary: AppMapSummary
@@ -236,7 +243,7 @@ class AppMapResult:
     edges: tuple[AppMapEdge, ...]
     diagnostics: tuple[DiagnosticResult, ...]
     unresolved: tuple[AppMapUnresolvedReference, ...]
-    schema_version: Literal[1] = 1
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
 
     def as_dict(self) -> AppMapPayload:
         return {

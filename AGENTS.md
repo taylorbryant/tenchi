@@ -55,13 +55,16 @@ framework code, the CLI, docs, or the example apps.
     diagnostics used by the CLI.
   - `doctor.py` — dependency-direction and structure checks.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
+  - `_agent_protocol.py` — the authoritative result-name adapters used for
+    CLI validation and canonical agent-facing JSON Schema generation.
   - `_mcp_server.py` — optional stdio MCP adapter over the CLI result
     operations; it is loaded only when the `mcp` extra is installed.
 - `tests/` — framework tests, roughly one file per module plus
   cross-cutting files (`test_hooks.py`, `test_lifespan.py`,
   `test_request_scope.py`, `test_request_ids.py`, `test_middleware.py`,
-  `test_cli.py`) and the API snapshot pair (`test_api_snapshot.py`,
-  `api_snapshot.txt`).
+  `test_cli.py`), the Python API snapshot pair (`test_api_snapshot.py`,
+  `api_snapshot.txt`), and versioned agent-protocol snapshots guarded by
+  `test_agent_protocol.py`.
 - `examples/todos/` — the teaching app. Keep it minimal and aligned with
   the scaffold; it demonstrates each capability once.
 - `examples/taskboard/` — the stress-test app, a standalone uv project
@@ -207,6 +210,10 @@ operations. Inspection and preview tools never write files, every path stays
 inside the captured app root, stdout belongs exclusively to JSON-RPC, and the
 `check` tool must cancel its active subprocess and its process group where the
 platform supports one when the client cancels.
+Structured CLI results and MCP tool inputs and outputs share one agent protocol
+version. Additive changes may update its current canonical snapshot; breaking
+or unknown changes require a version bump and a new snapshot, leaving earlier
+versioned snapshots intact.
 `openapi --write`, `openapi --check`, `openapi --diff`, and Git-backed
 `openapi --diff-ref` use the same canonical format; checked-in example and
 generated-app snapshots must be reproducible with their documented metadata and
@@ -266,3 +273,11 @@ design. If the change is intentional, regenerate the snapshot with
 review the diff of `tests/api_snapshot.txt` as part of the change, and
 describe the API change in the changelog. Never regenerate to silence a
 failure you did not intend to cause.
+
+Agent-facing schema changes fail `tests/test_agent_protocol.py`. For an
+additive change, regenerate with
+`TENCHI_UPDATE_AGENT_PROTOCOL_SNAPSHOT=1 uv run pytest
+tests/test_agent_protocol.py` and review the canonical JSON Schema diff. The
+updater refuses breaking or unknown changes at the current version; bump
+`AGENT_PROTOCOL_VERSION`, update the embedded result version, and create a new
+versioned snapshot instead. Never replace an earlier protocol snapshot.

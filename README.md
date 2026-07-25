@@ -254,6 +254,8 @@ Generator `--dry-run` output lists every file without writing it. `make`,
 agents and automation. `tenchi check` runs Ruff formatting and linting,
 Pyright, pytest, doctor, and the OpenAPI snapshot check even when an earlier
 step fails; failed output is bounded and each step reports its duration.
+Tenchi snapshots the JSON Schema for these results and the MCP tool surface;
+breaking protocol changes require a new `schema_version`.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
 inspect, preview, edit, validate, and compatibility loop.
 

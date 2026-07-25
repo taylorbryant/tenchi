@@ -12,9 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import ModuleType
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, cast
+
+from typing_extensions import TypedDict
 
 from ._cli_operations import openapi_defaults
+from ._cli_results import AGENT_PROTOCOL_VERSION, AgentProtocolVersion
 from ._schema_compatibility import ChangeSeverity
 from .compatibility import (
     CompatibilityReport,
@@ -44,7 +47,7 @@ class OpenApiCountsPayload(TypedDict):
 
 
 class OpenApiDiffPayload(TypedDict):
-    schema_version: Literal[1]
+    schema_version: AgentProtocolVersion
     root: str
     baseline: str
     status: CompatibilityStatus
@@ -60,7 +63,7 @@ class OpenApiDiffResult:
     root: str
     baseline: str
     report: CompatibilityReport
-    schema_version: Literal[1] = 1
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
 
     def as_dict(self) -> OpenApiDiffPayload:
         return {

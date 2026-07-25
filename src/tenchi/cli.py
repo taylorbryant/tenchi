@@ -34,6 +34,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
+from ._agent_protocol import AgentResultName, validate_agent_result
 from ._app_map import (
     AppMapNodeKind,
     app_map_node_kinds,
@@ -478,7 +479,7 @@ def _make_use_case(feature: str, name: str, *, dry_run: bool, as_json: bool) -> 
 
 def _render_make_result(result: MakeResult, *, as_json: bool) -> int:
     if as_json:
-        _print_json(result.as_dict())
+        _print_agent_json("make", result.as_dict())
         return 0 if result.ok else 1
     if not result.ok:
         _fail(result.error or "tenchi make: generation failed")
@@ -503,7 +504,7 @@ def _doctor(*, as_json: bool) -> int:
     root = Path.cwd()
     result = doctor_result(root)
     if as_json:
-        _print_json(result.as_dict())
+        _print_agent_json("doctor", result.as_dict())
         return 0 if result.ok else 1
     if (
         result.diagnostics
@@ -559,7 +560,7 @@ def _check(
         timeout_seconds=timeout_seconds,
     )
     if as_json:
-        _print_json(result.as_dict())
+        _print_agent_json("check", result.as_dict())
     else:
         _render_check_result(result)
     return 0 if result.ok else 1
@@ -601,7 +602,7 @@ def _routes(target: str, *, as_json: bool = False) -> int:
 
     result = routes_result(Path.cwd(), group)
     if as_json:
-        _print_json(result.as_dict())
+        _print_agent_json("routes", result.as_dict())
         return 0
     for line in format_routes(group):
         print(line)
@@ -631,7 +632,7 @@ def _map_app(
             return 1
     result = project_app_map(result, feature=feature, kinds=kinds)
     if as_json:
-        _print_json(result.as_dict())
+        _print_agent_json("app_map", result.as_dict())
     else:
         print(format_app_map(result))
     return 0
@@ -822,7 +823,7 @@ def _compare_openapi_baseline(
         return 1
 
     if output_format == "json":
-        _print_json(result.as_dict())
+        _print_agent_json("openapi_diff", result.as_dict())
     else:
         sys.stdout.write(
             render_compatibility_report(result.report, baseline_path=baseline_label)
@@ -918,8 +919,11 @@ def format_routes(group: RouteGroup) -> list[str]:
     ]
 
 
-def _print_json(value: Mapping[str, object]) -> None:
-    print(json.dumps(value, indent=2))
+def _print_agent_json(
+    result_name: AgentResultName,
+    value: Mapping[str, object],
+) -> None:
+    print(json.dumps(validate_agent_result(result_name, value), indent=2))
 
 
 def _fail(message: str) -> None:

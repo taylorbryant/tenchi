@@ -15,6 +15,12 @@ snapshots, and compatibility analysis against historical baselines.
 The repository also snapshots public module signatures. An accidental API
 change fails CI; an intentional one must update the snapshot and changelog.
 
+Agent-facing JSON has a separate compatibility boundary. CI snapshots every
+structured CLI result and every MCP tool input and output, and verifies that
+MCP outputs use the same schemas as their CLI equivalents. Additive evolution
+may keep the current `schema_version`; breaking or unknown changes require a
+new versioned snapshot while the previous baseline remains unchanged.
+
 These checks make change deliberate. They do not promise that every pre-1.0
 release is source-compatible.
 
