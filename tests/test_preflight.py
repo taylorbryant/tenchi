@@ -46,6 +46,11 @@ def test_preflight_timeouts_are_positive_finite_numbers(timeout: object) -> None
         preflight_check("ready", ready, timeout=timeout)  # type: ignore[arg-type]
 
 
+def test_preflight_rejects_integer_timeouts_too_large_for_runtime_deadlines() -> None:
+    with pytest.raises(ConfigurationError, match="finite number greater than zero"):
+        preflight_check("ready", ready, timeout=10**10_000)
+
+
 def test_preflight_failure_codes_are_static_identifiers() -> None:
     for code in ("", "secret value"):
         with pytest.raises(PreflightBindingError, match="SCREAMING_SNAKE_CASE"):

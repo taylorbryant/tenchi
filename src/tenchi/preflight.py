@@ -295,16 +295,22 @@ def _append_checks(
 
 
 def _validated_timeout(value: object, *, label: str) -> float:
-    if (
-        not isinstance(value, int | float)
-        or isinstance(value, bool)
-        or not isfinite(value)
-        or value <= 0
-    ):
+    if not isinstance(value, int | float) or isinstance(value, bool):
         raise ConfigurationError(
             f"{label} must be a finite number greater than zero, got {value!r}"
         )
-    return float(value)
+    try:
+        timeout = float(value)
+    except OverflowError as exc:
+        raise ConfigurationError(
+            f"{label} must be a finite number greater than zero; "
+            "the integer is outside the runtime float range"
+        ) from exc
+    if not isfinite(timeout) or timeout <= 0:
+        raise ConfigurationError(
+            f"{label} must be a finite number greater than zero, got {value!r}"
+        )
+    return timeout
 
 
 def _valid_name(value: object) -> TypeGuard[str]:

@@ -1,8 +1,10 @@
+import sqlite3
 from pathlib import Path
 
 import aiosqlite
+import pytest
 
-from app.infra.port_wiring import ensure_schema
+from app.infra.port_wiring import ensure_schema, open_preflight_connection
 from app.server.preflight import build_preflight
 from tenchi.preflight import run_preflight
 
@@ -32,6 +34,14 @@ async def test_preflight_observes_connectivity_and_schema_without_writing(
 
     ready = tmp_path / "ready.db"
     await ensure_schema(str(ready))
+
+    async with open_preflight_connection(str(ready)) as connection:
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            await connection.execute(
+                "INSERT INTO projects "
+                "(id, name, owner_id, member_ids) VALUES (?, ?, ?, ?)",
+                ("write-probe", "Write probe", "operator", "[]"),
+            )
 
     ready_report = await run_preflight(build_preflight(str(ready)))
 

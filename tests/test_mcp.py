@@ -150,7 +150,6 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
 async def test_mcp_preflight_discards_application_output(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     server_package = tmp_path / "app/server"
     server_package.mkdir(parents=True)
@@ -166,10 +165,22 @@ async def test_mcp_preflight_discards_application_output(
         "    'dependency', dependency, failure_code='DEPENDENCY_UNAVAILABLE'\n"
         "))\n"
     )
-    server = build_mcp_server(McpServerOptions(tmp_path))
+    error_path = tmp_path / "mcp.stderr"
+    parameters = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "tenchi.cli", "mcp", "--root", str(tmp_path)],
+        cwd=tmp_path,
+    )
 
-    async with create_connected_server_and_client_session(server) as session:
-        result = await session.call_tool("preflight", {})
+    with error_path.open("w+") as errors:
+        async with (
+            stdio_client(parameters, errlog=errors) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            await session.initialize()
+            result = await session.call_tool("preflight", {})
+        errors.seek(0)
+        error_output = errors.read()
 
     assert result.isError is False
     assert result.structuredContent is not None
@@ -177,10 +188,9 @@ async def test_mcp_preflight_discards_application_output(
     assert result.structuredContent["checks"][0]["failure_code"] == (
         "DEPENDENCY_UNAVAILABLE"
     )
-    captured = capsys.readouterr()
-    assert "preflight-import-secret" not in captured.out + captured.err
-    assert "preflight-check-secret" not in captured.out + captured.err
-    assert "preflight-exception-secret" not in captured.out + captured.err
+    assert "preflight-import-secret" not in error_output
+    assert "preflight-check-secret" not in error_output
+    assert "preflight-exception-secret" not in error_output
 
 
 async def test_mcp_task_execution_is_opt_in_and_returns_structured_results(
