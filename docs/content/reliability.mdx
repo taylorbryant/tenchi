@@ -1,0 +1,184 @@
+import { Callout } from "@/components/callout";
+
+# Retries and background work
+
+Networks retry. Clients time out after the server commits. Workers crash after
+an external service accepts a call. Design commands and deferred work around
+those facts instead of treating retries as exceptional.
+
+## Make commands idempotent
+
+For a create command that may be retried, require an `Idempotency-Key` header
+and validate its shape:
+
+```python
+from pydantic import BaseModel, Field
+
+
+class CreateTaskHeaders(BaseModel):
+    idempotency_key: str = Field(
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+```
+
+Scope a key to the authenticated actor and logical operation. Store three
+values in the same transaction as the command:
+
+- the scoped key;
+- a stable fingerprint of the validated input;
+- enough of the original success to reproduce its body, status, and headers.
+
+Then apply these outcomes:
+
+| Existing record | Result |
+| --- | --- |
+| No record | Claim the key, perform the command, store the response, and commit together |
+| Same key and fingerprint | Return the original successful response |
+| Same key and different fingerprint | Raise a declared `409` application error |
+
+Build the fingerprint from validated data with stable JSON ordering:
+
+```python
+import hashlib
+import json
+
+from app.features.tasks.schemas import CreateTask
+
+
+def request_fingerprint(request: CreateTask) -> str:
+    canonical = json.dumps(
+        request.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+```
+
+The repository must claim the key with a unique constraint and create the
+resource in one transaction. A process-local lock or cache does not protect
+multiple workers and loses history on restart.
+
+Decide and document a retention period. Do not delete an idempotency record
+while callers can still legitimately retry its key.
+
+## Commit deferred effects with state
+
+Do not send email, publish a message, or call a webhook between a database
+write and commit. If the process fails in that gap, application state and the
+external effect disagree.
+
+Define an application-owned outbox port:
+
+```python
+from collections.abc import Mapping
+from typing import Any, Protocol
+
+
+class Outbox(Protocol):
+    async def enqueue(
+        self,
+        *,
+        job: str,
+        payload: Mapping[str, Any],
+    ) -> None: ...
+```
+
+The concrete outbox adapter writes through the same transaction as the domain
+repositories. The use case changes state and enqueues the work before
+returning:
+
+```python
+saved = await context.projects.save(updated)
+await context.outbox.enqueue(
+    job="member_added",
+    payload={
+        "project_id": saved.id,
+        "project_name": saved.name,
+        "user_id": request.user_id,
+    },
+)
+return saved
+```
+
+The payload carries the facts needed for delivery. A worker should not have to
+re-read mutable state merely to reconstruct what happened.
+
+<Callout type="warning" title="An outbox does not make an external call exactly once">
+  The outbox makes the state change and work record atomic. Delivery is
+  normally at least once: a worker can crash after the external system accepts
+  the call but before the outbox acknowledgement commits. Use an idempotency
+  key at the downstream service or make the consumer idempotent.
+</Callout>
+
+## Validate work at the worker boundary
+
+Map stable job names to plain async use cases and let `execute()` validate the
+serialized payload against the use case's `request` annotation:
+
+```python
+from app.features.projects.use_cases.notify_member_added import (
+    notify_member_added,
+)
+from app.infra.outbox import OutboxEntry
+from app.server.context import AppContext
+from tenchi.execution import execute
+
+
+class UnknownJobError(ValueError):
+    pass
+
+
+JOB_HANDLERS = {
+    "member_added": notify_member_added,
+}
+
+
+async def deliver(entry: OutboxEntry, context: AppContext) -> None:
+    use_case = JOB_HANDLERS.get(entry.job)
+    if use_case is None:
+        raise UnknownJobError(entry.job)
+    await execute(
+        use_case,
+        request_json=entry.payload,
+        context=context,
+    )
+```
+
+The worker owns acknowledgement and retry behavior. `execute()` deliberately
+does not choose a queue, backoff policy, or dead-letter store.
+
+## Classify failures before retrying
+
+Use three terminal paths for each delivery attempt:
+
+| Outcome | Transaction and queue action |
+| --- | --- |
+| Delivered | Commit application writes and acknowledgement together |
+| Deterministic failure | Roll back partial writes, then dead-letter with a bounded error |
+| Transient infrastructure failure | Roll back the claim, apply bounded backoff, and retry |
+
+Unknown job names, `ValidationError`, and `ExecutionError` are deterministic
+for the same record. Classify each `AppError` code by its semantics: a rejected
+business rule may be permanent, while a declared rate-limit error may be
+retryable after its advertised delay. Retrying permanent failures forever
+blocks useful work behind a poison message. Connection failures and dependency
+timeouts may also be transient.
+
+Set a maximum attempt count or age for transient failures, add jitter to
+backoff, and alert on queue age, repeated retries, and dead-letter growth.
+Preserve enough metadata to replay a corrected handler safely.
+
+## Instrument every non-HTTP entrypoint
+
+`execute()` provides validation and context scoping, not request observers.
+Workers, schedules, and scripts should record their own operation name,
+attempt, duration, result, and correlation ID around the call. Carry trace or
+request correlation in the message envelope, not inside business payloads
+that should remain stable.
+
+See [Workers and scripts](/execution) for the `execute()` failure taxonomy and
+context rules, and [Observability and audit](/observability) for telemetry
+conventions.

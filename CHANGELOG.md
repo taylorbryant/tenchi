@@ -9,6 +9,10 @@ versions may change the public API.
 
 ### Added
 
+- A production handbook now gives application-facing recipes for validated
+  configuration, secrets, database lifecycles, request transactions,
+  migrations, optimistic concurrency, idempotency, transactional outboxes,
+  worker failure handling, observability, audit records, and deployment.
 - Optional `tenchi[mcp]` support with a stdio MCP server for application maps,
   route inspection, architecture diagnostics, dry-run generation, OpenAPI
   compatibility, and the complete validation loop. Generated applications

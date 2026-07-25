@@ -136,7 +136,58 @@ export const docsSections = [
     ],
   },
   {
-    label: "Operations",
+    label: "Production",
+    routes: [
+      {
+        path: "/production",
+        title: "Production handbook",
+        description:
+          "Apply Tenchi's production patterns for configuration, transactions, concurrency, retries, background work, observability, and deployment.",
+        priority: 0.86,
+      },
+      {
+        path: "/configuration",
+        title: "Configuration and secrets",
+        navLabel: "Configuration",
+        description:
+          "Validate process configuration at startup, keep secrets out of application behavior, and wire settings at the composition root.",
+        priority: 0.81,
+      },
+      {
+        path: "/database",
+        title: "Databases and transactions",
+        navLabel: "Databases",
+        description:
+          "Own pools with lifespan, create one unit of work per request, run migrations safely, and prevent lost updates.",
+        priority: 0.82,
+      },
+      {
+        path: "/reliability",
+        title: "Retries and background work",
+        navLabel: "Retries and workers",
+        description:
+          "Make commands safe to retry, commit deferred work through a transactional outbox, and classify worker failures.",
+        priority: 0.82,
+      },
+      {
+        path: "/observability",
+        title: "Observability and audit",
+        navLabel: "Observability",
+        description:
+          "Turn request outcomes into low-cardinality logs and metrics, instrument non-HTTP work, and keep audit records separate.",
+        priority: 0.8,
+      },
+      {
+        path: "/deployment",
+        title: "Deployment",
+        description:
+          "Prepare a Tenchi ASGI application for production with lifecycle resources, middleware, health checks, and operational safeguards.",
+        priority: 0.75,
+      },
+    ],
+  },
+  {
+    label: "Tooling",
     routes: [
       {
         path: "/openapi",
@@ -167,13 +218,6 @@ export const docsSections = [
         description:
           "Connect an MCP-aware coding agent to Tenchi's application map, previews, diagnostics, compatibility report, and validation loop.",
         priority: 0.83,
-      },
-      {
-        path: "/deployment",
-        title: "Deployment",
-        description:
-          "Prepare a Tenchi ASGI application for production with lifecycle resources, middleware, health checks, and operational safeguards.",
-        priority: 0.75,
       },
     ],
   },

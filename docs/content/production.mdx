@@ -1,0 +1,98 @@
+import { Callout } from "@/components/callout";
+
+# Production handbook
+
+Tenchi keeps production infrastructure outside the framework core, but it
+gives each concern a defined place. Process resources live in lifespan,
+request resources live in the context scope, external systems sit behind
+application-owned ports, and operational entrypoints call the same use cases
+as HTTP.
+
+This handbook turns that model into concrete recipes for a service that needs
+to survive retries, concurrent writes, partial failures, and deployment
+changes.
+
+## What Tenchi owns
+
+Tenchi provides the application seams and boundary guarantees:
+
+| Concern | Tenchi's part | Your application's part |
+| --- | --- | --- |
+| Configuration | Explicit composition and lifespan state | Load and validate environment-specific values |
+| Database | Lifespan and request-scoped context managers | Choose a driver, migrations, transaction isolation, and adapters |
+| Authentication | Boundary hooks and public-contract metadata | Verify credentials and supply the identity port |
+| Authorization | Plain use cases and pure policies | Define abilities and owner-scoped repository methods |
+| Retries | Validated inputs and declared errors | Store idempotency claims and original results in the transaction |
+| Background work | `execute()` and scoped contexts | Choose a queue or outbox, schedule workers, and define retry policy |
+| Observability | Request IDs and finalized `RequestOutcome` values | Export logs, metrics, traces, and alerts |
+| Deployment | Health routes, request limits, deadlines, and `tenchi check` | Configure the ASGI server, proxy, secrets, migrations, and rollout |
+
+<Callout title="The core does not select your infrastructure">
+  Tenchi does not bundle an ORM, queue, scheduler, telemetry SDK, or settings
+  package. Those libraries remain replaceable adapters. The handbook defines
+  how they participate in the application lifecycle and failure model.
+</Callout>
+
+## Build the production boundary
+
+Use the following order when turning a working Tenchi application into a
+deployed service:
+
+1. [Validate configuration and secrets](/configuration) once at startup.
+2. [Open process resources and one transaction per request](/database).
+3. Put outbound SDKs, repositories, clocks, and identity lookups behind ports.
+4. Make retried commands idempotent and [defer external effects through a
+   durable worker boundary](/reliability).
+5. [Emit low-cardinality request and worker telemetry](/observability).
+6. [Configure health, limits, middleware, and the release gate](/deployment).
+
+Authentication and authorization have their own
+[boundary-to-policy workflow](/authentication). Testing follows the same
+resource model: use memory adapters for application behavior, then exercise
+real transactions and lifespan in integration tests.
+
+## Choose a consistency requirement before an adapter
+
+A port should say what its caller needs, not which vendor implements it. A
+command repository normally needs strong reads and writes in the current
+transaction. A search port can explicitly permit stale results and use a read
+replica. A notification port can promise only that work was durably accepted,
+not that an email was delivered during the request.
+
+Keep those meanings visible in method names and docstrings. Wiring can then
+change from SQLite to PostgreSQL, an in-process adapter to a service client, or
+a primary connection to a replica without silently weakening a use case.
+
+## Define the failure owner
+
+For every boundary, decide which component owns each outcome:
+
+- A contract owns valid HTTP inputs, outputs, and declared application errors.
+- A request context owns commit or rollback.
+- A use case owns business rejection through `AppError`.
+- A worker owns acknowledgement, retry, dead-lettering, and backoff.
+- A deployment process owns migrations and compatibility with the previous
+  release.
+- An observer reports an outcome but never changes it.
+
+This avoids ambiguous failures such as retrying invalid payloads forever,
+committing state before its outbox record, or treating a logging outage as an
+API failure.
+
+## Production baseline
+
+Before the first deployment, verify that the service has:
+
+- validated startup configuration with no secret values in logs;
+- graceful acquisition and cleanup for every pool and SDK client;
+- commit-on-success and rollback-on-error request scopes;
+- an explicit migration step and rollback-compatible deployment plan;
+- idempotency for commands callers or infrastructure can retry;
+- retry and dead-letter rules for every background handler;
+- trusted request IDs, bounded-cardinality telemetry, and actionable alerts;
+- readiness checks for dependencies required to serve traffic;
+- body-size limits and operation deadlines appropriate to the API;
+- `tenchi check` plus an OpenAPI comparison against the release baseline.
+
+The [deployment guide](/deployment) turns this list into the final release
+sequence.

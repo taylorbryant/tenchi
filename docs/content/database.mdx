@@ -1,0 +1,158 @@
+import { Callout } from "@/components/callout";
+
+# Databases and transactions
+
+Open database pools for the process, acquire a connection for each request,
+and bind every write adapter in that request to the same transaction. Tenchi's
+lifespan and context scopes make those ownership boundaries explicit.
+
+## Put one unit of work in the request context
+
+The following SQLite shape commits only after the complete Tenchi boundary
+succeeds. A hook rejection, use-case error, deadline, or response validation
+failure rolls the transaction back before Tenchi creates the HTTP error:
+
+```python
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import aiosqlite
+
+from app.infra.sqlite_repositories import SqliteOutbox, SqliteTodoRepository
+from app.server.context import AppContext
+from tenchi.server import create_app
+
+
+@asynccontextmanager
+async def create_context(
+    database_path: str,
+) -> AsyncIterator[AppContext]:
+    async with aiosqlite.connect(database_path) as connection:
+        await connection.execute("PRAGMA foreign_keys = ON")
+        try:
+            yield AppContext(
+                todos=SqliteTodoRepository(connection),
+                outbox=SqliteOutbox(connection),
+            )
+        except BaseException:
+            await connection.rollback()
+            raise
+        else:
+            await connection.commit()
+```
+
+Pass the path or a pool through lifespan:
+
+```python
+app = create_app(
+    routes=routes,
+    lifespan=lifespan,
+    context_factory=create_context,
+)
+```
+
+With a pooled driver, lifespan opens and closes the pool while
+`create_context()` acquires one connection and enters the driver's transaction
+context. The ownership rule stays the same.
+
+<Callout title="Share the transaction, not a global connection">
+  Repositories that participate in one command must use the request's
+  connection. A process-global connection can mix concurrent requests and
+  makes commit ownership ambiguous.
+</Callout>
+
+## Run migrations as a release step
+
+For a service with multiple replicas, run migrations once through the
+database's migration tool before new instances receive traffic. Application
+startup should verify connectivity and the schema version; it should not let
+every replica race to perform an uncoordinated migration.
+
+Use an expand-and-contract rollout for changes that span application
+generations:
+
+1. Add nullable columns, new tables, or compatible indexes.
+2. Deploy code that can work with both the old and expanded schema.
+3. Backfill data with an observable, restartable task.
+4. Switch reads and writes to the new representation.
+5. Remove the old representation only after the previous application
+   generation can no longer run.
+
+A single-process SQLite deployment can perform small idempotent schema setup
+in lifespan, but it still needs a lock when the API and a worker can start
+together.
+
+## State consistency in ports
+
+Separate ports when callers need different consistency:
+
+```python
+from typing import Protocol
+
+
+class TaskRepository(Protocol):
+    """Writes and read-your-writes queries on the primary transaction."""
+
+    async def get(self, task_id: str) -> Task | None: ...
+    async def save(
+        self,
+        task: Task,
+        *,
+        expected_version: int,
+    ) -> Task | None: ...
+
+
+class TaskSearch(Protocol):
+    """Staleness-tolerant listing that may use a read replica."""
+
+    async def search(self, query: TaskQuery) -> list[Task]: ...
+```
+
+Wiring may bind `TaskSearch` to a replica, but a write use case should fetch
+through `TaskRepository` when it needs read-your-writes behavior. Naming this
+requirement prevents a later infrastructure change from silently weakening
+the application.
+
+## Prevent lost updates
+
+Use optimistic concurrency when two callers can update the same resource:
+
+1. Return a strong `ETag` derived from the stored version.
+2. Require that value in `If-Match` on writes.
+3. Update with `WHERE id = ? AND version = ?` and increment the version in the
+   same statement.
+4. Return a declared `428` when the precondition is missing and `412` when it
+   is stale.
+
+The repository must make the final comparison atomically:
+
+```python
+cursor = await connection.execute(
+    "UPDATE tasks "
+    "SET title = ?, version = version + 1 "
+    "WHERE id = ? AND version = ? "
+    "RETURNING id, title, version",
+    (task.title, task.id, expected_version),
+)
+row = await cursor.fetchone()
+return row_to_task(row) if row is not None else None
+```
+
+A read followed by an unconditional update is not sufficient: another writer
+can commit between those statements.
+
+## Test the transaction boundary
+
+Use direct use-case tests with memory adapters for application behavior. Add
+integration tests with the real database adapter for:
+
+- commit after a successful response;
+- rollback after `AppError`, unexpected failure, cancellation, or response
+  validation failure;
+- unique constraints and foreign keys;
+- concurrent idempotency claims and optimistic updates;
+- migration from every schema version you still deploy;
+- read-replica behavior when a port permits stale data.
+
+Run HTTP integration tests with [`open_client()` or `open_http()`](/testing) so
+lifespan and request scopes execute exactly as they do under an ASGI server.

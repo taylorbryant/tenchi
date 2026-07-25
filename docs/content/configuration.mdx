@@ -1,0 +1,141 @@
+import { Callout } from "@/components/callout";
+
+# Configuration and secrets
+
+Load configuration once at the composition root, validate it before the
+application accepts traffic, and pass the resulting values into resource
+factories. Use cases and adapters should not read environment variables
+directly.
+
+## Define a validated settings model
+
+Pydantic is already a Tenchi dependency, so a small application can validate
+its environment without another package:
+
+```python
+import os
+from collections.abc import Mapping
+from typing import Literal
+
+from pydantic import BaseModel, Field, SecretStr
+
+
+class Settings(BaseModel):
+    environment: Literal["development", "staging", "production"]
+    database_url: str = Field(min_length=1)
+    auth_secret: SecretStr
+    request_timeout_seconds: float = Field(default=10.0, gt=0)
+
+
+def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
+    return Settings.model_validate(
+        {
+            "environment": env.get("APP_ENV"),
+            "database_url": env.get("APP_DATABASE_URL"),
+            "auth_secret": env.get("APP_AUTH_SECRET"),
+            "request_timeout_seconds": env.get(
+                "APP_REQUEST_TIMEOUT_SECONDS",
+                "10",
+            ),
+        }
+    )
+```
+
+Call `load_settings()` while composing the application. A missing database URL,
+missing secret, invalid environment name, or non-positive timeout then stops
+startup with a Pydantic validation error.
+
+For layered files, cloud secret managers, or custom settings sources, use a
+dedicated package such as `pydantic-settings`. Keep the result as one typed
+application value regardless of where the values came from.
+
+## Wire settings into lifespan
+
+Process-scoped resources should receive only the settings they need:
+
+```python
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+
+from app.infra.database import DatabasePool, open_database_pool
+from app.infra.tokens import TokenVerifier
+
+
+@dataclass(frozen=True, slots=True)
+class Runtime:
+    database: DatabasePool
+    tokens: TokenVerifier
+
+
+settings = load_settings()
+
+
+@asynccontextmanager
+async def lifespan() -> AsyncIterator[Runtime]:
+    database = await open_database_pool(settings.database_url)
+    tokens = TokenVerifier(settings.auth_secret.get_secret_value())
+    try:
+        yield Runtime(database=database, tokens=tokens)
+    finally:
+        await database.close()
+```
+
+The object yielded by lifespan is passed to a one-argument context factory.
+That factory creates request-scoped repositories from the pool and makes the
+token verifier available to the authentication hook through the context.
+
+Keep configuration out of `AppContext` unless a use case genuinely needs a
+value as application input. Database URLs, credentials, telemetry endpoints,
+and SDK options are wiring concerns; the constructed ports belong in context.
+
+## Treat secrets as capabilities
+
+- Store production secrets in the platform's secret manager, not in the
+  repository, image, or generated OpenAPI document.
+- Use `SecretStr` or an equivalent wrapper so accidental representations are
+  redacted.
+- Call `get_secret_value()` only where a concrete client is constructed.
+- Pass a verifier or service port into context instead of passing the raw
+  secret through application code.
+- Rotate secrets through the deployment platform. If rotation must happen
+  without restart, put the refresh behavior behind a port rather than reading
+  the environment on each request.
+
+<Callout type="warning" title="Do not log the environment mapping">
+  Request headers can also contain credentials. Log selected, redacted fields
+  rather than serializing settings, `os.environ`, or complete header maps.
+</Callout>
+
+## Separate deploy-time and runtime configuration
+
+Deploy-time values select infrastructure and security policy: database URLs,
+issuer metadata, trusted hosts, CORS origins, telemetry exporters, and feature
+rollout configuration. Runtime request data belongs in validated contract
+inputs or authenticated identity.
+
+Changing a deploy-time value should create a new process generation. This
+makes rollbacks predictable and lets readiness checks verify the exact
+resources that generation opened.
+
+## Test configuration failures
+
+Pass a plain mapping to `load_settings()` in tests:
+
+```python
+import pytest
+from pydantic import ValidationError
+
+
+def test_requires_the_auth_secret() -> None:
+    with pytest.raises(ValidationError):
+        load_settings(
+            {
+                "APP_ENV": "production",
+                "APP_DATABASE_URL": "postgresql://db.example/app",
+            }
+        )
+```
+
+Test the model separately from resource-opening integration tests. A unit test
+should not need the process environment or a secret manager.

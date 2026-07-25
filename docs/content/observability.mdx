@@ -1,0 +1,153 @@
+import { Callout } from "@/components/callout";
+
+# Observability and audit
+
+Observe every boundary with stable operation names, trusted correlation IDs,
+bounded-cardinality fields, and explicit redaction. Keep operational telemetry
+separate from durable audit records.
+
+## Observe finalized HTTP outcomes
+
+Register a synchronous or asynchronous observer with `create_app()`:
+
+```python
+import logging
+
+from tenchi.server import RequestOutcome, create_app
+
+
+logger = logging.getLogger("app.requests")
+
+
+def observe_request(outcome: RequestOutcome) -> None:
+    logger.info(
+        "request.complete",
+        extra={
+            "operation": outcome.request.contract.name,
+            "method": outcome.request.method,
+            "status_code": outcome.status_code,
+            "duration_seconds": outcome.duration_seconds,
+            "error_source": outcome.error_source,
+            "request_id": outcome.request.request_id,
+        },
+    )
+
+
+app = create_app(
+    routes=routes,
+    context_factory=create_context,
+    observers=[observe_request],
+)
+```
+
+The outcome arrives after the request context has closed and the response is
+finalized. It therefore describes the status the caller receives and includes
+time spent committing or rolling back the request scope.
+
+Observer failures are logged and isolated from the response and later
+observers. Keep observers fast: they still run before the ASGI endpoint
+returns. Export through a non-blocking logging or telemetry pipeline.
+
+## Use bounded labels
+
+Use the contract name, HTTP method, status class, and error source as metric
+dimensions. Do not use raw paths, resource IDs, user IDs, idempotency keys, or
+error messages as labels; their unbounded values can overwhelm a metrics
+backend.
+
+`error_source` distinguishes declared application failures from
+framework-owned boundary failures. Record the exact application error code in
+structured logs when it is available at the application boundary, but keep
+the metric label set controlled.
+
+## Propagate correlation safely
+
+Tenchi accepts a valid inbound `x-request-id` or creates one, exposes it as
+`outcome.request.request_id`, and returns it on the response. Configure the
+trusted edge so callers cannot inject unrelated tracing headers past your
+policy.
+
+When HTTP enqueues work, copy the trusted request or trace correlation into
+message metadata. A worker should start or continue a trace from that metadata
+and emit its own operation outcome around `execute()`.
+
+`execute()` does not invoke HTTP outcome observers. This keeps the core runner
+transport-neutral; the worker, scheduler, or script owns its operation name,
+attempt count, queue metadata, and completion status.
+
+## Choose the right instrumentation seam
+
+| Need | Use |
+| --- | --- |
+| Final status, duration, contract, request ID, error ownership | Tenchi outcome observer |
+| Trace the full ASGI lifecycle, unmatched routes, or streaming bodies | ASGI/OpenTelemetry middleware |
+| Database and outbound HTTP spans | Driver or SDK instrumentation |
+| Use-case-specific business measurements | An application port called by the use case |
+| Worker attempts and queue latency | Instrument the consumer around `execute()` |
+
+Observers run only for matched Tenchi routes. ASGI middleware is the correct
+layer for 404s outside the composed route group and for work that continues
+while a streaming response body is sent.
+
+## Redact by allowlist
+
+`RequestInfo.headers` is read-only, but it can contain authorization,
+cookies, and other credentials. Never log the complete mapping. Select known
+safe fields and redact values before serialization.
+
+Apply the same rule to:
+
+- request and response bodies;
+- `AppError.details`;
+- database statements and bound parameters;
+- external service URLs and headers;
+- job payloads and dead-letter errors;
+- settings and process environment values.
+
+Prefer stable identifiers that help correlate an incident without exposing
+personal data. Define retention and access controls for every telemetry sink.
+
+<Callout type="warning" title="Telemetry is not an audit trail">
+  Logs can be sampled, delayed, redacted, or dropped. A security or compliance
+  audit record is application data and needs its own durability, access, and
+  retention guarantees.
+</Callout>
+
+## Record audit events transactionally
+
+When a business action requires an audit record, define an `AuditLog` port and
+write through the same request transaction as the state change:
+
+```python
+from typing import Protocol
+
+
+class AuditLog(Protocol):
+    async def record(
+        self,
+        *,
+        actor_id: str,
+        action: str,
+        subject_id: str,
+    ) -> None: ...
+```
+
+Use stable action names and the minimum necessary subject identifiers. Do not
+store secrets or unrestricted before-and-after payloads. If audit records must
+leave the primary database, publish them through the
+[transactional outbox pattern](/reliability#commit-deferred-effects-with-state)
+after the local record commits.
+
+## Alert on user-visible failure
+
+A useful initial alert set covers:
+
+- elevated framework-owned 5xx responses;
+- latency by contract and status class;
+- readiness failures;
+- database pool exhaustion and transaction errors;
+- worker queue age, retry rate, and dead-letter growth;
+- OpenAPI compatibility gate failures before deployment.
+
+Page on symptoms that require action. Keep lower-level diagnostic events in
+logs and traces so an alert links to evidence instead of duplicating it.

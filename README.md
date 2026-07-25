@@ -8,8 +8,9 @@ Tenchi uses Pydantic for validation, Starlette for ASGI, and httpx for its typed
 client. It requires Python 3.12 or newer and is currently pre-1.0.
 
 Read the [documentation](https://tenchi.io/) for the
-quickstart, mental model, complete contract and runtime guides, production
-workflow, comparisons, and module reference.
+quickstart, mental model, complete contract and runtime guides,
+[production handbook](https://tenchi.io/production), comparisons, and module
+reference.
 
 ## Quick start
 

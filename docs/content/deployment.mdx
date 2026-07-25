@@ -6,6 +6,10 @@ Tenchi produces an ordinary ASGI application. Production readiness comes from
 explicit lifecycle ownership, middleware, health checks, observability, and a
 repeatable contract gate.
 
+Start with the [production handbook](/production) when the application still
+needs configuration, transaction, retry, worker, or telemetry decisions. This
+page covers the final process and release boundary.
+
 ## Run an ASGI server
 
 The generated application exposes `app.server.asgi:app`:
@@ -31,6 +35,10 @@ Use a request-scoped context manager for transactions or ports whose success
 depends on the request outcome. Application exceptions pass through its
 `__aexit__` before Tenchi maps them to HTTP, allowing commit-on-success and
 rollback-on-error behavior.
+
+Load [validated configuration](/configuration) before opening resources. Put
+database migrations in a controlled release step; use lifespan to open pools
+and verify the schema generation that the process expects.
 
 ## Add ASGI middleware directly
 
@@ -105,7 +113,13 @@ Use observers or ASGI middleware to feed structured logs, metrics, and traces.
 They should never contain request bodies, credentials, or error details unless
 the application deliberately redacts them.
 
-## Pre-deploy checks
+See [Observability and audit](/observability) for label, correlation, worker,
+and redaction conventions.
+
+## Release sequence
+
+Run the local application gate and compare the API with the version currently
+deployed:
 
 ```shell
 uv run tenchi check
@@ -116,6 +130,31 @@ uv run tenchi openapi --routes app.server.routes:api_routes \
 `tenchi check` includes the exact OpenAPI snapshot check. The separate
 historical compatibility command remains necessary because it compares the
 working contract with a baseline from before the deployment change.
+
+Then release in this order:
+
+1. Verify production settings and secret references without printing their
+   values.
+2. Back up data according to the datastore's recovery plan.
+3. Run backward-compatible
+   [database migrations](/database#run-migrations-as-a-release-step) once.
+4. Start the new API generation without sending it traffic.
+5. Wait for startup and readiness checks, then shift traffic gradually.
+6. Start or update [background workers](/reliability) that are compatible with
+   both application generations.
+7. Smoke-test a public route and an authenticated operation through the
+   production edge.
+8. Watch error rate, latency, database saturation, and queue age during the
+   rollout.
+
+`tenchi check` does not contact production dependencies, validate secret
+manager permissions, run migrations, or prove that an external worker is
+healthy. Keep those checks in the deployment pipeline where the target
+environment is available.
+
+Plan rollback before rollout. Application rollback must remain compatible with
+the migrated schema and any work records already written by the new
+generation.
 
 <Callout type="warning" title="Exercise lifespan in tests">
   Raw `httpx.ASGITransport` does not run lifespan by itself. Prefer

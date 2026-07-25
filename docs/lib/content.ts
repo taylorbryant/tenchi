@@ -7,7 +7,9 @@ import Cli from "@/content/cli.mdx";
 import Client from "@/content/client.mdx";
 import Comparisons from "@/content/comparisons.mdx";
 import Concepts from "@/content/concepts.mdx";
+import Configuration from "@/content/configuration.mdx";
 import Contracts from "@/content/contracts.mdx";
+import Database from "@/content/database.mdx";
 import Deployment from "@/content/deployment.mdx";
 import Errors from "@/content/errors.mdx";
 import Execution from "@/content/execution.mdx";
@@ -15,9 +17,12 @@ import ExistingProject from "@/content/existing-project.mdx";
 import GettingStarted from "@/content/getting-started.mdx";
 import Overview from "@/content/index.mdx";
 import Mcp from "@/content/mcp.mdx";
+import Observability from "@/content/observability.mdx";
 import OpenApi from "@/content/openapi.mdx";
 import Pagination from "@/content/pagination.mdx";
+import Production from "@/content/production.mdx";
 import Reference from "@/content/reference.mdx";
+import Reliability from "@/content/reliability.mdx";
 import Responses from "@/content/responses.mdx";
 import Server from "@/content/server.mdx";
 import Stability from "@/content/stability.mdx";
@@ -41,11 +46,16 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/authentication": Authentication,
   "/execution": Execution,
   "/testing": Testing,
+  "/production": Production,
+  "/configuration": Configuration,
+  "/database": Database,
+  "/reliability": Reliability,
+  "/observability": Observability,
+  "/deployment": Deployment,
   "/openapi": OpenApi,
   "/cli": Cli,
   "/agents": Agents,
   "/mcp": Mcp,
-  "/deployment": Deployment,
   "/reference": Reference,
   "/stability": Stability,
 };
