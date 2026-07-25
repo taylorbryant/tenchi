@@ -122,6 +122,24 @@ the module selected by `--routes`; command flags override them. The route target
 defaults to `app.server.routes:api_routes`, and the snapshot defaults to
 `openapi.json`.
 
+## Verify the deployment environment
+
+```shell
+uv run tenchi preflight
+uv run tenchi preflight --json
+uv run tenchi preflight --timeout 3
+```
+
+Preflight discovers `app.server.preflight:checks` and runs its read-only async
+observations concurrently. Each check keeps its declared timeout; `--timeout`
+can only cap those limits. Results expose stable names, descriptions, statuses,
+durations, and failure codes while discarding dependency values and exception
+messages. The command exits non-zero when any check fails or times out.
+
+Use `--preflight module:attribute` to override the declaration target. See
+[deployment preflight](/preflight) for declarations, dependency patterns,
+redaction, and rollout placement.
+
 ## Run operational tasks
 
 ```shell
@@ -153,7 +171,7 @@ uv run tenchi mcp --root path/to/application
 MCP support is installed through the `tenchi[mcp]` extra. Generated
 applications include it as a development dependency and register the default
 command in `.mcp.json`.
-`--routes`, `--api-routes`, `--tasks`, and `--snapshot` override the
+`--routes`, `--api-routes`, `--preflight`, `--tasks`, and `--snapshot` override the
 conventions captured by the server when it starts. `--title`, `--version`,
 `--description`, and `--security` override discovered OpenAPI metadata for the
 diff and check tools. Pass `--allow-task-runs` only when the connected agent

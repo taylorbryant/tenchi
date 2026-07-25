@@ -185,6 +185,14 @@ export const docsSections = [
         priority: 0.8,
       },
       {
+        path: "/preflight",
+        title: "Deployment preflight",
+        navLabel: "Preflight",
+        description:
+          "Run read-only, timeout-bounded checks against the environment a release is about to use without exposing dependency details.",
+        priority: 0.82,
+      },
+      {
         path: "/deployment",
         title: "Deployment",
         description:

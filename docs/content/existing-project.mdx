@@ -38,6 +38,7 @@ app/
     __init__.py
     asgi.py
     context.py
+    preflight.py
     routes.py
     runtime.py
     tasks.py
@@ -193,6 +194,19 @@ This keeps `tenchi map` and `tenchi task list` useful before the application
 has a maintenance command. Add tasks later by following [Operational
 tasks](/tasks).
 
+Create an empty deployment gate in `app/server/preflight.py`:
+
+```python
+from tenchi.preflight import preflight_group
+
+
+checks = preflight_group()
+```
+
+The empty group lets `tenchi preflight` pass before the application has an
+external dependency. Add read-only database, secret-manager, service, or
+worker observations by following [deployment preflight](/preflight).
+
 ## Add a direct behavior test
 
 Create `app/features/greetings/tests/test_greet.py`:
@@ -245,6 +259,7 @@ uv run tenchi openapi \
   --description "Greeting API" \
   --write openapi.json
 uv run tenchi check
+uv run tenchi preflight
 uv run tenchi task list
 ```
 

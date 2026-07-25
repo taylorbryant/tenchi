@@ -14,13 +14,15 @@ Commands are intentionally few and reliable:
   application's canonical OpenAPI document.
 - ``tenchi doctor`` checks dependency direction and prescribed structure.
 - ``tenchi check`` runs the complete application validation loop.
+- ``tenchi preflight`` observes the target deployment environment.
 - ``tenchi task`` discovers and runs validated operational tasks.
 - ``tenchi mcp`` serves the same structured operations to MCP-aware agents.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
-The ``routes``, ``map``, ``openapi``, ``check``, ``task``, ``mcp``, and ``dev``
-commands rely on the structural convention that ``app/server/routes.py``
-exposes ``routes`` and ``api_routes``, ``app/server/tasks.py`` exposes
+The ``routes``, ``map``, ``openapi``, ``check``, ``preflight``, ``task``,
+``mcp``, and ``dev`` commands rely on the structural convention that
+``app/server/routes.py`` exposes ``routes`` and ``api_routes``,
+``app/server/preflight.py`` exposes ``checks``, ``app/server/tasks.py`` exposes
 ``runner``, and ``app/server/asgi.py`` exposes ``app``; targets can be
 overridden by flag.
 """
@@ -63,6 +65,11 @@ from ._openapi_operations import (
     load_route_group,
     read_git_snapshot,
 )
+from ._preflight_operations import (
+    discard_preflight_output,
+    load_preflight_group,
+    preflight_result,
+)
 from ._task_operations import load_task_runner, task_list_result, task_run_result
 from .compatibility import render_compatibility_report
 from .errors import ConfigurationError
@@ -101,6 +108,7 @@ def _app_map_kind_list(value: str) -> tuple[AppMapNodeKind, ...]:
 _DEFAULT_ROUTES = "app.server.routes:routes"
 _DEFAULT_API_ROUTES = "app.server.routes:api_routes"
 _DEFAULT_APP = "app.server.asgi:app"
+_DEFAULT_PREFLIGHT = "app.server.preflight:checks"
 _DEFAULT_TASKS = "app.server.tasks:runner"
 
 
@@ -156,6 +164,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout_seconds=args.timeout,
             as_json=args.json,
         )
+    if args.command == "preflight":
+        return _preflight(
+            args.target,
+            timeout=args.timeout,
+            as_json=args.json,
+        )
     if args.command == "task":
         if args.task_command == "list":
             return _task_list(args.target, as_json=args.json)
@@ -175,6 +189,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             version=args.version,
             description=args.description,
             security_json=args.security,
+            preflight=args.preflight,
             tasks=args.tasks,
             allow_task_runs=args.allow_task_runs,
         )
@@ -398,6 +413,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit a versioned result with bounded failure output",
     )
 
+    preflight_parser = subparsers.add_parser(
+        "preflight",
+        help="Run read-only checks against the target environment",
+    )
+    preflight_parser.add_argument(
+        "--preflight",
+        dest="target",
+        default=_DEFAULT_PREFLIGHT,
+        help="module:attribute of the PreflightGroup (default: %(default)s)",
+    )
+    preflight_parser.add_argument(
+        "--timeout",
+        default=None,
+        type=_positive_float,
+        metavar="SECONDS",
+        help="Cap each check's declared timeout",
+    )
+    preflight_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a versioned, redacted result",
+    )
+
     task_parser = subparsers.add_parser(
         "task", help="Discover and run validated operational tasks"
     )
@@ -445,6 +483,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "module:attribute used by app-map and OpenAPI tools (default: %(default)s)"
         ),
+    )
+    mcp_parser.add_argument(
+        "--preflight",
+        default=_DEFAULT_PREFLIGHT,
+        help="module:attribute used by the preflight tool (default: %(default)s)",
     )
     mcp_parser.add_argument(
         "--tasks",
@@ -654,6 +697,49 @@ def _render_check_result(result: CheckResult) -> None:
         f"check: {summary} ({passed}/{total} steps passed in "
         f"{result.duration_seconds:.2f}s)"
     )
+
+
+def _preflight(
+    target: str,
+    *,
+    timeout: float | None,
+    as_json: bool,
+) -> int:
+    try:
+        with discard_preflight_output():
+            group = load_preflight_group(Path.cwd(), target)
+            result = asyncio.run(
+                preflight_result(
+                    Path.cwd(),
+                    target,
+                    group,
+                    timeout=timeout,
+                )
+            )
+    except (OperationError, ConfigurationError) as exc:
+        _fail(f"tenchi preflight: {exc}")
+        return 1
+
+    if as_json:
+        _print_agent_json("preflight", result.as_dict())
+    else:
+        for check in result.checks:
+            description = f"  {check.description}" if check.description else ""
+            failure = (
+                f"  [{check.failure_code}]" if check.failure_code is not None else ""
+            )
+            print(
+                f"[{check.status}] {check.name} "
+                f"({check.duration_seconds:.2f}s){failure}{description}"
+            )
+        summary = "passed" if result.ok else "failed"
+        passed = sum(check.status == "passed" for check in result.checks)
+        print()
+        print(
+            f"preflight: {summary} ({passed}/{len(result.checks)} checks passed "
+            f"in {result.duration_seconds:.2f}s)"
+        )
+    return 0 if result.ok else 1
 
 
 def _routes(target: str, *, as_json: bool = False) -> int:
@@ -971,6 +1057,7 @@ def _mcp(
     root: str,
     routes: str,
     api_routes: str,
+    preflight: str,
     tasks: str,
     allow_task_runs: bool,
     snapshot: str,
@@ -996,6 +1083,7 @@ def _mcp(
                 root=Path(root),
                 routes=routes,
                 api_routes=api_routes,
+                preflight=preflight,
                 tasks=tasks,
                 allow_task_runs=allow_task_runs,
                 snapshot=snapshot,

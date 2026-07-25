@@ -820,6 +820,138 @@
       "title": "OpenApiDiffPayload",
       "type": "object"
     },
+    "preflight": {
+      "$defs": {
+        "AgentProtocolVersion": {
+          "const": 2,
+          "type": "integer"
+        },
+        "PreflightCheckPayload": {
+          "properties": {
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "duration_seconds": {
+              "title": "Duration Seconds",
+              "type": "number"
+            },
+            "failure_code": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Failure Code"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/PreflightCheckStatus"
+            }
+          },
+          "required": [
+            "name",
+            "description",
+            "status",
+            "duration_seconds",
+            "failure_code"
+          ],
+          "title": "PreflightCheckPayload",
+          "type": "object"
+        },
+        "PreflightCheckStatus": {
+          "enum": [
+            "passed",
+            "failed",
+            "timed_out"
+          ],
+          "type": "string"
+        },
+        "PreflightCountsPayload": {
+          "properties": {
+            "failed": {
+              "title": "Failed",
+              "type": "integer"
+            },
+            "passed": {
+              "title": "Passed",
+              "type": "integer"
+            },
+            "timed_out": {
+              "title": "Timed Out",
+              "type": "integer"
+            },
+            "total": {
+              "title": "Total",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "passed",
+            "failed",
+            "timed_out",
+            "total"
+          ],
+          "title": "PreflightCountsPayload",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/PreflightCheckPayload"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "counts": {
+          "$ref": "#/$defs/PreflightCountsPayload"
+        },
+        "duration_seconds": {
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "root": {
+          "title": "Root",
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/AgentProtocolVersion"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "root",
+        "target",
+        "ok",
+        "counts",
+        "duration_seconds",
+        "checks"
+      ],
+      "title": "PreflightPayload",
+      "type": "object"
+    },
     "routes": {
       "$defs": {
         "AgentProtocolVersion": {
@@ -2175,6 +2307,159 @@
           "changes"
         ],
         "title": "OpenApiDiffPayload",
+        "type": "object"
+      }
+    },
+    "preflight": {
+      "input": {
+        "properties": {
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timeout Seconds"
+          }
+        },
+        "title": "preflightArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "AgentProtocolVersion": {
+            "const": 2,
+            "type": "integer"
+          },
+          "PreflightCheckPayload": {
+            "properties": {
+              "description": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Description"
+              },
+              "duration_seconds": {
+                "title": "Duration Seconds",
+                "type": "number"
+              },
+              "failure_code": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Failure Code"
+              },
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/$defs/PreflightCheckStatus"
+              }
+            },
+            "required": [
+              "name",
+              "description",
+              "status",
+              "duration_seconds",
+              "failure_code"
+            ],
+            "title": "PreflightCheckPayload",
+            "type": "object"
+          },
+          "PreflightCheckStatus": {
+            "enum": [
+              "passed",
+              "failed",
+              "timed_out"
+            ],
+            "type": "string"
+          },
+          "PreflightCountsPayload": {
+            "properties": {
+              "failed": {
+                "title": "Failed",
+                "type": "integer"
+              },
+              "passed": {
+                "title": "Passed",
+                "type": "integer"
+              },
+              "timed_out": {
+                "title": "Timed Out",
+                "type": "integer"
+              },
+              "total": {
+                "title": "Total",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "passed",
+              "failed",
+              "timed_out",
+              "total"
+            ],
+            "title": "PreflightCountsPayload",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/$defs/PreflightCheckPayload"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/$defs/PreflightCountsPayload"
+          },
+          "duration_seconds": {
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "schema_version": {
+            "$ref": "#/$defs/AgentProtocolVersion"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "root",
+          "target",
+          "ok",
+          "counts",
+          "duration_seconds",
+          "checks"
+        ],
+        "title": "PreflightPayload",
         "type": "object"
       }
     },

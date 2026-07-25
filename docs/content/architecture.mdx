@@ -23,6 +23,7 @@ app/
     hooks.py
     routes.py
     runtime.py
+    preflight.py
     tasks.py
     asgi.py
 tests/
@@ -59,6 +60,7 @@ The `app/server/` package is the application root:
 - `hooks.py` implements HTTP-boundary concerns such as authentication.
 - `routes.py` combines feature route groups and shared error declarations.
 - `runtime.py` owns resources shared by HTTP and operational entrypoints.
+- `preflight.py` declares read-only checks of the target deployment environment.
 - `tasks.py` composes the application's operational task runner.
 - `asgi.py` creates adapters, lifecycle resources, hooks, middleware, and the
   final Starlette application.

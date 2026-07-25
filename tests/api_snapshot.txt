@@ -9,6 +9,12 @@ ExecutionError (re-export of tenchi.execution.ExecutionError)
 OutcomeObserver = collections.abc.Callable[[tenchi.server.RequestOutcome], typing.Any]
 Page (re-export of tenchi.pagination.Page)
 PageQuery (re-export of tenchi.pagination.PageQuery)
+PreflightBindingError (re-export of tenchi.preflight.PreflightBindingError)
+PreflightCheck (re-export of tenchi.preflight.PreflightCheck)
+PreflightGroup (re-export of tenchi.preflight.PreflightGroup)
+PreflightOutcome (re-export of tenchi.preflight.PreflightOutcome)
+PreflightReport (re-export of tenchi.preflight.PreflightReport)
+PreflightStatus = PreflightStatus
 PresentedResponse (re-export of tenchi.responses.PresentedResponse)
 RequestInfo (re-export of tenchi.server.RequestInfo)
 RequestOutcome (re-export of tenchi.server.RequestOutcome)
@@ -33,10 +39,13 @@ health_route (re-export of tenchi.health.health_route)
 openapi_route (re-export of tenchi.openapi.openapi_route)
 openapi_schema (re-export of tenchi.openapi.openapi_schema)
 page (re-export of tenchi.pagination.page)
+preflight_check (re-export of tenchi.preflight.preflight_check)
+preflight_group (re-export of tenchi.preflight.preflight_group)
 present (re-export of tenchi.responses.present)
 response (re-export of tenchi.responses.response)
 route (re-export of tenchi.routes.route)
 route_group (re-export of tenchi.routes.route_group)
+run_preflight (re-export of tenchi.preflight.run_preflight)
 swagger_ui_route (re-export of tenchi.openapi.swagger_ui_route)
 task (re-export of tenchi.tasks.task)
 task_group (re-export of tenchi.tasks.task_group)
@@ -153,6 +162,35 @@ class PageQuery(BaseModel)
     limit: int = 20
     offset: int = 0
 def page(items: collections.abc.Sequence[ItemT], *, total: int, query: tenchi.pagination.PageQuery) -> tenchi.pagination.Page[TypeVar]
+
+# tenchi.preflight
+class PreflightBindingError(ConfigurationError, TypeError)
+class PreflightCheck
+    name: str
+    check: Callable[[], Awaitable[None]]
+    description: str | None
+    timeout: float
+    failure_code: str
+    def __init__(self, name: 'str', check: 'Callable[[], Awaitable[None]]', description: 'str | None', timeout: 'float', failure_code: 'str') -> None
+class PreflightGroup
+    checks: tuple[PreflightCheck, ...]
+    def __init__(self, checks: 'tuple[PreflightCheck, ...]') -> None
+class PreflightOutcome
+    name: str
+    description: str | None
+    status: PreflightStatus
+    duration_seconds: float
+    failure_code: str | None = None
+    def __init__(self, name: 'str', description: 'str | None', status: 'PreflightStatus', duration_seconds: 'float', failure_code: 'str | None' = None) -> None
+class PreflightReport
+    outcomes: tuple[PreflightOutcome, ...]
+    duration_seconds: float
+    def __init__(self, outcomes: 'tuple[PreflightOutcome, ...]', duration_seconds: 'float') -> None
+    property ok(self) -> 'bool'
+PreflightStatus = PreflightStatus
+def preflight_check(name: 'str', check: 'Callable[[], Awaitable[None]]', *, description: 'str | None' = None, timeout: 'float' = 5.0, failure_code: 'str | None' = None) -> 'PreflightCheck'
+def preflight_group(*items: 'PreflightCheck | PreflightGroup | Sequence[PreflightCheck]') -> 'PreflightGroup'
+def run_preflight(group: 'PreflightGroup', *, timeout: 'float | None' = None) -> 'PreflightReport'
 
 # tenchi.routes
 class Route

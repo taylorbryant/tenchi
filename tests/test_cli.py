@@ -49,6 +49,7 @@ def test_new_scaffolds_a_working_app(
     assert (root / "app/infra/port_wiring.py").is_file()
     assert (root / "app/infra/sqlite_todo_repository.py").is_file()
     assert (root / "app/shared/errors.py").is_file()
+    assert (root / "app/server/preflight.py").is_file()
     assert (root / "app/server/runtime.py").is_file()
     assert (root / "app/server/tasks.py").is_file()
     assert (root / "openapi.json").is_file()
@@ -110,6 +111,89 @@ def test_new_scaffolds_a_working_app(
         "diagnostics": 0,
         "unresolved": 0,
     }
+
+    preflight = _tenchi(root, "preflight", "--json")
+    assert preflight.returncode == 0, preflight.stdout + preflight.stderr
+    preflight_result = json.loads(preflight.stdout)
+    assert preflight_result["schema_version"] == 2
+    assert preflight_result["ok"] is True
+    assert preflight_result["counts"] == {
+        "passed": 0,
+        "failed": 0,
+        "timed_out": 0,
+        "total": 0,
+    }
+
+
+def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> None:
+    (tmp_path / "environment.py").write_text(
+        "from tenchi.preflight import preflight_check, preflight_group\n"
+        "async def ready() -> None:\n"
+        "    print('printed-database-password')\n"
+        "    return None\n"
+        "async def unavailable() -> None:\n"
+        "    raise RuntimeError('database-password')\n"
+        "checks = preflight_group(\n"
+        "    preflight_check('database.connectivity', ready),\n"
+        "    preflight_check(\n"
+        "        'secrets.access',\n"
+        "        unavailable,\n"
+        "        description='Read the required secret reference.',\n"
+        "        failure_code='SECRET_MANAGER_UNAVAILABLE',\n"
+        "    ),\n"
+        ")\n"
+    )
+    target = "environment:checks"
+
+    result = _tenchi(
+        tmp_path,
+        "preflight",
+        "--preflight",
+        target,
+        "--json",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 2
+    assert payload["target"] == target
+    assert payload["ok"] is False
+    assert payload["counts"] == {
+        "passed": 1,
+        "failed": 1,
+        "timed_out": 0,
+        "total": 2,
+    }
+    assert payload["checks"][1] == {
+        "name": "secrets.access",
+        "description": "Read the required secret reference.",
+        "status": "failed",
+        "duration_seconds": payload["checks"][1]["duration_seconds"],
+        "failure_code": "SECRET_MANAGER_UNAVAILABLE",
+    }
+    assert "database-password" not in result.stdout
+    assert "database-password" not in result.stderr
+    assert "printed-database-password" not in result.stdout
+    assert "printed-database-password" not in result.stderr
+
+
+def test_preflight_cli_redacts_import_failures(tmp_path: Path) -> None:
+    (tmp_path / "environment.py").write_text(
+        "raise RuntimeError('secret-manager-token')\n"
+    )
+
+    result = _tenchi(
+        tmp_path,
+        "preflight",
+        "--preflight",
+        "environment:checks",
+        "--json",
+    )
+
+    assert result.returncode == 1
+    assert "could not import 'environment' (RuntimeError)" in result.stderr
+    assert "secret-manager-token" not in result.stdout
+    assert "secret-manager-token" not in result.stderr
 
 
 def test_task_cli_lists_runs_and_reports_validation_as_versioned_json(

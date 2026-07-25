@@ -1,0 +1,209 @@
+import { Callout } from "@/components/callout";
+
+# Verify a deployment environment
+
+`tenchi preflight` answers a different question from `tenchi check`:
+
+| Command | Question | Expected environment |
+| --- | --- | --- |
+| `tenchi check` | Is this source tree internally valid? | Deterministic and local |
+| `tenchi preflight` | Can this release safely use the environment it is about to enter? | The target deployment environment |
+| Health and readiness routes | Can this running process serve traffic now? | A live application process |
+| `tenchi task run` | Should an authorized operator change application state? | An explicitly selected operational environment |
+
+Use preflight after configuration and migrations are available but before the
+new application receives traffic. Typical checks cover database connectivity,
+the deployed schema version, secret-manager permissions, required outbound
+services, and worker heartbeats.
+
+## Declare read-only observations
+
+The generated application exposes `checks` from
+`app/server/preflight.py`. Each observation is a zero-argument async function
+that returns `None` on success and raises on failure:
+
+```python
+from app.infra.port_wiring import open_preflight_connection
+from app.server.runtime import DATABASE_URL
+from tenchi.preflight import preflight_check, preflight_group
+
+
+async def database_connectivity() -> None:
+    async with open_preflight_connection(DATABASE_URL) as connection:
+        await connection.execute("SELECT 1")
+
+
+async def database_schema() -> None:
+    async with open_preflight_connection(DATABASE_URL) as connection:
+        cursor = await connection.execute("PRAGMA user_version")
+        row = await cursor.fetchone()
+        if row is None or int(row[0]) != 7:
+            raise RuntimeError("unexpected database schema")
+
+
+checks = preflight_group(
+    preflight_check(
+        "database.connectivity",
+        database_connectivity,
+        description="Open the configured database in read-only mode.",
+        failure_code="DATABASE_UNAVAILABLE",
+    ),
+    preflight_check(
+        "database.schema",
+        database_schema,
+        description="Verify the schema required by this release.",
+        failure_code="DATABASE_SCHEMA_MISMATCH",
+    ),
+)
+```
+
+Names use dotted `snake_case` and remain stable for deployment automation.
+Failure codes use `SCREAMING_SNAKE_CASE`. When you omit a code, Tenchi derives
+one such as `PREFLIGHT_DATABASE_SCHEMA_FAILED`.
+
+Checks default to a five-second timeout. Set a shorter or longer declaration
+timeout only when the dependency has a known response budget:
+
+```python
+preflight_check(
+    "workers.email",
+    email_worker_heartbeat,
+    timeout=2.0,
+    failure_code="EMAIL_WORKER_NOT_READY",
+)
+```
+
+Tenchi runs the checks concurrently and reports results in declaration order.
+A check must propagate cancellation so its client and connection cleanup can
+finish when it times out.
+
+## Keep the boundary read-only
+
+Preflight does not receive an application context and does not start the
+application lifespan. Each check must open the narrowest read-only client it
+needs. For a database, use a read-only connection or account. For a secret
+manager, request metadata or describe a known secret instead of returning its
+value. For a worker, read its heartbeat rather than enqueueing probe work.
+
+<Callout type="warning" title="Read-only is an application guarantee">
+  Python cannot prove that an arbitrary async function has no side effects.
+  Tenchi enforces the narrow function shape, supplies no stateful context,
+  marks the MCP tool read-only, and keeps operational mutations in
+  `tenchi task run`. Your adapter permissions are the final enforcement
+  boundary. Use credentials that cannot write.
+</Callout>
+
+Do not migrate schemas, repair records, rotate secrets, enqueue jobs, or call
+business endpoints from preflight. Put migrations in the release process and
+authorized repairs or backfills in [operational tasks](/tasks).
+
+## Check the production concerns
+
+Keep each dependency independently named so a failed rollout points to one
+owner:
+
+- **Database connectivity:** open a read-only connection and run a minimal
+  query.
+- **Schema compatibility:** read the migration table or required columns and
+  compare them with what this release expects.
+- **Secret-manager access:** describe required secret references with an
+  identity that can read metadata without printing values.
+- **Outbound dependencies:** call a documented, non-mutating readiness or
+  metadata operation with the production client configuration.
+- **Worker readiness:** read a durable heartbeat or consumer-group status and
+  reject stale workers.
+
+Preflight should prove only what must be true before traffic shifts. Leave
+ongoing dependency monitoring to health checks and observability.
+
+## Run the deployment gate
+
+From the application root:
+
+```shell
+uv run tenchi preflight
+uv run tenchi preflight --json
+uv run tenchi preflight --timeout 3
+```
+
+`--timeout` caps every declared timeout; it can make the gate stricter but
+never extend a check's own limit. The command exits zero only when every check
+passes. Human output names each status and stable failure code. JSON returns
+the same versioned result model as the MCP tool:
+
+```json
+{
+  "schema_version": 2,
+  "root": "/srv/api",
+  "target": "app.server.preflight:checks",
+  "ok": false,
+  "counts": {
+    "passed": 1,
+    "failed": 1,
+    "timed_out": 0,
+    "total": 2
+  },
+  "duration_seconds": 0.031,
+  "checks": [
+    {
+      "name": "database.connectivity",
+      "description": "Open the configured database in read-only mode.",
+      "status": "passed",
+      "duration_seconds": 0.012,
+      "failure_code": null
+    },
+    {
+      "name": "database.schema",
+      "description": "Verify the schema required by this release.",
+      "status": "failed",
+      "duration_seconds": 0.03,
+      "failure_code": "DATABASE_SCHEMA_MISMATCH"
+    }
+  ]
+}
+```
+
+Exception types, exception messages, and return values never appear in the
+result. Descriptions and failure codes come from the declaration, so keep them
+free of credentials and tenant data. A check that accidentally returns a value
+is reported as failed and the value is discarded.
+
+<Callout type="warning" title="Configure application logging separately">
+  The CLI and MCP tool discard direct stdout and stderr from preflight code.
+  They cannot intercept handlers that send logs directly to files, sockets, or
+  telemetry backends. Configure dependency logging for production and never
+  include secret values in application log records.
+</Callout>
+
+Use a different module only when the application cannot follow the generated
+convention:
+
+```shell
+uv run tenchi preflight --preflight my_app.release:checks
+```
+
+For MCP, pass the same target when the server starts:
+
+```shell
+uv run tenchi mcp --preflight my_app.release:checks
+```
+
+The MCP `preflight` tool is available without enabling task execution. It uses
+the credentials and environment captured by the MCP server process, so call it
+only when that process is connected to the intended deployment target.
+
+## Place it in the rollout
+
+A safe release sequence is:
+
+1. Validate the source and contract with `tenchi check` and the OpenAPI
+   compatibility gate.
+2. Load production configuration without printing secret values.
+3. Run backward-compatible migrations once.
+4. Start the new generation without traffic.
+5. Run `tenchi preflight` from that generation's target environment.
+6. Wait for live readiness, then shift traffic gradually.
+7. Watch request and worker telemetry throughout the rollout.
+
+Continue with [deployment](/deployment) for health routes, server limits,
+rollout, and rollback guidance.

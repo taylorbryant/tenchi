@@ -116,6 +116,7 @@ app/
     hooks.py       # HTTP-boundary hooks (authentication)
     routes.py      # composes feature groups; group-level error declarations
     runtime.py     # resources shared by HTTP and operational entrypoints
+    preflight.py   # read-only checks of the target deployment environment
     tasks.py       # composes the operational task runner
     asgi.py        # concrete wiring, lifespan, hooks; exposes `app`
 tests/             # integration tests over HTTP / the typed client
@@ -133,6 +134,8 @@ example and template:
   ability lives in the feature that owns the subject it inspects, and
   read-path ownership failures surface as not-found, not forbidden.
 - Routes bind contracts to use cases; they never import infrastructure.
+- Preflight checks live at the composition root, open read-only clients, and
+  never migrate, repair, enqueue, or return dependency values.
 - Tasks bind stable operational names to use cases; they never import
   infrastructure.
 - Shared code never depends on features.
@@ -201,9 +204,10 @@ API shape:
 The CLI is product surface. Generated code must pass Ruff, Ruff format,
 Pyright strict, pytest, and `tenchi doctor` untouched — CI-grade, as
 generated. Generators create files and print wiring instructions; they
-never edit existing modules. `routes`, `map`, `openapi`, `check`, `mcp`, and
-`dev` rely on the structural conventions (`app.server.routes:routes`,
-`app.server.routes:api_routes`, `app.server.asgi:app`); keep flags available to
+never edit existing modules. `routes`, `map`, `openapi`, `check`, `preflight`,
+`mcp`, and `dev` rely on the structural conventions
+(`app.server.routes:routes`, `app.server.routes:api_routes`,
+`app.server.preflight:checks`, `app.server.asgi:app`); keep flags available to
 override, and keep `tenchi new` output aligned with `examples/todos` minus
 capabilities the starter intentionally omits.
 `map` combines source declarations with the composed route group and must stay
@@ -213,6 +217,11 @@ dangling edges.
 `task list|run` loads `app.server.tasks:runner` by default. Tasks provide named,
 validated operator entrypoints for backfills, repairs, replays, and maintenance;
 they do not schedule, retry, queue, lock, or persist progress.
+`preflight` is an environment-aware deployment gate separate from deterministic
+`check`. Checks are zero-argument async observations with per-check timeouts,
+static names and failure codes, redacted results, and no application context or
+lifespan. They run concurrently and must use read-only credentials; mutations
+belong in migrations or explicitly authorized operational tasks.
 `mcp` is a thin, stdio-only adapter over the same renderer-independent
 operations. Inspection and preview tools never write files, every path stays
 inside the captured app root, stdout belongs exclusively to JSON-RPC, and the

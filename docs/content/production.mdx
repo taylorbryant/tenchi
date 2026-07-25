@@ -26,7 +26,7 @@ Tenchi provides the application seams and boundary guarantees:
 | Background work | `execute()` and scoped contexts | Choose a queue or outbox, schedule workers, and define retry policy |
 | Operational maintenance | Validated named tasks, CLI/MCP discovery, and scoped execution | Define safe dry runs, operator access, and rollout procedure |
 | Observability | Request IDs and finalized `RequestOutcome` values | Export logs, metrics, traces, and alerts |
-| Deployment | Health routes, request limits, deadlines, and `tenchi check` | Configure the ASGI server, proxy, secrets, migrations, and rollout |
+| Deployment | Health routes, request limits, deadlines, `tenchi check`, and environment preflight | Configure the ASGI server, proxy, secrets, migrations, dependency credentials, and rollout |
 
 <Callout title="The core does not select your infrastructure">
   Tenchi does not bundle an ORM, queue, scheduler, telemetry SDK, or settings
@@ -45,7 +45,8 @@ deployed service:
 4. Make retried commands idempotent and [defer external effects through a
    durable worker boundary](/reliability).
 5. [Emit low-cardinality request and worker telemetry](/observability).
-6. [Configure health, limits, middleware, and the release gate](/deployment).
+6. [Declare read-only checks for the target environment](/preflight).
+7. [Configure health, limits, middleware, and the release gate](/deployment).
 
 Authentication and authorization have their own
 [boundary-to-policy workflow](/authentication). Testing follows the same
@@ -93,6 +94,7 @@ Before the first deployment, verify that the service has:
 - trusted request IDs, bounded-cardinality telemetry, and actionable alerts;
 - readiness checks for dependencies required to serve traffic;
 - body-size limits and operation deadlines appropriate to the API;
+- a read-only `tenchi preflight` gate in the target environment;
 - `tenchi check` plus an OpenAPI comparison against the release baseline.
 
 The [deployment guide](/deployment) turns this list into the final release

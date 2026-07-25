@@ -54,6 +54,7 @@ MCP_RESULT_NAMES: dict[str, AgentResultName] = {
     "openapi_diff": "openapi_diff",
     "make_preview": "make",
     "check": "check",
+    "preflight": "preflight",
     "task_list": "task_list",
     "task_run": "task_run",
 }
