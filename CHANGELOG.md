@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-24
+
 ### Added
 
 - A production handbook now gives application-facing recipes for validated
