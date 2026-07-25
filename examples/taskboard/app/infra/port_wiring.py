@@ -13,6 +13,7 @@ import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 import aiosqlite
 
@@ -61,6 +62,18 @@ async def open_read_connection(
     be a replica. In production this is where a replica DSN would go.
     """
     async with aiosqlite.connect(database_path) as connection:
+        await configure_connection(connection)
+        await connection.execute("PRAGMA query_only = ON")
+        yield connection
+
+
+@asynccontextmanager
+async def open_preflight_connection(
+    database_path: str,
+) -> AsyncGenerator[aiosqlite.Connection]:
+    """Open an existing SQLite database without permission to create or write."""
+    uri = f"{Path(database_path).resolve().as_uri()}?mode=ro"
+    async with aiosqlite.connect(uri, uri=True) as connection:
         await configure_connection(connection)
         await connection.execute("PRAGMA query_only = ON")
         yield connection

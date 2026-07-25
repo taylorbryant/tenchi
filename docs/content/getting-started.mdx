@@ -30,11 +30,16 @@ single route. Its important files are:
 | `app/infra/` | SQLite runtime adapter, memory test adapter, and port wiring |
 | `app/server/context.py` | Frozen context passed to use cases |
 | `app/server/runtime.py` | Lifespan and context wiring shared by entrypoints |
+| `app/server/preflight.py` | Read-only checks of the target deployment environment |
 | `app/server/tasks.py` | Operational task composition |
 | `app/server/asgi.py` | Composition root and ASGI application |
 | `AGENTS.md` | Placement rules and the complete agent validation loop |
 | `.mcp.json` | Project-local registration for MCP-aware coding agents |
 | `.github/workflows/ci.yml` | Checks and historical API compatibility gate |
+
+The starter preflight group is empty because a local source check must not
+contact an environment implicitly. Add production dependency observations by
+following [deployment preflight](/preflight).
 
 ## Run the checks
 

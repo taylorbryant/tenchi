@@ -12,6 +12,7 @@ from ._cli_results import (
     CheckPayload,
     DoctorPayload,
     MakePayload,
+    PreflightPayload,
     RoutesPayload,
     TaskListPayload,
     TaskRunPayload,
@@ -25,6 +26,7 @@ type AgentResultName = Literal[
     "openapi_diff",
     "make",
     "check",
+    "preflight",
     "task_list",
     "task_run",
 ]
@@ -37,6 +39,7 @@ AGENT_RESULT_ADAPTERS: dict[AgentResultName, TypeAdapter[object]] = {
     "openapi_diff": cast(TypeAdapter[object], TypeAdapter(OpenApiDiffPayload)),
     "make": cast(TypeAdapter[object], TypeAdapter(MakePayload)),
     "check": cast(TypeAdapter[object], TypeAdapter(CheckPayload)),
+    "preflight": cast(TypeAdapter[object], TypeAdapter(PreflightPayload)),
     "task_list": cast(TypeAdapter[object], TypeAdapter(TaskListPayload)),
     "task_run": cast(TypeAdapter[object], TypeAdapter(TaskRunPayload)),
 }

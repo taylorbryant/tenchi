@@ -26,12 +26,14 @@ async def main() -> None:
         initialized = await session.initialize()
         tools = await session.list_tools()
         routes = await session.call_tool("routes", {})
+        preflight = await session.call_tool("preflight", {})
         tasks = await session.call_tool("task_list", {})
     names = {tool.name for tool in tools.tools}
     expected = {
         "app_map",
         "routes",
         "doctor",
+        "preflight",
         "task_list",
         "openapi_diff",
         "make_preview",
@@ -53,6 +55,12 @@ async def main() -> None:
         raise RuntimeError("task_list MCP result is not versioned")
     if tasks.structuredContent.get("tasks") != []:
         raise RuntimeError("generated app unexpectedly registered operational tasks")
+    if preflight.isError or preflight.structuredContent is None:
+        raise RuntimeError("preflight MCP smoke call failed")
+    if preflight.structuredContent.get("schema_version") != 2:
+        raise RuntimeError("preflight MCP result is not versioned")
+    if preflight.structuredContent.get("checks") != []:
+        raise RuntimeError("generated app unexpectedly registered preflight checks")
 
 
 if __name__ == "__main__":

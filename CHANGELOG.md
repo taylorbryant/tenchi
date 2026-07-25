@@ -9,6 +9,13 @@ versions may change the public API.
 
 ### Added
 
+- Environment-aware deployment preflight: `preflight_check()` and
+  `preflight_group()` declare zero-argument async observations with stable
+  names, failure codes, and per-check timeouts; `run_preflight()` executes them
+  concurrently with redacted outcomes and cooperative cancellation. `tenchi
+  preflight` and the read-only MCP `preflight` tool share a versioned JSON
+  result, generated apps include the composition point, and taskboard verifies
+  SQLite connectivity and schema compatibility through a read-only connection.
 - Validated operational tasks for backfills, repairs, replays, and maintenance:
   `task()` and `task_group()` bind stable dotted names to plain async use cases,
   while `create_task_runner()` applies input and result validation, application

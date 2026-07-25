@@ -15,6 +15,7 @@ from typing_extensions import TypedDict
 type DiagnosticSeverity = Literal["error", "warning", "hint"]
 type GeneratedArtifact = Literal["feature", "use-case"]
 type CheckStepStatus = Literal["passed", "failed"]
+type PreflightCheckStatus = Literal["passed", "failed", "timed_out"]
 type TaskRunErrorKind = Literal[
     "unknown_task",
     "invalid_input",
@@ -81,6 +82,31 @@ class CheckPayload(TypedDict):
     duration_seconds: float
     steps: list[CheckStepPayload]
     error: str | None
+
+
+class PreflightCheckPayload(TypedDict):
+    name: str
+    description: str | None
+    status: PreflightCheckStatus
+    duration_seconds: float
+    failure_code: str | None
+
+
+class PreflightCountsPayload(TypedDict):
+    passed: int
+    failed: int
+    timed_out: int
+    total: int
+
+
+class PreflightPayload(TypedDict):
+    schema_version: AgentProtocolVersion
+    root: str
+    target: str
+    ok: bool
+    counts: PreflightCountsPayload
+    duration_seconds: float
+    checks: list[PreflightCheckPayload]
 
 
 class RouteResponsePayload(TypedDict):
@@ -270,6 +296,57 @@ class CheckResult:
             "duration_seconds": self.duration_seconds,
             "steps": [step.as_dict() for step in self.steps],
             "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightCheckResult:
+    """One redacted environment preflight outcome."""
+
+    name: str
+    description: str | None
+    status: PreflightCheckStatus
+    duration_seconds: float
+    failure_code: str | None
+
+    def as_dict(self) -> PreflightCheckPayload:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "status": self.status,
+            "duration_seconds": self.duration_seconds,
+            "failure_code": self.failure_code,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightResult:
+    """Versioned result of running one application's environment preflight."""
+
+    root: str
+    target: str
+    ok: bool
+    duration_seconds: float
+    checks: tuple[PreflightCheckResult, ...]
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
+
+    def as_dict(self) -> PreflightPayload:
+        passed = sum(check.status == "passed" for check in self.checks)
+        failed = sum(check.status == "failed" for check in self.checks)
+        timed_out = sum(check.status == "timed_out" for check in self.checks)
+        return {
+            "schema_version": self.schema_version,
+            "root": self.root,
+            "target": self.target,
+            "ok": self.ok,
+            "counts": {
+                "passed": passed,
+                "failed": failed,
+                "timed_out": timed_out,
+                "total": len(self.checks),
+            },
+            "duration_seconds": self.duration_seconds,
+            "checks": [check.as_dict() for check in self.checks],
         }
 
 

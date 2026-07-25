@@ -12,6 +12,17 @@ from .execution import ExecutionError, UseCaseObserver, UseCaseOutcome, execute
 from .health import health_route
 from .openapi import openapi_route, openapi_schema, swagger_ui_route
 from .pagination import Page, PageQuery, page
+from .preflight import (
+    PreflightBindingError,
+    PreflightCheck,
+    PreflightGroup,
+    PreflightOutcome,
+    PreflightReport,
+    PreflightStatus,
+    preflight_check,
+    preflight_group,
+    run_preflight,
+)
 from .responses import PresentedResponse, ResponseDef, present, response
 from .routes import Route, RouteGroup, route, route_group
 from .server import OutcomeObserver, RequestInfo, RequestOutcome, create_app
@@ -40,6 +51,12 @@ __all__ = [
     "OutcomeObserver",
     "Page",
     "PageQuery",
+    "PreflightBindingError",
+    "PreflightCheck",
+    "PreflightGroup",
+    "PreflightOutcome",
+    "PreflightReport",
+    "PreflightStatus",
     "PresentedResponse",
     "RequestInfo",
     "RequestOutcome",
@@ -65,10 +82,13 @@ __all__ = [
     "openapi_route",
     "openapi_schema",
     "page",
+    "preflight_check",
+    "preflight_group",
     "present",
     "response",
     "route",
     "route_group",
+    "run_preflight",
     "swagger_ui_route",
     "task",
     "task_group",

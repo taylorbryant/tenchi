@@ -15,6 +15,7 @@ from tenchi import (
     ErrorDef,
     Page,
     PageQuery,
+    PreflightGroup,
     UseCaseObserver,
     UseCaseOutcome,
     contract,
@@ -24,6 +25,8 @@ from tenchi import (
     health_route,
     openapi_route,
     page,
+    preflight_check,
+    preflight_group,
     present,
     response,
     route,
@@ -56,14 +59,17 @@ expected application failures.
 | --- | --- |
 | `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver`, `ContextFactory`, `Lifespan`, `DEFAULT_MAX_REQUEST_BYTES`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER` |
 | `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `UseCaseOutcome`, `UseCaseObserver` |
+| `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `task()`, `task_group()`, `create_task_runner()` |
 | `tenchi.client` | `Client`, `ClientResponse`, `UnexpectedResponseError` |
 | `tenchi.testing` | `open_client()`, `open_http()`, `ASGIApp` |
 
 `create_app()` owns HTTP dispatch and lifecycle composition. `execute()` runs
-the application boundary without HTTP. A `TaskRunner` adds stable discovery,
-input and result validation, and application lifecycle wiring for operational
-commands. `Client` enforces contracts against remote or in-process servers.
+the application boundary without HTTP. A preflight group defines read-only,
+timeout-bounded observations for a deployment gate. A `TaskRunner` adds stable
+discovery, input and result validation, and application lifecycle wiring for
+operational commands. `Client` enforces contracts against remote or in-process
+servers.
 
 ## Schema and operations
 

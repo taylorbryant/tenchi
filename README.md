@@ -107,7 +107,7 @@ app/
   features/<feature>/   # contracts, schemas, ports, routes, tasks, use cases
   shared/               # shared errors and domain concepts
   infra/                # concrete port implementations
-  server/               # context, shared runtime, route/task composition, ASGI app
+  server/               # context, runtime, preflight, route/task composition, ASGI app
 tests/                  # HTTP integration tests
 ```
 
@@ -242,6 +242,8 @@ tenchi openapi --check openapi.json
 tenchi openapi --write openapi.json
 tenchi doctor --json
 tenchi check
+tenchi preflight
+tenchi preflight --json
 tenchi task list
 tenchi task run projects.repair_members --input '{"dry_run": true}'
 tenchi mcp
@@ -273,6 +275,15 @@ task run` validates input, owns one application lifespan and scoped context,
 and validates output before transactional cleanup commits. Both commands
 support versioned JSON results.
 
+`tenchi preflight` runs the read-only, timeout-bounded observations declared by
+`app.server.preflight:checks` against the selected deployment environment. It
+is deliberately separate from deterministic `tenchi check`; use it after
+migrations and before traffic shifts to verify database connectivity and
+schema compatibility, secret-manager access, outbound dependencies, and worker
+readiness. Structured results expose only static names, descriptions, failure
+codes, statuses, and durations. See the [deployment preflight
+guide](https://tenchi.io/preflight).
+
 Generator `--dry-run` output lists every file without writing it. `make`,
 `map`, `doctor`, and `check` accept `--json` and return versioned results for
 agents and automation. `tenchi check` runs Ruff formatting and linting,
@@ -283,13 +294,15 @@ breaking protocol changes require a new `schema_version`.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
 inspect, preview, edit, validate, and compatibility loop.
 
-`tenchi mcp` serves the same versioned map, route, task-discovery, doctor,
-generator-preview, OpenAPI-diff, and check results over stdio. Task execution
-is absent unless the server starts with `--allow-task-runs`. Inspection and
-preview tools do not write application files; project-owned commands executed
-by `check` retain their normal side effects. Generated apps register the
-command in `.mcp.json`. Existing apps install the optional development
-dependency with `uv add --dev "tenchi[mcp]"`.
+`tenchi mcp` serves the same versioned map, route, preflight, task-discovery,
+doctor, generator-preview, OpenAPI-diff, and check results over stdio. Task
+execution is absent unless the server starts with `--allow-task-runs`.
+Preflight remains available as a read-only tool but deliberately contacts the
+environment captured by the server process. Inspection and preview tools do
+not write application files; project-owned commands executed by `check` retain
+their normal side effects. Generated apps register the command in `.mcp.json`.
+Existing apps install the optional development dependency with
+`uv add --dev "tenchi[mcp]"`.
 
 Run `tenchi <command> --help` for command options.
 

@@ -39,6 +39,7 @@ from ._cli_results import (
     DoctorPayload,
     GeneratedArtifact,
     MakePayload,
+    PreflightPayload,
     RoutesPayload,
     TaskListPayload,
     TaskRunPayload,
@@ -51,6 +52,11 @@ from ._openapi_operations import (
     openapi_diff_result,
     project_path,
 )
+from ._preflight_operations import (
+    discard_preflight_output,
+    load_preflight_group,
+    preflight_result,
+)
 from ._task_operations import (
     load_task_runner,
     task_list_result,
@@ -62,6 +68,12 @@ _CHECK_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=False,
     destructiveHint=True,
     idempotentHint=False,
+    openWorldHint=True,
+)
+_PREFLIGHT_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
     openWorldHint=True,
 )
 _TASK_RUN_ANNOTATIONS = ToolAnnotations(
@@ -86,6 +98,7 @@ class McpServerOptions:
     root: Path
     routes: str = "app.server.routes:routes"
     api_routes: str = "app.server.routes:api_routes"
+    preflight: str = "app.server.preflight:checks"
     tasks: str = "app.server.tasks:runner"
     allow_task_runs: bool = False
     snapshot: str = "openapi.json"
@@ -107,7 +120,12 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
     progress_tasks: set[asyncio.Task[None]] = set()
     module_names = tuple(
         target.partition(":")[0]
-        for target in (options.routes, options.api_routes, options.tasks)
+        for target in (
+            options.routes,
+            options.api_routes,
+            options.preflight,
+            options.tasks,
+        )
     )
 
     def finish_progress(task: asyncio.Task[None]) -> None:
@@ -120,10 +138,11 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         instructions=(
             "Inspect the project instructions first, map the affected feature, "
             "preview generated structure before editing, discover operational "
-            "tasks before invoking one, validate with check, and compare OpenAPI "
-            "before accepting a changed snapshot. Tenchi MCP inspection and "
-            "preview tools do not write application files; check runs "
-            "project-owned validation commands."
+            "tasks before invoking one, validate source with check, run preflight "
+            "only against the intended environment, and compare OpenAPI before "
+            "accepting a changed snapshot. Tenchi MCP inspection and preview "
+            "tools do not write application files; check runs project-owned "
+            "validation commands."
         ),
         website_url="https://tenchi.io/mcp",
     )
@@ -195,6 +214,38 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
     )
     async def doctor() -> DoctorPayload:  # pyright: ignore[reportUnusedFunction]
         return await call(lambda: doctor_result(root).as_dict())
+
+    @server.tool(
+        name="preflight",
+        description=(
+            "Run the application's read-only, timeout-bounded observations "
+            "against the captured deployment environment. Results are redacted."
+        ),
+        annotations=_PREFLIGHT_ANNOTATIONS,
+    )
+    async def preflight(  # pyright: ignore[reportUnusedFunction]
+        timeout_seconds: Annotated[float | None, Field(gt=0)] = None,
+    ) -> PreflightPayload:
+        async with operation_lock:
+            try:
+                with (
+                    discard_preflight_output(),
+                    isolated_project_imports(
+                        root,
+                        module_names=module_names,
+                    ),
+                ):
+                    group = load_preflight_group(root, options.preflight)
+                    return (
+                        await preflight_result(
+                            root,
+                            options.preflight,
+                            group,
+                            timeout=timeout_seconds,
+                        )
+                    ).as_dict()
+            except OperationError as exc:
+                raise ToolError(str(exc)) from exc
 
     @server.tool(
         name="task_list",
@@ -430,6 +481,7 @@ def run_mcp_server(options: McpServerOptions) -> None:
             root=root,
             routes=options.routes,
             api_routes=options.api_routes,
+            preflight=options.preflight,
             tasks=options.tasks,
             allow_task_runs=options.allow_task_runs,
             snapshot=options.snapshot,
@@ -464,8 +516,9 @@ def _fallback_agent_instructions() -> str:
 3. Keep contracts at the boundary, behavior in async use cases, infrastructure
    behind protocols, and wiring explicit in the server composition root.
 4. Run `check` after a coherent change.
-5. Run `openapi_diff` before accepting a changed OpenAPI snapshot.
-6. Use `task_list` before any separately authorized operational task run.
+5. Run `preflight` only against the intended deployment environment.
+6. Run `openapi_diff` before accepting a changed OpenAPI snapshot.
+7. Use `task_list` before any separately authorized operational task run.
 
 Full guidance: https://tenchi.io/agents
 """

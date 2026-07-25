@@ -29,6 +29,7 @@ PUBLIC_MODULES = (
     "tenchi.health",
     "tenchi.openapi",
     "tenchi.pagination",
+    "tenchi.preflight",
     "tenchi.routes",
     "tenchi.responses",
     "tenchi.server",

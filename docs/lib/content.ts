@@ -20,6 +20,7 @@ import Mcp from "@/content/mcp.mdx";
 import Observability from "@/content/observability.mdx";
 import OpenApi from "@/content/openapi.mdx";
 import Pagination from "@/content/pagination.mdx";
+import Preflight from "@/content/preflight.mdx";
 import Production from "@/content/production.mdx";
 import Reference from "@/content/reference.mdx";
 import Reliability from "@/content/reliability.mdx";
@@ -53,6 +54,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/database": Database,
   "/reliability": Reliability,
   "/observability": Observability,
+  "/preflight": Preflight,
   "/deployment": Deployment,
   "/openapi": OpenApi,
   "/cli": Cli,

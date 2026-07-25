@@ -53,6 +53,7 @@ uv run tenchi check     # run every project check
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
 uv run tenchi map       # inspect the complete application graph
+uv run tenchi preflight # verify the selected deployment environment
 uv run tenchi task list # discover operational tasks
 uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
 uv run tenchi openapi --routes app.server.routes:api_routes \\
@@ -94,21 +95,22 @@ Framework agent workflow: https://tenchi.io/agents
    `uv run tenchi make use-case <feature> <name> --dry-run` before creating
    framework-shaped files manually.
 3. Keep explicit wiring visible in `app/server/routes.py`,
-   `app/server/tasks.py`, `app/server/runtime.py`,
+   `app/server/preflight.py`, `app/server/tasks.py`, `app/server/runtime.py`,
    `app/infra/port_wiring.py`, and `app/server/asgi.py`.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
 
-Use `--json` with `tenchi map`, `tenchi routes`, `tenchi task`, `tenchi
-doctor`, `tenchi check`, and `tenchi make ...` when structured output is more
-useful than terminal text.
+Use `--json` with `tenchi map`, `tenchi routes`, `tenchi preflight`, `tenchi
+task`, `tenchi doctor`, `tenchi check`, and `tenchi make ...` when structured
+output is more useful than terminal text.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
-`app_map`, `routes`, `task_list`, `doctor`, `openapi_diff`, `make_preview`, and
-`check` tools return the same versioned results. Inspection and preview tools
-never write application files; `check` runs the project's normal validation
-commands. Task execution is not exposed unless an operator deliberately starts
-the server with `--allow-task-runs`. The agent still makes ordinary,
+`app_map`, `routes`, `preflight`, `task_list`, `doctor`, `openapi_diff`,
+`make_preview`, and `check` tools return the same versioned results. Inspection
+and preview tools never write application files; `check` runs the project's
+normal validation commands. Run `preflight` only against the intended
+environment. Task execution is not exposed unless an operator deliberately
+starts the server with `--allow-task-runs`. The agent still makes ordinary,
 reviewable source edits.
 
 ## Placement and dependency direction
@@ -127,7 +129,7 @@ reviewable source edits.
   or server composition.
 - `app/server/` is the composition root and may import every application layer.
   Shared lifespan/context wiring lives in `runtime.py`; task composition lives
-  in `tasks.py`.
+  in `tasks.py`; read-only deployment observations live in `preflight.py`.
 - `app/shared/` never imports features.
 
 Authentication belongs in boundary hooks. Authorization belongs in use cases
@@ -515,6 +517,13 @@ runner = create_task_runner(
 )
 """
 
+_SERVER_PREFLIGHT = """\
+from tenchi.preflight import preflight_group
+
+# Add read-only, zero-argument async observations for deployment dependencies.
+checks = preflight_group()
+"""
+
 _HTTP_TEST = """\
 from pathlib import Path
 
@@ -833,6 +842,7 @@ _FILES: dict[str, str] = {
     "app/server/__init__.py": "",
     "app/server/asgi.py": _SERVER_APP,
     "app/server/context.py": _CONTEXT,
+    "app/server/preflight.py": _SERVER_PREFLIGHT,
     "app/server/routes.py": _SERVER_ROUTES,
     "app/server/runtime.py": _SERVER_RUNTIME,
     "app/server/tasks.py": _SERVER_TASKS,

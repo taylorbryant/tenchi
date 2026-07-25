@@ -51,6 +51,7 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
         "app_map",
         "routes",
         "doctor",
+        "preflight",
         "task_list",
         "openapi_diff",
         "make_preview",
@@ -63,6 +64,11 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
             assert tool.annotations.readOnlyHint is False
             assert tool.annotations.destructiveHint is True
             assert tool.annotations.idempotentHint is False
+            assert tool.annotations.openWorldHint is True
+        elif tool.name == "preflight":
+            assert tool.annotations.readOnlyHint is True
+            assert tool.annotations.destructiveHint is False
+            assert tool.annotations.idempotentHint is True
             assert tool.annotations.openWorldHint is True
         else:
             assert tool.annotations.readOnlyHint is True
@@ -87,6 +93,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
             "app_map", {"feature": "todos", "kinds": ["contract", "route"]}
         )
         doctor = await session.call_tool("doctor", {})
+        preflight = await session.call_tool("preflight", {})
         tasks = await session.call_tool("task_list", {})
         preview = await session.call_tool(
             "make_preview", {"artifact": "feature", "name": "notes"}
@@ -114,6 +121,12 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
     assert doctor.structuredContent is not None
     assert doctor.structuredContent["schema_version"] == 2
 
+    assert preflight.isError is False
+    assert preflight.structuredContent is not None
+    assert preflight.structuredContent["schema_version"] == 2
+    assert preflight.structuredContent["ok"] is True
+    assert preflight.structuredContent["checks"] == []
+
     assert tasks.isError is False
     assert tasks.structuredContent is not None
     assert tasks.structuredContent["schema_version"] == 2
@@ -133,6 +146,51 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
     assert diff.structuredContent is not None
     assert diff.structuredContent["schema_version"] == 2
     assert diff.structuredContent["compatible"] is True
+
+
+async def test_mcp_preflight_discards_application_output(
+    tmp_path: Path,
+) -> None:
+    server_package = tmp_path / "app/server"
+    server_package.mkdir(parents=True)
+    (tmp_path / "app/__init__.py").write_text("")
+    (server_package / "__init__.py").write_text("")
+    (server_package / "preflight.py").write_text(
+        "from tenchi.preflight import preflight_check, preflight_group\n"
+        "print('preflight-import-secret')\n"
+        "async def dependency() -> None:\n"
+        "    print('preflight-check-secret')\n"
+        "    raise RuntimeError('preflight-exception-secret')\n"
+        "checks = preflight_group(preflight_check(\n"
+        "    'dependency', dependency, failure_code='DEPENDENCY_UNAVAILABLE'\n"
+        "))\n"
+    )
+    error_path = tmp_path / "mcp.stderr"
+    parameters = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "tenchi.cli", "mcp", "--root", str(tmp_path)],
+        cwd=tmp_path,
+    )
+
+    with error_path.open("w+") as errors:
+        async with (
+            stdio_client(parameters, errlog=errors) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            await session.initialize()
+            result = await session.call_tool("preflight", {})
+        errors.seek(0)
+        error_output = errors.read()
+
+    assert result.isError is False
+    assert result.structuredContent is not None
+    assert result.structuredContent["ok"] is False
+    assert result.structuredContent["checks"][0]["failure_code"] == (
+        "DEPENDENCY_UNAVAILABLE"
+    )
+    assert "preflight-import-secret" not in error_output
+    assert "preflight-check-secret" not in error_output
+    assert "preflight-exception-secret" not in error_output
 
 
 async def test_mcp_task_execution_is_opt_in_and_returns_structured_results(
@@ -376,6 +434,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
         "app_map",
         "routes",
         "doctor",
+        "preflight",
         "task_list",
         "openapi_diff",
         "make_preview",
