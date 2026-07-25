@@ -17,6 +17,8 @@ Route (re-export of tenchi.routes.Route)
 RouteGroup (re-export of tenchi.routes.RouteGroup)
 TenchiError (re-export of tenchi.errors.TenchiError)
 UnexpectedResponseError (re-export of tenchi.client.UnexpectedResponseError)
+UseCaseObserver = collections.abc.Callable[[tenchi.execution.UseCaseOutcome], typing.Any]
+UseCaseOutcome (re-export of tenchi.execution.UseCaseOutcome)
 contract (re-export of tenchi.contracts.contract)
 create_app (re-export of tenchi.server.create_app)
 execute (re-export of tenchi.execution.execute)
@@ -109,7 +111,15 @@ def error_body(*, code: 'str', message: 'str', details: 'Any' = None, request_id
 
 # tenchi.execution
 class ExecutionError(TenchiError, TypeError)
-def execute(use_case: 'Callable[..., Awaitable[ResultT]]', *, context: 'Any', request: 'Any' = UNSET, request_json: 'bytes | str | None' = None) -> 'ResultT'
+UseCaseObserver = collections.abc.Callable[[tenchi.execution.UseCaseOutcome], typing.Any]
+class UseCaseOutcome
+    use_case: Callable[..., Awaitable[Any]]
+    entrypoint: Literal['http', 'execute']
+    status: Literal['succeeded', 'app_error', 'failed', 'cancelled']
+    duration_seconds: float
+    error_code: str | None = None
+    def __init__(self, use_case: 'Callable[..., Awaitable[Any]]', entrypoint: "Literal['http', 'execute']", status: "Literal['succeeded', 'app_error', 'failed', 'cancelled']", duration_seconds: 'float', error_code: 'str | None' = None) -> None
+def execute(use_case: 'Callable[..., Awaitable[ResultT]]', *, context: 'Any', request: 'Any' = UNSET, request_json: 'bytes | str | None' = None, use_case_observers: 'Sequence[UseCaseObserver]' = ()) -> 'ResultT'
 def open_context(source: 'Any') -> 'AsyncGenerator[Any]'
 
 # tenchi.health
@@ -190,7 +200,7 @@ class RequestOutcome
     duration_seconds: float
     error_source: Literal['app', 'framework'] | None
     def __init__(self, request: 'RequestInfo', status_code: 'int', duration_seconds: 'float', error_source: "Literal['app', 'framework'] | None") -> None
-def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifespan: 'Lifespan | None' = None, hooks: 'Sequence[Hook]' = (), middleware: 'Sequence[Middleware]' = (), observers: 'Sequence[OutcomeObserver]' = (), max_request_bytes: 'int | None' = 1048576) -> 'Starlette'
+def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifespan: 'Lifespan | None' = None, hooks: 'Sequence[Hook]' = (), middleware: 'Sequence[Middleware]' = (), observers: 'Sequence[OutcomeObserver]' = (), use_case_observers: 'Sequence[Callable[[UseCaseOutcome], Any]]' = (), max_request_bytes: 'int | None' = 1048576) -> 'Starlette'
 
 # tenchi.testing
 ASGIApp = collections.abc.Callable[..., collections.abc.Awaitable[None]]

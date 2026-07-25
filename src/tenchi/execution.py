@@ -32,17 +32,23 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import AsyncGenerator, Awaitable, Callable
+import logging
+from asyncio import CancelledError
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
     AbstractContextManager,
     asynccontextmanager,
 )
-from typing import Any, cast
+from dataclasses import dataclass
+from time import perf_counter
+from typing import Any, Literal, cast
 
 from pydantic import TypeAdapter
 
-from .errors import TenchiError
+from .errors import AppError, TenchiError
+
+logger = logging.getLogger("tenchi.execution")
 
 
 class ExecutionError(TenchiError, TypeError):
@@ -50,6 +56,103 @@ class ExecutionError(TenchiError, TypeError):
     input, or the context source cannot work. Deterministic — a retry
     with the same arguments fails the same way — so queue-style callers
     should dead-letter rather than retry."""
+
+
+@dataclass(frozen=True, slots=True)
+class UseCaseOutcome:
+    """The finalized result of one invoked use case.
+
+    The outcome is delivered after its surrounding context scope has closed.
+    ``duration_seconds`` measures the use-case call itself; it deliberately
+    excludes input validation, context acquisition and cleanup, HTTP response
+    presentation, and observer work.
+    """
+
+    use_case: Callable[..., Awaitable[Any]]
+    entrypoint: Literal["http", "execute"]
+    status: Literal["succeeded", "app_error", "failed", "cancelled"]
+    duration_seconds: float
+    error_code: str | None = None
+
+
+UseCaseObserver = Callable[[UseCaseOutcome], Any]
+"""A sync or async observer of finalized use-case outcomes.
+
+Observers run in declaration order after the surrounding context scope closes.
+Their failures are logged and isolated from later observers and the use-case
+caller.
+"""
+
+
+class _UseCaseCall:
+    """Capture one invocation now so observers can run after scope cleanup."""
+
+    __slots__ = ("entrypoint", "outcome", "use_case")
+
+    use_case: Callable[..., Awaitable[Any]]
+    entrypoint: Literal["http", "execute"]
+    outcome: UseCaseOutcome | None
+
+    def __init__(
+        self,
+        use_case: Callable[..., Awaitable[Any]],
+        *,
+        entrypoint: Literal["http", "execute"],
+    ) -> None:
+        self.use_case = use_case
+        self.entrypoint = entrypoint
+        self.outcome: UseCaseOutcome | None = None
+
+    async def invoke(self, **kwargs: Any) -> Any:
+        started = perf_counter()
+        try:
+            result = await self.use_case(**kwargs)
+        except CancelledError:
+            self._finish("cancelled", started=started)
+            raise
+        except AppError as exc:
+            self._finish("app_error", started=started, error_code=exc.code)
+            raise
+        except BaseException:
+            self._finish("failed", started=started)
+            raise
+        self._finish("succeeded", started=started)
+        return result
+
+    def _finish(
+        self,
+        status: Literal["succeeded", "app_error", "failed", "cancelled"],
+        *,
+        started: float,
+        error_code: str | None = None,
+    ) -> None:
+        self.outcome = UseCaseOutcome(
+            use_case=self.use_case,
+            entrypoint=self.entrypoint,
+            status=status,
+            duration_seconds=perf_counter() - started,
+            error_code=error_code,
+        )
+
+
+async def _notify_use_case_observers(
+    observers: tuple[UseCaseObserver, ...],
+    call: _UseCaseCall,
+) -> None:
+    outcome = call.outcome
+    if outcome is None:
+        return
+    for index, observer in enumerate(observers):
+        try:
+            result = observer(outcome)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception(
+                "Use-case observer[%d] failed for %s",
+                index,
+                _describe(outcome.use_case),
+            )
 
 
 class _Unset:
@@ -109,6 +212,7 @@ async def execute[ResultT](
     context: Any,
     request: Any = _UNSET,
     request_json: bytes | str | None = None,
+    use_case_observers: Sequence[UseCaseObserver] = (),
 ) -> ResultT:
     """Invoke ``use_case`` with validated input and a scoped context.
 
@@ -121,10 +225,40 @@ async def execute[ResultT](
     input raises pydantic's ``ValidationError``.
 
     ``context`` follows :func:`open_context` semantics.
+
+    ``use_case_observers`` receive one immutable :class:`UseCaseOutcome` after
+    the context closes, but only when the use case was actually invoked. Sync
+    and async observers run in order; failures are logged and do not alter the
+    result or exception.
     """
     kwargs = _validated_kwargs(use_case, request, request_json)
-    async with open_context(context) as entered:
-        return await use_case(**kwargs, context=entered)
+    observer_chain = _validated_observers(use_case_observers)
+    if not observer_chain:
+        async with open_context(context) as entered:
+            return await use_case(**kwargs, context=entered)
+
+    call = _UseCaseCall(use_case, entrypoint="execute")
+    try:
+        async with open_context(context) as entered:
+            return cast(ResultT, await call.invoke(**kwargs, context=entered))
+    finally:
+        await _notify_use_case_observers(observer_chain, call)
+
+
+def _validated_observers(
+    observers: Sequence[UseCaseObserver],
+) -> tuple[UseCaseObserver, ...]:
+    chain = tuple(observers)
+    for index, observer in enumerate(chain):
+        try:
+            signature = inspect.signature(observer)
+            signature.bind(object())
+        except (TypeError, ValueError) as exc:
+            raise ExecutionError(
+                f"execute: use_case_observers[{index}] must accept one "
+                f"positional UseCaseOutcome argument: {exc}"
+            ) from exc
+    return chain
 
 
 def _validated_kwargs(

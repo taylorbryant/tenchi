@@ -129,8 +129,8 @@ The main pieces are:
 - A contract-driven async client, OpenAPI 3.1 generation, and optional Swagger
   UI route.
 - Lifespan resources, request-scoped contexts, authentication hooks, middleware,
-  request deadlines, outcome observers, pagination, health checks, and
-  in-process testing helpers.
+  request deadlines, HTTP and use-case outcome observers, pagination, health
+  checks, and in-process testing helpers.
 
 `public` defaults to `False`. Set `public=True` for operations that an
 authentication hook should exempt, then inspect the metadata in the hook:
@@ -201,7 +201,9 @@ rollback finish, then returns the framework's 504 even if application code
 catches the injected cancellation. `create_app(observers=...)` delivers an
 immutable `RequestOutcome`, including a read-only header mapping, after each
 matched route has finalized. Observer failures are logged and never change the
-response.
+response. `create_app(use_case_observers=...)` and
+`execute(use_case_observers=...)` deliver the same immutable `UseCaseOutcome`
+after context cleanup for every use case that was actually invoked.
 
 See [`examples/todos`](examples/todos) for the small teaching app and
 [`examples/taskboard`](examples/taskboard) for a larger application with

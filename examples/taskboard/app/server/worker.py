@@ -45,6 +45,7 @@ from app.infra.sqlite_repositories import (
     SqliteTaskSearch,
 )
 from app.server.context import AppContext
+from app.server.observability import observe_use_case
 from tenchi.errors import AppError
 from tenchi.execution import ExecutionError, execute
 from tenchi.routes import UseCase
@@ -82,7 +83,12 @@ async def process_next(database_path: str) -> bool:
                 notifications=SqliteNotificationLog(connection),
             )
             try:
-                await execute(use_case, request_json=entry.payload, context=context)
+                await execute(
+                    use_case,
+                    request_json=entry.payload,
+                    context=context,
+                    use_case_observers=(observe_use_case,),
+                )
             except (ValidationError, ExecutionError, AppError) as error:
                 # Deterministic failures — bad payload, miswired handler,
                 # business rejection — dead-letter instead of retrying;

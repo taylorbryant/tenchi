@@ -173,10 +173,11 @@ Preserve enough metadata to replay a corrected handler safely.
 
 ## Instrument every non-HTTP entrypoint
 
-`execute()` provides validation and context scoping, not request observers.
-Workers, schedules, and scripts should record their own operation name,
-attempt, duration, result, and correlation ID around the call. Carry trace or
-request correlation in the message envelope, not inside business payloads
+Pass a `UseCaseObserver` to `execute()` to report the operation, duration,
+result category, and stable application error code after context cleanup.
+Workers, schedules, and scripts still own attempt counts, queue latency, and
+correlation metadata because those values belong to the transport. Carry trace
+or request correlation in the message envelope, not inside business payloads
 that should remain stable.
 
 See [Workers and scripts](/execution) for the `execute()` failure taxonomy and

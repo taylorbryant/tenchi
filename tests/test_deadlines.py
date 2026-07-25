@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from tenchi.contracts import contract
 from tenchi.errors import ERROR_SOURCE_HEADER
+from tenchi.execution import UseCaseOutcome
 from tenchi.openapi import openapi_schema
 from tenchi.routes import route, route_group
 from tenchi.server import create_app
@@ -20,6 +21,7 @@ class Context:
 
 async def test_deadline_cancels_work_and_finishes_scope_cleanup_before_504() -> None:
     events: list[str] = []
+    outcomes: list[UseCaseOutcome] = []
 
     @asynccontextmanager
     async def context_factory() -> AsyncGenerator[Context]:
@@ -40,6 +42,10 @@ async def test_deadline_cancels_work_and_finishes_scope_cleanup_before_504() -> 
             events.append("cancelled")
         return "late"
 
+    def observe(outcome: UseCaseOutcome) -> None:
+        events.append("observed")
+        outcomes.append(outcome)
+
     declared = contract(
         method="GET",
         path="/slow",
@@ -49,6 +55,7 @@ async def test_deadline_cancels_work_and_finishes_scope_cleanup_before_504() -> 
     app = create_app(
         routes=route_group(route(declared, slow)),
         context_factory=context_factory,
+        use_case_observers=(observe,),
     )
 
     async with open_http(app) as http:
@@ -58,11 +65,21 @@ async def test_deadline_cancels_work_and_finishes_scope_cleanup_before_504() -> 
     assert response.headers[ERROR_SOURCE_HEADER] == "framework"
     assert response.json()["code"] == "REQUEST_TIMEOUT"
     assert response.json()["details"] == {"timeout_seconds": 0.02}
-    assert events == ["enter", "use case", "cancelled", "rollback", "cleaned"]
+    assert events == [
+        "enter",
+        "use case",
+        "cancelled",
+        "rollback",
+        "cleaned",
+        "observed",
+    ]
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "cancelled"
 
 
 async def test_suppressing_deadline_cancellation_cannot_return_a_late_success() -> None:
     events: list[str] = []
+    outcomes: list[UseCaseOutcome] = []
 
     async def suppresses_cancellation(context: object) -> str:
         try:
@@ -81,6 +98,7 @@ async def test_suppressing_deadline_cancellation_cannot_return_a_late_success() 
     app = create_app(
         routes=route_group(route(declared, suppresses_cancellation)),
         context_factory=object,
+        use_case_observers=(outcomes.append,),
     )
 
     async with open_http(app) as http:
@@ -89,6 +107,8 @@ async def test_suppressing_deadline_cancellation_cannot_return_a_late_success() 
     assert response.status_code == 504
     assert response.json()["code"] == "REQUEST_TIMEOUT"
     assert events == ["suppressed"]
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "succeeded"
 
 
 async def test_app_timeout_error_is_not_mistaken_for_deadline_expiry() -> None:

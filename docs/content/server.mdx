@@ -137,6 +137,9 @@ guarantees cleanup before the response is finalized.
 - `observers=` receive immutable `RequestOutcome` values after a matched
   request finalizes. Observer failures are logged and cannot change the
   response.
+- `use_case_observers=` receive immutable `UseCaseOutcome` values after the
+  request scope closes, but only when the matched use case ran. The same
+  observer contract works with `execute()`.
 
 <Callout title="Expose the ecosystem">
   Tenchi does not wrap Starlette middleware or ASGI deployment servers. Use

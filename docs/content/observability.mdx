@@ -13,6 +13,7 @@ Register a synchronous or asynchronous observer with `create_app()`:
 ```python
 import logging
 
+from tenchi.execution import UseCaseOutcome
 from tenchi.server import RequestOutcome, create_app
 
 
@@ -33,10 +34,27 @@ def observe_request(outcome: RequestOutcome) -> None:
     )
 
 
+def observe_use_case(outcome: UseCaseOutcome) -> None:
+    operation = str(
+        getattr(outcome.use_case, "__name__", type(outcome.use_case).__name__)
+    )
+    logger.info(
+        "use_case.complete",
+        extra={
+            "operation": operation,
+            "entrypoint": outcome.entrypoint,
+            "status": outcome.status,
+            "duration_seconds": outcome.duration_seconds,
+            "error_code": outcome.error_code,
+        },
+    )
+
+
 app = create_app(
     routes=routes,
     context_factory=create_context,
     observers=[observe_request],
+    use_case_observers=[observe_use_case],
 )
 ```
 
@@ -47,6 +65,44 @@ time spent committing or rolling back the request scope.
 Observer failures are logged and isolated from the response and later
 observers. Keep observers fast: they still run before the ASGI endpoint
 returns. Export through a non-blocking logging or telemetry pipeline.
+
+## Observe use cases across entrypoints
+
+`UseCaseOutcome` reports every use case that was actually invoked through HTTP
+or `execute()`:
+
+| Field | Meaning |
+| --- | --- |
+| `use_case` | The invoked async function |
+| `entrypoint` | `http` or `execute` |
+| `status` | `succeeded`, `app_error`, `failed`, or `cancelled` |
+| `duration_seconds` | Time spent inside the use-case function |
+| `error_code` | The stable `AppError` code for `app_error`; otherwise `None` |
+
+Pass the observer to `create_app(use_case_observers=...)` for HTTP and
+`execute(use_case_observers=...)` for workers, schedules, scripts, and direct
+calls. It runs after the surrounding context scope closes, so transactional
+cleanup finishes before telemetry is exported. Input values, return values,
+and exception objects are never included.
+
+Keep use-case observers fast too. Both HTTP and `execute()` wait for the
+observer chain after scope cleanup.
+
+Validation, hook, and context-acquisition failures that happen before
+invocation do not produce a use-case outcome. Conversely, a use case that
+returns successfully still reports `succeeded` if later response validation or
+transaction cleanup makes the HTTP request fail. Compare it with
+`RequestOutcome` to distinguish application behavior from the complete HTTP
+boundary.
+
+`app_error` means the use case raised `AppError`; it does not bypass Tenchi's
+error honesty rule. An undeclared application error still becomes a
+framework-owned HTTP 500 in `RequestOutcome`.
+
+When an HTTP deadline cancels the function, the use-case status is `cancelled`
+and the request status is 504. If the function catches that cancellation and
+returns, the use-case status is `succeeded`, but the expired HTTP deadline
+still owns the response and returns 504.
 
 ## Use bounded labels
 
@@ -69,25 +125,24 @@ policy.
 
 When HTTP enqueues work, copy the trusted request or trace correlation into
 message metadata. A worker should start or continue a trace from that metadata
-and emit its own operation outcome around `execute()`.
-
-`execute()` does not invoke HTTP outcome observers. This keeps the core runner
-transport-neutral; the worker, scheduler, or script owns its operation name,
-attempt count, queue metadata, and completion status.
+and attach its attempt and queue measurements around `execute()`. The shared
+use-case observer reports the application call; the consumer still owns
+transport-specific metadata and acknowledgement.
 
 ## Choose the right instrumentation seam
 
 | Need | Use |
 | --- | --- |
-| Final status, duration, contract, request ID, error ownership | Tenchi outcome observer |
+| Final HTTP status, duration, contract, request ID, error ownership | `RequestOutcome` observer |
+| Use-case status and duration across HTTP and `execute()` | `UseCaseOutcome` observer |
 | Trace the full ASGI lifecycle, unmatched routes, or streaming bodies | ASGI/OpenTelemetry middleware |
 | Database and outbound HTTP spans | Driver or SDK instrumentation |
 | Use-case-specific business measurements | An application port called by the use case |
-| Worker attempts and queue latency | Instrument the consumer around `execute()` |
+| Worker attempts, queue latency, and correlation | Instrument the consumer around `execute()` |
 
-Observers run only for matched Tenchi routes. ASGI middleware is the correct
-layer for 404s outside the composed route group and for work that continues
-while a streaming response body is sent.
+HTTP request and use-case observers run only for matched Tenchi routes. ASGI
+middleware is the correct layer for 404s outside the composed route group and
+for work that continues while a streaming response body is sent.
 
 ## Redact by allowlist
 

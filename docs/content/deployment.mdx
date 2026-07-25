@@ -109,9 +109,9 @@ configure transport and platform timeouts.
 receive the request, final status, duration, and application/framework error
 source after request-scoped cleanup.
 
-Use observers or ASGI middleware to feed structured logs, metrics, and traces.
-They should never contain request bodies, credentials, or error details unless
-the application deliberately redacts them.
+Use request and use-case observers or ASGI middleware to feed structured logs,
+metrics, and traces. They should never contain request bodies, credentials, or
+error details unless the application deliberately redacts them.
 
 See [Observability and audit](/observability) for label, correlation, worker,
 and redaction conventions.

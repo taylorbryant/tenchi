@@ -7,6 +7,14 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- Unified use-case outcomes: `UseCaseOutcome` and `UseCaseObserver` report
+  success, application errors, unexpected failures, and cancellation through
+  the same observer contract for HTTP routes and `execute()`. Observers run
+  after context cleanup, remain isolated from application behavior, and expose
+  no request, result, or exception payloads by default.
+
 ## [0.10.0] - 2026-07-24
 
 ### Added

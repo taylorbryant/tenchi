@@ -39,6 +39,52 @@ async with open_context(create_request_context()) as context:
 manager. This mirrors the server's context behavior, including cleanup for
 transactional or request-scoped resources.
 
+## Observe the use case
+
+Pass the same observer to HTTP composition and direct execution:
+
+```python
+import logging
+
+from tenchi.execution import UseCaseOutcome, execute
+
+
+logger = logging.getLogger("app.operations")
+
+
+def observe_use_case(outcome: UseCaseOutcome) -> None:
+    operation = str(
+        getattr(outcome.use_case, "__name__", type(outcome.use_case).__name__)
+    )
+    logger.info(
+        "use_case.complete",
+        extra={
+            "operation": operation,
+            "entrypoint": outcome.entrypoint,
+            "status": outcome.status,
+            "duration_seconds": outcome.duration_seconds,
+            "error_code": outcome.error_code,
+        },
+    )
+
+
+result = await execute(
+    rebuild_index,
+    context=create_request_context,
+    use_case_observers=(observe_use_case,),
+)
+```
+
+`create_app(use_case_observers=(observe_use_case,))` reports the HTTP path
+through the same `UseCaseOutcome` shape. The observer runs after context
+cleanup, while `duration_seconds` measures only the use-case call.
+
+No outcome is emitted when validation, context acquisition, or a boundary hook
+fails before the use case starts. Observer failures are logged and do not
+replace the use case's result or exception. Keep observers fast or hand work to
+a non-blocking telemetry pipeline because `execute()` waits for them before it
+returns.
+
 ## Keep transport concerns outside
 
 The message consumer acknowledges, retries, or dead-letters work. The use case

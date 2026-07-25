@@ -63,7 +63,12 @@ from .errors import (
     ErrorDef,
     error_body,
 )
-from .execution import open_context
+from .execution import (
+    UseCaseOutcome,
+    _notify_use_case_observers,  # pyright: ignore[reportPrivateUsage]
+    _UseCaseCall,  # pyright: ignore[reportPrivateUsage]
+    open_context,
+)
 from .responses import (
     PresentedResponse,
     ResponseDef,
@@ -245,6 +250,7 @@ def create_app(
     hooks: Sequence[Hook] = (),
     middleware: Sequence[Middleware] = (),
     observers: Sequence[OutcomeObserver] = (),
+    use_case_observers: Sequence[Callable[[UseCaseOutcome], Any]] = (),
     max_request_bytes: int | None = DEFAULT_MAX_REQUEST_BYTES,
 ) -> Starlette: ...
 
@@ -258,6 +264,7 @@ def create_app[StateT](
     hooks: Sequence[Hook] = (),
     middleware: Sequence[Middleware] = (),
     observers: Sequence[OutcomeObserver] = (),
+    use_case_observers: Sequence[Callable[[UseCaseOutcome], Any]] = (),
     max_request_bytes: int | None = DEFAULT_MAX_REQUEST_BYTES,
 ) -> Starlette: ...
 
@@ -270,6 +277,7 @@ def create_app(
     hooks: Sequence[Hook] = (),
     middleware: Sequence[Middleware] = (),
     observers: Sequence[OutcomeObserver] = (),
+    use_case_observers: Sequence[Callable[[UseCaseOutcome], Any]] = (),
     max_request_bytes: int | None = DEFAULT_MAX_REQUEST_BYTES,
 ) -> Starlette:
     """Build an ASGI application from bound routes and a context factory.
@@ -306,6 +314,11 @@ def create_app(
     route after its request scope has closed. Sync and async observers run in
     order; failures are logged and do not alter the response.
 
+    ``use_case_observers`` receive a
+    :class:`~tenchi.execution.UseCaseOutcome` after the request scope closes,
+    but only when the matched use case was invoked. The same observer contract
+    is accepted by :func:`tenchi.execution.execute`.
+
     ``max_request_bytes`` caps request body size app-wide (default 1
     MiB); bodies over the cap are rejected with the framework's 413
     before validation. A contract's own ``max_request_bytes`` overrides
@@ -336,6 +349,14 @@ def create_app(
             positional_arguments=1,
             label=f"create_app: observer[{index}]",
             expectation="accept one positional RequestOutcome argument",
+        )
+    use_case_observer_chain = tuple(use_case_observers)
+    for index, observer in enumerate(use_case_observer_chain):
+        _require_call_shape(
+            observer,
+            positional_arguments=1,
+            label=f"create_app: use_case_observers[{index}]",
+            expectation="accept one positional UseCaseOutcome argument",
         )
     if takes_state and lifespan is None:
         raise ConfigurationError(
@@ -397,6 +418,7 @@ def create_app(
                     state,
                     hook_chain,
                     observer_chain,
+                    use_case_observer_chain,
                 ),
                 methods=[item.contract.method],
                 name=None,
@@ -988,6 +1010,7 @@ def _make_endpoint(
     state: _LifespanState,
     hooks: tuple[Hook, ...],
     observers: tuple[OutcomeObserver, ...],
+    use_case_observers: tuple[Callable[[UseCaseOutcome], Any], ...],
 ) -> Callable[[Request], Awaitable[Response]]:
     contract = bound.route.contract
     use_case = bound.route.use_case
@@ -1008,6 +1031,7 @@ def _make_endpoint(
         request: Request,
         context: Any,
         request_info: RequestInfo,
+        use_case_call: _UseCaseCall | None,
     ) -> Response:
         """Run hooks, validation, and the use case for one request.
 
@@ -1103,7 +1127,11 @@ def _make_endpoint(
                 request_id=request_id,
             )
 
-        result = await use_case(**kwargs)
+        result = (
+            await use_case(**kwargs)
+            if use_case_call is None
+            else await use_case_call.invoke(**kwargs)
+        )
         try:
             if bound.responses:
                 presenter = bound.route.presenter
@@ -1157,7 +1185,18 @@ def _make_endpoint(
             contract=contract,
             request_id=request_id,
         )
-        response = await respond(request, request_info)
+        use_case_call = (
+            _UseCaseCall(use_case, entrypoint="http") if use_case_observers else None
+        )
+        try:
+            response = await respond(request, request_info, use_case_call)
+        finally:
+            request_duration = perf_counter() - started
+            if use_case_call is not None:
+                await _notify_use_case_observers(
+                    use_case_observers,
+                    use_case_call,
+                )
         # Lifecycle headers accompany every response from this route —
         # success and error alike — so deprecation is visible however
         # the call went.
@@ -1168,7 +1207,7 @@ def _make_endpoint(
             RequestOutcome(
                 request=request_info,
                 status_code=response.status_code,
-                duration_seconds=perf_counter() - started,
+                duration_seconds=request_duration,
                 error_source=cast(
                     Literal["app", "framework"] | None,
                     response.headers.get(ERROR_SOURCE_HEADER),
@@ -1177,12 +1216,21 @@ def _make_endpoint(
         )
         return response
 
-    async def respond(request: Request, request_info: RequestInfo) -> Response:
+    async def respond(
+        request: Request,
+        request_info: RequestInfo,
+        use_case_call: _UseCaseCall | None,
+    ) -> Response:
         request_id = request_info.request_id
 
         async def run_scope() -> Response:
             async with open_context(build_context) as context:
-                return await dispatch(request, context, request_info)
+                return await dispatch(
+                    request,
+                    context,
+                    request_info,
+                    use_case_call,
+                )
 
         def request_timeout_response() -> Response:
             logger.warning(
