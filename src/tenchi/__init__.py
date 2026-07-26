@@ -5,7 +5,13 @@ Canonical imports use the submodules — ``tenchi.contracts``,
 — and the most common names are re-exported here for convenience.
 """
 
-from .client import Client, ClientResponse, UnexpectedResponseError
+from .client import (
+    Client,
+    ClientObserver,
+    ClientOutcome,
+    ClientResponse,
+    UnexpectedResponseError,
+)
 from .contracts import Contract, contract
 from .errors import AppError, ConfigurationError, ErrorDef, TenchiError
 from .execution import ExecutionError, UseCaseObserver, UseCaseOutcome, execute
@@ -54,6 +60,8 @@ __all__ = [
     "IDEMPOTENCY_IN_PROGRESS",
     "AppError",
     "Client",
+    "ClientObserver",
+    "ClientOutcome",
     "ClientResponse",
     "ConfigurationError",
     "Contract",

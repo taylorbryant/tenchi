@@ -11,15 +11,20 @@ source of truth. For declared response variants,
 Error semantics mirror the server: an error response whose code and status
 match one of the contract's declared errors is raised as :class:`AppError`
 carrying that definition; anything else raises
-:class:`UnexpectedResponseError`.
+:class:`UnexpectedResponseError`. Optional observers receive immutable,
+payload-safe outcomes for metrics, logs, and tracing.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import inspect
+import logging
+from asyncio import CancelledError
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from time import perf_counter
 from types import TracebackType
-from typing import Any, Self, cast
+from typing import Any, Literal, Self, cast
 from urllib.parse import quote
 
 import httpx
@@ -54,6 +59,8 @@ from .responses import ResponseDef
 
 _adapters: dict[Any, TypeAdapter[Any]] = {}
 
+logger = logging.getLogger("tenchi.client")
+
 
 class _Unset:
     def __repr__(self) -> str:
@@ -87,6 +94,37 @@ class UnexpectedResponseError(TenchiError):
 
 
 @dataclass(frozen=True, slots=True)
+class ClientOutcome:
+    """The payload-safe result of one contract-driven client call.
+
+    ``duration_seconds`` spans local input preparation, transport I/O, and
+    response validation. Observer work is excluded. Bodies, headers, URLs,
+    input values, and exception objects are deliberately absent.
+    """
+
+    contract: Contract[Any, Any]
+    status: Literal[
+        "succeeded",
+        "app_error",
+        "unexpected_response",
+        "transport_error",
+        "failed",
+        "cancelled",
+    ]
+    status_code: int | None
+    duration_seconds: float
+    error_code: str | None = None
+
+
+ClientObserver = Callable[[ClientOutcome], Any]
+"""A sync or async observer of finalized outbound client outcomes.
+
+Observers run in declaration order before the call returns or raises. Their
+failures are logged and isolated from later observers and the caller.
+"""
+
+
+@dataclass(frozen=True, slots=True)
 class ClientResponse[BodyT, HeadersT]:
     """A validated response body together with its declared headers and
     underlying httpx response."""
@@ -103,6 +141,52 @@ class _ClientResponseDef:
     definition: ResponseDef[Any, Any]
     response_adapter: TypeAdapter[Any] | None
     response_headers_adapter: TypeAdapter[Any] | None
+
+
+class _ClientCall:
+    """Track response arrival so failures can be classified without payloads."""
+
+    __slots__ = (
+        "contract",
+        "outcome",
+        "remote_error_code",
+        "started",
+        "status_code",
+    )
+
+    def __init__(self, contract: Contract[Any, Any]) -> None:
+        self.contract = contract
+        self.started = perf_counter()
+        self.status_code: int | None = None
+        self.remote_error_code: str | None = None
+        self.outcome: ClientOutcome | None = None
+
+    def response_received(self, response: httpx.Response) -> None:
+        self.status_code = response.status_code
+
+    def remote_app_error(self, error: AppError) -> None:
+        self.remote_error_code = error.code
+
+    def finish(
+        self,
+        status: Literal[
+            "succeeded",
+            "app_error",
+            "unexpected_response",
+            "transport_error",
+            "failed",
+            "cancelled",
+        ],
+        *,
+        error_code: str | None = None,
+    ) -> None:
+        self.outcome = ClientOutcome(
+            contract=self.contract,
+            status=status,
+            status_code=self.status_code,
+            duration_seconds=perf_counter() - self.started,
+            error_code=error_code,
+        )
 
 
 class Client:
@@ -126,6 +210,10 @@ class Client:
     ``errors`` declares expected errors for every call — the client-side
     counterpart of ``route_group(errors=...)`` for errors the server's
     hooks may raise on any route, such as an authentication failure.
+
+    ``observers`` receive one immutable, payload-safe :class:`ClientOutcome`
+    for every call. Sync and async observers run in order; failures are logged
+    and do not alter the returned value or raised exception.
     """
 
     def __init__(
@@ -136,8 +224,10 @@ class Client:
         transport: httpx.AsyncBaseTransport | None = None,
         http: httpx.AsyncClient | None = None,
         errors: Sequence[ErrorDef] = (),
+        observers: Sequence[ClientObserver] = (),
     ) -> None:
         declared_errors = _validated_error_defs(errors, label="Client errors")
+        observer_chain = _validated_observers(observers)
         if http is not None:
             if base_url is not None or headers is not None or transport is not None:
                 raise ConfigurationError(
@@ -160,6 +250,7 @@ class Client:
                 headers=dict(headers) if headers else None,
             )
         self._errors = declared_errors
+        self._observers = observer_chain
 
     async def aclose(self) -> None:
         if self._owns_http:
@@ -220,6 +311,65 @@ class Client:
         validate declared success headers; this method preserves them for the
         caller.
         """
+        if not self._observers:
+            return await self._perform_call(
+                contract,
+                params=params,
+                query=query,
+                headers=headers,
+                request=request,
+            )
+
+        call = _ClientCall(contract)
+        try:
+            result = await self._perform_call(
+                contract,
+                params=params,
+                query=query,
+                headers=headers,
+                request=request,
+                call=call,
+            )
+        except CancelledError:
+            call.finish("cancelled")
+            raise
+        except AppError:
+            if call.remote_error_code is not None:
+                call.finish("app_error", error_code=call.remote_error_code)
+            elif call.status_code is None:
+                call.finish("failed")
+            else:
+                call.finish("unexpected_response")
+            raise
+        except UnexpectedResponseError:
+            call.finish("unexpected_response")
+            raise
+        except httpx.TransportError:
+            call.finish(
+                "transport_error" if call.status_code is None else "unexpected_response"
+            )
+            raise
+        except BaseException:
+            call.finish(
+                "unexpected_response" if call.status_code is not None else "failed"
+            )
+            raise
+        else:
+            call.finish("succeeded")
+            return result
+        finally:
+            await _notify_client_observers(self._observers, call)
+
+    async def _perform_call(
+        self,
+        contract: Contract[ResponseT, ResponseHeadersT],
+        *,
+        params: Any,
+        query: Any,
+        headers: Any,
+        request: Any,
+        call: _ClientCall | None = None,
+    ) -> ClientResponse[ResponseT, ResponseHeadersT]:
         self._reject_undeclared(contract, params, query, headers, request)
         declared_errors = _validated_error_defs(
             (*contract.errors, *self._errors),
@@ -240,6 +390,8 @@ class Client:
             content=content,
             headers=header_values,
         )
+        if call is not None:
+            call.response_received(response)
 
         selected = next(
             (
@@ -317,7 +469,12 @@ class Client:
                 definition=selected.definition if selected is not None else None,
             )
 
-        return self._raise_for_error(contract, response, declared_errors)
+        return self._raise_for_error(
+            contract,
+            response,
+            declared_errors,
+            call=call,
+        )
 
     @staticmethod
     def _reject_undeclared(
@@ -461,6 +618,8 @@ class Client:
         contract: Contract[Any, Any],
         response: httpx.Response,
         errors: Sequence[ErrorDef],
+        *,
+        call: _ClientCall | None,
     ) -> Any:
         if response.status_code >= 400:
             self._require_response_media_type(
@@ -489,7 +648,7 @@ class Client:
                     and definition.status == response.status_code
                     and response.headers.get(_ERROR_SOURCE_HEADER) == "app"
                 ):
-                    raise AppError(
+                    error = AppError(
                         definition,
                         message=message,
                         details=envelope.get("details"),
@@ -501,6 +660,9 @@ class Client:
                             if name in response.headers
                         },
                     )
+                    if call is not None:
+                        call.remote_app_error(error)
+                    raise error
 
         raise UnexpectedResponseError(
             contract_name=contract.name,
@@ -559,6 +721,42 @@ class Client:
                 body=response.content,
                 reason=f"response body is not valid for charset {charset!r}",
             ) from exc
+
+
+async def _notify_client_observers(
+    observers: tuple[ClientObserver, ...],
+    call: _ClientCall,
+) -> None:
+    outcome = call.outcome
+    if outcome is None:
+        return
+    for index, observer in enumerate(observers):
+        try:
+            result = observer(outcome)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception(
+                "Client observer[%d] failed for %s",
+                index,
+                outcome.contract.name,
+            )
+
+
+def _validated_observers(
+    observers: Sequence[ClientObserver],
+) -> tuple[ClientObserver, ...]:
+    chain = tuple(observers)
+    for index, observer in enumerate(chain):
+        try:
+            signature = inspect.signature(observer)
+            signature.bind(object())
+        except (TypeError, ValueError) as exc:
+            raise ConfigurationError(
+                f"Client: observers[{index}] must accept one positional "
+                f"ClientOutcome argument: {exc}"
+            ) from exc
+    return chain
 
 
 def _adapter(

@@ -45,7 +45,8 @@ framework code, the CLI, docs, or the example apps.
   - `server.py` — `create_app`, lifespan/state, hooks, request dispatch.
   - `execution.py` — `execute`/`open_context`: run use cases with the
     server's boundary guarantees from any entrypoint (workers, scripts).
-  - `client.py` — the contract-driven typed httpx client.
+  - `client.py` — the contract-driven typed httpx client and payload-safe
+    outbound outcomes.
   - `openapi.py` — OpenAPI 3.1 generation (`openapi_schema` is a pure
     function; `openapi_route` serves it and `swagger_ui_route` serves an
     optional interactive UI through Tenchi's own machinery).

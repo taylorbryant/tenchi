@@ -68,11 +68,80 @@ The client validates:
 - declared successful headers,
 - declared application error envelopes and sources.
 
-Unexpected statuses or invalid wire data raise `UnexpectedResponseError` with
-the contract name, status, body, and reason.
+Unexpected statuses, media types, and error envelopes raise
+`UnexpectedResponseError` with the contract name, status, body, and reason.
+Pydantic raises `ValidationError` when a declared success body or header value
+does not validate.
+
+## Observe outbound calls
+
+Pass synchronous or asynchronous observers when you construct the client:
+
+```python
+import logging
+
+from tenchi.client import Client, ClientOutcome
+
+
+logger = logging.getLogger("app.outbound")
+
+
+def observe_client(outcome: ClientOutcome) -> None:
+    logger.info(
+        "client.complete",
+        extra={
+            "operation": outcome.contract.name,
+            "status": outcome.status,
+            "status_code": outcome.status_code,
+            "duration_seconds": outcome.duration_seconds,
+            "error_code": outcome.error_code,
+        },
+    )
+
+
+async with Client(
+    base_url="https://api.example.com",
+    observers=[observe_client],
+) as client:
+    todo = await client.call(
+        create_todo_contract,
+        request=CreateTodo(title="Buy milk"),
+    )
+```
+
+Each call produces one immutable `ClientOutcome` before it returns or raises:
+
+| Field | Meaning |
+| --- | --- |
+| `contract` | The contract used for the call; use its stable `name` for the operation |
+| `status` | The outcome classification described below |
+| `status_code` | The HTTP status when a response arrived; otherwise `None` |
+| `duration_seconds` | Time spent preparing input, waiting for transport, and validating the response |
+| `error_code` | The declared `AppError` code for `app_error`; otherwise `None` |
+
+The status distinguishes the part of the outbound boundary that failed:
+
+| Status | Meaning |
+| --- | --- |
+| `succeeded` | The response matched a declared successful outcome |
+| `app_error` | The remote application returned a declared application error |
+| `unexpected_response` | A response arrived but its status, media type, body, headers, or error envelope violated the contract |
+| `transport_error` | httpx could not complete the transport operation |
+| `failed` | No response arrived and the failure was not an httpx transport error or cancellation, such as invalid local input or contract configuration |
+| `cancelled` | The client call was cancelled |
+
+Outcomes never include input values, request URLs or headers, response bodies
+or headers, or exception objects. This keeps the default observer surface safe
+for metrics and structured operational logs. If you instrument the underlying
+httpx transport separately, apply your own URL, header, and payload redaction.
+
+Observers run in declaration order and may be sync or async. Their failures are
+logged and isolated from later observers and from the value or exception the
+caller receives. Keep them fast because the call waits for the observer chain.
 
 ## In-process use
 
 Tests should normally use `tenchi.testing.open_client(app)`. It supplies an
 ASGI transport, runs the application lifespan, and returns the same `Client`
-API used against a deployed server.
+API used against a deployed server. Pass `observers=` to assert outbound
+outcomes in a test.

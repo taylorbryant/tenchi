@@ -13,6 +13,7 @@ Register a synchronous or asynchronous observer with `create_app()`:
 ```python
 import logging
 
+from tenchi.client import Client, ClientOutcome
 from tenchi.execution import UseCaseOutcome
 from tenchi.server import RequestOutcome, create_app
 
@@ -44,6 +45,19 @@ def observe_use_case(outcome: UseCaseOutcome) -> None:
             "operation": operation,
             "entrypoint": outcome.entrypoint,
             "status": outcome.status,
+            "duration_seconds": outcome.duration_seconds,
+            "error_code": outcome.error_code,
+        },
+    )
+
+
+def observe_client(outcome: ClientOutcome) -> None:
+    logger.info(
+        "client.complete",
+        extra={
+            "operation": outcome.contract.name,
+            "status": outcome.status,
+            "status_code": outcome.status_code,
             "duration_seconds": outcome.duration_seconds,
             "error_code": outcome.error_code,
         },
@@ -105,6 +119,42 @@ and the request status is 504. If the function catches that cancellation and
 returns, the use-case status is `succeeded`, but the expired HTTP deadline
 still owns the response and returns 504.
 
+## Observe outbound contract calls
+
+`ClientOutcome` reports one finalized outcome for every typed client call:
+
+```python
+async with Client(
+    base_url="https://service.example.com",
+    observers=[observe_client],
+) as client:
+    inventory = await client.call(get_inventory_contract)
+```
+
+| Field | Meaning |
+| --- | --- |
+| `contract` | The contract used by the call |
+| `status` | `succeeded`, `app_error`, `unexpected_response`, `transport_error`, `failed`, or `cancelled` |
+| `status_code` | The HTTP status when a response arrived; otherwise `None` |
+| `duration_seconds` | Local preparation, transport, and response-validation time |
+| `error_code` | The declared remote `AppError` code for `app_error`; otherwise `None` |
+
+The outcome is emitted for local validation failures before any request leaves
+the process as well as for completed transport attempts. A response whose
+status or wire data violates the contract reports `unexpected_response`.
+`failed` covers failures without a response that are neither an httpx
+transport error nor cancellation, such as invalid local input or contract
+configuration.
+
+Client outcomes contain no input, URL, header, body, response object, or
+exception payload. Use `outcome.contract.name`, status classes, and the bounded
+status classification as metric dimensions. Keep full network spans in httpx
+or OpenTelemetry instrumentation, with an explicit redaction policy.
+
+Client observers run in declaration order before the call returns or raises.
+Their failures are logged and isolated from later observers and from the
+caller.
+
 ## Use bounded labels
 
 Use the contract name, HTTP method, status class, and error source as metric
@@ -136,8 +186,9 @@ transport-specific metadata and acknowledgement.
 | --- | --- |
 | Final HTTP status, duration, contract, request ID, error ownership | `RequestOutcome` observer |
 | Use-case status and duration across HTTP, tasks, and `execute()` | `UseCaseOutcome` observer |
+| Outbound typed-call status, HTTP status, duration, and declared error code | `ClientOutcome` observer |
 | Trace the full ASGI lifecycle, unmatched routes, or streaming bodies | ASGI/OpenTelemetry middleware |
-| Database and outbound HTTP spans | Driver or SDK instrumentation |
+| Full database and outbound HTTP spans | Driver or SDK instrumentation |
 | Use-case-specific business measurements | An application port called by the use case |
 | Worker attempts, queue latency, and correlation | Instrument the consumer around `execute()` |
 
@@ -150,6 +201,9 @@ for work that continues while a streaming response body is sent.
 `RequestInfo.headers` is read-only, but it can contain authorization,
 cookies, and other credentials. Never log the complete mapping. Select known
 safe fields and redact values before serialization.
+
+`ClientOutcome` omits headers and payloads entirely. Instrumentation below the
+typed client does not inherit that guarantee.
 
 Apply the same rule to:
 

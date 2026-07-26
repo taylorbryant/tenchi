@@ -25,7 +25,7 @@ from typing import Any
 
 import httpx
 
-from .client import Client
+from .client import Client, ClientObserver
 from .errors import ErrorDef
 
 ASGIApp = Callable[..., Awaitable[None]]
@@ -36,6 +36,8 @@ _LIFESPAN_TIMEOUT = 30.0
 """Ceiling on each lifespan phase, so a stuck app fails the test with a
 diagnostic instead of hanging the whole suite."""
 
+__all__ = ["ASGIApp", "open_client", "open_http"]
+
 
 @asynccontextmanager
 async def open_client(
@@ -43,10 +45,15 @@ async def open_client(
     *,
     headers: Mapping[str, str] | None = None,
     errors: Sequence[ErrorDef] = (),
+    observers: Sequence[ClientObserver] = (),
     base_url: str = _DEFAULT_BASE_URL,
 ) -> AsyncGenerator[Client]:
     """A typed :class:`~tenchi.client.Client` calling ``app`` in-process,
-    with the app lifespan running around it."""
+    with the app lifespan running around it.
+
+    ``observers`` is forwarded to :class:`~tenchi.client.Client`, so tests can
+    assert the same outbound outcomes as deployed clients.
+    """
     async with (
         _run_lifespan(app),
         Client(
@@ -54,6 +61,7 @@ async def open_client(
             base_url=base_url,
             headers=headers,
             errors=errors,
+            observers=observers,
         ) as client,
     ):
         yield client

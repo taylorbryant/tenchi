@@ -96,7 +96,7 @@ export const docsSections = [
         path: "/client",
         title: "Typed client",
         description:
-          "Call Tenchi contracts through an async httpx client with validated inputs, bodies, headers, errors, and status-specific responses.",
+          "Call Tenchi contracts through an async httpx client with validated inputs, responses, errors, and payload-safe outcome observers.",
         priority: 0.84,
       },
       {

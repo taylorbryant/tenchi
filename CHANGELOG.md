@@ -9,6 +9,11 @@ versions may change the public API.
 
 ### Added
 
+- Payload-safe outbound client observability. `ClientOutcome` reports the
+  contract, classification, HTTP status when available, duration, and declared
+  application error code without exposing inputs, URLs, headers, bodies, or
+  exceptions. Sync and async `ClientObserver` callbacks run in order and remain
+  isolated from the call; `open_client()` forwards the same observers in tests.
 - Infrastructure-neutral idempotency primitives for retry-safe HTTP commands,
   tasks, workers, and webhooks. `fingerprint()` creates canonical hashes from
   Pydantic-validated input; `IdempotencyStore` defines durable

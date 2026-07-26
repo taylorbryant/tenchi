@@ -208,6 +208,9 @@ response. `create_app(use_case_observers=...)` and
 `execute(use_case_observers=...)` and task runners deliver the same immutable
 `UseCaseOutcome` after context cleanup for every use case that was actually
 invoked.
+`Client(observers=...)` delivers immutable `ClientOutcome` values for outbound
+contract calls, including transport failures, invalid responses, and
+cancellation, without carrying input, URL, header, body, or exception payloads.
 
 Named operational tasks add validated input and result contracts plus
 application lifecycle wiring around selected use cases. Use them for

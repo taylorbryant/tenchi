@@ -25,7 +25,7 @@ Tenchi provides the application seams and boundary guarantees:
 | Retries | Canonical fingerprints, durable store transitions, typed replay, and declared errors | Implement storage in the command transaction and choose key scope and retention |
 | Background work | `execute()` and scoped contexts | Choose a queue or outbox, schedule workers, and define retry policy |
 | Operational maintenance | Validated named tasks, CLI/MCP discovery, and scoped execution | Define safe dry runs, operator access, and rollout procedure |
-| Observability | Request IDs and finalized `RequestOutcome` values | Export logs, metrics, traces, and alerts |
+| Observability | Finalized HTTP, use-case, and outbound-client outcomes | Export logs, metrics, traces, and alerts |
 | Deployment | Health routes, request limits, deadlines, `tenchi check`, and environment preflight | Configure the ASGI server, proxy, secrets, migrations, dependency credentials, and rollout |
 
 <Callout title="The core does not select your infrastructure">

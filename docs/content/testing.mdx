@@ -38,6 +38,8 @@ assert created.headers.location.endswith(created.body.id)
 
 `open_client()` runs the application lifespan and uses httpx's ASGI transport.
 It provides the same contract validation as a network client.
+Pass `observers=` to collect the same payload-safe `ClientOutcome` values that
+a deployed client emits.
 
 ## Assert raw HTTP behavior
 

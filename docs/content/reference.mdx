@@ -14,6 +14,8 @@ from tenchi import (
     IDEMPOTENCY_IN_PROGRESS,
     AppError,
     Client,
+    ClientObserver,
+    ClientOutcome,
     ErrorDef,
     IdempotencyResultError,
     IdempotencyStore,
@@ -69,7 +71,7 @@ expected application failures.
 | `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `task()`, `task_group()`, `create_task_runner()` |
-| `tenchi.client` | `Client`, `ClientResponse`, `UnexpectedResponseError` |
+| `tenchi.client` | `Client`, `ClientResponse`, `ClientOutcome`, `ClientObserver`, `UnexpectedResponseError` |
 | `tenchi.testing` | `open_client()`, `open_http()`, `ASGIApp` |
 
 `create_app()` owns HTTP dispatch and lifecycle composition. `execute()` runs

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from tenchi.client import ClientOutcome
 from tenchi.contracts import contract
 from tenchi.errors import AppError, ErrorDef
 from tenchi.routes import route, route_group
@@ -51,6 +52,20 @@ async def test_open_client_runs_the_lifespan() -> None:
         assert await client.call(label_contract) == "from-lifespan"
 
     assert events == ["startup", "shutdown"]
+
+
+async def test_open_client_forwards_outcome_observers() -> None:
+    outcomes: list[ClientOutcome] = []
+    app = create_app(
+        routes=route_group(route(label_contract, read_label)),
+        context_factory=lambda: Context(label="observed"),
+    )
+
+    async with open_client(app, observers=(outcomes.append,)) as client:
+        assert await client.call(label_contract) == "observed"
+
+    assert len(outcomes) == 1
+    assert outcomes[0].contract is label_contract
 
 
 async def test_open_http_runs_the_lifespan() -> None:
