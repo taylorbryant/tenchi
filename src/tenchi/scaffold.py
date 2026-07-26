@@ -139,6 +139,10 @@ route group; undeclared application errors intentionally become framework 500s.
 Contracts marked `webhook=True` require an exact-body verifier binding in
 `create_app(webhooks=...)`; the verifier may attach service identity, which the
 use case still asserts.
+Application-level quotas use `enforce_rate_limit()` against a context-owned
+`RateLimitStore`, scoped from authenticated identity. Put the consume inside
+idempotent work when one logical operation should cost once. Request floods and
+unauthenticated abuse belong at the edge; `MemoryRateLimitStore` is test-only.
 
 ## Change checklist
 

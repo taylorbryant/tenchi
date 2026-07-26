@@ -14,6 +14,7 @@ from app.server.context import AppContext
 from app.shared.errors import unauthorized
 from app.shared.users import User
 from tenchi.errors import AppError
+from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")
 
@@ -25,6 +26,7 @@ def make_context(user: User | None = ALICE) -> AppContext:
         tasks=(tasks := MemoryTaskRepository(projects)),
         task_search=MemoryTaskSearch(projects, tasks),
         idempotency=MemoryIdempotencyStore(),
+        rate_limits=MemoryRateLimitStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,

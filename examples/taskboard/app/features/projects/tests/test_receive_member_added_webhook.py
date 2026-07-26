@@ -11,6 +11,7 @@ from app.infra.memory_repositories import (
 from app.server.context import AppContext
 from app.shared.errors import unauthorized
 from tenchi.errors import AppError
+from tenchi.rate_limits import MemoryRateLimitStore
 
 from ..schemas import MemberAddedWebhook
 from ..use_cases.receive_member_added_webhook import (
@@ -29,6 +30,7 @@ def make_context(*, service: str | None) -> tuple[AppContext, MemoryNotification
             tasks=tasks,
             task_search=MemoryTaskSearch(projects, tasks),
             idempotency=MemoryIdempotencyStore(),
+            rate_limits=MemoryRateLimitStore(),
             outbox=MemoryOutbox(),
             notifications=notifications,
             service=service,

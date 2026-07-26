@@ -31,6 +31,7 @@ PUBLIC_MODULES = (
     "tenchi.openapi",
     "tenchi.pagination",
     "tenchi.preflight",
+    "tenchi.rate_limits",
     "tenchi.routes",
     "tenchi.responses",
     "tenchi.server",

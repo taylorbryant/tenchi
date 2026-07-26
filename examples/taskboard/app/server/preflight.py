@@ -13,6 +13,7 @@ _REQUIRED_TABLES = {
     "outbox",
     "projects",
     "idempotency_records",
+    "rate_limit_windows",
     "tasks",
 }
 

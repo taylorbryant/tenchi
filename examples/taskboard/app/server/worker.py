@@ -38,6 +38,7 @@ from pydantic import ValidationError
 from app.features.projects.use_cases.notify_member_added import notify_member_added
 from app.infra.port_wiring import configure_connection, ensure_schema
 from app.infra.sqlite_idempotency import SqliteIdempotencyStore
+from app.infra.sqlite_rate_limits import SqliteRateLimitStore
 from app.infra.sqlite_repositories import (
     SqliteNotificationLog,
     SqliteOutbox,
@@ -81,6 +82,7 @@ async def process_next(database_path: str) -> bool:
                 tasks=SqliteTaskRepository(connection),
                 task_search=SqliteTaskSearch(connection),
                 idempotency=SqliteIdempotencyStore(connection),
+                rate_limits=SqliteRateLimitStore(connection),
                 outbox=outbox,
                 notifications=SqliteNotificationLog(connection),
             )

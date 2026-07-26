@@ -24,6 +24,7 @@ from app.shared.errors import (
 )
 from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
+from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")
 BOB = User(id="bob", name="Bob")
@@ -43,6 +44,7 @@ async def make_context_with_task(user: User) -> tuple[AppContext, str]:
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
         idempotency=MemoryIdempotencyStore(),
+        rate_limits=MemoryRateLimitStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,
@@ -127,6 +129,7 @@ async def test_members_may_view_but_not_update() -> None:
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
         idempotency=MemoryIdempotencyStore(),
+        rate_limits=MemoryRateLimitStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=BOB,

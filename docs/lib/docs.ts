@@ -177,6 +177,13 @@ export const docsSections = [
         priority: 0.83,
       },
       {
+        path: "/rate-limits",
+        title: "Rate limiting",
+        description:
+          "Apply authenticated fixed-window quotas with atomic shared storage and deterministic memory-backed tests.",
+        priority: 0.83,
+      },
+      {
         path: "/webhooks",
         title: "Signed webhooks",
         description:

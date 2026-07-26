@@ -56,6 +56,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "reliability",
         "observability",
         "preflight",
+        "rate-limits",
         "deployment",
         "openapi",
         "cli",

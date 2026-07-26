@@ -55,6 +55,7 @@ def make_app(database_path: str) -> Starlette:
                 tasks=ports.tasks,
                 task_search=ports.task_search,
                 idempotency=ports.idempotency,
+                rate_limits=ports.rate_limits,
                 outbox=ports.outbox,
                 notifications=ports.notifications,
                 user=ALICE,

@@ -38,6 +38,15 @@ from .preflight import (
     preflight_group,
     run_preflight,
 )
+from .rate_limits import (
+    RATE_LIMITED,
+    MemoryRateLimitStore,
+    RateLimitExceeded,
+    RateLimitPermit,
+    RateLimitStore,
+    RateLimitStoreError,
+    enforce_rate_limit,
+)
 from .responses import PresentedResponse, ResponseDef, present, response
 from .routes import Route, RouteGroup, route, route_group
 from .server import OutcomeObserver, RequestInfo, RequestOutcome, create_app
@@ -65,6 +74,7 @@ __version__ = "0.11.0"
 __all__ = [
     "IDEMPOTENCY_CONFLICT",
     "IDEMPOTENCY_IN_PROGRESS",
+    "RATE_LIMITED",
     "AppError",
     "Client",
     "ClientObserver",
@@ -77,6 +87,7 @@ __all__ = [
     "IdempotencyResultError",
     "IdempotencyStore",
     "IdempotencyStoreError",
+    "MemoryRateLimitStore",
     "OutcomeObserver",
     "Page",
     "PageQuery",
@@ -87,6 +98,10 @@ __all__ = [
     "PreflightReport",
     "PreflightStatus",
     "PresentedResponse",
+    "RateLimitExceeded",
+    "RateLimitPermit",
+    "RateLimitStore",
+    "RateLimitStoreError",
     "RequestInfo",
     "RequestOutcome",
     "ResponseDef",
@@ -110,6 +125,7 @@ __all__ = [
     "contract",
     "create_app",
     "create_task_runner",
+    "enforce_rate_limit",
     "execute",
     "fingerprint",
     "health_route",

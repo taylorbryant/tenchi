@@ -17,6 +17,7 @@ from app.server.context import AppContext
 from app.shared.errors import forbidden
 from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
+from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")
 BOB = User(id="bob", name="Bob")
@@ -38,6 +39,7 @@ def context_for(
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
         idempotency=MemoryIdempotencyStore(),
+        rate_limits=MemoryRateLimitStore(),
         outbox=outbox if outbox is not None else MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,

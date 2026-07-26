@@ -9,6 +9,14 @@ versions may change the public API.
 
 ### Added
 
+- Infrastructure-neutral fixed-window rate limiting. `RateLimitStore` defines
+  one atomic consume operation, `enforce_rate_limit()` validates policy and
+  adapter decisions and raises the standard declared `RATE_LIMITED` 429 with
+  `Retry-After`, and `MemoryRateLimitStore` provides deterministic,
+  concurrency-safe test storage. Taskboard demonstrates a transactional SQLite
+  adapter, rollback behavior, and concurrent enforcement; the user guide covers
+  authenticated scoping, idempotent logical-operation placement, and edge
+  protection.
 - Signed inbound webhook support. Contracts marked `webhook=True` must have an
   exact-body `webhook(contract, verifier)` binding at application composition;
   sync and async verifiers run after request-size/media checks but before

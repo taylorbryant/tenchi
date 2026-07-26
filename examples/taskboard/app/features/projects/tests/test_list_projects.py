@@ -9,6 +9,7 @@ from app.infra.memory_repositories import (
 )
 from app.server.context import AppContext
 from app.shared.users import OwnerScope, User
+from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")
 
@@ -20,6 +21,7 @@ async def test_list_projects_returns_only_the_current_users() -> None:
         tasks=(tasks := MemoryTaskRepository(projects)),
         task_search=MemoryTaskSearch(projects, tasks),
         idempotency=MemoryIdempotencyStore(),
+        rate_limits=MemoryRateLimitStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=ALICE,

@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS idempotency_records (
     completed_expires_at REAL,
     PRIMARY KEY (namespace, scope, idempotency_key)
 );
+CREATE TABLE IF NOT EXISTS rate_limit_windows (
+    namespace TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    limit_count INTEGER NOT NULL,
+    window_seconds REAL NOT NULL,
+    used INTEGER NOT NULL,
+    resets_at REAL NOT NULL,
+    PRIMARY KEY (namespace, scope)
+);
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job TEXT NOT NULL,

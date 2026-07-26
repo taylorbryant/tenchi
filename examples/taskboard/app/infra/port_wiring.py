@@ -20,8 +20,10 @@ import aiosqlite
 from app.features.projects.ports import NotificationLog, Outbox, ProjectRepository
 from app.features.tasks.ports import TaskRepository, TaskSearch
 from tenchi.idempotency import IdempotencyStore
+from tenchi.rate_limits import RateLimitStore
 
 from .sqlite_idempotency import SqliteIdempotencyStore
+from .sqlite_rate_limits import SqliteRateLimitStore
 from .sqlite_repositories import (
     SCHEMA,
     SqliteNotificationLog,
@@ -40,6 +42,7 @@ class AppPorts:
     tasks: TaskRepository
     task_search: TaskSearch
     idempotency: IdempotencyStore
+    rate_limits: RateLimitStore
     outbox: Outbox
     notifications: NotificationLog
 
@@ -167,6 +170,7 @@ async def open_request_ports(database_path: str) -> AsyncGenerator[AppPorts]:
             tasks=SqliteTaskRepository(primary),
             task_search=SqliteTaskSearch(reader),
             idempotency=SqliteIdempotencyStore(primary),
+            rate_limits=SqliteRateLimitStore(primary),
             outbox=SqliteOutbox(primary),
             notifications=SqliteNotificationLog(primary),
         )

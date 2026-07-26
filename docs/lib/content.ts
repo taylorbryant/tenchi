@@ -23,6 +23,7 @@ import OpenApi from "@/content/openapi.mdx";
 import Pagination from "@/content/pagination.mdx";
 import Preflight from "@/content/preflight.mdx";
 import Production from "@/content/production.mdx";
+import RateLimits from "@/content/rate-limits.mdx";
 import Reference from "@/content/reference.mdx";
 import Reliability from "@/content/reliability.mdx";
 import Responses from "@/content/responses.mdx";
@@ -55,6 +56,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/configuration": Configuration,
   "/database": Database,
   "/idempotency": Idempotency,
+  "/rate-limits": RateLimits,
   "/webhooks": Webhooks,
   "/reliability": Reliability,
   "/observability": Observability,

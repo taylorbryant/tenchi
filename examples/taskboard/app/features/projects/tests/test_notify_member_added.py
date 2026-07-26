@@ -9,6 +9,7 @@ from app.infra.memory_repositories import (
     MemoryTaskSearch,
 )
 from app.server.context import AppContext
+from tenchi.rate_limits import MemoryRateLimitStore
 
 
 def make_context() -> tuple[AppContext, MemoryNotificationLog]:
@@ -19,6 +20,7 @@ def make_context() -> tuple[AppContext, MemoryNotificationLog]:
         tasks=(tasks := MemoryTaskRepository(projects)),
         task_search=MemoryTaskSearch(projects, tasks),
         idempotency=MemoryIdempotencyStore(),
+        rate_limits=MemoryRateLimitStore(),
         outbox=MemoryOutbox(),
         notifications=notifications,
     )

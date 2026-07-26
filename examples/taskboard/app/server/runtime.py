@@ -29,6 +29,7 @@ async def create_context(database_path: str) -> AsyncGenerator[AppContext]:
             tasks=ports.tasks,
             task_search=ports.task_search,
             idempotency=ports.idempotency,
+            rate_limits=ports.rate_limits,
             outbox=ports.outbox,
             notifications=ports.notifications,
         )

@@ -11,6 +11,7 @@ from app.infra.memory_repositories import (
     MemoryTaskSearch,
 )
 from app.server.context import AppContext
+from tenchi.rate_limits import MemoryRateLimitStore
 
 
 async def test_repair_project_members_supports_a_safe_dry_run() -> None:
@@ -21,6 +22,7 @@ async def test_repair_project_members_supports_a_safe_dry_run() -> None:
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
         idempotency=MemoryIdempotencyStore(),
+        rate_limits=MemoryRateLimitStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
     )

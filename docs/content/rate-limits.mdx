@@ -1,0 +1,292 @@
+import { Callout } from "@/components/callout";
+
+# Limit application operations
+
+Use Tenchi's rate-limit primitive when an authenticated actor or tenant may
+perform an application operation only a fixed number of times in a window.
+The use case chooses the policy and scope; a replaceable store performs one
+atomic consume.
+
+An exhausted window raises the standard `RATE_LIMITED` application error with
+HTTP status `429` and a `Retry-After` header.
+
+## Declare the HTTP outcome
+
+Declare `RATE_LIMITED` on every contract that may expose it:
+
+```python
+from tenchi.contracts import contract
+from tenchi.rate_limits import RATE_LIMITED
+
+
+create_task_contract = contract(
+    method="POST",
+    path="/tasks",
+    request=CreateTask,
+    response=Task,
+    status=201,
+    errors=(RATE_LIMITED,),
+)
+```
+
+Tenchi documents the response and `Retry-After` header in OpenAPI. If the
+contract does not declare the error, the
+[honesty rule](/errors#the-honesty-rule) turns it into a framework-owned 500
+instead of exposing an undocumented 429.
+
+## Put shared storage in the context
+
+Add the store protocol to the application context:
+
+```python
+from dataclasses import dataclass
+
+from tenchi.rate_limits import RateLimitStore
+
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    tasks: TaskRepository
+    rate_limits: RateLimitStore
+    user: User | None = None
+```
+
+The store has one async method:
+
+```python
+from typing import Protocol
+
+from tenchi.rate_limits import RateLimitDecision
+
+
+class RateLimitStore(Protocol):
+    async def consume(
+        self,
+        *,
+        namespace: str,
+        scope: str,
+        limit: int,
+        window_seconds: float,
+        cost: int,
+    ) -> RateLimitDecision: ...
+```
+
+`consume()` must be atomic. The first accepted cost opens a fixed window for
+the `(namespace, scope)` identity. Later costs are accepted while their sum is
+at most `limit`. A rejection does not consume capacity. At the reset boundary,
+the next accepted cost opens a new window. Changing the limit or window starts
+a new window immediately.
+
+The store returns either:
+
+- `RateLimitPermit(limit, remaining, reset_after_seconds)` for accepted work;
+- `RateLimitExceeded(limit, retry_after_seconds)` for rejected work.
+
+`enforce_rate_limit()` validates those values before trusting them. A malformed
+adapter response raises `RateLimitStoreError` rather than producing a misleading
+allowance or `Retry-After` value.
+
+## Scope from verified identity
+
+Enforce the policy after authentication, using identity derived from the
+application context:
+
+```python
+from tenchi.rate_limits import enforce_rate_limit
+
+
+async def create_task(request: CreateTask, context: AppContext) -> Task:
+    user = require_user(context.user)
+    await enforce_rate_limit(
+        context.rate_limits,
+        namespace="tasks.create",
+        scope=user.id,
+        limit=5,
+        window_seconds=60,
+    )
+    return await context.tasks.create(
+        project_id=request.project_id,
+        title=request.title,
+    )
+```
+
+The namespace is a stable dotted `snake_case` operation name. The scope is the
+actor, tenant, credential, or other application-owned subject that shares the
+allowance.
+
+Do not use an account, tenant, or owner ID copied directly from request input.
+An attacker could select another subject's scope and exhaust its capacity.
+Authenticate first and derive the scope from verified context.
+
+Use separate namespaces when operations have separate allowances. Use a tenant
+scope when every user in that tenant should share one budget. Prefixing values
+such as `user:alice` and `tenant:acme` can keep mixed scope kinds explicit.
+
+## Decide what one cost represents
+
+Place the consume according to what the policy limits.
+
+For a transport-attempt limit, consume before the application operation in
+storage that commits independently. Invalid or failed attempts still cost
+capacity.
+
+For a logical-operation quota, combine it with idempotency so transport retries
+do not consume the allowance repeatedly:
+
+```python
+async def create_task(
+    headers: CreateTaskHeaders,
+    request: CreateTask,
+    context: AppContext,
+) -> Task:
+    user = require_user(context.user)
+
+    async def create() -> Task:
+        await enforce_rate_limit(
+            context.rate_limits,
+            namespace="tasks.create",
+            scope=user.id,
+            limit=5,
+            window_seconds=60,
+        )
+        return await context.tasks.create(
+            project_id=request.project_id,
+            title=request.title,
+        )
+
+    return await run_idempotently(
+        context.idempotency,
+        namespace="tasks.create",
+        scope=user.id,
+        key=headers.idempotency_key,
+        fingerprint=fingerprint(request, annotation=CreateTask),
+        result_type=Task,
+        operation=create,
+    )
+```
+
+Here, a completed idempotent replay bypasses `create()` and costs nothing.
+Taskboard stores the rate-limit window in the same transaction as task creation,
+so a rollback also restores the capacity.
+
+Choose independent storage instead when failed operation attempts must count.
+Write that choice down with the policy; transaction placement changes observable
+behavior during failures and retries.
+
+## Apply weighted costs
+
+Use `cost=` when operations consume different amounts from one shared budget:
+
+```python
+await enforce_rate_limit(
+    context.rate_limits,
+    namespace="reports.export",
+    scope=f"tenant:{tenant.id}",
+    limit=100,
+    window_seconds=60 * 60,
+    cost=10,
+)
+```
+
+`limit` and `cost` must be positive integers, and cost cannot exceed the limit.
+`window_seconds` must be finite and greater than zero. Tenchi validates the
+policy before calling the store.
+
+## Test with the memory store
+
+`MemoryRateLimitStore` is concurrency-safe within one process and accepts a
+clock for deterministic boundary tests:
+
+```python
+import pytest
+
+from tenchi.errors import AppError
+from tenchi.rate_limits import (
+    RATE_LIMITED,
+    MemoryRateLimitStore,
+    enforce_rate_limit,
+)
+
+
+now = 1_000.0
+store = MemoryRateLimitStore(clock=lambda: now)
+
+await enforce_rate_limit(
+    store,
+    namespace="tasks.create",
+    scope="alice",
+    limit=1,
+    window_seconds=60,
+)
+
+with pytest.raises(AppError) as excinfo:
+    await enforce_rate_limit(
+        store,
+        namespace="tasks.create",
+        scope="alice",
+        limit=1,
+        window_seconds=60,
+    )
+
+assert excinfo.value.definition == RATE_LIMITED
+assert excinfo.value.headers == {"Retry-After": "60"}
+
+now += 60
+permit = await enforce_rate_limit(
+    store,
+    namespace="tasks.create",
+    scope="alice",
+    limit=1,
+    window_seconds=60,
+)
+assert permit.remaining == 0
+```
+
+Share one memory store across every context created by the test application.
+Creating a new store per request creates a new empty allowance and does not
+test rate limiting.
+
+<Callout type="warning" title="Do not deploy the memory store">
+  `MemoryRateLimitStore` cannot coordinate multiple processes or hosts and
+  loses all windows on restart. Use it for use-case tests, in-process HTTP
+  tests, and local development only.
+</Callout>
+
+## Implement production storage
+
+A production adapter must atomically read and update one
+`(namespace, scope)` window. Use a conditional database write, a Redis script,
+or another operation that cannot admit two concurrent callers beyond the
+limit.
+
+Store at least:
+
+- namespace and scope;
+- configured limit and window duration;
+- consumed cost;
+- reset instant.
+
+Delete expired windows during consumption or through operational cleanup.
+Use the storage system's clock when several hosts share the store, so host clock
+skew cannot lengthen or shorten a caller's window.
+
+Fixed windows can admit traffic near both sides of a reset boundary. Use an API
+gateway with a rolling-window, token-bucket, or other algorithm when that burst
+shape is unacceptable.
+
+## Keep edge protection at the edge
+
+Tenchi's primitive protects authenticated application operations. It is not a
+denial-of-service boundary: the application has already accepted the
+connection, matched a route, and usually authenticated the caller.
+
+Configure your reverse proxy, load balancer, CDN, or API gateway for:
+
+- unauthenticated and per-IP request floods;
+- connection and request-rate ceilings;
+- distributed bot and abuse controls;
+- global protection before application workers are occupied.
+
+Keep application limits for rules that need verified users, tenants, plans,
+operation names, or domain-specific weighted costs. Many deployed services need
+both layers.

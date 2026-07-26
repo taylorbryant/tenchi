@@ -65,6 +65,7 @@ from app.shared.users import User
 from tenchi.client import Client
 from tenchi.errors import ERROR_SOURCE_HEADER, AppError
 from tenchi.idempotency import IDEMPOTENCY_CONFLICT
+from tenchi.rate_limits import MemoryRateLimitStore
 from tenchi.server import create_app
 from tenchi.testing import open_http
 
@@ -94,6 +95,7 @@ def make_app(
     projects = MemoryProjectRepository()
     tasks = MemoryTaskRepository(projects)
     idempotency = MemoryIdempotencyStore()
+    rate_limits = MemoryRateLimitStore()
     notification_log = notifications or MemoryNotificationLog()
     return create_app(
         routes=routes,
@@ -102,6 +104,7 @@ def make_app(
             tasks=tasks,
             task_search=MemoryTaskSearch(projects, tasks),
             idempotency=idempotency,
+            rate_limits=rate_limits,
             outbox=MemoryOutbox(),
             notifications=notification_log,
         ),

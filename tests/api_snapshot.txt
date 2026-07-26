@@ -13,6 +13,7 @@ IDEMPOTENCY_IN_PROGRESS = ErrorDef(code='IDEMPOTENCY_IN_PROGRESS', status=409, m
 IdempotencyResultError (re-export of tenchi.idempotency.IdempotencyResultError)
 IdempotencyStore (re-export of tenchi.idempotency.IdempotencyStore)
 IdempotencyStoreError (re-export of tenchi.idempotency.IdempotencyStoreError)
+MemoryRateLimitStore (re-export of tenchi.rate_limits.MemoryRateLimitStore)
 OutcomeObserver = collections.abc.Callable[[tenchi.server.RequestOutcome], typing.Any]
 Page (re-export of tenchi.pagination.Page)
 PageQuery (re-export of tenchi.pagination.PageQuery)
@@ -23,6 +24,11 @@ PreflightOutcome (re-export of tenchi.preflight.PreflightOutcome)
 PreflightReport (re-export of tenchi.preflight.PreflightReport)
 PreflightStatus = PreflightStatus
 PresentedResponse (re-export of tenchi.responses.PresentedResponse)
+RATE_LIMITED = ErrorDef(code='RATE_LIMITED', status=429, message='Too many requests', headers=('Retry-After',))
+RateLimitExceeded (re-export of tenchi.rate_limits.RateLimitExceeded)
+RateLimitPermit (re-export of tenchi.rate_limits.RateLimitPermit)
+RateLimitStore (re-export of tenchi.rate_limits.RateLimitStore)
+RateLimitStoreError (re-export of tenchi.rate_limits.RateLimitStoreError)
 RequestInfo (re-export of tenchi.server.RequestInfo)
 RequestOutcome (re-export of tenchi.server.RequestOutcome)
 ResponseDef (re-export of tenchi.responses.ResponseDef)
@@ -45,6 +51,7 @@ WebhookVerifier = collections.abc.Callable[['WebhookRequest', typing.Any], typin
 contract (re-export of tenchi.contracts.contract)
 create_app (re-export of tenchi.server.create_app)
 create_task_runner (re-export of tenchi.tasks.create_task_runner)
+enforce_rate_limit (re-export of tenchi.rate_limits.enforce_rate_limit)
 execute (re-export of tenchi.execution.execute)
 fingerprint (re-export of tenchi.idempotency.fingerprint)
 health_route (re-export of tenchi.health.health_route)
@@ -244,6 +251,27 @@ PreflightStatus = PreflightStatus
 def preflight_check(name: 'str', check: 'Callable[[], Awaitable[None]]', *, description: 'str | None' = None, timeout: 'float' = 5.0, failure_code: 'str | None' = None) -> 'PreflightCheck'
 def preflight_group(*items: 'PreflightCheck | PreflightGroup | Sequence[PreflightCheck]') -> 'PreflightGroup'
 def run_preflight(group: 'PreflightGroup', *, timeout: 'float | None' = None) -> 'PreflightReport'
+
+# tenchi.rate_limits
+class MemoryRateLimitStore
+    def __init__(self, *, clock: 'Callable[[], float]' = <built-in function monotonic>) -> 'None'
+    def consume(self, *, namespace: 'str', scope: 'str', limit: 'int', window_seconds: 'float', cost: 'int') -> 'RateLimitDecision'
+RATE_LIMITED = ErrorDef(code='RATE_LIMITED', status=429, message='Too many requests', headers=('Retry-After',))
+RateLimitDecision = RateLimitDecision
+class RateLimitExceeded
+    limit: int
+    retry_after_seconds: int
+    def __init__(self, limit: 'int', retry_after_seconds: 'int') -> None
+class RateLimitPermit
+    limit: int
+    remaining: int
+    reset_after_seconds: float
+    def __init__(self, limit: 'int', remaining: 'int', reset_after_seconds: 'float') -> None
+class RateLimitStore(Protocol)
+    def __init__(self, *args, **kwargs)
+    def consume(self, *, namespace: 'str', scope: 'str', limit: 'int', window_seconds: 'float', cost: 'int') -> 'RateLimitDecision'
+class RateLimitStoreError(TenchiError, RuntimeError)
+def enforce_rate_limit(store: 'RateLimitStore', *, namespace: 'str', scope: 'str', limit: 'int', window_seconds: 'float', cost: 'int' = 1) -> 'RateLimitPermit'
 
 # tenchi.routes
 class Route

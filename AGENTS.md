@@ -37,6 +37,7 @@ framework code, the CLI, docs, or the example apps.
   - `health.py` — `health_route()` and the `UNHEALTHY` error definition.
   - `idempotency.py` — canonical input fingerprints, durable store transitions,
     typed replay, and standard conflict/in-progress errors.
+  - `rate_limits.py` — atomic fixed-window limits and the memory test adapter.
   - `testing.py` — `open_client`/`open_http`, in-process clients that run
     the app lifespan.
   - `routes.py` — route/route-group binding with eager signature checks.
@@ -213,6 +214,11 @@ API shape:
   supplied through the application context. The store that protects database
   writes participates in the same transaction; keys are scoped to an actor or
   tenant, and contracts declare both standard idempotency errors.
+- Application-level quotas use `enforce_rate_limit()` with a `RateLimitStore`
+  scoped from authenticated identity, never untrusted request input. Put the
+  consume inside idempotent work when one logical operation should cost once.
+  Edge request floods and unauthenticated abuse remain proxy or gateway
+  concerns; `MemoryRateLimitStore` is for tests and local development only.
 
 ## CLI expectations
 

@@ -134,6 +134,9 @@ The main pieces are:
 - Infrastructure-neutral idempotency with canonical validated-input
   fingerprints, durable store transitions, typed result replay, scoped keys,
   expiration, and standard conflict/in-progress errors.
+- Infrastructure-neutral fixed-window rate limits with atomic store decisions,
+  weighted costs, a standard declared 429 response, and a concurrency-safe
+  memory adapter for tests.
 - Signed inbound webhook bindings that verify exact, size-bounded bytes before
   parsing, attach service identity to the request context, and fail composition
   when a marked webhook contract has no verifier.
@@ -182,6 +185,23 @@ Pydantic parses the body. It may return an enriched context carrying verified
 service identity. See the [signed webhook
 guide](https://tenchi.io/webhooks) for HMAC verification, replay protection,
 and error declarations.
+
+Application-level quotas stay in use cases and use authenticated scope:
+
+```python
+permit = await enforce_rate_limit(
+    context.rate_limits,
+    namespace="tasks.create",
+    scope=user.id,
+    limit=5,
+    window_seconds=60,
+)
+```
+
+Exhausted windows raise the declared `RATE_LIMITED` error with `Retry-After`.
+Use the built-in `MemoryRateLimitStore` in tests and supply an atomic shared
+store in multi-process deployments. See [rate limiting](https://tenchi.io/rate-limits)
+for idempotency placement, transaction choices, and edge-limit boundaries.
 
 For endpoints with more than one successful status, declare response
 definitions and select one in a synchronous presenter. Their body and header

@@ -10,6 +10,7 @@ from app.infra.memory_repositories import (
 )
 from app.server.context import AppContext
 from app.shared.users import OwnerScope, User
+from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")
 
@@ -22,6 +23,7 @@ async def make_populated_context() -> AppContext:
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
         idempotency=MemoryIdempotencyStore(),
+        rate_limits=MemoryRateLimitStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=ALICE,
@@ -81,6 +83,7 @@ async def test_members_see_shared_project_tasks_in_the_list() -> None:
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
         idempotency=MemoryIdempotencyStore(),
+        rate_limits=MemoryRateLimitStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=ALICE,
