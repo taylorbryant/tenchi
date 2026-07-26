@@ -35,6 +35,8 @@ framework code, the CLI, docs, or the example apps.
     in consumers via `TypeAdapter`).
   - `pagination.py` — `Page[Item]`, `PageQuery`, and `page()`.
   - `health.py` — `health_route()` and the `UNHEALTHY` error definition.
+  - `idempotency.py` — canonical input fingerprints, durable store transitions,
+    typed replay, and standard conflict/in-progress errors.
   - `testing.py` — `open_client`/`open_http`, in-process clients that run
     the app lifespan.
   - `routes.py` — route/route-group binding with eager signature checks.
@@ -198,6 +200,10 @@ API shape:
   `health_route()` and `openapi_route()` are public by default and accept
   `public=False` when an application needs to protect them. OpenAPI derives
   global-security exemptions from the same contract metadata.
+- Retry-safe operations use `run_idempotently()` with an `IdempotencyStore`
+  supplied through the application context. The store that protects database
+  writes participates in the same transaction; keys are scoped to an actor or
+  tenant, and contracts declare both standard idempotency errors.
 
 ## CLI expectations
 

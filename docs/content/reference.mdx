@@ -10,9 +10,14 @@ selected package-root re-exports for compact application code.
 
 ```python
 from tenchi import (
+    IDEMPOTENCY_CONFLICT,
+    IDEMPOTENCY_IN_PROGRESS,
     AppError,
     Client,
     ErrorDef,
+    IdempotencyResultError,
+    IdempotencyStore,
+    IdempotencyStoreError,
     Page,
     PageQuery,
     PreflightGroup,
@@ -22,6 +27,7 @@ from tenchi import (
     create_app,
     create_task_runner,
     execute,
+    fingerprint,
     health_route,
     openapi_route,
     page,
@@ -31,6 +37,7 @@ from tenchi import (
     response,
     route,
     route_group,
+    run_idempotently,
     swagger_ui_route,
     task,
     task_group,
@@ -59,6 +66,7 @@ expected application failures.
 | --- | --- |
 | `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver`, `ContextFactory`, `Lifespan`, `DEFAULT_MAX_REQUEST_BYTES`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER` |
 | `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `UseCaseOutcome`, `UseCaseObserver` |
+| `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `task()`, `task_group()`, `create_task_runner()` |
 | `tenchi.client` | `Client`, `ClientResponse`, `UnexpectedResponseError` |

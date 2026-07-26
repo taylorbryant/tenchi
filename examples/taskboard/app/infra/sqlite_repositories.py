@@ -32,12 +32,17 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1
 );
-CREATE TABLE IF NOT EXISTS task_create_idempotency (
-    owner_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS idempotency_records (
+    namespace TEXT NOT NULL,
+    scope TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
-    request_fingerprint TEXT NOT NULL,
-    response_json TEXT,
-    PRIMARY KEY (owner_id, idempotency_key)
+    fingerprint TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('reserved', 'completed')),
+    reservation_token TEXT NOT NULL,
+    result_json BLOB,
+    reservation_expires_at REAL NOT NULL,
+    completed_expires_at REAL,
+    PRIMARY KEY (namespace, scope, idempotency_key)
 );
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -210,55 +215,6 @@ class SqliteTaskRepository:
             (task.id, task.project_id, task.title, task.status.value, task.version),
         )
         return task
-
-    async def create_idempotent(
-        self,
-        *,
-        project_id: str,
-        title: str,
-        owner: OwnerScope,
-        idempotency_key: str,
-        request_fingerprint: str,
-    ) -> Task | None:
-        """Claim the key before inserting the task.
-
-        SQLite serializes the unique-key insert with concurrent writers. If
-        the winning request rolls back, its claim and task both disappear and
-        the waiting retry becomes the creator.
-        """
-        cursor = await self._connection.execute(
-            "INSERT INTO task_create_idempotency "
-            "(owner_id, idempotency_key, request_fingerprint, response_json) "
-            "VALUES (?, ?, ?, NULL) "
-            "ON CONFLICT (owner_id, idempotency_key) DO NOTHING "
-            "RETURNING owner_id",
-            (owner.owner_id, idempotency_key, request_fingerprint),
-        )
-        claimed = await cursor.fetchone()
-        if claimed is not None:
-            task = await self.create(project_id=project_id, title=title)
-            await self._connection.execute(
-                "UPDATE task_create_idempotency SET response_json = ? "
-                "WHERE owner_id = ? AND idempotency_key = ?",
-                (task.model_dump_json(), owner.owner_id, idempotency_key),
-            )
-            return task
-
-        cursor = await self._connection.execute(
-            "SELECT request_fingerprint, response_json "
-            "FROM task_create_idempotency "
-            "WHERE owner_id = ? AND idempotency_key = ?",
-            (owner.owner_id, idempotency_key),
-        )
-        row = await cursor.fetchone()
-        if row is None or row[1] is None:
-            raise RuntimeError(
-                "idempotency claim has no committed task response: "
-                f"{owner.owner_id}/{idempotency_key}"
-            )
-        if str(row[0]) != request_fingerprint:
-            return None
-        return Task.model_validate_json(row[1])
 
     async def get(self, task_id: str) -> Task | None:
         cursor = await self._connection.execute(

@@ -1,5 +1,6 @@
 from app.features.tasks.schemas import ListTasksQuery, TaskStatus
 from app.features.tasks.use_cases.list_tasks import list_tasks
+from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -20,6 +21,7 @@ async def make_populated_context() -> AppContext:
         projects=projects,
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=ALICE,
@@ -78,6 +80,7 @@ async def test_members_see_shared_project_tasks_in_the_list() -> None:
         projects=projects,
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=ALICE,

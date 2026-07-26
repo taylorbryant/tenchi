@@ -6,6 +6,11 @@ ConfigurationError (re-export of tenchi.errors.ConfigurationError)
 Contract (re-export of tenchi.contracts.Contract)
 ErrorDef (re-export of tenchi.errors.ErrorDef)
 ExecutionError (re-export of tenchi.execution.ExecutionError)
+IDEMPOTENCY_CONFLICT = ErrorDef(code='IDEMPOTENCY_CONFLICT', status=409, message='The idempotency key was already used with different input', headers=())
+IDEMPOTENCY_IN_PROGRESS = ErrorDef(code='IDEMPOTENCY_IN_PROGRESS', status=409, message='An operation with this idempotency key is already in progress', headers=('Retry-After',))
+IdempotencyResultError (re-export of tenchi.idempotency.IdempotencyResultError)
+IdempotencyStore (re-export of tenchi.idempotency.IdempotencyStore)
+IdempotencyStoreError (re-export of tenchi.idempotency.IdempotencyStoreError)
 OutcomeObserver = collections.abc.Callable[[tenchi.server.RequestOutcome], typing.Any]
 Page (re-export of tenchi.pagination.Page)
 PageQuery (re-export of tenchi.pagination.PageQuery)
@@ -35,6 +40,7 @@ contract (re-export of tenchi.contracts.contract)
 create_app (re-export of tenchi.server.create_app)
 create_task_runner (re-export of tenchi.tasks.create_task_runner)
 execute (re-export of tenchi.execution.execute)
+fingerprint (re-export of tenchi.idempotency.fingerprint)
 health_route (re-export of tenchi.health.health_route)
 openapi_route (re-export of tenchi.openapi.openapi_route)
 openapi_schema (re-export of tenchi.openapi.openapi_schema)
@@ -45,6 +51,7 @@ present (re-export of tenchi.responses.present)
 response (re-export of tenchi.responses.response)
 route (re-export of tenchi.routes.route)
 route_group (re-export of tenchi.routes.route_group)
+run_idempotently (re-export of tenchi.idempotency.run_idempotently)
 run_preflight (re-export of tenchi.preflight.run_preflight)
 swagger_ui_route (re-export of tenchi.openapi.swagger_ui_route)
 task (re-export of tenchi.tasks.task)
@@ -146,6 +153,36 @@ class HealthReport(BaseModel)
     status: str = 'ok'
     checks: dict[str, str] = {}
 def health_route(*, path: 'str' = '/health', checks: 'Mapping[str, HealthCheck] | None' = None, check_timeout: 'float' = 5.0, public: 'bool' = True) -> 'Route'
+
+# tenchi.idempotency
+IDEMPOTENCY_CONFLICT = ErrorDef(code='IDEMPOTENCY_CONFLICT', status=409, message='The idempotency key was already used with different input', headers=())
+IDEMPOTENCY_IN_PROGRESS = ErrorDef(code='IDEMPOTENCY_IN_PROGRESS', status=409, message='An operation with this idempotency key is already in progress', headers=('Retry-After',))
+class IdempotencyConflict
+    def __init__(self) -> None
+IdempotencyDecision = IdempotencyDecision
+class IdempotencyInProgress
+    retry_after_seconds: int | None = None
+    def __init__(self, retry_after_seconds: 'int | None' = None) -> None
+class IdempotencyReplay
+    result_json: bytes
+    def __init__(self, result_json: 'bytes') -> None
+class IdempotencyReservation
+    namespace: str
+    scope: str
+    key: str
+    fingerprint: str
+    token: str
+    completed_ttl: float | None
+    def __init__(self, namespace: 'str', scope: 'str', key: 'str', fingerprint: 'str', token: 'str', completed_ttl: 'float | None') -> None
+class IdempotencyResultError(TenchiError, TypeError)
+class IdempotencyStore(Protocol)
+    def __init__(self, *args, **kwargs)
+    def abandon(self, reservation: 'IdempotencyReservation') -> 'None'
+    def complete(self, reservation: 'IdempotencyReservation', *, result_json: 'bytes') -> 'None'
+    def reserve(self, *, namespace: 'str', scope: 'str', key: 'str', fingerprint: 'str', completed_ttl: 'float | None', reservation_ttl: 'float') -> 'IdempotencyDecision'
+class IdempotencyStoreError(TenchiError, RuntimeError)
+def fingerprint(value: 'Any', *, annotation: 'Any' = UNSET) -> 'str'
+def run_idempotently(store: 'IdempotencyStore', *, namespace: 'str', scope: 'str', key: 'str', fingerprint: 'str', result_type: 'Any', operation: 'Callable[[], Awaitable[ResultT]]', completed_ttl: 'float | None' = None, reservation_ttl: 'float' = 300.0) -> 'ResultT'
 
 # tenchi.openapi
 def openapi_route(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, path: 'str' = '/openapi.json', tags: 'Sequence[str]' = ('docs',), public: 'bool' = True) -> 'Route'

@@ -9,6 +9,17 @@ versions may change the public API.
 
 ### Added
 
+- Infrastructure-neutral idempotency primitives for retry-safe HTTP commands,
+  tasks, workers, and webhooks. `fingerprint()` creates canonical hashes from
+  Pydantic-validated input; `IdempotencyStore` defines durable
+  reserve/complete/abandon transitions; and `run_idempotently()` validates,
+  stores, and replays typed results while mapping conflicts and active
+  reservations to standard declared errors. Malformed store decisions fail
+  closed, and unordered collections must be normalized before fingerprinting.
+  Taskboard now demonstrates memory and transaction-scoped SQLite adapters,
+  concurrent request collapse, rollback safety, scoping, reservation and
+  completed-record expiration, and migration from its earlier task-specific
+  records.
 - Environment-aware deployment preflight: `preflight_check()` and
   `preflight_group()` declare zero-argument async observations with stable
   names, failure codes, and per-check timeouts; `run_preflight()` executes them

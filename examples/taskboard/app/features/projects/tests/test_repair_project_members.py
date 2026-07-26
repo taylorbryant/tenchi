@@ -2,6 +2,7 @@ from app.features.projects.schemas import RepairProjectMembersInput
 from app.features.projects.use_cases.repair_project_members import (
     repair_project_members,
 )
+from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -19,6 +20,7 @@ async def test_repair_project_members_supports_a_safe_dry_run() -> None:
         projects=projects,
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
     )

@@ -39,6 +39,7 @@ from app.features.tasks.schemas import (
     UpdateTask,
     UpdateTaskHeaders,
 )
+from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -52,7 +53,6 @@ from app.server.hooks import create_bearer_hook
 from app.server.routes import routes
 from app.shared.errors import (
     forbidden,
-    idempotency_conflict,
     precondition_failed,
     project_not_found,
     unauthorized,
@@ -60,6 +60,7 @@ from app.shared.errors import (
 from app.shared.users import User
 from tenchi.client import Client
 from tenchi.errors import ERROR_SOURCE_HEADER, AppError
+from tenchi.idempotency import IDEMPOTENCY_CONFLICT
 from tenchi.server import create_app
 from tenchi.testing import open_http
 
@@ -84,12 +85,14 @@ class Harness:
 def make_app() -> Starlette:
     projects = MemoryProjectRepository()
     tasks = MemoryTaskRepository(projects)
+    idempotency = MemoryIdempotencyStore()
     return create_app(
         routes=routes,
         context_factory=lambda: AppContext(
             projects=projects,
             tasks=tasks,
             task_search=MemoryTaskSearch(projects, tasks),
+            idempotency=idempotency,
             outbox=MemoryOutbox(),
             notifications=MemoryNotificationLog(),
         ),
@@ -333,7 +336,7 @@ async def test_typed_client_replays_task_creation_and_rejects_key_reuse(
             headers=headers,
             request=CreateTask(project_id=project.id, title="Different"),
         )
-    assert excinfo.value.definition == idempotency_conflict
+    assert excinfo.value.definition == IDEMPOTENCY_CONFLICT
 
 
 async def test_raw_http_validates_and_enforces_idempotency_keys() -> None:

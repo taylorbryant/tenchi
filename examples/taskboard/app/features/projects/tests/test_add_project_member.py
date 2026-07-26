@@ -5,6 +5,7 @@ from app.features.projects.use_cases.add_project_member import add_project_membe
 from app.features.projects.use_cases.get_project import get_project
 from app.features.tasks.schemas import CreateTask, CreateTaskHeaders
 from app.features.tasks.use_cases.create_task import create_task
+from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -36,6 +37,7 @@ def context_for(
         projects=projects,
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=outbox if outbox is not None else MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,

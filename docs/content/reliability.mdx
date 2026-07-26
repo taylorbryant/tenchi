@@ -8,53 +8,32 @@ those facts instead of treating retries as exceptional.
 
 ## Make commands idempotent
 
-For a create command that may be retried, require an `Idempotency-Key` header
-and validate its shape:
-
-```python
-from pydantic import BaseModel, Field
-
-
-class CreateTaskHeaders(BaseModel):
-    idempotency_key: str = Field(
-        alias="Idempotency-Key",
-        min_length=1,
-        max_length=128,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
-    )
-```
-
-Scope a key to the authenticated actor and logical operation. Store three
-values in the same transaction as the command:
+Use [`run_idempotently()`](/idempotency) around commands that callers or
+infrastructure can retry. Scope the caller-provided key to an actor or tenant,
+then store three values in the same transaction as the command:
 
 - the scoped key;
 - a stable fingerprint of the validated input;
 - enough of the original success to reproduce its body, status, and headers.
 
-Then apply these outcomes:
+Tenchi applies these outcomes through the application-supplied
+`IdempotencyStore`:
 
 | Existing record | Result |
 | --- | --- |
 | No record | Claim the key, perform the command, store the response, and commit together |
 | Same key and fingerprint | Return the original successful response |
-| Same key and different fingerprint | Raise a declared `409` application error |
+| Same key and different fingerprint | Raise the declared `IDEMPOTENCY_CONFLICT` error |
+| Same key and matching work still active | Raise the declared `IDEMPOTENCY_IN_PROGRESS` error |
 
-Build the fingerprint from validated data with stable JSON ordering:
+Build the fingerprint from validated data:
 
 ```python
-import hashlib
-import json
-
 from app.features.tasks.schemas import CreateTask
+from tenchi.idempotency import fingerprint
 
 
-def request_fingerprint(request: CreateTask) -> str:
-    canonical = json.dumps(
-        request.model_dump(mode="json"),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+request_fingerprint = fingerprint(request, annotation=CreateTask)
 ```
 
 The repository must claim the key with a unique constraint and create the
@@ -63,6 +42,10 @@ multiple workers and loses history on restart.
 
 Decide and document a retention period. Do not delete an idempotency record
 while callers can still legitimately retry its key.
+
+See [Make operations safe to retry](/idempotency) for the store protocol,
+typed replay, expiration, cancellation, contract errors, and client retry
+workflow.
 
 ## Commit deferred effects with state
 

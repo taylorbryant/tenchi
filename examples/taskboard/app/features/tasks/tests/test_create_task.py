@@ -2,6 +2,7 @@ import pytest
 
 from app.features.tasks.schemas import CreateTask, CreateTaskHeaders, TaskStatus
 from app.features.tasks.use_cases.create_task import create_task
+from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -10,9 +11,10 @@ from app.infra.memory_repositories import (
     MemoryTaskSearch,
 )
 from app.server.context import AppContext
-from app.shared.errors import forbidden, idempotency_conflict, project_not_found
+from app.shared.errors import forbidden, project_not_found
 from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
+from tenchi.idempotency import IDEMPOTENCY_CONFLICT
 
 ALICE = User(id="alice", name="Alice")
 BOB = User(id="bob", name="Bob")
@@ -28,6 +30,7 @@ def make_context(user: User) -> AppContext:
         projects=projects,
         tasks=(tasks := MemoryTaskRepository(projects)),
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,
@@ -120,7 +123,7 @@ async def test_reusing_a_key_for_different_input_is_a_conflict() -> None:
             context,
         )
 
-    assert excinfo.value.definition == idempotency_conflict
+    assert excinfo.value.definition == IDEMPOTENCY_CONFLICT
     _, total = await context.task_search.search(
         viewer=OwnerScope(owner_id=ALICE.id),
         project_id=project.id,

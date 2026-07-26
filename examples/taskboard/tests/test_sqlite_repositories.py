@@ -6,8 +6,40 @@ from pathlib import Path
 import pytest
 
 from app.features.tasks.schemas import Task, TaskStatus
-from app.infra.port_wiring import ensure_schema, open_request_ports
+from app.infra.port_wiring import AppPorts, ensure_schema, open_request_ports
 from app.shared.users import OwnerScope
+from tenchi.errors import AppError
+from tenchi.idempotency import (
+    IDEMPOTENCY_CONFLICT,
+    IDEMPOTENCY_IN_PROGRESS,
+    IdempotencyReservation,
+    run_idempotently,
+)
+
+
+async def create_once(
+    ports: AppPorts,
+    *,
+    project_id: str,
+    title: str,
+    scope: str,
+    key: str,
+    request_fingerprint: str,
+    completed_ttl: float | None = None,
+) -> Task:
+    async def create() -> Task:
+        return await ports.tasks.create(project_id=project_id, title=title)
+
+    return await run_idempotently(
+        ports.idempotency,
+        namespace="tasks.create",
+        scope=scope,
+        key=key,
+        fingerprint=request_fingerprint,
+        result_type=Task,
+        operation=create,
+        completed_ttl=completed_ttl,
+    )
 
 
 async def test_projects_round_trip(tmp_path: Path) -> None:
@@ -201,19 +233,19 @@ async def test_idempotent_task_create_replays_one_concurrent_insert(
     async with open_request_ports(database) as ports:
         project = await ports.projects.create(name="Launch", owner=owner)
 
-    async def create() -> Task | None:
+    async def create() -> Task:
         async with open_request_ports(database) as ports:
-            return await ports.tasks.create_idempotent(
+            return await create_once(
+                ports,
                 project_id=project.id,
                 title="Ship it",
-                owner=owner,
-                idempotency_key="concurrent-create",
+                scope=owner.owner_id,
+                key="concurrent-create",
                 request_fingerprint="matching-input",
             )
 
     results = await asyncio.gather(*(create() for _ in range(8)))
 
-    assert all(result is not None for result in results)
     assert results == [results[0]] * len(results)
     async with open_request_ports(database) as ports:
         _, total = await ports.task_search.search(
@@ -232,34 +264,37 @@ async def test_idempotency_key_rejects_different_input(tmp_path: Path) -> None:
     owner = OwnerScope(owner_id="alice")
     async with open_request_ports(database) as ports:
         project = await ports.projects.create(name="Launch", owner=owner)
-        original = await ports.tasks.create_idempotent(
+        original = await create_once(
+            ports,
             project_id=project.id,
             title="Original",
-            owner=owner,
-            idempotency_key="reused-key",
+            scope=owner.owner_id,
+            key="reused-key",
             request_fingerprint="original-input",
         )
 
     async with open_request_ports(database) as ports:
-        assert original is not None
         updated = await ports.tasks.save(
             original.model_copy(update={"title": "Renamed"}),
             expected_version=original.version,
         )
-        replayed = await ports.tasks.create_idempotent(
+        replayed = await create_once(
+            ports,
             project_id=project.id,
             title="Original",
-            owner=owner,
-            idempotency_key="reused-key",
+            scope=owner.owner_id,
+            key="reused-key",
             request_fingerprint="original-input",
         )
-        conflict = await ports.tasks.create_idempotent(
-            project_id=project.id,
-            title="Different",
-            owner=owner,
-            idempotency_key="reused-key",
-            request_fingerprint="different-input",
-        )
+        with pytest.raises(AppError) as excinfo:
+            await create_once(
+                ports,
+                project_id=project.id,
+                title="Different",
+                scope=owner.owner_id,
+                key="reused-key",
+                request_fingerprint="different-input",
+            )
         _, total = await ports.task_search.search(
             viewer=owner,
             project_id=project.id,
@@ -271,7 +306,7 @@ async def test_idempotency_key_rejects_different_input(tmp_path: Path) -> None:
     assert updated is not None
     assert updated.version == 2
     assert replayed == original
-    assert conflict is None
+    assert excinfo.value.definition == IDEMPOTENCY_CONFLICT
     assert total == 1
 
 
@@ -285,23 +320,23 @@ async def test_idempotency_keys_are_scoped_to_the_authenticated_owner(
     async with open_request_ports(database) as ports:
         alice_project = await ports.projects.create(name="Alice", owner=alice)
         bob_project = await ports.projects.create(name="Bob", owner=bob)
-        alice_task = await ports.tasks.create_idempotent(
+        alice_task = await create_once(
+            ports,
             project_id=alice_project.id,
             title="Alice task",
-            owner=alice,
-            idempotency_key="shared-client-key",
+            scope=alice.owner_id,
+            key="shared-client-key",
             request_fingerprint="alice-input",
         )
-        bob_task = await ports.tasks.create_idempotent(
+        bob_task = await create_once(
+            ports,
             project_id=bob_project.id,
             title="Bob task",
-            owner=bob,
-            idempotency_key="shared-client-key",
+            scope=bob.owner_id,
+            key="shared-client-key",
             request_fingerprint="bob-input",
         )
 
-    assert alice_task is not None
-    assert bob_task is not None
     assert alice_task.id != bob_task.id
 
 
@@ -319,22 +354,23 @@ async def test_failed_transaction_does_not_consume_idempotency_key(
 
     with pytest.raises(Boom):
         async with open_request_ports(database) as ports:
-            doomed = await ports.tasks.create_idempotent(
+            await create_once(
+                ports,
                 project_id=project.id,
                 title="Ship it",
-                owner=owner,
-                idempotency_key="retry-after-rollback",
+                scope=owner.owner_id,
+                key="retry-after-rollback",
                 request_fingerprint="matching-input",
             )
-            assert doomed is not None
             raise Boom
 
     async with open_request_ports(database) as ports:
-        retried = await ports.tasks.create_idempotent(
+        retried = await create_once(
+            ports,
             project_id=project.id,
             title="Ship it",
-            owner=owner,
-            idempotency_key="retry-after-rollback",
+            scope=owner.owner_id,
+            key="retry-after-rollback",
             request_fingerprint="matching-input",
         )
 
@@ -347,8 +383,102 @@ async def test_failed_transaction_does_not_consume_idempotency_key(
             offset=0,
         )
 
-    assert retried is not None
+    assert retried.title == "Ship it"
     assert total == 1
+
+
+async def test_completed_idempotency_record_expires_and_accepts_new_input(
+    tmp_path: Path,
+) -> None:
+    import aiosqlite
+
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+    owner = OwnerScope(owner_id="alice")
+    async with open_request_ports(database) as ports:
+        project = await ports.projects.create(name="Launch", owner=owner)
+        original = await create_once(
+            ports,
+            project_id=project.id,
+            title="Original",
+            scope=owner.owner_id,
+            key="expiring-key",
+            request_fingerprint="original-input",
+            completed_ttl=60,
+        )
+
+    async with aiosqlite.connect(database) as connection:
+        await connection.execute(
+            "UPDATE idempotency_records SET completed_expires_at = 0 "
+            "WHERE idempotency_key = 'expiring-key'"
+        )
+        await connection.commit()
+
+    async with open_request_ports(database) as ports:
+        replacement = await create_once(
+            ports,
+            project_id=project.id,
+            title="Replacement",
+            scope=owner.owner_id,
+            key="expiring-key",
+            request_fingerprint="replacement-input",
+        )
+
+    assert replacement.id != original.id
+
+
+async def test_stale_idempotency_reservation_can_be_reclaimed(
+    tmp_path: Path,
+) -> None:
+    import aiosqlite
+
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+    owner = OwnerScope(owner_id="alice")
+    async with open_request_ports(database) as ports:
+        project = await ports.projects.create(name="Launch", owner=owner)
+        reservation = await ports.idempotency.reserve(
+            namespace="tasks.create",
+            scope=owner.owner_id,
+            key="stale-key",
+            fingerprint="matching-input",
+            completed_ttl=None,
+            reservation_ttl=60,
+        )
+        assert isinstance(reservation, IdempotencyReservation)
+
+    async with open_request_ports(database) as ports:
+        with pytest.raises(AppError) as excinfo:
+            await create_once(
+                ports,
+                project_id=project.id,
+                title="Not yet",
+                scope=owner.owner_id,
+                key="stale-key",
+                request_fingerprint="matching-input",
+            )
+
+    assert excinfo.value.definition == IDEMPOTENCY_IN_PROGRESS
+    assert int(excinfo.value.headers["Retry-After"]) > 0
+
+    async with aiosqlite.connect(database) as connection:
+        await connection.execute(
+            "UPDATE idempotency_records SET reservation_expires_at = 0 "
+            "WHERE idempotency_key = 'stale-key'"
+        )
+        await connection.commit()
+
+    async with open_request_ports(database) as ports:
+        recovered = await create_once(
+            ports,
+            project_id=project.id,
+            title="Recovered",
+            scope=owner.owner_id,
+            key="stale-key",
+            request_fingerprint="matching-input",
+        )
+
+    assert recovered.title == "Recovered"
 
 
 async def test_ensure_schema_migrates_existing_task_tables(tmp_path: Path) -> None:
@@ -363,6 +493,30 @@ async def test_ensure_schema_migrates_existing_task_tables(tmp_path: Path) -> No
         await connection.execute(
             "INSERT INTO tasks (id, project_id, title, status) VALUES (?, ?, ?, ?)",
             ("legacy-task", "legacy-project", "Existing", TaskStatus.TODO.value),
+        )
+        await connection.execute(
+            "CREATE TABLE task_create_idempotency ("
+            "owner_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, "
+            "request_fingerprint TEXT NOT NULL, response_json TEXT, "
+            "PRIMARY KEY (owner_id, idempotency_key))"
+        )
+        legacy_result = Task(
+            id="legacy-task",
+            project_id="legacy-project",
+            title="Existing",
+            status=TaskStatus.TODO,
+            version=1,
+        )
+        await connection.execute(
+            "INSERT INTO task_create_idempotency "
+            "(owner_id, idempotency_key, request_fingerprint, response_json) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "alice",
+                "legacy-key",
+                "legacy-input",
+                legacy_result.model_dump_json(),
+            ),
         )
         await connection.commit()
 
@@ -383,14 +537,24 @@ async def test_ensure_schema_migrates_existing_task_tables(tmp_path: Path) -> No
     async with open_request_ports(database) as ports:
         migrated = await ports.tasks.get("legacy-task")
         assert migrated is not None
-        assert migrated.version == 1
+        replayed = await create_once(
+            ports,
+            project_id="legacy-project",
+            title="must not run",
+            scope="alice",
+            key="legacy-key",
+            request_fingerprint="legacy-input",
+        )
         saved = await ports.tasks.save(
             migrated.model_copy(update={"title": "Updated"}),
             expected_version=migrated.version,
         )
-        assert saved is not None
-        assert saved.title == "Updated"
-        assert saved.version == 2
+
+    assert migrated.version == 1
+    assert replayed == migrated
+    assert saved is not None
+    assert saved.title == "Updated"
+    assert saved.version == 2
 
 
 async def test_failed_scope_rolls_back(tmp_path: Path) -> None:

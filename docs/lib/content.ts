@@ -15,6 +15,7 @@ import Errors from "@/content/errors.mdx";
 import Execution from "@/content/execution.mdx";
 import ExistingProject from "@/content/existing-project.mdx";
 import GettingStarted from "@/content/getting-started.mdx";
+import Idempotency from "@/content/idempotency.mdx";
 import Overview from "@/content/index.mdx";
 import Mcp from "@/content/mcp.mdx";
 import Observability from "@/content/observability.mdx";
@@ -52,6 +53,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/production": Production,
   "/configuration": Configuration,
   "/database": Database,
+  "/idempotency": Idempotency,
   "/reliability": Reliability,
   "/observability": Observability,
   "/preflight": Preflight,

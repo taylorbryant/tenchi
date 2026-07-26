@@ -22,7 +22,7 @@ Tenchi provides the application seams and boundary guarantees:
 | Database | Lifespan and request-scoped context managers | Choose a driver, migrations, transaction isolation, and adapters |
 | Authentication | Boundary hooks and public-contract metadata | Verify credentials and supply the identity port |
 | Authorization | Plain use cases and pure policies | Define abilities and owner-scoped repository methods |
-| Retries | Validated inputs and declared errors | Store idempotency claims and original results in the transaction |
+| Retries | Canonical fingerprints, durable store transitions, typed replay, and declared errors | Implement storage in the command transaction and choose key scope and retention |
 | Background work | `execute()` and scoped contexts | Choose a queue or outbox, schedule workers, and define retry policy |
 | Operational maintenance | Validated named tasks, CLI/MCP discovery, and scoped execution | Define safe dry runs, operator access, and rollout procedure |
 | Observability | Request IDs and finalized `RequestOutcome` values | Export logs, metrics, traces, and alerts |

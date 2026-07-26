@@ -1,4 +1,5 @@
 from app.features.projects.use_cases.list_projects import list_projects
+from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -18,6 +19,7 @@ async def test_list_projects_returns_only_the_current_users() -> None:
         projects=projects,
         tasks=(tasks := MemoryTaskRepository(projects)),
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=ALICE,

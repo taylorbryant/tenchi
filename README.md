@@ -131,6 +131,9 @@ The main pieces are:
 - Lifespan resources, request-scoped contexts, authentication hooks, middleware,
   request deadlines, HTTP and use-case outcome observers, pagination, health
   checks, and in-process testing helpers.
+- Infrastructure-neutral idempotency with canonical validated-input
+  fingerprints, durable store transitions, typed result replay, scoped keys,
+  expiration, and standard conflict/in-progress errors.
 
 `public` defaults to `False`. Set `public=True` for operations that an
 authentication hook should exempt, then inspect the metadata in the hook:

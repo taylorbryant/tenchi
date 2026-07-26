@@ -19,7 +19,9 @@ import aiosqlite
 
 from app.features.projects.ports import NotificationLog, Outbox, ProjectRepository
 from app.features.tasks.ports import TaskRepository, TaskSearch
+from tenchi.idempotency import IdempotencyStore
 
+from .sqlite_idempotency import SqliteIdempotencyStore
 from .sqlite_repositories import (
     SCHEMA,
     SqliteNotificationLog,
@@ -37,6 +39,7 @@ class AppPorts:
     projects: ProjectRepository
     tasks: TaskRepository
     task_search: TaskSearch
+    idempotency: IdempotencyStore
     outbox: Outbox
     notifications: NotificationLog
 
@@ -100,7 +103,28 @@ async def ensure_schema(database_path: str) -> None:
             await connection.execute(
                 "ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1"
             )
+        await _migrate_idempotency_records(connection)
         await connection.commit()
+
+
+async def _migrate_idempotency_records(connection: aiosqlite.Connection) -> None:
+    cursor = await connection.execute(
+        "SELECT 1 FROM sqlite_master "
+        "WHERE type = 'table' AND name = 'task_create_idempotency'"
+    )
+    if await cursor.fetchone() is None:
+        return
+    await connection.execute(
+        "INSERT OR IGNORE INTO idempotency_records "
+        "(namespace, scope, idempotency_key, fingerprint, state, "
+        "reservation_token, result_json, reservation_expires_at, "
+        "completed_expires_at) "
+        "SELECT 'tasks.create', owner_id, idempotency_key, "
+        "request_fingerprint, 'completed', "
+        "'migrated:' || owner_id || ':' || idempotency_key, "
+        "CAST(response_json AS BLOB), 0, NULL "
+        "FROM task_create_idempotency WHERE response_json IS NOT NULL"
+    )
 
 
 async def _ensure_wal(connection: aiosqlite.Connection) -> None:
@@ -142,6 +166,7 @@ async def open_request_ports(database_path: str) -> AsyncGenerator[AppPorts]:
             projects=SqliteProjectRepository(primary),
             tasks=SqliteTaskRepository(primary),
             task_search=SqliteTaskSearch(reader),
+            idempotency=SqliteIdempotencyStore(primary),
             outbox=SqliteOutbox(primary),
             notifications=SqliteNotificationLog(primary),
         )

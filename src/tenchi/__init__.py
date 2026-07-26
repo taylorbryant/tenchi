@@ -10,6 +10,15 @@ from .contracts import Contract, contract
 from .errors import AppError, ConfigurationError, ErrorDef, TenchiError
 from .execution import ExecutionError, UseCaseObserver, UseCaseOutcome, execute
 from .health import health_route
+from .idempotency import (
+    IDEMPOTENCY_CONFLICT,
+    IDEMPOTENCY_IN_PROGRESS,
+    IdempotencyResultError,
+    IdempotencyStore,
+    IdempotencyStoreError,
+    fingerprint,
+    run_idempotently,
+)
 from .openapi import openapi_route, openapi_schema, swagger_ui_route
 from .pagination import Page, PageQuery, page
 from .preflight import (
@@ -41,6 +50,8 @@ from .tasks import (
 __version__ = "0.11.0"
 
 __all__ = [
+    "IDEMPOTENCY_CONFLICT",
+    "IDEMPOTENCY_IN_PROGRESS",
     "AppError",
     "Client",
     "ClientResponse",
@@ -48,6 +59,9 @@ __all__ = [
     "Contract",
     "ErrorDef",
     "ExecutionError",
+    "IdempotencyResultError",
+    "IdempotencyStore",
+    "IdempotencyStoreError",
     "OutcomeObserver",
     "Page",
     "PageQuery",
@@ -78,6 +92,7 @@ __all__ = [
     "create_app",
     "create_task_runner",
     "execute",
+    "fingerprint",
     "health_route",
     "openapi_route",
     "openapi_schema",
@@ -88,6 +103,7 @@ __all__ = [
     "response",
     "route",
     "route_group",
+    "run_idempotently",
     "run_preflight",
     "swagger_ui_route",
     "task",

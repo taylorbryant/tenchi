@@ -30,6 +30,7 @@ def make_app(database_path: str) -> Starlette:
                 projects=ports.projects,
                 tasks=ports.tasks,
                 task_search=ports.task_search,
+                idempotency=ports.idempotency,
                 outbox=ports.outbox,
                 notifications=ports.notifications,
             )

@@ -169,6 +169,14 @@ export const docsSections = [
         priority: 0.82,
       },
       {
+        path: "/idempotency",
+        title: "Retry-safe operations",
+        navLabel: "Idempotency",
+        description:
+          "Reserve scoped keys, fingerprint validated input, and replay typed results without coupling application behavior to a database or cache.",
+        priority: 0.83,
+      },
+      {
         path: "/reliability",
         title: "Retries and background work",
         navLabel: "Retries and workers",

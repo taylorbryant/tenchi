@@ -2,6 +2,7 @@ import pytest
 
 from app.features.projects.schemas import CreateProject
 from app.features.projects.use_cases.create_project import create_project
+from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -23,6 +24,7 @@ def make_context(user: User | None = ALICE) -> AppContext:
         projects=projects,
         tasks=(tasks := MemoryTaskRepository(projects)),
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,

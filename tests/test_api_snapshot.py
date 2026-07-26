@@ -27,6 +27,7 @@ PUBLIC_MODULES = (
     "tenchi.errors",
     "tenchi.execution",
     "tenchi.health",
+    "tenchi.idempotency",
     "tenchi.openapi",
     "tenchi.pagination",
     "tenchi.preflight",

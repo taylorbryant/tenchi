@@ -655,7 +655,7 @@
         ]
       },
       "post": {
-        "description": "Idempotency-Key is required. Retrying the same validated input with the same key returns the original task response; reusing a key for different input returns 409.",
+        "description": "Idempotency-Key is required. Retrying the same validated input with the same key returns the original task response; reusing a key for different input returns 409. Matching work still in progress also returns 409 with Retry-After.",
         "operationId": "create_task",
         "parameters": [
           {
@@ -794,7 +794,14 @@
                 }
               }
             },
-            "description": "IDEMPOTENCY_CONFLICT: The idempotency key was already used with different input"
+            "description": "IDEMPOTENCY_CONFLICT: The idempotency key was already used with different input; IDEMPOTENCY_IN_PROGRESS: An operation with this idempotency key is already in progress",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "413": {
             "content": {

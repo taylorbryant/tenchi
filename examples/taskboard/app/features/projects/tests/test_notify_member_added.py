@@ -1,5 +1,6 @@
 from app.features.projects.schemas import MemberAdded
 from app.features.projects.use_cases.notify_member_added import notify_member_added
+from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -17,6 +18,7 @@ def make_context() -> tuple[AppContext, MemoryNotificationLog]:
         projects=projects,
         tasks=(tasks := MemoryTaskRepository(projects)),
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=MemoryOutbox(),
         notifications=notifications,
     )

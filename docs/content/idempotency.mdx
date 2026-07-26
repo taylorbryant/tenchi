@@ -1,0 +1,232 @@
+import { Callout } from "@/components/callout";
+
+# Make operations safe to retry
+
+Use Tenchi's idempotency primitive when the same logical command can arrive
+more than once: a client retries after a timeout, a webhook is redelivered, or
+a worker restarts work whose outcome it did not observe.
+
+`run_idempotently()` gives one reservation permission to execute and returns
+the stored typed result to matching retries. Your application supplies the
+durable store and decides which transaction contains the reservation,
+application writes, and completed result.
+
+## Declare the HTTP boundary
+
+For an HTTP command, validate the key as an ordinary request header and
+declare both standard idempotency errors:
+
+```python
+from pydantic import BaseModel, Field
+
+from tenchi.contracts import contract
+from tenchi.idempotency import (
+    IDEMPOTENCY_CONFLICT,
+    IDEMPOTENCY_IN_PROGRESS,
+)
+
+
+class CreateTaskHeaders(BaseModel):
+    idempotency_key: str = Field(
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+
+
+create_task_contract = contract(
+    method="POST",
+    path="/tasks",
+    headers=CreateTaskHeaders,
+    request=CreateTask,
+    response=Task,
+    status=201,
+    errors=(IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS),
+)
+```
+
+Missing or malformed headers fail normal request validation. A reused key with
+different input raises `IDEMPOTENCY_CONFLICT`. Matching work that still owns
+an active reservation raises `IDEMPOTENCY_IN_PROGRESS`, optionally with
+`Retry-After`.
+
+These are application errors under Tenchi's
+[honesty rule](/errors#the-honesty-rule).
+If the contract does not declare them, they become framework-owned 500
+responses instead of undocumented 409 responses.
+
+## Put the store in the application context
+
+Add `IdempotencyStore` beside the other ports required by your use cases:
+
+```python
+from dataclasses import dataclass
+
+from tenchi.idempotency import IdempotencyStore
+
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    tasks: TaskRepository
+    idempotency: IdempotencyStore
+    user: User | None = None
+```
+
+The protocol has three async operations:
+
+| Method | Required behavior |
+| --- | --- |
+| `reserve()` | Atomically return one reservation, a completed replay, a fingerprint conflict, or an active matching reservation |
+| `complete()` | Store the serialized result only when the reservation token still owns the key |
+| `abandon()` | Release only the matching active token; repeated calls must be safe |
+
+An adapter uses `(namespace, scope, key)` as its unique identity. It stores the
+fingerprint separately, fences completion with the opaque reservation token,
+and expires abandoned reservations after `reservation_ttl`.
+
+`reservation_ttl` is a lease, not an operation deadline. Set it longer than
+the longest permitted operation, including expected dependency latency. The
+primitive does not renew reservations automatically; if a lease expires while
+work is still running, a later caller may reserve and execute the operation.
+
+<Callout type="warning" title="Use the same transaction as the command">
+  When an operation writes to a database, persist its reservation, application
+  writes, and completed replay in that database transaction. A separate cache
+  can publish a replay before the database commits or lose the reservation
+  after the command commits. Tenchi cannot make two independent systems
+  atomic.
+</Callout>
+
+<Callout type="warning" title="External effects are still at least once">
+  A database transaction cannot include an email provider, webhook receiver,
+  or unrelated remote API. If that system accepts a call and the local
+  operation then fails, abandoning the reservation permits a retry to call it
+  again. Pass the same idempotency key to a downstream service that supports
+  one, or commit the effect through a [transactional outbox](/reliability#commit-deferred-effects-with-state).
+</Callout>
+
+## Run the use case once
+
+Build the fingerprint from validated input, then wrap only the state-changing
+operation:
+
+```python
+from tenchi.idempotency import fingerprint, run_idempotently
+
+
+async def create_task(
+    headers: CreateTaskHeaders,
+    request: CreateTask,
+    context: AppContext,
+) -> Task:
+    user = require_user(context.user)
+    project = await context.projects.get(request.project_id)
+    ensure_can_write_project(user, project, project_id=request.project_id)
+
+    async def create() -> Task:
+        return await context.tasks.create(
+            project_id=request.project_id,
+            title=request.title,
+        )
+
+    return await run_idempotently(
+        context.idempotency,
+        namespace="tasks.create",
+        scope=user.id,
+        key=headers.idempotency_key,
+        fingerprint=fingerprint(request, annotation=CreateTask),
+        result_type=Task,
+        operation=create,
+        completed_ttl=24 * 60 * 60,
+    )
+```
+
+The namespace is a stable dotted `snake_case` operation name. The scope must
+prevent one actor or tenant from replaying another's result. Use a global scope
+only when every caller should share the same key namespace.
+
+`fingerprint()` validates against `annotation=` before hashing canonical JSON.
+Equivalent validated values therefore share a fingerprint even when mapping
+order or coercible input spelling differs.
+
+`set` and `frozenset` values are rejected because their iteration order is not
+a stable serialization boundary. Convert them to a sorted tuple or list before
+fingerprinting.
+
+Include every validated value that can change the operation's result: path,
+query, headers other than the idempotency key, and body. When a command has
+more than one input model, create a small frozen dataclass or Pydantic model
+that contains those values and fingerprint that combined input.
+
+## Understand each outcome
+
+| Store decision | `run_idempotently()` behavior |
+| --- | --- |
+| Reservation | Calls the operation, validates its result, stores serialized JSON, and returns the validated value |
+| Replay | Validates the stored JSON against `result_type` and returns it without calling the operation |
+| Conflict | Raises `AppError(IDEMPOTENCY_CONFLICT)` |
+| In progress | Raises `AppError(IDEMPOTENCY_IN_PROGRESS)` and preserves the store's optional `Retry-After` value |
+
+If the operation fails, is cancelled, returns an invalid result, or cannot
+complete its record, Tenchi attempts to abandon the reservation before
+propagating the original failure. Reservation expiration remains the recovery
+path if a process stops before cleanup runs.
+
+Store enough result data to reproduce the complete caller-visible success.
+For an HTTP route with status-dependent presentation or response headers, the
+replayed use-case result must let the presenter derive the same status, body,
+and headers.
+
+## Choose retention and compatibility
+
+`completed_ttl=None` retains successful replays until the adapter or an
+operational cleanup removes them. A positive TTL starts when the result is
+completed. Keep records at least as long as callers may legitimately retry a
+key.
+
+A replay is validated against the current `result_type`. Deployments must
+remain able to read stored results for the chosen retention window. When a
+result schema changes incompatibly, migrate stored values, shorten and drain
+the old retention window before deployment, or version the operation
+namespace.
+
+Do not store request bodies, credentials, or provider exceptions in an
+idempotency record. The fingerprint is sufficient to compare input; the
+completed record needs only the validated result required for replay.
+SHA-256 is not anonymization: a fingerprint of low-entropy secret data can
+still be guessed. Exclude secrets from the logical input whenever they do not
+affect the operation.
+
+## Retry from a client
+
+Generate one key for one logical command and reuse it across that command's
+transport retries:
+
+```python
+import httpx
+from uuid import uuid4
+
+
+key = uuid4().hex
+headers = CreateTaskHeaders(idempotency_key=key)
+
+for attempt in range(3):
+    try:
+        task = await client.call(
+            create_task_contract,
+            headers=headers,
+            request=request,
+        )
+        break
+    except httpx.TransportError:
+        if attempt == 2:
+            raise
+```
+
+Do not generate a new key inside the retry loop. A new key describes a new
+logical command and permits the operation to run again.
+
+The taskboard example contains complete memory and SQLite stores. The SQLite
+store shares the request-scoped connection with task creation, so concurrent
+requests either create once or replay the committed result.

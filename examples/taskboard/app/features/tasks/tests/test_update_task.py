@@ -7,6 +7,7 @@ from app.features.tasks.schemas import (
     UpdateTaskHeaders,
 )
 from app.features.tasks.use_cases.update_task import update_task
+from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -41,6 +42,7 @@ async def make_context_with_task(user: User) -> tuple[AppContext, str]:
         projects=projects,
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=user,
@@ -124,6 +126,7 @@ async def test_members_may_view_but_not_update() -> None:
         projects=projects,
         tasks=tasks,
         task_search=MemoryTaskSearch(projects, tasks),
+        idempotency=MemoryIdempotencyStore(),
         outbox=MemoryOutbox(),
         notifications=MemoryNotificationLog(),
         user=BOB,

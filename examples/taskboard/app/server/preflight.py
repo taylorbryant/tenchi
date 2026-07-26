@@ -12,7 +12,7 @@ _REQUIRED_TABLES = {
     "notifications",
     "outbox",
     "projects",
-    "task_create_idempotency",
+    "idempotency_records",
     "tasks",
 }
 
