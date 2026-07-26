@@ -21,6 +21,7 @@ app/
   server/
     context.py
     hooks.py
+    webhooks.py
     routes.py
     runtime.py
     preflight.py
@@ -58,6 +59,7 @@ The `app/server/` package is the application root:
 
 - `context.py` declares the frozen `AppContext`.
 - `hooks.py` implements HTTP-boundary concerns such as authentication.
+- `webhooks.py` binds signed-provider verification and service identity.
 - `routes.py` combines feature route groups and shared error declarations.
 - `runtime.py` owns resources shared by HTTP and operational entrypoints.
 - `preflight.py` declares read-only checks of the target deployment environment.
@@ -87,6 +89,11 @@ on it.
 - Routes may import contracts and use cases, but never infrastructure.
 - Infrastructure implements ports, but never imports use cases or routes.
 - Server composition wires the complete graph.
+
+Webhook verifiers live at server composition because they need secrets,
+provider SDKs, and exact HTTP bytes. The verified service identity still enters
+the use case through `AppContext`; provider payloads remain contract-owned
+Pydantic input.
 
 Run `uv run tenchi map --feature <name>` to inspect one feature and its direct
 dependencies, `uv run tenchi doctor` to check these conventions alone, or

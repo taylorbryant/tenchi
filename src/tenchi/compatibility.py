@@ -47,6 +47,7 @@ _OPERATION_KNOWN = frozenset(
         "operationId",
         *_OPERATION_METADATA,
         "x-timeout-seconds",
+        "x-tenchi-webhook",
         "parameters",
         "requestBody",
         "responses",
@@ -191,6 +192,7 @@ class _Analyzer:
             self.changes.add("metadata", location, "operation metadata changed")
         if _field_changed(before, after, "x-timeout-seconds"):
             self.changes.add("unknown", location, "request timeout changed")
+        self._compare_webhook_requirement(before, after, location=location)
 
         self._compare_security(
             _effective_security(self.baseline, before),
@@ -213,6 +215,36 @@ class _Analyzer:
             location=location,
             message="unsupported operation fields changed",
         )
+
+    def _compare_webhook_requirement(
+        self,
+        before: JsonObject,
+        after: JsonObject,
+        *,
+        location: str,
+    ) -> None:
+        if not _field_changed(before, after, "x-tenchi-webhook"):
+            return
+        before_value = before.get("x-tenchi-webhook", False)
+        after_value = after.get("x-tenchi-webhook", False)
+        if not isinstance(before_value, bool) or not isinstance(after_value, bool):
+            self.changes.add(
+                "unknown",
+                location,
+                "webhook verification requirement changed",
+            )
+        elif not before_value and after_value:
+            self.changes.add(
+                "breaking",
+                location,
+                "webhook verification became required",
+            )
+        elif before_value and not after_value:
+            self.changes.add(
+                "additive",
+                location,
+                "webhook verification requirement was removed",
+            )
 
     def _compare_security(
         self, before: object, after: object, *, location: str

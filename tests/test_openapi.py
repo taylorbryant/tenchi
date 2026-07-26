@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx
 import pytest
+from openapi_spec_validator import validate
 from pydantic import BaseModel, Field, computed_field, create_model
 
 from tenchi.contracts import contract
@@ -811,6 +812,32 @@ def test_public_operations_are_exempt_from_security() -> None:
 
     assert document["paths"]["/health"]["get"]["security"] == []
     assert "security" not in document["paths"]["/closed"]["get"]
+
+
+def test_webhook_requirement_is_documented_with_security_exemption() -> None:
+    webhook_contract = contract(
+        method="POST",
+        path="/webhook",
+        request=Item,
+        response=Item,
+        public=True,
+        webhook=True,
+    )
+
+    async def handler(request: Item, context: Context) -> Item:
+        return request
+
+    document = openapi_schema(
+        route_group(route(webhook_contract, handler)),
+        title="X",
+        version="0",
+        security={"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    )
+
+    operation = document["paths"]["/webhook"]["post"]
+    assert operation["x-tenchi-webhook"] is True
+    assert operation["security"] == []
+    validate(document)
 
 
 def test_documents_without_security_are_unchanged() -> None:

@@ -547,6 +547,31 @@ def test_metadata_is_safe_and_unsupported_changes_require_review() -> None:
     assert severities(report) == ["metadata", "unknown"]
 
 
+def test_webhook_verification_requirement_is_directional() -> None:
+    baseline = document()
+    required = deepcopy(baseline)
+    required["paths"]["/items"]["post"]["x-tenchi-webhook"] = True
+
+    tightened = analyze_openapi_compatibility(baseline, required)
+    relaxed = analyze_openapi_compatibility(required, baseline)
+
+    assert tightened.status == "incompatible"
+    assert messages(tightened) == ["webhook verification became required"]
+    assert relaxed.status == "compatible"
+    assert messages(relaxed) == ["webhook verification requirement was removed"]
+
+
+def test_malformed_webhook_extension_change_fails_closed() -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    current["paths"]["/items"]["post"]["x-tenchi-webhook"] = "sometimes"
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.status == "review required"
+    assert messages(report) == ["webhook verification requirement changed"]
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [

@@ -130,8 +130,12 @@ guarantees cleanup before the response is finalized.
 
 ## Hooks, middleware, and observers
 
-- `hooks=` run after route matching and context creation, before input validation. They may return an
-  enriched context and are the right boundary for authentication.
+- `hooks=` run after route matching and context creation, before input
+  validation. They may return an enriched context and are the right boundary
+  for authentication.
+- `webhooks=` binds exact-body verifiers to contracts marked `webhook=True`.
+  Verifiers run after ordinary hooks and body size/media checks, but before
+  request parsing.
 - `middleware=` accepts ordinary Starlette `Middleware` values for CORS,
   sessions, trusted hosts, compression, or app-specific ASGI behavior.
 - `observers=` receive immutable `RequestOutcome` values after a matched

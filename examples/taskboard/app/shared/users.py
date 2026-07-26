@@ -51,3 +51,10 @@ def require_user(user: User | None) -> User:
 def require_owner_scope(user: User | None) -> OwnerScope:
     """Assert an authenticated user and return their owner scope."""
     return owner_scope(require_user(user))
+
+
+def require_service(service: str | None, expected: str) -> str:
+    """Assert a boundary-verified service identity inside a use case."""
+    if service != expected:
+        raise AppError(unauthorized)
+    return expected

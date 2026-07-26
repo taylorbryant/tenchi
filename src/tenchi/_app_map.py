@@ -679,6 +679,8 @@ def _discover_contracts(
         status = _literal_keyword(call, "status", int)
         public_value = _keyword_value(call, "public")
         public = _literal_keyword(call, "public", bool)
+        webhook_value = _keyword_value(call, "webhook")
+        webhook = _literal_keyword(call, "webhook", bool)
         tags_value = _keyword_value(call, "tags")
         tags = _literal_string_tuple(call, "tags")
         details = _details(
@@ -695,6 +697,7 @@ def _discover_contracts(
                 else None
             ),
             public=False if public_value is None else public,
+            webhook=False if webhook_value is None else webhook,
             tags=() if tags_value is None else tags,
         )
         builder.add_node(
@@ -1207,6 +1210,7 @@ def _add_runtime_routes(
                     contract_name=item.contract.name,
                     statuses=statuses,
                     public=item.contract.public,
+                    webhook=item.contract.webhook,
                     call_kwargs=item.call_kwargs,
                 ),
             )
@@ -1239,6 +1243,7 @@ def _add_runtime_routes(
                         path=declared_contract.path,
                         statuses=_contract_statuses(declared_contract),
                         public=declared_contract.public,
+                        webhook=declared_contract.webhook,
                         tags=declared_contract.tags,
                     ),
                 )

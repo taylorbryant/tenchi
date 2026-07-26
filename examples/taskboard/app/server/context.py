@@ -15,3 +15,4 @@ class AppContext:
     outbox: Outbox
     notifications: NotificationLog
     user: User | None = None
+    service: str | None = None

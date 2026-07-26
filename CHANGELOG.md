@@ -9,6 +9,14 @@ versions may change the public API.
 
 ### Added
 
+- Signed inbound webhook support. Contracts marked `webhook=True` must have an
+  exact-body `webhook(contract, verifier)` binding at application composition;
+  sync and async verifiers run after request-size/media checks but before
+  Pydantic parsing, may attach service identity through an enriched context,
+  and follow ordinary declared-error, timeout, cancellation, and transaction
+  semantics. OpenAPI exposes `x-tenchi-webhook`, compatibility analysis treats
+  adding the requirement as breaking, and taskboard demonstrates HMAC
+  verification plus idempotent provider redelivery.
 - Payload-safe outbound client observability. `ClientOutcome` reports the
   contract, classification, HTTP status when available, duration, and declared
   application error code without exposing inputs, URLs, headers, bodies, or

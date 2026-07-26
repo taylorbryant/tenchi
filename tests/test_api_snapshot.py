@@ -36,6 +36,7 @@ PUBLIC_MODULES = (
     "tenchi.server",
     "tenchi.testing",
     "tenchi.tasks",
+    "tenchi.webhooks",
 )
 
 SNAPSHOT_PATH = Path(__file__).parent / "api_snapshot.txt"

@@ -347,12 +347,18 @@ def _amend(
     name = (
         f"{contract.method} {path}" if contract.name == default_name else contract.name
     )
-    return replace(
+    amended = replace(
         contract,
         path=path,
         name=name,
         errors=merged,
     )
+    object.__setattr__(
+        amended,
+        "_binding_key",
+        contract._binding_key,  # pyright: ignore[reportPrivateUsage]
+    )
+    return amended
 
 
 def _validated_prefix(value: object) -> str:

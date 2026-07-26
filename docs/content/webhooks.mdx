@@ -1,0 +1,272 @@
+import { Callout } from "@/components/callout";
+
+# Receive signed webhooks
+
+Signed webhooks authenticate an external service against the exact bytes it
+sent. Tenchi verifies those bytes before parsing the request, then applies the
+contract's normal Pydantic validation and invokes the use case with an
+enriched application context.
+
+## Declare the delivery contract
+
+Model the provider payload as ordinary application input. Include the
+provider's stable delivery or event identifier when it offers one:
+
+```python
+from pydantic import BaseModel, Field
+
+
+class MemberAddedWebhook(BaseModel):
+    event_id: str = Field(min_length=1, max_length=200)
+    project_id: str
+    project_name: str
+    user_id: str
+```
+
+Declare the expected verification failure and mark the contract with
+`webhook=True`:
+
+```python
+from tenchi.contracts import contract
+from tenchi.errors import ErrorDef
+from tenchi.idempotency import IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS
+
+
+invalid_webhook = ErrorDef(
+    code="INVALID_WEBHOOK",
+    status=401,
+    message="Webhook verification failed",
+)
+unauthorized = ErrorDef(
+    code="UNAUTHORIZED",
+    status=401,
+    message="Unauthorized",
+)
+
+member_added_webhook_contract = contract(
+    method="POST",
+    path="/webhooks/member-added",
+    request=MemberAddedWebhook,
+    status=204,
+    errors=(
+        invalid_webhook,
+        unauthorized,
+        IDEMPOTENCY_CONFLICT,
+        IDEMPOTENCY_IN_PROGRESS,
+    ),
+    name="webhooks.member_added",
+    public=True,
+    webhook=True,
+    max_request_bytes=64 * 1024,
+    timeout=10,
+)
+```
+
+`webhook=True` is a composition requirement, not documentation alone.
+`create_app()` refuses to build the application unless the contract has a
+verifier binding. OpenAPI marks the operation with
+`x-tenchi-webhook: true`.
+
+Set `public=True` when a general authentication hook should exempt the route.
+The webhook verifier still authenticates it. If the endpoint also requires
+your application's ordinary authentication, leave `public=False`.
+
+## Keep service authorization in the use case
+
+Add optional service identity to the application context:
+
+```python
+from dataclasses import dataclass
+
+from tenchi.idempotency import IdempotencyStore
+
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    notifications: NotificationLog
+    idempotency: IdempotencyStore
+    service: str | None = None
+```
+
+The verifier attaches identity at the HTTP boundary. The use case still
+asserts it, so direct calls and tests cannot bypass the rule:
+
+```python
+from tenchi.errors import AppError
+from tenchi.idempotency import fingerprint, run_idempotently
+
+
+def require_service(service: str | None, expected: str) -> str:
+    if service != expected:
+        raise AppError(unauthorized)
+    return expected
+
+
+async def receive_member_added_webhook(
+    request: MemberAddedWebhook,
+    context: AppContext,
+) -> None:
+    service = require_service(context.service, "member-directory")
+
+    async def record_notification() -> None:
+        await context.notifications.record(
+            user_id=request.user_id,
+            message=f"You were added to project {request.project_name!r}",
+        )
+
+    await run_idempotently(
+        context.idempotency,
+        namespace="webhooks.member_added",
+        scope=service,
+        key=request.event_id,
+        fingerprint=fingerprint(request, annotation=MemberAddedWebhook),
+        result_type=type(None),
+        operation=record_notification,
+        completed_ttl=7 * 24 * 60 * 60,
+    )
+```
+
+Declare every `AppError` this use case or its verifier may raise. Undeclared
+errors follow Tenchi's normal honesty rule and become framework-owned 500
+responses.
+
+## Verify the exact body
+
+Keep secrets and provider SDKs at the server composition boundary. This
+example verifies a `sha256=<hex>` HMAC header:
+
+```python
+import hashlib
+import hmac
+from dataclasses import replace
+
+from tenchi.errors import AppError
+from tenchi.webhooks import WebhookRequest, webhook
+
+
+def create_member_added_webhook(secret: bytes):
+    if not secret:
+        raise ValueError("webhook secret must not be empty")
+
+    def verify(
+        request: WebhookRequest,
+        context: AppContext,
+    ) -> AppContext:
+        signatures = request.header_values.get("x-webhook-signature", ())
+        if len(signatures) != 1:
+            raise AppError(invalid_webhook)
+        presented = signatures[0]
+        expected = "sha256=" + hmac.new(
+            secret,
+            request.body,
+            hashlib.sha256,
+        ).hexdigest()
+
+        try:
+            valid = hmac.compare_digest(
+                presented.encode("ascii"),
+                expected.encode("ascii"),
+            )
+        except UnicodeEncodeError:
+            valid = False
+        if not valid:
+            raise AppError(invalid_webhook)
+
+        return replace(context, service="member-directory")
+
+    return webhook(member_added_webhook_contract, verify)
+```
+
+`WebhookRequest.body` is immutable and preserves JSON whitespace, field
+ordering, and the final newline. `headers` is a read-only mapping with
+lowercased names and the last value for ordinary access. `header_values`
+preserves every repeated value in arrival order so a verifier can reject
+ambiguous signature headers. The request also includes the matched contract
+and Tenchi request ID.
+
+Use the provider's official verifier when its signature format includes
+multiple signatures, custom timestamp encoding, certificate validation, or
+key rotation. Pass `request.body` and the required raw headers directly to
+that verifier; do not serialize a parsed model back into JSON.
+
+## Bind the verifier
+
+Load the secret from validated process configuration and bind the verifier
+when composing the application:
+
+```python
+app = create_app(
+    routes=routes,
+    context_factory=create_context,
+    hooks=(authenticate,),
+    webhooks=(
+        create_member_added_webhook(settings.member_webhook_secret),
+    ),
+)
+```
+
+Ordinary hooks run first. Tenchi then checks the declared media type and body
+size, reads the body once, runs the matching webhook verifier, validates the
+path, query, header, and request models, and invokes the use case. The route
+timeout includes verifier work and cancellation cleanup.
+
+Verifiers may be synchronous or asynchronous. Return `None` to keep the
+current context, or return an enriched context. An expected rejection should
+raise `AppError`; an unexpected verifier failure is logged and returned as a
+framework-owned 500 without exposing the exception.
+
+## Prevent replayed effects
+
+A valid signature proves authenticity and integrity. By itself, it does not
+prove that the delivery is new.
+
+- Enforce the provider's signed timestamp tolerance when its protocol
+  supplies one.
+- Store the provider event ID through
+  [`run_idempotently()`](/idempotency), scoped to the provider or tenant.
+- Keep the idempotency transition in the same transaction as application
+  writes.
+- Retain completed event IDs for at least the provider's documented retry
+  window.
+
+If processing must continue after the HTTP acknowledgement, commit a
+transactional outbox record and let a worker own retry and dead-letter
+behavior. Do not start untracked background work from the request.
+
+<Callout type="warning" title="Do not log verification material">
+  Webhook bodies and headers can contain personal data, credentials, or
+  provider signatures. Log the contract name, request ID, bounded outcome,
+  and application-owned event identifier only after applying your redaction
+  policy.
+</Callout>
+
+## Test the wire bytes
+
+Compute the signature over the same bytes sent by the test client:
+
+```python
+body = (
+    b'{"event_id":"evt_1","project_id":"p1",'
+    b'"project_name":"Launch","user_id":"u1"}'
+)
+signature = "sha256=" + hmac.new(
+    secret,
+    body,
+    hashlib.sha256,
+).hexdigest()
+
+response = await http.post(
+    "/webhooks/member-added",
+    content=body,
+    headers={
+        "content-type": "application/json",
+        "x-webhook-signature": signature,
+    },
+)
+assert response.status_code == 204
+```
+
+Also test a bad signature, an invalid payload with a bad signature, a repeated
+event ID, and a body above the contract's size ceiling. A bad signature wins
+over Pydantic validation; oversized and unsupported-media requests are
+rejected before application verification runs.

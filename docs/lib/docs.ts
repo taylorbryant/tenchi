@@ -177,6 +177,13 @@ export const docsSections = [
         priority: 0.83,
       },
       {
+        path: "/webhooks",
+        title: "Signed webhooks",
+        description:
+          "Verify exact request bytes before parsing, attach service identity, and make provider redeliveries idempotent.",
+        priority: 0.83,
+      },
+      {
         path: "/reliability",
         title: "Retries and background work",
         navLabel: "Retries and workers",

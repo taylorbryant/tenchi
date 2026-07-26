@@ -30,6 +30,7 @@ import Server from "@/content/server.mdx";
 import Stability from "@/content/stability.mdx";
 import Tasks from "@/content/tasks.mdx";
 import Testing from "@/content/testing.mdx";
+import Webhooks from "@/content/webhooks.mdx";
 import type { DocsPath } from "@/lib/docs";
 
 export const docsContent: Record<DocsPath, ComponentType> = {
@@ -54,6 +55,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/configuration": Configuration,
   "/database": Database,
   "/idempotency": Idempotency,
+  "/webhooks": Webhooks,
   "/reliability": Reliability,
   "/observability": Observability,
   "/preflight": Preflight,

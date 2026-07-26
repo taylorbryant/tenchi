@@ -39,6 +39,15 @@ class MemberAdded(BaseModel):
     user_id: str
 
 
+class MemberAddedWebhook(BaseModel):
+    """A provider delivery with a stable id used to collapse retries."""
+
+    event_id: str = Field(min_length=1, max_length=200)
+    project_id: str
+    project_name: str
+    user_id: str
+
+
 class Project(BaseModel):
     id: str
     name: str

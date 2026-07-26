@@ -52,6 +52,13 @@ from .tasks import (
     task,
     task_group,
 )
+from .webhooks import (
+    Webhook,
+    WebhookBindingError,
+    WebhookRequest,
+    WebhookVerifier,
+    webhook,
+)
 
 __version__ = "0.11.0"
 
@@ -95,6 +102,10 @@ __all__ = [
     "UnexpectedResponseError",
     "UseCaseObserver",
     "UseCaseOutcome",
+    "Webhook",
+    "WebhookBindingError",
+    "WebhookRequest",
+    "WebhookVerifier",
     "__version__",
     "contract",
     "create_app",
@@ -116,4 +127,5 @@ __all__ = [
     "swagger_ui_route",
     "task",
     "task_group",
+    "webhook",
 ]

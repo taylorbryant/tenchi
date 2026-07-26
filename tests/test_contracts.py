@@ -23,6 +23,7 @@ def test_contract_defaults() -> None:
     assert declared.responses == ()
     assert declared.timeout is None
     assert declared.public is False
+    assert declared.webhook is False
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
@@ -78,6 +79,7 @@ def test_contract_metadata_defaults() -> None:
     assert declared.description is None
     assert declared.tags == ()
     assert declared.public is False
+    assert declared.webhook is False
     assert declared.deprecated is False
 
 
@@ -90,6 +92,26 @@ def test_contract_carries_explicit_public_metadata() -> None:
 def test_contract_rejects_malformed_public_metadata() -> None:
     with pytest.raises(ConfigurationError, match="public must be a bool"):
         contract(method="GET", path="/items", public=1)  # type: ignore[arg-type]
+
+
+def test_contract_carries_and_validates_webhook_metadata() -> None:
+    declared = contract(
+        method="POST",
+        path="/webhook",
+        request=Item,
+        webhook=True,
+    )
+
+    assert declared.webhook is True
+    with pytest.raises(ConfigurationError, match="webhook must be a bool"):
+        contract(
+            method="POST",
+            path="/webhook",
+            request=Item,
+            webhook=1,  # type: ignore[arg-type]
+        )
+    with pytest.raises(ConfigurationError, match="requires a request type"):
+        contract(method="POST", path="/webhook", webhook=True)
 
 
 def test_contract_rejects_empty_media_type() -> None:

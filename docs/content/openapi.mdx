@@ -112,3 +112,7 @@ generation, comparison, and snapshot checks.
 
 Programmatic consumers can import `analyze_openapi_compatibility()` from
 `tenchi.compatibility` and inspect its structured `CompatibilityReport`.
+
+Contracts marked `webhook=True` include `x-tenchi-webhook: true` on their
+OpenAPI operation. Adding that requirement is breaking because existing
+callers must begin signing deliveries; removing it is additive.

@@ -97,6 +97,10 @@ exempt an operation, and OpenAPI uses the same value when security schemes are
 configured. The metadata does not authenticate or authorize a request by
 itself.
 
+`webhook=True` marks a signed inbound operation. Unlike descriptive metadata,
+it is enforced: `create_app()` requires a matching exact-body verifier binding.
+See [Receive signed webhooks](/webhooks).
+
 <Callout title="One access-control signal">
   Authentication hooks should exempt operations through
   `info.contract.public`, not URL paths or documentation tags. OpenAPI uses the

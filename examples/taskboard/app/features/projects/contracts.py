@@ -1,10 +1,22 @@
 from pydantic import BaseModel, Field
 
-from app.shared.errors import forbidden, project_not_found
+from app.shared.errors import (
+    forbidden,
+    invalid_webhook,
+    project_not_found,
+    unauthorized,
+)
 from tenchi.contracts import contract
+from tenchi.idempotency import IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS
 from tenchi.responses import response
 
-from .schemas import AddProjectMember, CreateProject, GetProjectParams, Project
+from .schemas import (
+    AddProjectMember,
+    CreateProject,
+    GetProjectParams,
+    MemberAddedWebhook,
+    Project,
+)
 
 
 class CreatedProjectHeaders(BaseModel):
@@ -61,4 +73,24 @@ add_project_member_contract = contract(
     errors=(project_not_found, forbidden),
     summary="Add a member to one of the current user's projects",
     tags=("projects",),
+)
+
+receive_member_added_webhook_contract = contract(
+    method="POST",
+    path="/webhooks/member-added",
+    request=MemberAddedWebhook,
+    status=204,
+    errors=(
+        invalid_webhook,
+        unauthorized,
+        IDEMPOTENCY_CONFLICT,
+        IDEMPOTENCY_IN_PROGRESS,
+    ),
+    name="webhooks.member_added",
+    summary="Receive a signed member-added delivery",
+    tags=("webhooks",),
+    public=True,
+    webhook=True,
+    max_request_bytes=64 * 1024,
+    timeout=10,
 )

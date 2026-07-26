@@ -12,6 +12,7 @@ from app.infra.static_token_directory import StaticTokenDirectory
 from app.server.context import AppContext
 from app.server.hooks import create_bearer_hook
 from app.server.routes import routes
+from app.server.webhooks import DEMO_WEBHOOK_SECRET, create_webhooks
 from app.shared.users import OwnerScope, User
 from tenchi.server import create_app
 from tenchi.testing import open_http
@@ -39,6 +40,7 @@ def make_app(database_path: str) -> Starlette:
         routes=routes,
         context_factory=create_context,
         lifespan=lifespan,
+        webhooks=create_webhooks(DEMO_WEBHOOK_SECRET),
         hooks=[
             create_bearer_hook(
                 StaticTokenDirectory({"alice-token": User(id="alice", name="Alice")})

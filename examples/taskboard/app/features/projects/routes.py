@@ -9,12 +9,14 @@ from .contracts import (
     get_project_contract,
     list_projects_contract,
     member_added,
+    receive_member_added_webhook_contract,
 )
 from .schemas import Project
 from .use_cases.add_project_member import AddProjectMemberResult, add_project_member
 from .use_cases.create_project import create_project
 from .use_cases.get_project import get_project
 from .use_cases.list_projects import list_projects
+from .use_cases.receive_member_added_webhook import receive_member_added_webhook
 
 
 def create_project_headers(project: Project) -> CreatedProjectHeaders:
@@ -39,4 +41,5 @@ routes = route_group(
         add_project_member,
         present=present_add_project_member,
     ),
+    route(receive_member_added_webhook_contract, receive_member_added_webhook),
 )

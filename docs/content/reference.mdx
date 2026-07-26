@@ -25,6 +25,8 @@ from tenchi import (
     PreflightGroup,
     UseCaseObserver,
     UseCaseOutcome,
+    Webhook,
+    WebhookRequest,
     contract,
     create_app,
     create_task_runner,
@@ -43,6 +45,7 @@ from tenchi import (
     swagger_ui_route,
     task,
     task_group,
+    webhook,
 )
 ```
 
@@ -71,6 +74,7 @@ expected application failures.
 | `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `task()`, `task_group()`, `create_task_runner()` |
+| `tenchi.webhooks` | `Webhook`, `WebhookRequest`, `WebhookVerifier`, `WebhookBindingError`, `webhook()` |
 | `tenchi.client` | `Client`, `ClientResponse`, `ClientOutcome`, `ClientObserver`, `UnexpectedResponseError` |
 | `tenchi.testing` | `open_client()`, `open_http()`, `ASGIApp` |
 
@@ -79,7 +83,8 @@ the application boundary without HTTP. A preflight group defines read-only,
 timeout-bounded observations for a deployment gate. A `TaskRunner` adds stable
 discovery, input and result validation, and application lifecycle wiring for
 operational commands. `Client` enforces contracts against remote or in-process
-servers.
+servers. A `Webhook` binds an exact-body verifier to a contract marked
+`webhook=True`.
 
 ## Schema and operations
 

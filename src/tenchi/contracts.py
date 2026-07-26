@@ -107,11 +107,19 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
     description: str | None = None
     tags: tuple[str, ...] = ()
     public: bool = False
+    webhook: bool = False
     deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
     responses: tuple[ResponseDef[Any, Any], ...] = ()
     timeout: float | None = None
+    _binding_key: object = field(
+        default_factory=object,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    """Identity retained when route groups amend paths or declared errors."""
 
     def declares_error(self, definition: ErrorDef) -> bool:
         """Whether this contract declares the given error as expected."""
@@ -138,6 +146,7 @@ def contract(
     description: str | None = None,
     tags: Sequence[str] = (),
     public: bool = False,
+    webhook: bool = False,
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
@@ -166,6 +175,7 @@ def contract(
     description: str | None = None,
     tags: Sequence[str] = (),
     public: bool = False,
+    webhook: bool = False,
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
@@ -193,6 +203,7 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
     description: str | None = None,
     tags: Sequence[str] = (),
     public: bool = False,
+    webhook: bool = False,
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
@@ -257,6 +268,11 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
             public. Tenchi exposes this metadata to hooks and uses it to exempt
             the operation from global OpenAPI security; it does not perform
             authentication itself. Defaults to ``False``.
+        webhook: Require an exact-body verifier binding for this contract.
+            ``create_app()`` refuses to compose the route until a matching
+            ``webhook(contract, verifier)`` is supplied. The verifier runs
+            before request parsing and may attach a verified service identity
+            to the application context.
         deprecated: Mark the operation as deprecated. Pass an aware
             datetime (the instant deprecation took effect) to send an
             RFC 9745 ``Deprecation: @<unix-timestamp>`` response header;
@@ -296,6 +312,7 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
         summary=summary,
         description=description,
         public=public,
+        webhook=webhook,
         deprecated=deprecated,
         sunset=sunset,
         max_request_bytes=max_request_bytes,
@@ -354,6 +371,10 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
             "contract declares no request type; the ceiling would never "
             "apply"
         )
+    if webhook and request is None:
+        raise ConfigurationError(
+            f"contract(path={path!r}): webhook=True requires a request type"
+        )
     if timeout is not None and (timeout <= 0 or not isfinite(timeout)):
         raise ConfigurationError(
             f"contract(path={path!r}): timeout must be finite and positive, "
@@ -401,6 +422,7 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
         description=description,
         tags=declared_tags,
         public=public,
+        webhook=webhook,
         deprecated=deprecated,
         sunset=sunset,
         max_request_bytes=max_request_bytes,
@@ -420,6 +442,7 @@ def _validate_runtime_options(
     summary: object,
     description: object,
     public: object,
+    webhook: object,
     deprecated: object,
     sunset: object,
     max_request_bytes: object,
@@ -460,6 +483,11 @@ def _validate_runtime_options(
         raise ConfigurationError(
             f"contract(path={path!r}): public must be a bool, got "
             f"{type(public).__name__}"
+        )
+    if not isinstance(webhook, bool):
+        raise ConfigurationError(
+            f"contract(path={path!r}): webhook must be a bool, got "
+            f"{type(webhook).__name__}"
         )
     if sunset is not None and not isinstance(sunset, datetime):
         raise ConfigurationError(

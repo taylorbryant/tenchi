@@ -96,6 +96,7 @@ Framework agent workflow: https://tenchi.io/agents
    framework-shaped files manually.
 3. Keep explicit wiring visible in `app/server/routes.py`,
    `app/server/preflight.py`, `app/server/tasks.py`, `app/server/runtime.py`,
+   `app/server/webhooks.py` when signed endpoints exist,
    `app/infra/port_wiring.py`, and `app/server/asgi.py`.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
@@ -135,6 +136,9 @@ reviewable source edits.
 Authentication belongs in boundary hooks. Authorization belongs in use cases
 and pure policy functions. Declare every expected `AppError` on its contract or
 route group; undeclared application errors intentionally become framework 500s.
+Contracts marked `webhook=True` require an exact-body verifier binding in
+`create_app(webhooks=...)`; the verifier may attach service identity, which the
+use case still asserts.
 
 ## Change checklist
 

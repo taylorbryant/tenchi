@@ -12,10 +12,10 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
     edges = {(edge.kind, edge.source, edge.target) for edge in result.edges}
 
     assert result.summary.features == 2
-    assert result.summary.contracts == 8
-    assert result.summary.routes == 8
+    assert result.summary.contracts == 9
+    assert result.summary.routes == 9
     assert result.summary.tasks == 1
-    assert result.summary.use_cases == 10
+    assert result.summary.use_cases == 11
     assert result.summary.ports == 6
     assert result.summary.adapters == 11
     assert result.summary.entrypoints == 2
@@ -86,6 +86,12 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
     )
     assert dict(member_contract.details)["statuses"] == (201, 200)
     assert "status" not in dict(member_contract.details)
+    webhook_contract = next(
+        node
+        for node in result.nodes
+        if node.id == "contract:projects.receive_member_added_webhook_contract"
+    )
+    assert dict(webhook_contract.details)["webhook"] is True
 
 
 def test_taskboard_feature_projection_keeps_direct_cross_feature_policy() -> None:

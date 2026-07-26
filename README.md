@@ -134,6 +134,9 @@ The main pieces are:
 - Infrastructure-neutral idempotency with canonical validated-input
   fingerprints, durable store transitions, typed result replay, scoped keys,
   expiration, and standard conflict/in-progress errors.
+- Signed inbound webhook bindings that verify exact, size-bounded bytes before
+  parsing, attach service identity to the request context, and fail composition
+  when a marked webhook contract has no verifier.
 
 `public` defaults to `False`. Set `public=True` for operations that an
 authentication hook should exempt, then inspect the metadata in the hook:
@@ -154,6 +157,31 @@ empty per-operation security requirement. `health_route()` and
 `public=False` to protect them.
 The metadata itself does not authenticate requests—application hooks remain in
 control.
+
+Signed webhook contracts use a separate exact-body authentication boundary:
+
+```python
+delivery = contract(
+    method="POST",
+    path="/webhooks/delivery",
+    request=Delivery,
+    status=204,
+    public=True,
+    webhook=True,
+)
+
+app = create_app(
+    routes=route_group(route(delivery, receive_delivery)),
+    context_factory=create_context,
+    webhooks=(webhook(delivery, verify_delivery),),
+)
+```
+
+The verifier sees the immutable wire bytes and read-only headers before
+Pydantic parses the body. It may return an enriched context carrying verified
+service identity. See the [signed webhook
+guide](https://tenchi.io/webhooks) for HMAC verification, replay protection,
+and error declarations.
 
 For endpoints with more than one successful status, declare response
 definitions and select one in a synchronous presenter. Their body and header

@@ -20,6 +20,7 @@ from app.infra.port_wiring import ensure_schema, open_request_ports
 from app.infra.sqlite_repositories import SqliteNotificationLog, SqliteOutbox
 from app.server import worker
 from app.server.context import AppContext
+from app.server.webhooks import DEMO_WEBHOOK_SECRET, create_webhooks
 from app.server.worker import drain
 from app.shared.errors import forbidden
 from app.shared.users import User
@@ -63,6 +64,7 @@ def make_app(database_path: str) -> Starlette:
         routes=route_group(project_routes, route(glitch_contract, enqueue_then_fail)),
         context_factory=create_context,
         lifespan=lifespan,
+        webhooks=create_webhooks(DEMO_WEBHOOK_SECRET),
     )
 
 

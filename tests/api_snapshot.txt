@@ -38,6 +38,10 @@ TenchiError (re-export of tenchi.errors.TenchiError)
 UnexpectedResponseError (re-export of tenchi.client.UnexpectedResponseError)
 UseCaseObserver = collections.abc.Callable[[tenchi.execution.UseCaseOutcome], typing.Any]
 UseCaseOutcome (re-export of tenchi.execution.UseCaseOutcome)
+Webhook (re-export of tenchi.webhooks.Webhook)
+WebhookBindingError (re-export of tenchi.webhooks.WebhookBindingError)
+WebhookRequest (re-export of tenchi.webhooks.WebhookRequest)
+WebhookVerifier = collections.abc.Callable[['WebhookRequest', typing.Any], typing.Any]
 contract (re-export of tenchi.contracts.contract)
 create_app (re-export of tenchi.server.create_app)
 create_task_runner (re-export of tenchi.tasks.create_task_runner)
@@ -58,6 +62,7 @@ run_preflight (re-export of tenchi.preflight.run_preflight)
 swagger_ui_route (re-export of tenchi.openapi.swagger_ui_route)
 task (re-export of tenchi.tasks.task)
 task_group (re-export of tenchi.tasks.task_group)
+webhook (re-export of tenchi.webhooks.webhook)
 
 # tenchi.client
 class Client
@@ -117,14 +122,15 @@ class Contract(Generic)
     description: str | None = None
     tags: tuple[str, ...] = ()
     public: bool = False
+    webhook: bool = False
     deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
     responses: tuple[ResponseDef[Any, Any], ...] = ()
     timeout: float | None = None
-    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), public: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, responses: 'tuple[ResponseDef[Any, Any], ...]' = (), timeout: 'float | None' = None) -> None
+    def __init__(self, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'tuple[ErrorDef, ...]' = (), name: 'str' = '', request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'tuple[str, ...]' = (), public: 'bool' = False, webhook: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, responses: 'tuple[ResponseDef[Any, Any], ...]' = (), timeout: 'float | None' = None) -> None
     def declares_error(self, definition: 'ErrorDef') -> 'bool'
-def contract(*, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), public: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, responses: 'Sequence[ResponseDef[Any, Any]]' = (), timeout: 'float | None' = None) -> 'Contract[ResponseT, ResponseHeadersT]'
+def contract(*, method: 'str', path: 'str', request: 'type[Any] | UnionType | None' = None, params: 'type[Any] | UnionType | None' = None, query: 'type[Any] | UnionType | None' = None, headers: 'type[Any] | UnionType | None' = None, response: 'type[ResponseT] | UnionType | None' = None, response_headers: 'type[ResponseHeadersT] | UnionType | None' = None, status: 'int' = 200, errors: 'Sequence[ErrorDef]' = (), name: 'str | None' = None, request_media_type: 'str' = 'application/json', response_media_type: 'str' = 'application/json', summary: 'str | None' = None, description: 'str | None' = None, tags: 'Sequence[str]' = (), public: 'bool' = False, webhook: 'bool' = False, deprecated: 'bool | datetime' = False, sunset: 'datetime | None' = None, max_request_bytes: 'int | None' = None, responses: 'Sequence[ResponseDef[Any, Any]]' = (), timeout: 'float | None' = None) -> 'Contract[ResponseT, ResponseHeadersT]'
 
 # tenchi.errors
 class AppError(TenchiError)
@@ -294,7 +300,7 @@ class RequestOutcome
     duration_seconds: float
     error_source: Literal['app', 'framework'] | None
     def __init__(self, request: 'RequestInfo', status_code: 'int', duration_seconds: 'float', error_source: "Literal['app', 'framework'] | None") -> None
-def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifespan: 'Lifespan | None' = None, hooks: 'Sequence[Hook]' = (), middleware: 'Sequence[Middleware]' = (), observers: 'Sequence[OutcomeObserver]' = (), use_case_observers: 'Sequence[Callable[[UseCaseOutcome], Any]]' = (), max_request_bytes: 'int | None' = 1048576) -> 'Starlette'
+def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifespan: 'Lifespan | None' = None, hooks: 'Sequence[Hook]' = (), webhooks: 'Sequence[Webhook]' = (), middleware: 'Sequence[Middleware]' = (), observers: 'Sequence[OutcomeObserver]' = (), use_case_observers: 'Sequence[Callable[[UseCaseOutcome], Any]]' = (), max_request_bytes: 'int | None' = 1048576) -> 'Starlette'
 
 # tenchi.testing
 ASGIApp = collections.abc.Callable[..., collections.abc.Awaitable[None]]
@@ -326,3 +332,19 @@ class TaskRunner
 def create_task_runner(*, tasks: 'TaskGroup', context_factory: 'Callable[..., Any]', lifespan: 'Callable[[], AbstractAsyncContextManager[Any]] | None' = None, use_case_observers: 'Sequence[UseCaseObserver]' = ()) -> 'TaskRunner'
 def task(name: 'str', use_case: 'Callable[..., Awaitable[Any]]', *, description: 'str | None' = None) -> 'Task'
 def task_group(*items: 'Task | TaskGroup | Sequence[Task]') -> 'TaskGroup'
+
+# tenchi.webhooks
+class Webhook
+    contract: Contract[Any, Any]
+    verifier: WebhookVerifier
+    def __init__(self, contract: 'Contract[Any, Any]', verifier: 'WebhookVerifier') -> None
+class WebhookBindingError(ConfigurationError, TypeError)
+class WebhookRequest
+    body: bytes
+    headers: Mapping[str, str]
+    header_values: Mapping[str, tuple[str, ...]]
+    contract: Contract[Any, Any]
+    request_id: str
+    def __init__(self, body: 'bytes', headers: 'Mapping[str, str]', header_values: 'Mapping[str, tuple[str, ...]]', contract: 'Contract[Any, Any]', request_id: 'str') -> None
+WebhookVerifier = collections.abc.Callable[['WebhookRequest', typing.Any], typing.Any]
+def webhook(contract: 'Contract[Any, Any]', verifier: 'WebhookVerifier') -> 'Webhook'

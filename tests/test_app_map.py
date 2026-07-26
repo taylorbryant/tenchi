@@ -527,7 +527,10 @@ dynamic_contract = contract(
     dynamic = next(
         node for node in result.nodes if node.id == "contract:todos.dynamic_contract"
     )
-    assert dict(dynamic.details) == {"export_name": "dynamic_contract"}
+    assert dict(dynamic.details) == {
+        "export_name": "dynamic_contract",
+        "webhook": False,
+    }
 
 
 def test_app_map_reports_source_it_cannot_parse(tmp_path: Path) -> None:

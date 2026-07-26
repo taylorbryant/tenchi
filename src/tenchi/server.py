@@ -80,6 +80,11 @@ from .routes import (
     _runtime_route_priority,  # pyright: ignore[reportPrivateUsage]
     _validate_route_identities,  # pyright: ignore[reportPrivateUsage]
 )
+from .webhooks import (
+    Webhook,
+    WebhookRequest,
+    _validate_verifier,  # pyright: ignore[reportPrivateUsage]
+)
 
 logger = logging.getLogger("tenchi.server")
 
@@ -230,6 +235,7 @@ class _BoundRoute:
     body_limit: int | None
     lifecycle_headers: tuple[tuple[str, str], ...]
     responses: tuple[_BoundResponse, ...]
+    webhook: Webhook | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +254,7 @@ def create_app(
     context_factory: Callable[[], object],
     lifespan: Callable[[], AbstractAsyncContextManager[object]] | None = None,
     hooks: Sequence[Hook] = (),
+    webhooks: Sequence[Webhook] = (),
     middleware: Sequence[Middleware] = (),
     observers: Sequence[OutcomeObserver] = (),
     use_case_observers: Sequence[Callable[[UseCaseOutcome], Any]] = (),
@@ -262,6 +269,7 @@ def create_app[StateT](
     context_factory: Callable[[StateT], object],
     lifespan: Callable[[], AbstractAsyncContextManager[StateT]],
     hooks: Sequence[Hook] = (),
+    webhooks: Sequence[Webhook] = (),
     middleware: Sequence[Middleware] = (),
     observers: Sequence[OutcomeObserver] = (),
     use_case_observers: Sequence[Callable[[UseCaseOutcome], Any]] = (),
@@ -275,6 +283,7 @@ def create_app(
     context_factory: ContextFactory,
     lifespan: Lifespan | None = None,
     hooks: Sequence[Hook] = (),
+    webhooks: Sequence[Webhook] = (),
     middleware: Sequence[Middleware] = (),
     observers: Sequence[OutcomeObserver] = (),
     use_case_observers: Sequence[Callable[[UseCaseOutcome], Any]] = (),
@@ -300,6 +309,12 @@ def create_app(
     ``hooks`` run on every request after the context is created and before
     inputs are validated; see :data:`Hook`. Authentication belongs here;
     business authorization belongs in use cases.
+
+    ``webhooks`` bind selected contracts to exact-body signature verifiers.
+    Each verifier runs after ordinary hooks and request size/media checks, but
+    before any Pydantic input validation or the use case. A binding follows
+    its contract through route-group prefixes and group-level error
+    declarations.
 
     ``middleware`` is passed straight to Starlette — the seam for CORS,
     compression, and other ASGI concerns::
@@ -342,6 +357,7 @@ def create_app(
             label=f"create_app: hook[{index}]",
             expectation="accept two positional arguments (request_info, context)",
         )
+    webhook_bindings = _validated_webhooks(routes, webhooks)
     observer_chain = tuple(observers)
     for index, observer in enumerate(observer_chain):
         _require_call_shape(
@@ -407,6 +423,7 @@ def create_app(
                 _bind_response(item.contract, definition)
                 for definition in item.contract.responses
             ),
+            webhook=webhook_bindings.get(id(item)),
         )
         try:
             starlette_route = _TenchiRoute(
@@ -475,6 +492,59 @@ def _validate_body_limit(value: object) -> None:
             "create_app: max_request_bytes must be positive (a non-bool int, or "
             f"None to disable the app-wide cap), got {value!r}"
         )
+
+
+def _validated_webhooks(
+    routes: RouteGroup,
+    values: Sequence[Webhook],
+) -> dict[int, Webhook]:
+    route_targets: dict[int, list[Route]] = {}
+    for item in routes:
+        key = id(item.contract._binding_key)  # pyright: ignore[reportPrivateUsage]
+        route_targets.setdefault(key, []).append(item)
+
+    bindings: dict[int, Webhook] = {}
+    for index, value in enumerate(values):
+        if not isinstance(value, Webhook):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ConfigurationError(
+                f"create_app: webhooks[{index}] must be a Webhook, got "
+                f"{type(value).__name__}"
+            )
+        key = id(value.contract._binding_key)  # pyright: ignore[reportPrivateUsage]
+        targets = route_targets.get(key)
+        if targets is None:
+            raise ConfigurationError(
+                f"create_app: webhook contract {value.contract.name!r} is not "
+                "present in routes"
+            )
+        for target in targets:
+            target_id = id(target)
+            name = target.contract.name
+            if target_id in bindings:
+                raise ConfigurationError(
+                    f"create_app: duplicate webhook binding for contract {name!r}"
+                )
+            if target.contract.request is None:
+                raise ConfigurationError(
+                    f"create_app: webhook contract {name!r} must declare a request body"
+                )
+            if not target.contract.webhook:
+                raise ConfigurationError(
+                    f"create_app: webhook contract {name!r} must declare webhook=True"
+                )
+            _validate_verifier(name, value.verifier)
+            bindings[target_id] = value
+    missing = [
+        item.contract.name
+        for item in routes
+        if item.contract.webhook and id(item) not in bindings
+    ]
+    if missing:
+        raise ConfigurationError(
+            "create_app: webhook contracts require verifier bindings; missing "
+            f"{missing!r}"
+        )
+    return bindings
 
 
 def _callable_signature(value: object, *, label: str) -> inspect.Signature:
@@ -643,6 +713,15 @@ def _request_id(request: Request) -> str:
 def _header_dict(request: Request) -> dict[str, str]:
     """Request headers keyed by lowercased HTTP name; repeats keep the last."""
     return {key.lower(): value for key, value in request.headers.items()}
+
+
+def _header_values(request: Request) -> dict[str, tuple[str, ...]]:
+    """All request-header values keyed by lowercased HTTP name."""
+    values: dict[str, list[str]] = {}
+    for raw_name, raw_value in request.headers.raw:
+        name = raw_name.decode("latin-1").lower()
+        values.setdefault(name, []).append(raw_value.decode("latin-1"))
+    return {name: tuple(items) for name, items in values.items()}
 
 
 def _header_fields(request: Request, fields: tuple[str, ...]) -> dict[str, str]:
@@ -1053,20 +1132,14 @@ def _make_endpoint(
 
         kwargs: dict[str, Any] = {"context": context}
         request_id = request_info.request_id
+        body: bytes | None = None
+        actual_media_type: str | None = None
         try:
-            if bound.params_adapter is not None:
-                kwargs["params"] = bound.params_adapter.validate_python(
-                    request.path_params
-                )
-            if bound.query_adapter is not None:
-                kwargs["query"] = bound.query_adapter.validate_python(
-                    _query_dict(request.query_params, bound.query_sequence_fields)
-                )
-            if bound.headers_adapter is not None:
-                kwargs["headers"] = bound.headers_adapter.validate_python(
-                    _header_fields(request, bound.header_fields)
-                )
-            if bound.request_adapter is not None:
+            if bound.webhook is not None:
+                # A signed webhook is an authentication boundary. After the
+                # cheap media-type and size guards, verify its exact bytes
+                # before any Pydantic adapter can disclose input details.
+                assert bound.request_adapter is not None
                 actual_media_type = request.headers.get("content-type")
                 if not media_type_matches(
                     declared=contract.request_media_type,
@@ -1081,6 +1154,49 @@ def _make_endpoint(
                         request_id=request_id,
                     )
                 body = await _read_body(request, bound.body_limit)
+                verification = bound.webhook.verifier(
+                    WebhookRequest(
+                        body=body,
+                        headers=request_info.headers,
+                        header_values=MappingProxyType(_header_values(request)),
+                        contract=contract,
+                        request_id=request_id,
+                    ),
+                    context,
+                )
+                if inspect.isawaitable(verification):
+                    verification = await verification
+                if verification is not None:
+                    context = verification
+                    kwargs["context"] = context
+            if bound.params_adapter is not None:
+                kwargs["params"] = bound.params_adapter.validate_python(
+                    request.path_params
+                )
+            if bound.query_adapter is not None:
+                kwargs["query"] = bound.query_adapter.validate_python(
+                    _query_dict(request.query_params, bound.query_sequence_fields)
+                )
+            if bound.headers_adapter is not None:
+                kwargs["headers"] = bound.headers_adapter.validate_python(
+                    _header_fields(request, bound.header_fields)
+                )
+            if bound.request_adapter is not None:
+                if body is None:
+                    actual_media_type = request.headers.get("content-type")
+                    if not media_type_matches(
+                        declared=contract.request_media_type,
+                        actual=actual_media_type,
+                    ):
+                        return _framework_error_response(
+                            tenchi_errors.unsupported_media_type,
+                            details={
+                                "expected": contract.request_media_type,
+                                "actual": actual_media_type,
+                            },
+                            request_id=request_id,
+                        )
+                    body = await _read_body(request, bound.body_limit)
                 if is_json_media_type(contract.request_media_type):
                     kwargs["request"] = bound.request_adapter.validate_json(body)
                 elif is_text_media_type(contract.request_media_type):

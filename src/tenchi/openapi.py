@@ -429,6 +429,8 @@ def _operation(
         operation["x-sunset"] = declared.sunset.astimezone(UTC).isoformat()
     if declared.timeout is not None:
         operation["x-timeout-seconds"] = declared.timeout
+    if declared.webhook:
+        operation["x-tenchi-webhook"] = True
 
     parameters: list[dict[str, Any]] = []
     if declared.params is not None:

@@ -6,6 +6,12 @@ unauthorized = ErrorDef(
     message="Unauthorized",
 )
 
+invalid_webhook = ErrorDef(
+    code="INVALID_WEBHOOK",
+    status=401,
+    message="Webhook verification failed",
+)
+
 forbidden = ErrorDef(
     code="FORBIDDEN",
     status=403,

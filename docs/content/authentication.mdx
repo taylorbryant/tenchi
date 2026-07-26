@@ -64,6 +64,11 @@ Authentication hooks run before request input validation, so an unauthenticated
 caller cannot use validation responses to inspect an operation the hook
 protects.
 
+Signed provider callbacks need the exact request bytes, not only headers. Use
+a [webhook verifier binding](/webhooks) for those endpoints. It runs after
+ordinary hooks and request size/media checks, before contract input validation,
+and may attach a service identity to the same context model.
+
 ## Declare authentication failures
 
 The server's [error honesty rule](/errors) applies to hooks. Declare the
@@ -132,3 +137,7 @@ identifiers.
   signal. The hook must still inspect it, and use cases remain responsible for
   business authorization.
 </Callout>
+
+For webhook contracts, `public=True` exempts only the ordinary authentication
+hook. `webhook=True` separately requires an exact-body verifier at application
+composition.

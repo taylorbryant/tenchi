@@ -272,6 +272,30 @@ def test_policy_import_counts_as_authorization(app_root: Path) -> None:
     assert findings[0].path == "app/features/todos/use_cases/list_todos.py"
 
 
+def test_service_identity_helper_counts_as_authorization(app_root: Path) -> None:
+    create = app_root / "app/features/todos/use_cases/create_todo.py"
+    create.write_text(
+        "from app.shared.users import require_service\n\n\n"
+        "async def create_todo(context: object) -> None:\n"
+        "    require_service(None, 'provider')\n"
+    )
+    listing = app_root / "app/features/todos/use_cases/list_todos.py"
+    listing.write_text("# doctor: public\n" + listing.read_text())
+
+    assert run_doctor(app_root) == []
+
+
+def test_context_service_dependency_does_not_imply_authorization(
+    app_root: Path,
+) -> None:
+    create = app_root / "app/features/todos/use_cases/create_todo.py"
+    create.write_text(
+        "async def create_todo(context: object) -> None:\n    print(context.service)\n"
+    )
+
+    assert run_doctor(app_root) == []
+
+
 def test_missing_prescribed_modules_are_flagged(app_root: Path) -> None:
     (app_root / "app/server/asgi.py").unlink()
 

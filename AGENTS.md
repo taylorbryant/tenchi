@@ -43,6 +43,7 @@ framework code, the CLI, docs, or the example apps.
   - `errors.py` — `ErrorDef`, `AppError`, framework error definitions, the
     standard envelope.
   - `server.py` — `create_app`, lifespan/state, hooks, request dispatch.
+  - `webhooks.py` — exact-body verifier bindings for signed inbound deliveries.
   - `execution.py` — `execute`/`open_context`: run use cases with the
     server's boundary guarantees from any entrypoint (workers, scripts).
   - `client.py` — the contract-driven typed httpx client and payload-safe
@@ -117,6 +118,7 @@ app/
   server/
     context.py     # frozen AppContext dataclass of ports (+ user identity)
     hooks.py       # HTTP-boundary hooks (authentication)
+    webhooks.py    # signed-provider verification and service identity
     routes.py      # composes feature groups; group-level error declarations
     runtime.py     # resources shared by HTTP and operational entrypoints
     preflight.py   # read-only checks of the target deployment environment
@@ -201,6 +203,12 @@ API shape:
   `health_route()` and `openapi_route()` are public by default and accept
   `public=False` when an application needs to protect them. OpenAPI derives
   global-security exemptions from the same contract metadata.
+- Signed inbound contracts declare `webhook=True`; `create_app()` must bind
+  each one through `webhook(contract, verifier)`. Verifiers use the exact
+  size-bounded bytes, raise declared `AppError` values on expected rejection,
+  and may return an enriched context carrying service identity. Use cases
+  still assert that identity, and provider event ids use transaction-scoped
+  idempotency to collapse redelivery.
 - Retry-safe operations use `run_idempotently()` with an `IdempotencyStore`
   supplied through the application context. The store that protects database
   writes participates in the same transaction; keys are scoped to an actor or

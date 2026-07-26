@@ -241,10 +241,10 @@ def _authorization_findings(root: Path) -> list[Finding]:
     """Flag use cases that skip authorization in an app that uses it.
 
     This is a consistency check, not a proof: if any use case references
-    authorization (``require_user``, ``context.user``, or a policy
-    import), every use case must do the same or carry the explicit
-    ``# doctor: public`` pragma. Apps with no authorization anywhere are
-    left alone.
+    authorization (``require_user``, ``require_service``, ``context.user``, or
+    a policy import), every use case must do the same or carry the explicit
+    ``# doctor: public`` pragma. Apps with no authorization anywhere are left
+    alone.
     """
     surveyed: list[tuple[Path, bool, bool]] = []
     for path in sorted((root / "app").rglob("*.py")):
@@ -270,8 +270,9 @@ def _authorization_findings(root: Path) -> list[Finding]:
             line=0,
             message=(
                 "use case makes no authorization reference while other use "
-                "cases in this app do; call require_user or a policy, read "
-                f"context.user, or mark deliberate exposure with {_PUBLIC_PRAGMA!r}"
+                "cases in this app do; call require_user/require_service or a "
+                "policy, read context.user, or mark deliberate "
+                f"exposure with {_PUBLIC_PRAGMA!r}"
             ),
             code="TENCHI_DOCTOR_AUTHORIZATION_INCONSISTENT",
         )
@@ -301,11 +302,11 @@ def _references_authorization(tree: ast.Module, relative: Path) -> bool:
     for _, target in _imports(tree, relative):
         if _classify_module(target) == "policy":
             return True
-        if target and target[-1] == "require_user":
+        if target and target[-1] in {"require_service", "require_user"}:
             return True
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
-            if node.attr == "require_user":
+            if node.attr in {"require_service", "require_user"}:
                 return True
             # Only context.user counts — todo.user on a domain object is
             # data access, not an authorization guard.
@@ -315,7 +316,10 @@ def _references_authorization(tree: ast.Module, relative: Path) -> bool:
                 and node.value.id == "context"
             ):
                 return True
-        if isinstance(node, ast.Name) and node.id == "require_user":
+        if isinstance(node, ast.Name) and node.id in {
+            "require_service",
+            "require_user",
+        }:
             return True
     return False
 

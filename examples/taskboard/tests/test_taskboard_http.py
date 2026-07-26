@@ -4,6 +4,9 @@ Two authenticated clients (alice and bob) share one app instance so
 ownership rules are exercised across users.
 """
 
+import hashlib
+import hmac
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -51,6 +54,7 @@ from app.infra.static_token_directory import StaticTokenDirectory
 from app.server.context import AppContext
 from app.server.hooks import create_bearer_hook
 from app.server.routes import routes
+from app.server.webhooks import DEMO_WEBHOOK_SECRET, create_webhooks
 from app.shared.errors import (
     forbidden,
     precondition_failed,
@@ -80,12 +84,17 @@ class Harness:
     alice: Client
     bob: Client
     anonymous: Client
+    notifications: MemoryNotificationLog
 
 
-def make_app() -> Starlette:
+def make_app(
+    *,
+    notifications: MemoryNotificationLog | None = None,
+) -> Starlette:
     projects = MemoryProjectRepository()
     tasks = MemoryTaskRepository(projects)
     idempotency = MemoryIdempotencyStore()
+    notification_log = notifications or MemoryNotificationLog()
     return create_app(
         routes=routes,
         context_factory=lambda: AppContext(
@@ -94,9 +103,10 @@ def make_app() -> Starlette:
             task_search=MemoryTaskSearch(projects, tasks),
             idempotency=idempotency,
             outbox=MemoryOutbox(),
-            notifications=MemoryNotificationLog(),
+            notifications=notification_log,
         ),
         hooks=[create_bearer_hook(StaticTokenDirectory(TOKENS))],
+        webhooks=create_webhooks(DEMO_WEBHOOK_SECRET),
     )
 
 
@@ -112,14 +122,107 @@ def make_client(app: Starlette, token: str | None) -> Client:
 
 @pytest.fixture
 async def harness() -> AsyncIterator[Harness]:
-    app = make_app()
+    notifications = MemoryNotificationLog()
+    app = make_app(notifications=notifications)
     clients = tuple(
         make_client(app, token) for token in ("alice-token", "bob-token", None)
     )
     alice, bob, anonymous = clients
-    yield Harness(app=app, alice=alice, bob=bob, anonymous=anonymous)
+    yield Harness(
+        app=app,
+        alice=alice,
+        bob=bob,
+        anonymous=anonymous,
+        notifications=notifications,
+    )
     for client in clients:
         await client.aclose()
+
+
+async def test_signed_webhook_verifies_and_collapses_provider_retries(
+    harness: Harness,
+) -> None:
+    body = json.dumps(
+        {
+            "event_id": "member-event-1",
+            "project_id": "project-1",
+            "project_name": "Launch",
+            "user_id": "bob",
+        },
+        separators=(",", ":"),
+    ).encode()
+    signature = (
+        "sha256="
+        + hmac.new(
+            DEMO_WEBHOOK_SECRET,
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+    )
+    conflicting_body = body.replace(b'"Launch"', b'"Other"')
+    conflicting_signature = (
+        "sha256="
+        + hmac.new(
+            DEMO_WEBHOOK_SECRET,
+            conflicting_body,
+            hashlib.sha256,
+        ).hexdigest()
+    )
+
+    async with open_http(harness.app) as http:
+        invalid = await http.post(
+            "/webhooks/member-added",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "x-webhook-signature": "sha256=invalid",
+            },
+        )
+        ambiguous = await http.post(
+            "/webhooks/member-added",
+            content=body,
+            headers=[
+                ("content-type", "application/json"),
+                ("x-webhook-signature", signature),
+                ("x-webhook-signature", signature),
+            ],
+        )
+        delivered = await http.post(
+            "/webhooks/member-added",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "x-webhook-signature": signature,
+            },
+        )
+        replayed = await http.post(
+            "/webhooks/member-added",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "x-webhook-signature": signature,
+            },
+        )
+        conflicting = await http.post(
+            "/webhooks/member-added",
+            content=conflicting_body,
+            headers={
+                "content-type": "application/json",
+                "x-webhook-signature": conflicting_signature,
+            },
+        )
+
+    assert invalid.status_code == 401
+    assert invalid.json()["code"] == "INVALID_WEBHOOK"
+    assert ambiguous.status_code == 401
+    assert ambiguous.json()["code"] == "INVALID_WEBHOOK"
+    assert delivered.status_code == 204
+    assert replayed.status_code == 204
+    assert conflicting.status_code == 409
+    assert conflicting.json()["code"] == "IDEMPOTENCY_CONFLICT"
+    assert harness.notifications.records == [
+        ("bob", "You were added to project 'Launch'")
+    ]
 
 
 async def test_full_project_and_task_flow(harness: Harness) -> None:

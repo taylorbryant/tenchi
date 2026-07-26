@@ -1160,6 +1160,129 @@
           "tasks"
         ]
       }
+    },
+    "/webhooks/member-added": {
+      "post": {
+        "description": "Record one notification from a verified member-directory delivery.",
+        "operationId": "receive_member_added_webhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A provider delivery with a stable id used to collapse retries.",
+                "properties": {
+                  "event_id": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "title": "Event Id",
+                    "type": "string"
+                  },
+                  "project_id": {
+                    "title": "Project Id",
+                    "type": "string"
+                  },
+                  "project_name": {
+                    "title": "Project Name",
+                    "type": "string"
+                  },
+                  "user_id": {
+                    "title": "User Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "event_id",
+                  "project_id",
+                  "project_name",
+                  "user_id"
+                ],
+                "title": "MemberAddedWebhook",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "INVALID_WEBHOOK: Webhook verification failed; UNAUTHORIZED: Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "IDEMPOTENCY_CONFLICT: The idempotency key was already used with different input; IDEMPOTENCY_IN_PROGRESS: An operation with this idempotency key is already in progress",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "REQUEST_TOO_LARGE: Request body too large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: Request validation failed"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "REQUEST_TIMEOUT: Request deadline exceeded"
+          }
+        },
+        "security": [],
+        "summary": "Receive a signed member-added delivery",
+        "tags": [
+          "webhooks"
+        ],
+        "x-tenchi-webhook": true,
+        "x-timeout-seconds": 10
+      }
     }
   },
   "security": [
