@@ -149,9 +149,9 @@ of work. Passing a ready context leaves commit and rollback with the caller.
 
 Pass `use_case_observers=` to `create_job_dispatcher()`. Each
 `UseCaseOutcome.entrypoint` is `"job"` and contains only the use-case identity,
-status, duration, and stable application error code. Queue latency, attempt
-number, message id, and dead-letter state remain worker telemetry because the
-dispatcher never owns them.
+status, duration, UTC completion time, and stable application error code. Queue
+latency, attempt number, message id, and dead-letter state remain worker
+telemetry because the dispatcher never owns them.
 
 The taskboard example demonstrates a SQLite transactional outbox, typed
 producer message, registered dispatcher, rollback before dead-lettering, and

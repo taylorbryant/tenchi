@@ -91,6 +91,7 @@ async def test_client_observers_receive_final_success_in_order(
         "duration_seconds",
         "error_code",
         "attempts",
+        "completed_at",
     }
 
 

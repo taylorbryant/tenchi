@@ -7,6 +7,21 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- Optional OpenTelemetry integration through the `tenchi[otel]` extra.
+  `create_opentelemetry_observers()` turns finalized HTTP, use-case, logical
+  client-call, and retry-attempt outcomes into internal logical spans and
+  bounded-cardinality counters and duration histograms. It records no headers,
+  bodies, raw paths, request ids, URLs, or exception objects; application error
+  codes and retry details remain span-only rather than metric dimensions.
+  Applications continue to own the OpenTelemetry SDK, resources, processors,
+  readers, exporters, ASGI/httpx instrumentation, and provider shutdown.
+- Finalized `RequestOutcome`, `UseCaseOutcome`, `ClientOutcome`, and
+  `ClientAttemptOutcome` values now include a payload-safe UTC `completed_at`
+  timestamp. It anchors logs and completed logical spans to the measured
+  operation rather than to delayed observer execution.
+
 ## [0.11.0] - 2026-07-27
 
 ### Added

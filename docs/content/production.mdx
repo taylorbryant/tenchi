@@ -27,7 +27,7 @@ Tenchi provides the application seams and boundary guarantees:
 | Inbound webhooks | Exact-body verifier bindings, required composition, request limits, and typed validation | Verify the provider protocol, attach service identity, enforce replay rules, and store event ids |
 | Background work | Validated job messages, handler bindings, dispatch, and scoped contexts | Choose a queue or outbox, schedule workers, and define retry policy |
 | Operational maintenance | Validated named tasks, CLI/MCP discovery, and scoped execution | Define safe dry runs, operator access, and rollout procedure |
-| Observability | Finalized HTTP, use-case, and outbound-client outcomes | Export logs, metrics, traces, and alerts |
+| Observability | Finalized outcomes plus an optional OpenTelemetry bridge | Configure the SDK, transport instrumentation, exporters, alerts, and retention |
 | Deployment | Health routes, request limits, deadlines, `tenchi check`, and environment preflight | Configure the ASGI server, proxy, secrets, migrations, dependency credentials, and rollout |
 
 <Callout title="The core does not select your infrastructure">

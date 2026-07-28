@@ -210,7 +210,7 @@ export const docsSections = [
         title: "Observability and audit",
         navLabel: "Observability",
         description:
-          "Turn request outcomes into low-cardinality logs and metrics, instrument non-HTTP work, and keep audit records separate.",
+          "Export payload-safe outcomes through OpenTelemetry, instrument non-HTTP work, and keep audit records separate.",
         priority: 0.8,
       },
       {

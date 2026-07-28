@@ -40,7 +40,8 @@ from contextlib import (
     AbstractContextManager,
     asynccontextmanager,
 )
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any, Literal, cast
 
@@ -65,7 +66,8 @@ class UseCaseOutcome:
     The outcome is delivered after its surrounding context scope has closed.
     ``duration_seconds`` measures the use-case call itself; it deliberately
     excludes input validation, context acquisition and cleanup, HTTP response
-    presentation, and observer work.
+    presentation, and observer work. ``completed_at`` is captured when the
+    function returns or raises, before scope cleanup and observer delivery.
     """
 
     use_case: Callable[..., Awaitable[Any]]
@@ -73,6 +75,7 @@ class UseCaseOutcome:
     status: Literal["succeeded", "app_error", "failed", "cancelled"]
     duration_seconds: float
     error_code: str | None = None
+    completed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 UseCaseObserver = Callable[[UseCaseOutcome], Any]
@@ -132,6 +135,7 @@ class _UseCaseCall:
             status=status,
             duration_seconds=perf_counter() - started,
             error_code=error_code,
+            completed_at=datetime.now(UTC),
         )
 
 

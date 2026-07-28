@@ -63,6 +63,7 @@ def observe_use_case(outcome: UseCaseOutcome) -> None:
             "entrypoint": outcome.entrypoint,
             "status": outcome.status,
             "duration_seconds": outcome.duration_seconds,
+            "completed_at": outcome.completed_at.isoformat(),
             "error_code": outcome.error_code,
         },
     )
@@ -77,7 +78,8 @@ result = await execute(
 
 `create_app(use_case_observers=(observe_use_case,))` reports the HTTP path
 through the same `UseCaseOutcome` shape. The observer runs after context
-cleanup, while `duration_seconds` measures only the use-case call.
+cleanup, while `duration_seconds` measures only the use-case call and
+`completed_at` records when that call returned or raised.
 
 No outcome is emitted when validation, context acquisition, or a boundary hook
 fails before the use case starts. Observer failures are logged and do not

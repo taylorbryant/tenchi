@@ -6,7 +6,114 @@ Observe every boundary with stable operation names, trusted correlation IDs,
 bounded-cardinality fields, and explicit redaction. Keep operational telemetry
 separate from durable audit records.
 
-## Observe finalized HTTP outcomes
+## Export outcomes with OpenTelemetry
+
+Install Tenchi's optional API integration and an OpenTelemetry SDK:
+
+```sh
+uv add "tenchi[otel]" opentelemetry-sdk
+```
+
+Configure the SDK, resource, readers, span processors, and exporter for your
+deployment before creating the observers. Tenchi deliberately does not choose
+an exporter or set process-global providers. The
+[OpenTelemetry Python exporter guide](https://opentelemetry.io/docs/languages/python/exporters/)
+shows console and OTLP configurations.
+
+```python
+from tenchi.client import Client
+from tenchi.opentelemetry import create_opentelemetry_observers
+from tenchi.server import create_app
+
+
+telemetry = create_opentelemetry_observers()
+
+app = create_app(
+    routes=routes,
+    context_factory=create_context,
+    observers=(telemetry.request,),
+    use_case_observers=(telemetry.use_case,),
+)
+
+async with Client(
+    base_url="https://inventory.example.com",
+    observers=(telemetry.client,),
+    attempt_observers=(telemetry.client_attempt,),
+) as client:
+    inventory = await client.call(get_inventory_contract)
+```
+
+The factory uses the process-global providers by default. Pass
+`tracer_provider=` or `meter_provider=` when the application keeps providers
+explicit instead:
+
+```python
+telemetry = create_opentelemetry_observers(
+    tracer_provider=tracer_provider,
+    meter_provider=meter_provider,
+)
+```
+
+Use the same `telemetry.use_case` observer with every non-HTTP entrypoint:
+
+```python
+from tenchi.execution import execute
+from tenchi.jobs import create_job_dispatcher
+from tenchi.tasks import create_task_runner
+
+
+dispatcher = create_job_dispatcher(
+    jobs=jobs,
+    use_case_observers=(telemetry.use_case,),
+)
+
+runner = create_task_runner(
+    tasks=tasks,
+    context_factory=create_context,
+    use_case_observers=(telemetry.use_case,),
+)
+
+await execute(
+    rebuild_index,
+    context=create_context,
+    use_case_observers=(telemetry.use_case,),
+)
+```
+
+The integration emits the following instruments. Each duration histogram also
+provides an event count through its histogram count; the explicit counters make
+throughput queries independent of histogram configuration.
+
+| Instrument | Kind | Unit |
+| --- | --- | --- |
+| `tenchi.http.server.requests` | Counter | `{request}` |
+| `tenchi.http.server.request.duration` | Histogram | `s` |
+| `tenchi.use_case.invocations` | Counter | `{invocation}` |
+| `tenchi.use_case.duration` | Histogram | `s` |
+| `tenchi.http.client.calls` | Counter | `{call}` |
+| `tenchi.http.client.call.duration` | Histogram | `s` |
+| `tenchi.http.client.attempts` | Counter | `{attempt}` |
+| `tenchi.http.client.attempt.duration` | Histogram | `s` |
+
+Metric dimensions are limited to static contract or use-case names, declared
+path templates, HTTP methods and statuses, bounded outcome classifications,
+entrypoint names, error ownership, and the retry decision. Application error
+codes, attempt numbers, maximum attempts, and selected retry delays are useful
+on individual spans but are intentionally excluded from metrics.
+
+The observer spans are completed `INTERNAL` logical-operation spans. They
+inherit the current trace context and use each outcome's UTC `completed_at`
+timestamp plus Tenchi's measured duration, but they are not active while
+application or transport work runs. Use standard ASGI, httpx, database, and
+queue instrumentation for active transport spans and automatic context
+propagation. The active transport spans and Tenchi's finalized logical spans
+then describe complementary parts of the same trace.
+
+The integration depends only on `opentelemetry-api`. Without an
+application-configured SDK, its providers are no-ops. The application owns
+provider flushing and shutdown in its process lifespan.
+
+## Write a custom outcome observer
 
 Register a synchronous or asynchronous observer with `create_app()`:
 
@@ -29,6 +136,7 @@ def observe_request(outcome: RequestOutcome) -> None:
             "method": outcome.request.method,
             "status_code": outcome.status_code,
             "duration_seconds": outcome.duration_seconds,
+            "completed_at": outcome.completed_at.isoformat(),
             "error_source": outcome.error_source,
             "request_id": outcome.request.request_id,
         },
@@ -46,6 +154,7 @@ def observe_use_case(outcome: UseCaseOutcome) -> None:
             "entrypoint": outcome.entrypoint,
             "status": outcome.status,
             "duration_seconds": outcome.duration_seconds,
+            "completed_at": outcome.completed_at.isoformat(),
             "error_code": outcome.error_code,
         },
     )
@@ -59,6 +168,7 @@ def observe_client(outcome: ClientOutcome) -> None:
             "status": outcome.status,
             "status_code": outcome.status_code,
             "duration_seconds": outcome.duration_seconds,
+            "completed_at": outcome.completed_at.isoformat(),
             "error_code": outcome.error_code,
         },
     )
@@ -74,7 +184,9 @@ app = create_app(
 
 The outcome arrives after the request context has closed and the response is
 finalized. It therefore describes the status the caller receives and includes
-time spent committing or rolling back the request scope.
+time spent committing or rolling back the request scope. `completed_at` records
+when that measured boundary finished even if an earlier observer delays
+delivery.
 
 Observer failures are logged and isolated from the response and later
 observers. Keep observers fast: they still run before the ASGI endpoint
@@ -92,6 +204,7 @@ a background job, an operational task, or `execute()`:
 | `status` | `succeeded`, `app_error`, `failed`, or `cancelled` |
 | `duration_seconds` | Time spent inside the use-case function |
 | `error_code` | The stable `AppError` code for `app_error`; otherwise `None` |
+| `completed_at` | UTC completion time captured when the function returned or raised |
 
 Pass the observer to `create_app(use_case_observers=...)` for HTTP,
 `execute(use_case_observers=...)` for workers, schedules, scripts, and direct
@@ -141,6 +254,7 @@ async with Client(
 | `duration_seconds` | Local preparation, transport, retry backoff, and response-validation time; observer work is excluded |
 | `error_code` | The declared remote `AppError` code for `app_error`; otherwise `None` |
 | `attempts` | Number of transport attempts made for the logical call |
+| `completed_at` | UTC completion time captured before logical-call observers run |
 
 The outcome is emitted for local validation failures before any request leaves
 the process as well as for completed transport attempts. A response whose
@@ -160,8 +274,9 @@ caller.
 
 When a call uses an explicit retry policy, pass `attempt_observers=` to receive
 one payload-safe `ClientAttemptOutcome` per attempt. It adds the attempt
-number, selected retry delay, and `will_retry` decision. Use the logical
-outcome for availability and latency; use attempt outcomes for retry pressure.
+number, selected retry delay, `will_retry` decision, and the attempt's UTC
+`completed_at`. Use the logical outcome for availability and latency; use
+attempt outcomes for retry pressure.
 
 ## Use bounded labels
 

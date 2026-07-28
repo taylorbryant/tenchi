@@ -139,11 +139,13 @@ guarantees cleanup before the response is finalized.
 - `middleware=` accepts ordinary Starlette `Middleware` values for CORS,
   sessions, trusted hosts, compression, or app-specific ASGI behavior.
 - `observers=` receive immutable `RequestOutcome` values after a matched
-  request finalizes. Observer failures are logged and cannot change the
+  request finalizes. Each outcome records its UTC `completed_at` before
+  observer delivery. Observer failures are logged and cannot change the
   response.
 - `use_case_observers=` receive immutable `UseCaseOutcome` values after the
   request scope closes, but only when the matched use case ran. The same
-  observer contract works with `execute()`.
+  observer contract works with `execute()`; `completed_at` records when the
+  use-case call returned or raised, before later context cleanup.
 
 <Callout title="Expose the ecosystem">
   Tenchi does not wrap Starlette middleware or ASGI deployment servers. Use

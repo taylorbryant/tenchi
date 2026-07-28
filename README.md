@@ -46,6 +46,12 @@ uv add tenchi
 Add MCP support with `uv add --dev "tenchi[mcp]"` and follow the [MCP server
 guide](https://tenchi.io/mcp) to connect a coding agent.
 
+Add the payload-safe OpenTelemetry bridge with
+`uv add "tenchi[otel]" opentelemetry-sdk`. Tenchi records finalized request,
+use-case, client, and retry-attempt outcomes through the providers your
+application configures; see the
+[observability guide](https://tenchi.io/observability).
+
 Follow the [existing-project guide](https://tenchi.io/existing-project) to add
 the first contract, use case, ASGI application, test, and OpenAPI baseline.
 
@@ -130,7 +136,8 @@ The main pieces are:
   outcomes, OpenAPI 3.1 generation, and an optional Swagger UI route.
 - Lifespan resources, request-scoped contexts, authentication hooks, middleware,
   request deadlines, HTTP and use-case outcome observers, pagination, health
-  checks, and in-process testing helpers.
+  checks, in-process testing helpers, and an optional OpenTelemetry bridge for
+  logical spans and bounded-cardinality metrics.
 - Infrastructure-neutral idempotency with canonical validated-input
   fingerprints, durable store transitions, typed result replay, scoped keys,
   expiration, standard conflict/in-progress errors, and a concurrency-safe
@@ -263,7 +270,8 @@ matched route has finalized. Observer failures are logged and never change the
 response. `create_app(use_case_observers=...)` and
 `execute(use_case_observers=...)` and task runners deliver the same immutable
 `UseCaseOutcome` after context cleanup for every use case that was actually
-invoked.
+invoked. Finalized outcomes include a UTC `completed_at` captured before
+observer delivery, so delayed observers do not move the event's timestamp.
 `Client(observers=...)` delivers immutable `ClientOutcome` values for outbound
 contract calls, including transport failures, invalid responses, and
 cancellation, without carrying input, URL, header, body, or exception payloads.

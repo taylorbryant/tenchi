@@ -151,6 +151,7 @@ def observe_client(outcome: ClientOutcome) -> None:
             "status": outcome.status,
             "status_code": outcome.status_code,
             "duration_seconds": outcome.duration_seconds,
+            "completed_at": outcome.completed_at.isoformat(),
             "error_code": outcome.error_code,
             "attempts": outcome.attempts,
         },
@@ -175,6 +176,7 @@ Each call produces one immutable `ClientOutcome` before it returns or raises:
 | `status` | The outcome classification described below |
 | `status_code` | The HTTP status when a response arrived; otherwise `None` |
 | `duration_seconds` | Time spent preparing input, waiting for transport and retry backoff, and validating responses; observer work is excluded |
+| `completed_at` | UTC completion time captured before logical-call observers run |
 | `error_code` | The declared `AppError` code for `app_error`; otherwise `None` |
 | `attempts` | Number of transport attempts made for this logical call |
 
@@ -202,9 +204,9 @@ caller receives. Keep them fast because the call waits for the observer chain.
 To see individual attempts, pass `attempt_observers=` and accept
 `ClientAttemptOutcome`. It reports the attempt number, maximum attempts,
 classification, status and error code when available, whether the policy
-scheduled another attempt, and its selected delay. A deadline can still expire
-during that delay. One logical `ClientOutcome` is emitted after the retry
-sequence:
+scheduled another attempt, its selected delay, and the attempt's UTC completion
+time. A deadline can still expire during that delay. One logical
+`ClientOutcome` is emitted after the retry sequence:
 
 ```python
 from tenchi.client import ClientAttemptOutcome
@@ -217,6 +219,7 @@ def observe_attempt(outcome: ClientAttemptOutcome) -> None:
             "operation": outcome.contract.name,
             "status": outcome.status,
             "will_retry": outcome.will_retry,
+            "completed_at": outcome.completed_at.isoformat(),
         },
     )
 ```

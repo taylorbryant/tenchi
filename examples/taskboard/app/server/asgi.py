@@ -15,7 +15,7 @@ import os
 
 from app.infra.static_token_directory import StaticTokenDirectory
 from app.server.hooks import create_bearer_hook
-from app.server.observability import observe_request, observe_use_case
+from app.server.observability import request_observers, use_case_observers
 from app.server.routes import routes
 from app.server.runtime import DATABASE_PATH, create_context, create_lifespan
 from app.server.webhooks import DEMO_WEBHOOK_SECRET, create_webhooks
@@ -38,6 +38,6 @@ app = create_app(
     lifespan=create_lifespan(DATABASE_PATH),
     hooks=[create_bearer_hook(StaticTokenDirectory(DEMO_TOKENS))],
     webhooks=create_webhooks(WEBHOOK_SECRET),
-    observers=[observe_request],
-    use_case_observers=[observe_use_case],
+    observers=request_observers,
+    use_case_observers=use_case_observers,
 )

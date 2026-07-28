@@ -248,6 +248,7 @@ async def test_external_cancellation_is_not_converted_to_retry_timeout() -> None
 
 async def test_attempt_observer_time_does_not_consume_the_retry_deadline() -> None:
     attempts: list[ClientAttemptOutcome] = []
+    outcomes: list[ClientOutcome] = []
 
     async def respond(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"name": "milk"})
@@ -258,6 +259,7 @@ async def test_attempt_observer_time_does_not_consume_the_retry_deadline() -> No
 
     async with Client(
         transport=httpx.MockTransport(respond),
+        observers=(outcomes.append,),
         attempt_observers=(slow_observer,),
     ) as client:
         result = await client.call(
@@ -267,6 +269,7 @@ async def test_attempt_observer_time_does_not_consume_the_retry_deadline() -> No
 
     assert result == Item(name="milk")
     assert [item.status for item in attempts] == ["succeeded"]
+    assert outcomes[0].completed_at == attempts[0].completed_at
 
 
 async def test_attempt_observer_time_does_not_consume_deadline_between_retries() -> (

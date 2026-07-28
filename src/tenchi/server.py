@@ -21,6 +21,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from time import perf_counter
@@ -192,12 +193,17 @@ Returning ``None`` keeps the current context. Hooks may be sync or async.
 
 @dataclass(frozen=True, slots=True)
 class RequestOutcome:
-    """The finalized boundary outcome delivered to observers."""
+    """The finalized boundary outcome delivered to observers.
+
+    ``completed_at`` is captured when the response boundary finishes, before
+    observer delivery.
+    """
 
     request: RequestInfo
     status_code: int
     duration_seconds: float
     error_source: Literal["app", "framework"] | None
+    completed_at: datetime = dataclass_field(default_factory=lambda: datetime.now(UTC))
 
 
 OutcomeObserver = Callable[[RequestOutcome], Any]
@@ -1308,6 +1314,7 @@ def _make_endpoint(
             response = await respond(request, request_info, use_case_call)
         finally:
             request_duration = perf_counter() - started
+            request_completed_at = datetime.now(UTC)
             if use_case_call is not None:
                 await _notify_use_case_observers(
                     use_case_observers,
@@ -1328,6 +1335,7 @@ def _make_endpoint(
                     Literal["app", "framework"] | None,
                     response.headers.get(ERROR_SOURCE_HEADER),
                 ),
+                completed_at=request_completed_at,
             ),
         )
         return response

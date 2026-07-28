@@ -30,6 +30,7 @@ PUBLIC_MODULES = (
     "tenchi.idempotency",
     "tenchi.jobs",
     "tenchi.openapi",
+    "tenchi.opentelemetry",
     "tenchi.pagination",
     "tenchi.preflight",
     "tenchi.rate_limits",

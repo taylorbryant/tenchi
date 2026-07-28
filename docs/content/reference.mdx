@@ -109,6 +109,15 @@ results without owning a queue. A `Webhook` binds an exact-body verifier to a
 contract marked `webhook=True`. A `RateLimitStore` atomically applies
 fixed-window application quotas.
 
+## Optional integrations
+
+| Module | Public names | Install |
+| --- | --- | --- |
+| `tenchi.opentelemetry` | `OpenTelemetryObservers`, `create_opentelemetry_observers()` | `uv add "tenchi[otel]"` |
+
+The OpenTelemetry module records through application-configured providers. It
+does not create an SDK, exporter, background worker, or shutdown lifecycle.
+
 ## Schema and operations
 
 | Module | Public names |

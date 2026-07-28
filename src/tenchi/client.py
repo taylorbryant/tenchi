@@ -23,7 +23,7 @@ import logging
 import random
 from asyncio import CancelledError
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from time import perf_counter
@@ -109,6 +109,7 @@ class ClientOutcome:
     ``duration_seconds`` spans local input preparation, transport I/O, and
     response validation. Observer work is excluded. Bodies, headers, URLs,
     input values, and exception objects are deliberately absent.
+    ``completed_at`` is captured before logical-call observers run.
     """
 
     contract: Contract[Any, Any]
@@ -125,6 +126,7 @@ class ClientOutcome:
     duration_seconds: float
     error_code: str | None = None
     attempts: int = 1
+    completed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 ClientObserver = Callable[[ClientOutcome], Any]
@@ -141,7 +143,8 @@ class ClientAttemptOutcome:
 
     ``will_retry`` describes the decision made after this attempt.
     ``retry_delay_seconds`` is the selected backoff, including a declared
-    ``Retry-After`` response header when present.
+    ``Retry-After`` response header when present. ``completed_at`` is captured
+    before attempt observers run.
     """
 
     contract: Contract[Any, Any]
@@ -161,6 +164,7 @@ class ClientAttemptOutcome:
     error_code: str | None = None
     will_retry: bool = False
     retry_delay_seconds: float | None = None
+    completed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 ClientAttemptObserver = Callable[[ClientAttemptOutcome], Any]
@@ -235,8 +239,8 @@ class _ClientAttempt:
         error_code: str | None = None,
         will_retry: bool = False,
         retry_delay_seconds: float | None = None,
-    ) -> None:
-        self.outcome = ClientAttemptOutcome(
+    ) -> ClientAttemptOutcome:
+        outcome = ClientAttemptOutcome(
             contract=self.contract,
             attempt=self.attempt,
             max_attempts=self.max_attempts,
@@ -246,7 +250,10 @@ class _ClientAttempt:
             error_code=error_code,
             will_retry=will_retry,
             retry_delay_seconds=retry_delay_seconds,
+            completed_at=datetime.now(UTC),
         )
+        self.outcome = outcome
+        return outcome
 
 
 class _ClientCall:
@@ -289,6 +296,7 @@ class _ClientCall:
         ],
         *,
         error_code: str | None = None,
+        completed_at: datetime | None = None,
     ) -> None:
         self.outcome = ClientOutcome(
             contract=self.contract,
@@ -300,6 +308,7 @@ class _ClientCall:
             ),
             error_code=error_code,
             attempts=self.attempts,
+            completed_at=completed_at or datetime.now(UTC),
         )
 
 
@@ -474,18 +483,28 @@ class Client:
             if policy is None or policy.total_timeout_seconds is None:
                 raise
             if call.active_attempt is not None:
-                call.active_attempt.finish("timed_out")
+                attempt_outcome = call.active_attempt.finish("timed_out")
                 await self._finish_attempt(call, call.active_attempt)
-            call.finish("timed_out")
+                call.finish(
+                    "timed_out",
+                    completed_at=attempt_outcome.completed_at,
+                )
+            else:
+                call.finish("timed_out")
             raise RetryTimeoutError(
                 contract_name=contract.name,
                 attempts=call.attempts,
             ) from exc
         except CancelledError:
             if call.active_attempt is not None:
-                call.active_attempt.finish("cancelled")
+                attempt_outcome = call.active_attempt.finish("cancelled")
                 await self._finish_attempt(call, call.active_attempt)
-            call.finish("cancelled")
+                call.finish(
+                    "cancelled",
+                    completed_at=attempt_outcome.completed_at,
+                )
+            else:
+                call.finish("cancelled")
             raise
         finally:
             await _notify_client_observers(self._observers, call)
@@ -543,7 +562,7 @@ class Client:
                     app_status = "unexpected_response"
                 else:
                     app_status = "failed"
-                attempt.finish(
+                attempt_outcome = attempt.finish(
                     app_status,
                     error_code=error_code,
                     will_retry=should_retry,
@@ -553,12 +572,19 @@ class Client:
                 if deadline is not None:
                     deadline += observer_seconds
                 if not should_retry:
-                    call.finish(app_status, error_code=error_code)
+                    call.finish(
+                        app_status,
+                        error_code=error_code,
+                        completed_at=attempt_outcome.completed_at,
+                    )
                     raise
             except UnexpectedResponseError:
-                attempt.finish("unexpected_response")
+                attempt_outcome = attempt.finish("unexpected_response")
                 await self._finish_attempt(call, attempt)
-                call.finish("unexpected_response")
+                call.finish(
+                    "unexpected_response",
+                    completed_at=attempt_outcome.completed_at,
+                )
                 raise
             except httpx.TransportError:
                 transport_status: Literal["transport_error", "unexpected_response"] = (
@@ -577,7 +603,7 @@ class Client:
                     if should_retry and policy is not None
                     else None
                 )
-                attempt.finish(
+                attempt_outcome = attempt.finish(
                     transport_status,
                     will_retry=should_retry,
                     retry_delay_seconds=delay,
@@ -586,7 +612,10 @@ class Client:
                 if deadline is not None:
                     deadline += observer_seconds
                 if not should_retry:
-                    call.finish(transport_status)
+                    call.finish(
+                        transport_status,
+                        completed_at=attempt_outcome.completed_at,
+                    )
                     raise
             except TimeoutError as exc:
                 if deadline_scope.expired():
@@ -596,9 +625,12 @@ class Client:
                     if attempt.status_code is not None
                     else "failed"
                 )
-                attempt.finish(failure_status)
+                attempt_outcome = attempt.finish(failure_status)
                 await self._finish_attempt(call, attempt)
-                call.finish(failure_status)
+                call.finish(
+                    failure_status,
+                    completed_at=attempt_outcome.completed_at,
+                )
                 raise
             except BaseException:
                 failure_status: Literal["unexpected_response", "failed"] = (
@@ -606,14 +638,20 @@ class Client:
                     if attempt.status_code is not None
                     else "failed"
                 )
-                attempt.finish(failure_status)
+                attempt_outcome = attempt.finish(failure_status)
                 await self._finish_attempt(call, attempt)
-                call.finish(failure_status)
+                call.finish(
+                    failure_status,
+                    completed_at=attempt_outcome.completed_at,
+                )
                 raise
             else:
-                attempt.finish("succeeded")
+                attempt_outcome = attempt.finish("succeeded")
                 await self._finish_attempt(call, attempt)
-                call.finish("succeeded")
+                call.finish(
+                    "succeeded",
+                    completed_at=attempt_outcome.completed_at,
+                )
                 return result
 
             assert delay is not None

@@ -50,6 +50,8 @@ framework code, the CLI, docs, or the example apps.
     server's boundary guarantees from any entrypoint (workers, scripts).
   - `client.py` — the contract-driven typed httpx client and payload-safe
     outbound outcomes.
+  - `opentelemetry.py` — the optional payload-safe OpenTelemetry observer
+    bundle; applications own SDK providers, exporters, and shutdown.
   - `retries.py` — explicit bounded retry policies for outbound client calls.
   - `jobs.py` — queue-neutral job declarations, messages, handler bindings,
     and validated dispatch.
