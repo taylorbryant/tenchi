@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-27
+
 ### Added
 
 - Reusable conformance checks for application-owned `IdempotencyStore` and
@@ -14,8 +16,8 @@ versions may change the public API.
   fresh scopes, identity isolation, deterministic expiration and reset
   boundaries, stale-token fencing, and atomic concurrent decisions without a
   pytest runtime dependency. `MemoryIdempotencyStore` now provides the same
-  concurrency-safe, deterministic test adapter as rate limiting, and
-  taskboard's transactional SQLite adapters pass the shared suites.
+  concurrency-safe, deterministic test adapter as rate limiting, and taskboard
+  demonstrates the checks with transactional SQLite adapters.
 - Explicit outbound retry orchestration for the typed client. `retry_policy()`
   bounds attempts, exponential backoff, jitter, and total elapsed time;
   retries only transport failures and explicitly named declared application
