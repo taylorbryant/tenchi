@@ -49,6 +49,9 @@ framework code, the CLI, docs, or the example apps.
     server's boundary guarantees from any entrypoint (workers, scripts).
   - `client.py` — the contract-driven typed httpx client and payload-safe
     outbound outcomes.
+  - `retries.py` — explicit bounded retry policies for outbound client calls.
+  - `jobs.py` — queue-neutral job declarations, messages, handler bindings,
+    and validated dispatch.
   - `openapi.py` — OpenAPI 3.1 generation (`openapi_schema` is a pure
     function; `openapi_route` serves it and `swagger_ui_route` serves an
     optional interactive UI through Tenchi's own machinery).
@@ -111,6 +114,7 @@ app/
     ports.py       # typing.Protocol interfaces the feature needs
     policy.py      # authorization rules; abilities live with their subject
     routes.py      # binds contracts to use cases via route()/route_group()
+    jobs.py        # declares stable background messages via job()
     tasks.py       # binds operational names to use cases via task()/task_group()
     use_cases/     # one plain async function per module
     tests/         # use-case tests, no HTTP required
@@ -121,6 +125,7 @@ app/
     hooks.py       # HTTP-boundary hooks (authentication)
     webhooks.py    # signed-provider verification and service identity
     routes.py      # composes feature groups; group-level error declarations
+    jobs.py        # binds job declarations to consumer use cases
     runtime.py     # resources shared by HTTP and operational entrypoints
     preflight.py   # read-only checks of the target deployment environment
     tasks.py       # composes the operational task runner
@@ -140,6 +145,10 @@ example and template:
   ability lives in the feature that owns the subject it inspects, and
   read-path ownership failures surface as not-found, not forbidden.
 - Routes bind contracts to use cases; they never import infrastructure.
+- Job declarations bind stable names to request/result types without importing
+  consumers or infrastructure; producers serialize them with `job_message()`.
+- Job handlers are bound at server composition. Queue adapters own persistence,
+  claiming, acknowledgement, retry, scheduling, and dead-lettering.
 - Preflight checks live at the composition root, open read-only clients, and
   never migrate, repair, enqueue, or return dependency values.
 - Tasks bind stable operational names to use cases; they never import
@@ -228,13 +237,15 @@ generated. Generators create files and print wiring instructions; they
 never edit existing modules. `routes`, `map`, `openapi`, `check`, `preflight`,
 `mcp`, and `dev` rely on the structural conventions
 (`app.server.routes:routes`, `app.server.routes:api_routes`,
-`app.server.preflight:checks`, `app.server.asgi:app`); keep flags available to
+`app.server.jobs:jobs`, `app.server.preflight:checks`,
+`app.server.asgi:app`); keep flags available to
 override, and keep `tenchi new` output aligned with `examples/todos` minus
 capabilities the starter intentionally omits.
-`map` combines source declarations with the composed route group and must stay
-deterministic, source-backed, and versioned in JSON. Feature projections retain
-directly related cross-feature and shared nodes; kind projections never leave
-dangling edges.
+`map` combines source declarations with composed routes, operational tasks, and
+background jobs and must stay deterministic, source-backed, and versioned in
+JSON. Feature projections retain directly related cross-feature and shared
+nodes; kind projections never leave dangling edges.
+`map` loads registered background jobs from `app.server.jobs:jobs` by default.
 `task list|run` loads `app.server.tasks:runner` by default. Tasks provide named,
 validated operator entrypoints for backfills, repairs, replays, and maintenance;
 they do not schedule, retry, queue, lock, or persist progress.

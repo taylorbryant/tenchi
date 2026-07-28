@@ -2,9 +2,11 @@ from dataclasses import dataclass
 
 from app.server.context import AppContext
 from app.shared.users import require_user
+from tenchi.jobs import job_message
 
+from ..jobs import member_added_job
 from ..policy import ensure_can_write_project
-from ..schemas import AddProjectMember, GetProjectParams, Project
+from ..schemas import AddProjectMember, GetProjectParams, MemberAdded, Project
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,12 +31,16 @@ async def add_project_member(
     saved = await context.projects.save(updated)
     # Deferred effect: the notification is queued in the same unit of work
     # as the membership change, so both commit or roll back together.
+    message = job_message(
+        member_added_job,
+        MemberAdded(
+            project_id=saved.id,
+            project_name=saved.name,
+            user_id=request.user_id,
+        ),
+    )
     await context.outbox.enqueue(
-        job="member_added",
-        payload={
-            "project_id": saved.id,
-            "project_name": saved.name,
-            "user_id": request.user_id,
-        },
+        job=message.name,
+        payload_json=message.payload_json,
     )
     return AddProjectMemberResult(project=saved, added=True)

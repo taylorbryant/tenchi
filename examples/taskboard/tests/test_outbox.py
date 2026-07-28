@@ -9,6 +9,7 @@ import json
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 
 import aiosqlite
 import pytest
@@ -20,12 +21,14 @@ from app.infra.port_wiring import ensure_schema, open_request_ports
 from app.infra.sqlite_repositories import SqliteNotificationLog, SqliteOutbox
 from app.server import worker
 from app.server.context import AppContext
+from app.server.jobs import jobs as registered_jobs
 from app.server.webhooks import DEMO_WEBHOOK_SECRET, create_webhooks
 from app.server.worker import drain
 from app.shared.errors import forbidden
 from app.shared.users import User
 from tenchi.contracts import contract
 from tenchi.errors import AppError, ErrorDef
+from tenchi.jobs import create_job_dispatcher, job, job_group, job_handler
 from tenchi.routes import route, route_group
 from tenchi.server import create_app
 from tenchi.testing import open_http
@@ -37,7 +40,10 @@ glitch_contract = contract(method="POST", path="/glitch", errors=(glitch,))
 
 
 async def enqueue_then_fail(context: AppContext) -> None:
-    await context.outbox.enqueue(job="member_added", payload={"doomed": True})
+    await context.outbox.enqueue(
+        job="projects.member_added",
+        payload_json=b'{"doomed":true}',
+    )
     raise AppError(glitch)
 
 
@@ -99,7 +105,7 @@ async def test_the_job_commits_with_the_membership_change(tmp_path: Path) -> Non
     rows = await outbox_rows(database)
     assert len(rows) == 1
     job, payload, processed, error = rows[0]
-    assert job == "member_added"
+    assert job == "projects.member_added"
     assert json.loads(payload) == {
         "project_id": project_id,
         "project_name": "Launch",
@@ -136,13 +142,13 @@ async def test_unknown_jobs_are_dead_lettered(tmp_path: Path) -> None:
     database = str(tmp_path / "taskboard.db")
     await ensure_schema(database)
     async with aiosqlite.connect(database) as connection:
-        await SqliteOutbox(connection).enqueue(job="bogus", payload={})
+        await SqliteOutbox(connection).enqueue(job="bogus", payload_json=b"{}")
         await connection.commit()
 
     assert await drain(database) == 1
 
     (row,) = await outbox_rows(database)
-    assert row[2] == 1 and row[3] == "unknown job 'bogus'"
+    assert row[2] == 1 and row[3] == "JOB_NOT_FOUND: unknown job 'bogus'"
 
 
 async def test_malformed_payloads_are_dead_lettered(tmp_path: Path) -> None:
@@ -150,14 +156,18 @@ async def test_malformed_payloads_are_dead_lettered(tmp_path: Path) -> None:
     await ensure_schema(database)
     async with aiosqlite.connect(database) as connection:
         await SqliteOutbox(connection).enqueue(
-            job="member_added", payload={"wrong": "shape"}
+            job="projects.member_added",
+            payload_json=b'{"wrong":"shape"}',
         )
         await connection.commit()
 
     assert await drain(database) == 1
 
     (row,) = await outbox_rows(database)
-    assert row[2] == 1 and row[3] is not None and "validation error" in row[3]
+    assert row[2] == 1
+    assert row[3] == (
+        "JOB_INPUT_INVALID: stored payload does not match the job declaration"
+    )
     async with aiosqlite.connect(database) as connection:
         assert await SqliteNotificationLog(connection).list_for("bob") == []
 
@@ -172,12 +182,23 @@ async def test_deterministic_failures_dead_letter_instead_of_starving(
     async def rejects(request: MemberAdded, context: AppContext) -> None:
         raise AppError(forbidden)
 
-    monkeypatch.setitem(worker.JOB_HANDLERS, "poison", rejects)
+    poison = job("tests.poison", request=MemberAdded, result=None)
+    monkeypatch.setattr(
+        worker,
+        "dispatcher",
+        create_job_dispatcher(
+            jobs=job_group(registered_jobs, job_handler(poison, rejects))
+        ),
+    )
     payload = {"project_id": "p", "project_name": "P", "user_id": "bob"}
+    payload_json = json.dumps(payload).encode()
     async with aiosqlite.connect(database) as connection:
         outbox = SqliteOutbox(connection)
-        await outbox.enqueue(job="poison", payload=payload)
-        await outbox.enqueue(job="member_added", payload=payload)
+        await outbox.enqueue(job="tests.poison", payload_json=payload_json)
+        await outbox.enqueue(
+            job="projects.member_added",
+            payload_json=payload_json,
+        )
         await connection.commit()
 
     assert await drain(database) == 2
@@ -192,25 +213,40 @@ async def test_deterministic_failures_dead_letter_instead_of_starving(
         ]
 
 
-async def test_miswired_handlers_dead_letter(
+async def test_invalid_handler_results_dead_letter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     database = str(tmp_path / "taskboard.db")
     await ensure_schema(database)
 
-    async def no_request_param(context: AppContext) -> None:
-        return None
+    async def invalid_result(request: MemberAdded, context: AppContext) -> None:
+        return cast(None, "unexpected")
 
-    monkeypatch.setitem(worker.JOB_HANDLERS, "miswired", no_request_param)
+    invalid = job("tests.invalid_result", request=MemberAdded, result=None)
+    monkeypatch.setattr(
+        worker,
+        "dispatcher",
+        create_job_dispatcher(
+            jobs=job_group(
+                registered_jobs,
+                job_handler(invalid, invalid_result),
+            )
+        ),
+    )
     async with aiosqlite.connect(database) as connection:
-        await SqliteOutbox(connection).enqueue(job="miswired", payload={"x": 1})
+        await SqliteOutbox(connection).enqueue(
+            job="tests.invalid_result",
+            payload_json=(b'{"project_id":"p","project_name":"P","user_id":"bob"}'),
+        )
         await connection.commit()
 
     assert await drain(database) == 1
 
     (row,) = await outbox_rows(database)
     assert row[2] == 1 and row[3] is not None
-    assert "request" in row[3]
+    assert row[3] == (
+        "JOB_RESULT_INVALID: handler result does not match the job declaration"
+    )
 
 
 async def test_dead_lettering_rolls_back_partial_writes(
@@ -225,11 +261,21 @@ async def test_dead_lettering_rolls_back_partial_writes(
         await context.notifications.record(user_id="bob", message="half-done")
         raise AppError(forbidden)
 
-    monkeypatch.setitem(worker.JOB_HANDLERS, "half", writes_then_rejects)
+    half = job("tests.half", request=MemberAdded, result=None)
+    monkeypatch.setattr(
+        worker,
+        "dispatcher",
+        create_job_dispatcher(
+            jobs=job_group(
+                registered_jobs,
+                job_handler(half, writes_then_rejects),
+            )
+        ),
+    )
     async with aiosqlite.connect(database) as connection:
         await SqliteOutbox(connection).enqueue(
-            job="half",
-            payload={"project_id": "p", "project_name": "P", "user_id": "bob"},
+            job="tests.half",
+            payload_json=(b'{"project_id":"p","project_name":"P","user_id":"bob"}'),
         )
         await connection.commit()
 

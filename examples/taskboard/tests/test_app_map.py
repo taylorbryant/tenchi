@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app.server.jobs import jobs
 from app.server.routes import api_routes
 from app.server.tasks import tasks
 from tenchi._app_map import map_app, project_app_map
@@ -8,12 +9,13 @@ ROOT = Path(__file__).parent.parent
 
 
 def test_taskboard_app_map_covers_real_application_relationships() -> None:
-    result = map_app(ROOT, api_routes, tasks)
+    result = map_app(ROOT, api_routes, tasks, jobs)
     edges = {(edge.kind, edge.source, edge.target) for edge in result.edges}
 
     assert result.summary.features == 2
     assert result.summary.contracts == 9
     assert result.summary.routes == 9
+    assert result.summary.jobs == 1
     assert result.summary.tasks == 1
     assert result.summary.use_cases == 11
     assert result.summary.ports == 6
@@ -38,11 +40,6 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
         "implements",
         "adapter:app.infra.static_token_directory.StaticTokenDirectory",
         "port:app.shared.users.TokenDirectory",
-    ) in edges
-    assert (
-        "depends-on",
-        "entrypoint:app.server.worker",
-        "use-case:projects.notify_member_added",
     ) in edges
     registered_adapters = {
         node.name
@@ -79,6 +76,11 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
         "task:projects.repair_members",
         "use-case:projects.repair_project_members",
     ) in edges
+    assert (
+        "binds",
+        "job:projects.member_added",
+        "use-case:projects.notify_member_added",
+    ) in edges
     member_contract = next(
         node
         for node in result.nodes
@@ -95,7 +97,7 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
 
 
 def test_taskboard_feature_projection_keeps_direct_cross_feature_policy() -> None:
-    result = map_app(ROOT, api_routes, tasks)
+    result = map_app(ROOT, api_routes, tasks, jobs)
 
     projected = project_app_map(result, feature="tasks")
 

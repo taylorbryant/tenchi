@@ -83,12 +83,12 @@ async def test_adding_a_member_enqueues_one_notification_job() -> None:
 
     assert outbox.entries == [
         (
-            "member_added",
-            {
-                "project_id": project.id,
-                "project_name": "Launch",
-                "user_id": "bob",
-            },
+            "projects.member_added",
+            (
+                b'{"project_id":"'
+                + project.id.encode()
+                + b'","project_name":"Launch","user_id":"bob"}'
+            ),
         )
     ]
 

@@ -1,7 +1,5 @@
 """In-memory implementations of the taskboard ports, for tests."""
 
-from collections.abc import Mapping
-from typing import Any
 from uuid import uuid4
 
 from app.features.projects.schemas import Project
@@ -11,10 +9,10 @@ from app.shared.users import OwnerScope
 
 class MemoryOutbox:
     def __init__(self) -> None:
-        self.entries: list[tuple[str, dict[str, Any]]] = []
+        self.entries: list[tuple[str, bytes]] = []
 
-    async def enqueue(self, *, job: str, payload: Mapping[str, Any]) -> None:
-        self.entries.append((job, dict(payload)))
+    async def enqueue(self, *, job: str, payload_json: bytes) -> None:
+        self.entries.append((job, payload_json))
 
 
 class MemoryNotificationLog:

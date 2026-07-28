@@ -104,10 +104,10 @@ Applications use this structure:
 
 ```text
 app/
-  features/<feature>/   # contracts, schemas, ports, routes, tasks, use cases
+  features/<feature>/   # contracts, schemas, ports, routes, jobs, tasks, use cases
   shared/               # shared errors and domain concepts
   infra/                # concrete port implementations
-  server/               # context, runtime, preflight, route/task composition, ASGI app
+  server/               # context, runtime, preflight, route/job/task composition, ASGI app
 tests/                  # HTTP integration tests
 ```
 
@@ -126,8 +126,8 @@ The main pieces are:
 - Declared application errors with a stable JSON envelope.
 - A named exception hierarchy that distinguishes configuration mistakes from
   runtime application and transport failures.
-- A contract-driven async client, OpenAPI 3.1 generation, and optional Swagger
-  UI route.
+- A contract-driven async client with explicit bounded retries, per-attempt
+  outcomes, OpenAPI 3.1 generation, and an optional Swagger UI route.
 - Lifespan resources, request-scoped contexts, authentication hooks, middleware,
   request deadlines, HTTP and use-case outcome observers, pagination, health
   checks, and in-process testing helpers.
@@ -140,6 +140,10 @@ The main pieces are:
 - Signed inbound webhook bindings that verify exact, size-bounded bytes before
   parsing, attach service identity to the request context, and fail composition
   when a marked webhook contract has no verifier.
+- Queue-neutral background jobs with validated producer messages,
+  composition-time handler bindings, validated consumer results, shared
+  use-case outcomes, and application-map nodes. Applications keep ownership of
+  queue persistence, acknowledgement, retries, and dead letters.
 
 `public` defaults to `False`. Set `public=True` for operations that an
 authentication hook should exempt, then inspect the metadata in the hook:

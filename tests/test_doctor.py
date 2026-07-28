@@ -215,6 +215,31 @@ def test_use_cases_may_import_policies_across_features(app_root: Path) -> None:
     assert not any("must not import" in m for m in messages(findings))
 
 
+def test_use_cases_may_import_job_declarations(app_root: Path) -> None:
+    use_case = app_root / "app/features/todos/use_cases/create_todo.py"
+    use_case.write_text(
+        "from app.features.todos.jobs import created_job  # noqa: F401\n"
+        + use_case.read_text()
+    )
+
+    assert not any("job declarations" in item.message for item in run_doctor(app_root))
+
+
+def test_job_declarations_must_not_import_consumers(app_root: Path) -> None:
+    jobs = app_root / "app/features/todos/jobs.py"
+    jobs.write_text(
+        "from app.features.todos.use_cases.create_todo import create_todo\n"
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        item.path == "app/features/todos/jobs.py"
+        and "job declarations must not import use cases" in item.message
+        for item in findings
+    )
+
+
 def test_unguarded_use_case_in_an_auth_using_app_is_flagged(
     app_root: Path,
 ) -> None:
@@ -343,7 +368,7 @@ def test_doctor_json_has_versioned_stable_diagnostics(
 ) -> None:
     assert main(["doctor", "--json"]) == 0
     clean = json.loads(capsys.readouterr().out)
-    assert clean["schema_version"] == 2
+    assert clean["schema_version"] == 3
     assert clean["ok"] is True
     assert clean["diagnostics"] == []
 

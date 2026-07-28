@@ -53,20 +53,23 @@ Do not send email, publish a message, or call a webhook between a database
 write and commit. If the process fails in that gap, application state and the
 external effect disagree.
 
-Define an application-owned outbox port:
+Declare the message and keep the outbox port transport-shaped:
 
 ```python
-from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Protocol
+
+from tenchi.jobs import job
+
+
+member_added_job = job(
+    "projects.member_added",
+    request=MemberAdded,
+    result=None,
+)
 
 
 class Outbox(Protocol):
-    async def enqueue(
-        self,
-        *,
-        job: str,
-        payload: Mapping[str, Any],
-    ) -> None: ...
+    async def enqueue(self, *, job: str, payload_json: bytes) -> None: ...
 ```
 
 The concrete outbox adapter writes through the same transaction as the domain
@@ -74,20 +77,29 @@ repositories. The use case changes state and enqueues the work before
 returning:
 
 ```python
+from tenchi.jobs import job_message
+
+
 saved = await context.projects.save(updated)
+message = job_message(
+    member_added_job,
+    MemberAdded(
+        project_id=saved.id,
+        project_name=saved.name,
+        user_id=request.user_id,
+    ),
+)
 await context.outbox.enqueue(
-    job="member_added",
-    payload={
-        "project_id": saved.id,
-        "project_name": saved.name,
-        "user_id": request.user_id,
-    },
+    job=message.name,
+    payload_json=message.payload_json,
 )
 return saved
 ```
 
-The payload carries the facts needed for delivery. A worker should not have to
-re-read mutable state merely to reconstruct what happened.
+`job_message()` validates the producer value and serializes compact JSON
+before the transaction stores it. The payload carries the facts needed for
+delivery; a worker should not have to re-read mutable state merely to
+reconstruct what happened.
 
 <Callout type="warning" title="An outbox does not make an external call exactly once">
   The outbox makes the state change and work record atomic. Delivery is
@@ -98,40 +110,33 @@ re-read mutable state merely to reconstruct what happened.
 
 ## Validate work at the worker boundary
 
-Map stable job names to plain async use cases and let `execute()` validate the
-serialized payload against the use case's `request` annotation:
+Bind job declarations to plain async use cases at the composition root:
 
 ```python
+from app.features.projects.jobs import member_added_job
 from app.features.projects.use_cases.notify_member_added import (
     notify_member_added,
 )
-from app.infra.outbox import OutboxEntry
-from app.server.context import AppContext
-from tenchi.execution import execute
+from tenchi.jobs import create_job_dispatcher, job_group, job_handler
 
 
-class UnknownJobError(ValueError):
-    pass
+jobs = job_group(job_handler(member_added_job, notify_member_added))
+dispatcher = create_job_dispatcher(jobs=jobs)
 
 
-JOB_HANDLERS = {
-    "member_added": notify_member_added,
-}
-
-
-async def deliver(entry: OutboxEntry, context: AppContext) -> None:
-    use_case = JOB_HANDLERS.get(entry.job)
-    if use_case is None:
-        raise UnknownJobError(entry.job)
-    await execute(
-        use_case,
-        request_json=entry.payload,
-        context=context,
-    )
+await dispatcher.dispatch(
+    entry.job,
+    payload_json=entry.payload_json,
+    context=context,
+)
 ```
 
-The worker owns acknowledgement and retry behavior. `execute()` deliberately
-does not choose a queue, backoff policy, or dead-letter store.
+`job_handler()` checks request and return annotations at composition.
+`dispatch()` rejects unknown names, validates stored JSON, invokes the handler,
+and validates its result. The worker still owns acknowledgement and retry
+behavior; the dispatcher deliberately does not choose a queue, backoff policy,
+or dead-letter store. See [Background jobs](/jobs) for the complete producer,
+composition, dispatch, and observer API.
 
 ## Classify failures before retrying
 
@@ -143,7 +148,7 @@ Use three terminal paths for each delivery attempt:
 | Deterministic failure | Roll back partial writes, then dead-letter with a bounded error |
 | Transient infrastructure failure | Roll back the claim, apply bounded backoff, and retry |
 
-Unknown job names, `ValidationError`, and `ExecutionError` are deterministic
+Unknown job names, `ValidationError`, and `JobResultError` are deterministic
 for the same record. Classify each `AppError` code by its semantics: a rejected
 business rule may be permanent, while a declared rate-limit error may be
 retryable after its advertised delay. Retrying permanent failures forever
@@ -156,9 +161,9 @@ Preserve enough metadata to replay a corrected handler safely.
 
 ## Instrument every non-HTTP entrypoint
 
-Pass a `UseCaseObserver` to `execute()` to report the operation, duration,
-result category, and stable application error code after context cleanup.
-Workers, schedules, and scripts still own attempt counts, queue latency, and
+Pass `use_case_observers=` to `create_job_dispatcher()` to report the operation,
+duration, result category, and stable application error code. Job outcomes use
+the `"job"` entrypoint. Workers still own attempt counts, queue latency, and
 correlation metadata because those values belong to the transport. Carry trace
 or request correlation in the message envelope, not inside business payloads
 that should remain stable.

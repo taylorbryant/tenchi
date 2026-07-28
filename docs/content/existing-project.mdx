@@ -38,6 +38,7 @@ app/
     __init__.py
     asgi.py
     context.py
+    jobs.py
     preflight.py
     routes.py
     runtime.py
@@ -193,6 +194,19 @@ runner = create_task_runner(tasks=tasks, context_factory=create_context)
 This keeps `tenchi map` and `tenchi task list` useful before the application
 has a maintenance command. Add tasks later by following [Operational
 tasks](/tasks).
+
+Create an empty background-job composition in `app/server/jobs.py`:
+
+```python
+from tenchi.jobs import job_group
+
+
+jobs = job_group()
+```
+
+This gives `tenchi map` its conventional job target before the application has
+durable work. Add producer and consumer bindings later by following
+[Background jobs](/jobs).
 
 Create an empty deployment gate in `app/server/preflight.py`:
 

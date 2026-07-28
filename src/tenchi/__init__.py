@@ -1,12 +1,15 @@
 """Tenchi: a contract-first, Python-native application framework.
 
 Canonical imports use the submodules — ``tenchi.contracts``,
-``tenchi.routes``, ``tenchi.errors``, ``tenchi.server``, ``tenchi.client``
+``tenchi.routes``, ``tenchi.jobs``, ``tenchi.errors``, ``tenchi.server``,
+``tenchi.client``, ``tenchi.retries``
 — and the most common names are re-exported here for convenience.
 """
 
 from .client import (
     Client,
+    ClientAttemptObserver,
+    ClientAttemptOutcome,
     ClientObserver,
     ClientOutcome,
     ClientResponse,
@@ -24,6 +27,21 @@ from .idempotency import (
     IdempotencyStoreError,
     fingerprint,
     run_idempotently,
+)
+from .jobs import (
+    Job,
+    JobBindingError,
+    JobDispatcher,
+    JobGroup,
+    JobHandler,
+    JobMessage,
+    JobNotFoundError,
+    JobResultError,
+    create_job_dispatcher,
+    job,
+    job_group,
+    job_handler,
+    job_message,
 )
 from .openapi import openapi_route, openapi_schema, swagger_ui_route
 from .pagination import Page, PageQuery, page
@@ -48,6 +66,7 @@ from .rate_limits import (
     enforce_rate_limit,
 )
 from .responses import PresentedResponse, ResponseDef, present, response
+from .retries import RetryPolicy, RetryTimeoutError, retry_policy
 from .routes import Route, RouteGroup, route, route_group
 from .server import OutcomeObserver, RequestInfo, RequestOutcome, create_app
 from .tasks import (
@@ -77,6 +96,8 @@ __all__ = [
     "RATE_LIMITED",
     "AppError",
     "Client",
+    "ClientAttemptObserver",
+    "ClientAttemptOutcome",
     "ClientObserver",
     "ClientOutcome",
     "ClientResponse",
@@ -87,6 +108,14 @@ __all__ = [
     "IdempotencyResultError",
     "IdempotencyStore",
     "IdempotencyStoreError",
+    "Job",
+    "JobBindingError",
+    "JobDispatcher",
+    "JobGroup",
+    "JobHandler",
+    "JobMessage",
+    "JobNotFoundError",
+    "JobResultError",
     "MemoryRateLimitStore",
     "OutcomeObserver",
     "Page",
@@ -105,6 +134,8 @@ __all__ = [
     "RequestInfo",
     "RequestOutcome",
     "ResponseDef",
+    "RetryPolicy",
+    "RetryTimeoutError",
     "Route",
     "RouteGroup",
     "Task",
@@ -124,11 +155,16 @@ __all__ = [
     "__version__",
     "contract",
     "create_app",
+    "create_job_dispatcher",
     "create_task_runner",
     "enforce_rate_limit",
     "execute",
     "fingerprint",
     "health_route",
+    "job",
+    "job_group",
+    "job_handler",
+    "job_message",
     "openapi_route",
     "openapi_schema",
     "page",
@@ -136,6 +172,7 @@ __all__ = [
     "preflight_group",
     "present",
     "response",
+    "retry_policy",
     "route",
     "route_group",
     "run_idempotently",

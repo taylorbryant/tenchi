@@ -105,7 +105,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert routes.isError is False
     assert routes.structuredContent is not None
-    assert routes.structuredContent["schema_version"] == 2
+    assert routes.structuredContent["schema_version"] == 3
     assert routes.structuredContent["root"] == str(EXAMPLE_ROOT)
     assert any(item["path"] == "/todos" for item in routes.structuredContent["routes"])
 
@@ -119,17 +119,17 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert doctor.isError is False
     assert doctor.structuredContent is not None
-    assert doctor.structuredContent["schema_version"] == 2
+    assert doctor.structuredContent["schema_version"] == 3
 
     assert preflight.isError is False
     assert preflight.structuredContent is not None
-    assert preflight.structuredContent["schema_version"] == 2
+    assert preflight.structuredContent["schema_version"] == 3
     assert preflight.structuredContent["ok"] is True
     assert preflight.structuredContent["checks"] == []
 
     assert tasks.isError is False
     assert tasks.structuredContent is not None
-    assert tasks.structuredContent["schema_version"] == 2
+    assert tasks.structuredContent["schema_version"] == 3
     assert tasks.structuredContent["tasks"] == []
 
     assert preview.isError is False
@@ -144,7 +144,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert diff.isError is False
     assert diff.structuredContent is not None
-    assert diff.structuredContent["schema_version"] == 2
+    assert diff.structuredContent["schema_version"] == 3
     assert diff.structuredContent["compatible"] is True
 
 
@@ -444,7 +444,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
     assert initialized.serverInfo.version == __version__
     assert routes.isError is False
     assert routes.structuredContent is not None
-    assert routes.structuredContent["schema_version"] == 2
+    assert routes.structuredContent["schema_version"] == 3
     assert diff.isError is False
     assert diff.structuredContent is not None
     assert diff.structuredContent["counts"]["metadata"] == 1

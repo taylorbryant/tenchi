@@ -1,10 +1,11 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "root": "<ROOT>",
   "summary": {
     "features": 1,
     "contracts": 1,
     "routes": 1,
+    "jobs": 1,
     "tasks": 1,
     "use_cases": 1,
     "policies": 1,
@@ -172,6 +173,19 @@
         "symbol": "example_test"
       },
       "status": "registered",
+      "details": {}
+    },
+    {
+      "id": "job:example",
+      "kind": "job",
+      "name": "example-job",
+      "feature": null,
+      "source": {
+        "path": "app/job.py",
+        "line": null,
+        "symbol": null
+      },
+      "status": "declared",
       "details": {}
     }
   ],

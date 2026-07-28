@@ -17,6 +17,7 @@ import ExistingProject from "@/content/existing-project.mdx";
 import GettingStarted from "@/content/getting-started.mdx";
 import Idempotency from "@/content/idempotency.mdx";
 import Overview from "@/content/index.mdx";
+import Jobs from "@/content/jobs.mdx";
 import Mcp from "@/content/mcp.mdx";
 import Observability from "@/content/observability.mdx";
 import OpenApi from "@/content/openapi.mdx";
@@ -50,6 +51,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/pagination": Pagination,
   "/authentication": Authentication,
   "/execution": Execution,
+  "/jobs": Jobs,
   "/tasks": Tasks,
   "/testing": Testing,
   "/production": Production,

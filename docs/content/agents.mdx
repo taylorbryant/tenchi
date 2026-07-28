@@ -70,15 +70,15 @@ uv run tenchi map --feature notes \
   --kind contract,route,use-case,policy,port,adapter --json
 ```
 
-The complete map combines source declarations with the composed API route
-group. A feature projection retains directly connected shared and
-cross-feature nodes, giving an agent a bounded starting context without hiding
-the dependencies that cross the feature directory.
+The complete map combines source declarations with composed API routes,
+operational tasks, and background jobs. A feature projection retains directly
+connected shared and cross-feature nodes, giving an agent a bounded starting
+context without hiding dependencies that cross the feature directory.
 
 Inspect these fields before editing:
 
 - `nodes` identify concepts and their source declarations. Runtime-bound kinds
-  such as contracts, routes, tasks, use cases, and adapters become `registered`
+  such as contracts, routes, jobs, tasks, use cases, and adapters become `registered`
   when composition reaches them; source-only declarations remain `declared`.
 - `edges` explain ownership, route bindings, dependencies, authorization,
   implementations, and feature tests. Evidence points to the source that

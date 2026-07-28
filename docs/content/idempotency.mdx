@@ -204,28 +204,30 @@ Generate one key for one logical command and reuse it across that command's
 transport retries:
 
 ```python
-import httpx
 from uuid import uuid4
 
+from tenchi.retries import retry_policy
 
 key = uuid4().hex
 headers = CreateTaskHeaders(idempotency_key=key)
 
-for attempt in range(3):
-    try:
-        task = await client.call(
-            create_task_contract,
-            headers=headers,
-            request=request,
-        )
-        break
-    except httpx.TransportError:
-        if attempt == 2:
-            raise
+task = await client.call(
+    create_task_contract,
+    headers=headers,
+    request=request,
+    retry=retry_policy(
+        max_attempts=3,
+        total_timeout_seconds=5,
+        allow_unsafe_methods=True,
+    ),
+)
 ```
 
-Do not generate a new key inside the retry loop. A new key describes a new
-logical command and permits the operation to run again.
+`allow_unsafe_methods=True` records the deliberate decision to repeat POST. The
+idempotency key makes those attempts one logical command. Do not generate the
+key inside retry machinery or per attempt; a new key describes new work and
+permits the operation to run again. See the [typed client](/client#retry-a-logical-call)
+for declared-error retries, `Retry-After`, deadlines, and attempt outcomes.
 
 The taskboard example contains complete memory and SQLite stores. The SQLite
 store shares the request-scoped connection with task creation, so concurrent

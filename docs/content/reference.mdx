@@ -14,35 +14,48 @@ from tenchi import (
     IDEMPOTENCY_IN_PROGRESS,
     AppError,
     Client,
+    ClientAttemptObserver,
+    ClientAttemptOutcome,
     ClientObserver,
     ClientOutcome,
     ErrorDef,
     IdempotencyResultError,
     IdempotencyStore,
     IdempotencyStoreError,
+    Job,
+    JobDispatcher,
+    JobMessage,
     Page,
     PageQuery,
     PreflightGroup,
     RATE_LIMITED,
     MemoryRateLimitStore,
     RateLimitStore,
+    RetryPolicy,
+    RetryTimeoutError,
     UseCaseObserver,
     UseCaseOutcome,
     Webhook,
     WebhookRequest,
     contract,
     create_app,
+    create_job_dispatcher,
     create_task_runner,
     execute,
     enforce_rate_limit,
     fingerprint,
     health_route,
+    job,
+    job_group,
+    job_handler,
+    job_message,
     openapi_route,
     page,
     preflight_check,
     preflight_group,
     present,
     response,
+    retry_policy,
     route,
     route_group,
     run_idempotently,
@@ -76,11 +89,13 @@ expected application failures.
 | `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver`, `ContextFactory`, `Lifespan`, `DEFAULT_MAX_REQUEST_BYTES`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER` |
 | `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `UseCaseOutcome`, `UseCaseObserver` |
 | `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
+| `tenchi.jobs` | `Job`, `JobMessage`, `JobHandler`, `JobGroup`, `JobDispatcher`, `JobBindingError`, `JobNotFoundError`, `JobResultError`, `job()`, `job_message()`, `job_handler()`, `job_group()`, `create_job_dispatcher()` |
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.rate_limits` | `RateLimitStore`, `RateLimitPermit`, `RateLimitExceeded`, `RateLimitDecision`, `RateLimitStoreError`, `MemoryRateLimitStore`, `RATE_LIMITED`, `enforce_rate_limit()` |
 | `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `task()`, `task_group()`, `create_task_runner()` |
 | `tenchi.webhooks` | `Webhook`, `WebhookRequest`, `WebhookVerifier`, `WebhookBindingError`, `webhook()` |
-| `tenchi.client` | `Client`, `ClientResponse`, `ClientOutcome`, `ClientObserver`, `UnexpectedResponseError` |
+| `tenchi.client` | `Client`, `ClientResponse`, `ClientOutcome`, `ClientObserver`, `ClientAttemptOutcome`, `ClientAttemptObserver`, `UnexpectedResponseError` |
+| `tenchi.retries` | `RetryPolicy`, `RetryTimeoutError`, `retry_policy()` |
 | `tenchi.testing` | `open_client()`, `open_http()`, `ASGIApp` |
 
 `create_app()` owns HTTP dispatch and lifecycle composition. `execute()` runs
@@ -88,9 +103,11 @@ the application boundary without HTTP. A preflight group defines read-only,
 timeout-bounded observations for a deployment gate. A `TaskRunner` adds stable
 discovery, input and result validation, and application lifecycle wiring for
 operational commands. `Client` enforces contracts against remote or in-process
-servers. A `Webhook` binds an exact-body verifier to a contract marked
-`webhook=True`. A `RateLimitStore` atomically applies fixed-window
-application quotas.
+servers; an explicit `RetryPolicy` coordinates bounded logical retries. A
+`JobDispatcher` validates durable messages and their registered consumer
+results without owning a queue. A `Webhook` binds an exact-body verifier to a
+contract marked `webhook=True`. A `RateLimitStore` atomically applies
+fixed-window application quotas.
 
 ## Schema and operations
 

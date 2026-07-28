@@ -44,7 +44,7 @@ async with Client(base_url="https://api.example.com") as client:
 import httpx
 
 
-transport = httpx.AsyncHTTPTransport(retries=2)
+transport = httpx.AsyncHTTPTransport()
 
 async with Client(
     base_url="https://api.example.com",
@@ -57,6 +57,63 @@ async with Client(
 Tenchi exposes httpx rather than wrapping its transport model. You may instead
 pass an existing `httpx.AsyncClient` with `http=`; Tenchi does not close a
 client it does not own.
+
+## Retry a logical call
+
+Calls make one HTTP attempt by default. Pass an explicit policy when a
+dependency and operation are safe to retry:
+
+```python
+from tenchi.retries import retry_policy
+
+
+dependency_retry = retry_policy(
+    max_attempts=3,
+    retry_on=("TEMPORARILY_UNAVAILABLE",),
+    base_delay_seconds=0.2,
+    max_delay_seconds=2,
+    total_timeout_seconds=5,
+)
+
+todo = await client.call(
+    get_todo_contract,
+    params=GetTodoParams(todo_id=todo_id),
+    retry=dependency_retry,
+)
+```
+
+Transport failures are retryable by default within the policy. Declared
+application errors are retried only when their stable code appears in
+`retry_on`. Tenchi uses exponential backoff with bounded jitter and waits at
+least as long as a valid `Retry-After` delay or HTTP date carried by the
+declared error. The total timeout covers attempts and backoff; exceeding it
+raises `RetryTimeoutError`. Caller cancellation always remains cancellation.
+
+Unexpected statuses, invalid media types, invalid error envelopes, and invalid
+success bodies or headers are never retried. They indicate contract drift or
+bad data, not a transient dependency.
+
+GET, HEAD, OPTIONS, and TRACE may use a policy directly. Retrying POST, PUT,
+PATCH, or DELETE requires `allow_unsafe_methods=True`:
+
+```python
+command_retry = retry_policy(
+    max_attempts=3,
+    total_timeout_seconds=5,
+    allow_unsafe_methods=True,
+)
+
+created = await client.call(
+    create_todo_contract,
+    headers=CreateTodoHeaders(idempotency_key=key),
+    request=request,
+    retry=command_retry,
+)
+```
+
+That flag records an application decision; it does not make the operation
+safe. Reuse one caller-generated [idempotency key](/idempotency) across every
+attempt, or make the remote operation idempotent by design.
 
 ## Response enforcement
 
@@ -95,6 +152,7 @@ def observe_client(outcome: ClientOutcome) -> None:
             "status_code": outcome.status_code,
             "duration_seconds": outcome.duration_seconds,
             "error_code": outcome.error_code,
+            "attempts": outcome.attempts,
         },
     )
 
@@ -116,8 +174,9 @@ Each call produces one immutable `ClientOutcome` before it returns or raises:
 | `contract` | The contract used for the call; use its stable `name` for the operation |
 | `status` | The outcome classification described below |
 | `status_code` | The HTTP status when a response arrived; otherwise `None` |
-| `duration_seconds` | Time spent preparing input, waiting for transport, and validating the response |
+| `duration_seconds` | Time spent preparing input, waiting for transport and retry backoff, and validating responses; observer work is excluded |
 | `error_code` | The declared `AppError` code for `app_error`; otherwise `None` |
+| `attempts` | Number of transport attempts made for this logical call |
 
 The status distinguishes the part of the outbound boundary that failed:
 
@@ -127,6 +186,7 @@ The status distinguishes the part of the outbound boundary that failed:
 | `app_error` | The remote application returned a declared application error |
 | `unexpected_response` | A response arrived but its status, media type, body, headers, or error envelope violated the contract |
 | `transport_error` | httpx could not complete the transport operation |
+| `timed_out` | The explicit retry policy exhausted its total timeout |
 | `failed` | No response arrived and the failure was not an httpx transport error or cancellation, such as invalid local input or contract configuration |
 | `cancelled` | The client call was cancelled |
 
@@ -139,9 +199,35 @@ Observers run in declaration order and may be sync or async. Their failures are
 logged and isolated from later observers and from the value or exception the
 caller receives. Keep them fast because the call waits for the observer chain.
 
+To see individual attempts, pass `attempt_observers=` and accept
+`ClientAttemptOutcome`. It reports the attempt number, maximum attempts,
+classification, status and error code when available, whether the policy
+scheduled another attempt, and its selected delay. A deadline can still expire
+during that delay. One logical `ClientOutcome` is emitted after the retry
+sequence:
+
+```python
+from tenchi.client import ClientAttemptOutcome
+
+
+def observe_attempt(outcome: ClientAttemptOutcome) -> None:
+    logger.info(
+        "dependency_attempt",
+        extra={
+            "operation": outcome.contract.name,
+            "status": outcome.status,
+            "will_retry": outcome.will_retry,
+        },
+    )
+```
+
+Attempt outcomes carry the same payload-safety guarantee as logical outcomes.
+Use logical outcomes for availability and latency service-level indicators;
+use attempt outcomes for retry pressure and dependency diagnostics.
+
 ## In-process use
 
 Tests should normally use `tenchi.testing.open_client(app)`. It supplies an
 ASGI transport, runs the application lifespan, and returns the same `Client`
-API used against a deployed server. Pass `observers=` to assert outbound
-outcomes in a test.
+API used against a deployed server. Pass `observers=` and
+`attempt_observers=` to assert outbound outcomes in a test.

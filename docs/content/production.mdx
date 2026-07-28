@@ -25,7 +25,7 @@ Tenchi provides the application seams and boundary guarantees:
 | Retries | Canonical fingerprints, durable store transitions, typed replay, and declared errors | Implement storage in the command transaction and choose key scope and retention |
 | Rate limiting | Atomic fixed-window store protocol, policy validation, and a standard 429 | Choose authenticated scope, shared storage, transaction semantics, and edge limits |
 | Inbound webhooks | Exact-body verifier bindings, required composition, request limits, and typed validation | Verify the provider protocol, attach service identity, enforce replay rules, and store event ids |
-| Background work | `execute()` and scoped contexts | Choose a queue or outbox, schedule workers, and define retry policy |
+| Background work | Validated job messages, handler bindings, dispatch, and scoped contexts | Choose a queue or outbox, schedule workers, and define retry policy |
 | Operational maintenance | Validated named tasks, CLI/MCP discovery, and scoped execution | Define safe dry runs, operator access, and rollout procedure |
 | Observability | Finalized HTTP, use-case, and outbound-client outcomes | Export logs, metrics, traces, and alerts |
 | Deployment | Health routes, request limits, deadlines, `tenchi check`, and environment preflight | Configure the ASGI server, proxy, secrets, migrations, dependency credentials, and rollout |
@@ -76,6 +76,8 @@ For every boundary, decide which component owns each outcome:
 - A contract owns valid HTTP inputs, outputs, and declared application errors.
 - A request context owns commit or rollback.
 - A use case owns business rejection through `AppError`.
+- Tenchi job primitives validate producer messages, consumer input, and
+  handler results.
 - A worker owns acknowledgement, retry, dead-lettering, and backoff.
 - A deployment process owns migrations and compatibility with the previous
   release.

@@ -6,17 +6,16 @@ Run alongside the HTTP server with:
 
 Each job is one unit of work on its own connection: atomically claim the
 oldest pending outbox row (the claim is safe with several workers — see
-``SqliteOutbox``), then hand the raw payload to ``tenchi.execution``'s
-``execute``, which validates it against the use case's own request
-annotation before calling the use case.
+``SqliteOutbox``), then hand its name and raw JSON payload to the registered
+Tenchi job dispatcher.
 
 Every job ends in exactly one of three ways:
 
 - **Delivered** — the use case ran; its writes and the settled row
   commit together.
 - **Dead-lettered** — deterministic failures: unknown job names,
-  payloads that fail validation, miswired handlers (``ExecutionError``),
-  and business rejections (``AppError``). The job's transaction is
+  payloads that fail validation, invalid handler results, and business
+  rejections (``AppError``). The job's transaction is
   rolled back first, so partial writes never commit, then the row is
   settled with the error preserved. Never retried: retrying a
   deterministic failure would starve every job queued behind it.
@@ -35,7 +34,6 @@ import os
 import aiosqlite
 from pydantic import ValidationError
 
-from app.features.projects.use_cases.notify_member_added import notify_member_added
 from app.infra.port_wiring import configure_connection, ensure_schema
 from app.infra.sqlite_idempotency import SqliteIdempotencyStore
 from app.infra.sqlite_rate_limits import SqliteRateLimitStore
@@ -47,18 +45,11 @@ from app.infra.sqlite_repositories import (
     SqliteTaskSearch,
 )
 from app.server.context import AppContext
-from app.server.observability import observe_use_case
+from app.server.jobs import dispatcher
 from tenchi.errors import AppError
-from tenchi.execution import ExecutionError, execute
-from tenchi.routes import UseCase
+from tenchi.jobs import JobNotFoundError, JobResultError
 
 logger = logging.getLogger("taskboard.worker")
-
-# The use case's request annotation drives payload validation, so the
-# registry is just names to functions.
-JOB_HANDLERS: dict[str, UseCase] = {
-    "member_added": notify_member_added,
-}
 
 POLL_INTERVAL_SECONDS = 1.0
 
@@ -73,34 +64,28 @@ async def process_next(database_path: str) -> bool:
         if entry is None:
             return False
 
-        use_case = JOB_HANDLERS.get(entry.job)
-        if use_case is None:
-            await outbox.mark_failed(entry.id, error=f"unknown job {entry.job!r}")
-        else:
-            context = AppContext(
-                projects=SqliteProjectRepository(connection),
-                tasks=SqliteTaskRepository(connection),
-                task_search=SqliteTaskSearch(connection),
-                idempotency=SqliteIdempotencyStore(connection),
-                rate_limits=SqliteRateLimitStore(connection),
-                outbox=outbox,
-                notifications=SqliteNotificationLog(connection),
+        context = AppContext(
+            projects=SqliteProjectRepository(connection),
+            tasks=SqliteTaskRepository(connection),
+            task_search=SqliteTaskSearch(connection),
+            idempotency=SqliteIdempotencyStore(connection),
+            rate_limits=SqliteRateLimitStore(connection),
+            outbox=outbox,
+            notifications=SqliteNotificationLog(connection),
+        )
+        try:
+            await dispatcher.dispatch(
+                entry.job,
+                payload_json=entry.payload_json,
+                context=context,
             )
-            try:
-                await execute(
-                    use_case,
-                    request_json=entry.payload,
-                    context=context,
-                    use_case_observers=(observe_use_case,),
-                )
-            except (ValidationError, ExecutionError, AppError) as error:
-                # Deterministic failures — bad payload, miswired handler,
-                # business rejection — dead-letter instead of retrying;
-                # retrying would starve every job behind this one. Roll
-                # back first so partial writes never commit alongside
-                # the dead-letter record.
-                await connection.rollback()
-                await outbox.mark_failed(entry.id, error=_failure_text(error))
+        except (ValidationError, JobNotFoundError, JobResultError, AppError) as error:
+            # Deterministic failures — bad payload or name, invalid result,
+            # business rejection — dead-letter instead of retrying; retrying
+            # would starve every job behind this one. Roll back first so
+            # partial writes never commit alongside the dead-letter record.
+            await connection.rollback()
+            await outbox.mark_failed(entry.id, error=_failure_text(error))
 
         await connection.commit()
         return True
@@ -109,6 +94,12 @@ async def process_next(database_path: str) -> bool:
 def _failure_text(error: Exception) -> str:
     if isinstance(error, AppError):
         return f"{error.code}: {error}"
+    if isinstance(error, ValidationError):
+        return "JOB_INPUT_INVALID: stored payload does not match the job declaration"
+    if isinstance(error, JobResultError):
+        return "JOB_RESULT_INVALID: handler result does not match the job declaration"
+    if isinstance(error, JobNotFoundError):
+        return f"JOB_NOT_FOUND: {error}"
     return str(error)
 
 

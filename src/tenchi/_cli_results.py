@@ -23,9 +23,9 @@ type TaskRunErrorKind = Literal[
     "invalid_result",
     "failed",
 ]
-type AgentProtocolVersion = Literal[2]
+type AgentProtocolVersion = Literal[3]
 
-AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 2
+AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 3
 
 
 class DiagnosticPayload(TypedDict):

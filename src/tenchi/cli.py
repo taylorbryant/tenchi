@@ -23,8 +23,8 @@ The ``routes``, ``map``, ``openapi``, ``check``, ``preflight``, ``task``,
 ``mcp``, and ``dev`` commands rely on the structural convention that
 ``app/server/routes.py`` exposes ``routes`` and ``api_routes``,
 ``app/server/preflight.py`` exposes ``checks``, ``app/server/tasks.py`` exposes
-``runner``, and ``app/server/asgi.py`` exposes ``app``; targets can be
-overridden by flag.
+``runner``, ``app/server/jobs.py`` exposes ``jobs``, and
+``app/server/asgi.py`` exposes ``app``; targets can be overridden by flag.
 """
 
 from __future__ import annotations
@@ -59,6 +59,7 @@ from ._cli_operations import (
     write_files,
 )
 from ._cli_results import CheckResult, MakeResult
+from ._job_operations import load_job_group
 from ._openapi_operations import (
     OperationError,
     compare_openapi_baseline,
@@ -110,6 +111,7 @@ _DEFAULT_API_ROUTES = "app.server.routes:api_routes"
 _DEFAULT_APP = "app.server.asgi:app"
 _DEFAULT_PREFLIGHT = "app.server.preflight:checks"
 _DEFAULT_TASKS = "app.server.tasks:runner"
+_DEFAULT_JOBS = "app.server.jobs:jobs"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -133,6 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _map_app(
             args.target,
             tasks_target=args.tasks,
+            jobs_target=args.jobs,
             feature=args.feature,
             kinds=args.kinds,
             as_json=args.json,
@@ -191,6 +194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             security_json=args.security,
             preflight=args.preflight,
             tasks=args.tasks,
+            jobs=args.jobs,
             allow_task_runs=args.allow_task_runs,
         )
     return _dev(args.app, args.host, args.port, reload=not args.no_reload)
@@ -259,6 +263,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--tasks",
         default=_DEFAULT_TASKS,
         help="module:attribute of the TaskRunner (default: %(default)s)",
+    )
+    map_parser.add_argument(
+        "--jobs",
+        default=_DEFAULT_JOBS,
+        help="module:attribute of the JobGroup (default: %(default)s)",
     )
     map_parser.add_argument(
         "--feature",
@@ -493,6 +502,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--tasks",
         default=_DEFAULT_TASKS,
         help="module:attribute used by task tools (default: %(default)s)",
+    )
+    mcp_parser.add_argument(
+        "--jobs",
+        default=_DEFAULT_JOBS,
+        help="module:attribute used by the app-map tool (default: %(default)s)",
     )
     mcp_parser.add_argument(
         "--allow-task-runs",
@@ -760,6 +774,7 @@ def _map_app(
     target: str,
     *,
     tasks_target: str,
+    jobs_target: str,
     feature: str | None,
     kinds: Sequence[AppMapNodeKind] | None,
     as_json: bool,
@@ -769,11 +784,12 @@ def _map_app(
         return 1
     try:
         runner = load_task_runner(Path.cwd(), tasks_target)
+        jobs = load_job_group(Path.cwd(), jobs_target)
     except OperationError as exc:
         _fail(f"tenchi map: {exc}")
         return 1
 
-    result = map_app(Path.cwd(), group, runner.tasks)
+    result = map_app(Path.cwd(), group, runner.tasks, jobs)
     if feature is not None:
         features = sorted(node.name for node in result.nodes if node.kind == "feature")
         if feature not in features:
@@ -1059,6 +1075,7 @@ def _mcp(
     api_routes: str,
     preflight: str,
     tasks: str,
+    jobs: str,
     allow_task_runs: bool,
     snapshot: str,
     title: str | None,
@@ -1085,6 +1102,7 @@ def _mcp(
                 api_routes=api_routes,
                 preflight=preflight,
                 tasks=tasks,
+                jobs=jobs,
                 allow_task_runs=allow_task_runs,
                 snapshot=snapshot,
                 title=title,

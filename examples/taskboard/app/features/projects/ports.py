@@ -1,5 +1,4 @@
-from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Protocol
 
 from app.shared.users import OwnerScope
 
@@ -14,7 +13,7 @@ class Outbox(Protocol):
     state change it announces is. A worker delivers it later.
     """
 
-    async def enqueue(self, *, job: str, payload: Mapping[str, Any]) -> None: ...
+    async def enqueue(self, *, job: str, payload_json: bytes) -> None: ...
 
 
 class NotificationLog(Protocol):

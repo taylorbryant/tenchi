@@ -46,13 +46,13 @@ application root and the composed HTTP surface under `routes`.
 uv run tenchi map
 uv run tenchi map --json
 uv run tenchi map --feature notes --json
-uv run tenchi map --feature notes --kind route,use-case,policy,port --json
+uv run tenchi map --feature notes --kind route,job,use-case,policy,port --json
 ```
 
-Map combines the canonical source layout with the composed API route group. It
-returns a deterministic, versioned graph covering features, contracts, routes,
-operational tasks, use cases, policies, ports, adapters, context types,
-entrypoints, and tests.
+Map combines the canonical source layout with composed API routes, operational
+tasks, and background jobs. It returns a deterministic, versioned graph
+covering features, contracts, routes, background jobs, operational tasks, use
+cases, policies, ports, adapters, context types, entrypoints, and tests.
 Edges describe ownership, route bindings, dependencies, authorization,
 implementations, and feature tests. Each edge carries project-relative source
 evidence and an `exact` or `inferred` confidence value.
@@ -61,7 +61,8 @@ evidence and an `exact` or `inferred` confidence value.
 makes cross-feature policy and shared-port dependencies visible without loading
 the entire application. `--kind` accepts a comma-separated projection of node
 kinds. The default route target is `app.server.routes:api_routes`; override it
-with `--routes module:attribute`.
+with `--routes module:attribute`. The default job target is
+`app.server.jobs:jobs`; override it with `--jobs module:attribute`.
 
 The JSON result also embeds `tenchi doctor` diagnostics and unresolved source
 relationships. Agents should inspect both before editing and use stable node
@@ -171,8 +172,9 @@ uv run tenchi mcp --root path/to/application
 MCP support is installed through the `tenchi[mcp]` extra. Generated
 applications include it as a development dependency and register the default
 command in `.mcp.json`.
-`--routes`, `--api-routes`, `--preflight`, `--tasks`, and `--snapshot` override the
-conventions captured by the server when it starts. `--title`, `--version`,
+`--routes`, `--api-routes`, `--preflight`, `--tasks`, `--jobs`, and
+`--snapshot` override the conventions captured by the server when it starts.
+`--title`, `--version`,
 `--description`, and `--security` override discovered OpenAPI metadata for the
 diff and check tools. Pass `--allow-task-runs` only when the connected agent
 may perform operational writes; task discovery remains available without it.

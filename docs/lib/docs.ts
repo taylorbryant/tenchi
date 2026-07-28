@@ -127,6 +127,13 @@ export const docsSections = [
         priority: 0.78,
       },
       {
+        path: "/jobs",
+        title: "Background jobs",
+        description:
+          "Declare stable job messages, validate producers and consumers, and dispatch through queue-neutral handlers.",
+        priority: 0.8,
+      },
+      {
         path: "/tasks",
         title: "Operational tasks",
         description:

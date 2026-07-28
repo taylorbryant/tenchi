@@ -13,6 +13,7 @@ app/
     ports.py
     policy.py
     routes.py
+    jobs.py
     tasks.py
     use_cases/
     tests/
@@ -23,6 +24,7 @@ app/
     hooks.py
     webhooks.py
     routes.py
+    jobs.py
     runtime.py
     preflight.py
     tasks.py
@@ -36,7 +38,8 @@ tests/
 by contracts, ports, and use cases. `ports.py` defines the interfaces the
 feature needs. `policy.py` owns pure authorization rules. `routes.py` binds
 contracts to use cases. `tasks.py` gives selected use cases stable operational
-names.
+names. `jobs.py` declares durable background messages without importing their
+consumer use cases.
 
 Each file in `use_cases/` contains one plain async function. Unit tests sit
 beside the feature and call those functions directly with memory adapters.
@@ -61,6 +64,7 @@ The `app/server/` package is the application root:
 - `hooks.py` implements HTTP-boundary concerns such as authentication.
 - `webhooks.py` binds signed-provider verification and service identity.
 - `routes.py` combines feature route groups and shared error declarations.
+- `jobs.py` binds feature job declarations to consumer use cases.
 - `runtime.py` owns resources shared by HTTP and operational entrypoints.
 - `preflight.py` declares read-only checks of the target deployment environment.
 - `tasks.py` composes the application's operational task runner.
@@ -76,6 +80,7 @@ direction.
 routes -> use cases -> ports -> schemas/domain
 server composition -> routes
 server composition -> infrastructure -> ports
+server composition -> job declarations + consumer use cases
 ```
 
 Arrows point from the importing layer to the layer it depends on. Server
@@ -87,6 +92,8 @@ on it.
 - Use cases may import schemas, ports, policies, context types, and shared
   application code.
 - Routes may import contracts and use cases, but never infrastructure.
+- Job declarations may import schemas but not use cases or infrastructure;
+  producers may import declarations and `job_message()`.
 - Infrastructure implements ports, but never imports use cases or routes.
 - Server composition wires the complete graph.
 

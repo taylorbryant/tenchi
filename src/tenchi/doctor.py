@@ -9,6 +9,7 @@ Doctor enforces the dependency direction that keeps Tenchi apps honest:
   types, and shared errors, and nothing with I/O behind it.
 - Routes bind contracts to use cases but must not import infrastructure.
 - Tasks bind operational names to use cases but must not import infrastructure.
+- Jobs declare producer messages; handlers are bound at the composition root.
 - Shared code must not depend on features.
 - Infrastructure implements ports; it must not import use cases, routes,
   contracts, or server composition.
@@ -47,6 +48,7 @@ _FEATURE_KINDS: dict[str, Category] = {
     "contracts": "contracts",
     "routes": "routes",
     "tasks": "tasks",
+    "jobs": "jobs",
     "use_cases": "use_cases",
     "policy": "policy",
     "tests": "tests",
@@ -75,6 +77,23 @@ _TASK_REEXPORTS = frozenset(
         "TaskRunner",
     }
 )
+_JOB_REEXPORTS = frozenset(
+    {
+        "create_job_dispatcher",
+        "job",
+        "job_group",
+        "job_handler",
+        "job_message",
+        "Job",
+        "JobBindingError",
+        "JobDispatcher",
+        "JobGroup",
+        "JobHandler",
+        "JobMessage",
+        "JobNotFoundError",
+        "JobResultError",
+    }
+)
 
 # Forbidden import targets per source category, with the rule each enforces.
 _RULES: dict[Category, dict[Category, str]] = {
@@ -83,6 +102,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "server": "domain and schema code must not import server composition",
         "context": "domain and schema code must not import the app context",
         "tasks": "domain and schema code must not import task declarations",
+        "jobs": "domain and schema code must not import job declarations",
         **{k: f"domain and schema code {v}" for k, v in _HTTP_RULES.items()},
     },
     "ports": {
@@ -90,6 +110,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "server": "ports must not import server composition",
         "context": "ports must not import the app context",
         "tasks": "ports must not import task declarations",
+        "jobs": "ports must not import job declarations",
         **{k: f"ports {v}" for k, v in _HTTP_RULES.items()},
     },
     "contracts": {
@@ -98,6 +119,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "context": "contracts must not import the app context",
         "use_cases": "contracts must not import use cases",
         "tasks": "contracts must not import tasks",
+        "jobs": "contracts must not import jobs",
         **{k: f"contracts {v}" for k, v in _HTTP_RULES.items()},
     },
     "policy": {
@@ -109,6 +131,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "routes": "policies must not import routes",
         "contracts": "policies must not import contracts",
         "tasks": "policies must not import tasks",
+        "jobs": "policies must not import jobs",
         **{k: f"policies {v}" for k, v in _HTTP_RULES.items()},
     },
     "use_cases": {
@@ -125,6 +148,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "infra": "routes must not import concrete infrastructure",
         "server": "routes must not import server composition",
         "tasks": "routes must not import task declarations",
+        "jobs": "routes must not import job declarations",
         **{k: f"routes {v}" for k, v in _HTTP_RULES.items()},
     },
     "tasks": {
@@ -133,7 +157,18 @@ _RULES: dict[Category, dict[Category, str]] = {
         "context": "tasks bind use cases; they must not import the app context",
         "routes": "tasks must not import routes",
         "contracts": "tasks must not import contracts",
+        "jobs": "tasks must not import job declarations",
         **{k: f"tasks {v}" for k, v in _HTTP_RULES.items()},
+    },
+    "jobs": {
+        "infra": "job declarations must not import concrete infrastructure",
+        "server": "job declarations must not import server composition",
+        "context": "job declarations must not import the app context",
+        "use_cases": "job declarations must not import use cases",
+        "routes": "job declarations must not import routes",
+        "contracts": "job declarations must not import contracts",
+        "tasks": "job declarations must not import tasks",
+        **{k: f"job declarations {v}" for k, v in _HTTP_RULES.items()},
     },
     "shared": {
         "infra": "shared code must not import infrastructure",
@@ -146,6 +181,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "use_cases": "shared code must not depend on features",
         "policy": "shared code must not depend on features",
         "tasks": "shared code must not depend on features",
+        "jobs": "shared code must not depend on features",
         **{k: f"shared code {v}" for k, v in _HTTP_RULES.items()},
     },
     "infra": {
@@ -155,6 +191,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "routes": "infrastructure must not import routes",
         "contracts": "infrastructure must not import contracts",
         "tasks": "infrastructure must not import tasks",
+        "jobs": "infrastructure must not import jobs",
     },
     "server": {},
 }
@@ -227,7 +264,7 @@ def _placement_findings(
             message=(
                 "unrecognized feature module: features contain schemas.py, "
                 "ports.py, contracts.py, routes.py, tasks.py, policy.py, "
-                "use_cases/, and tests/ only"
+                "jobs.py, use_cases/, and tests/ only"
             ),
             code="TENCHI_DOCTOR_UNRECOGNIZED_FEATURE_MODULE",
         )
@@ -415,6 +452,8 @@ def _classify_module(parts: tuple[str, ...]) -> Category | None:
             return "tenchi_runtime"
         if parts[0] == "tenchi" and parts[1:2] == ("tasks",):
             return "tasks"
+        if parts[0] == "tenchi" and parts[1:2] == ("jobs",):
+            return "jobs"
         # Root re-exports reach the same runtime: `from tenchi import
         # execute` must not slip past what `from tenchi.execution import
         # execute` is denied.
@@ -422,6 +461,8 @@ def _classify_module(parts: tuple[str, ...]) -> Category | None:
             return "tenchi_runtime"
         if parts[0] == "tenchi" and parts[1:2] and parts[1] in _TASK_REEXPORTS:
             return "tasks"
+        if parts[0] == "tenchi" and parts[1:2] and parts[1] in _JOB_REEXPORTS:
+            return "jobs"
         return None
     if parts[1:2] == ("infra",):
         return "infra"

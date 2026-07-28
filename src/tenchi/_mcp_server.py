@@ -44,6 +44,7 @@ from ._cli_results import (
     TaskListPayload,
     TaskRunPayload,
 )
+from ._job_operations import load_job_group
 from ._openapi_operations import (
     OpenApiDiffPayload,
     OperationError,
@@ -100,6 +101,7 @@ class McpServerOptions:
     api_routes: str = "app.server.routes:api_routes"
     preflight: str = "app.server.preflight:checks"
     tasks: str = "app.server.tasks:runner"
+    jobs: str = "app.server.jobs:jobs"
     allow_task_runs: bool = False
     snapshot: str = "openapi.json"
     title: str | None = None
@@ -125,6 +127,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             options.api_routes,
             options.preflight,
             options.tasks,
+            options.jobs,
         )
     )
 
@@ -175,7 +178,8 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         def operation() -> AppMapPayload:
             group = load_route_group(root, options.api_routes)
             runner = load_task_runner(root, options.tasks)
-            result = map_app(root, group, runner.tasks)
+            jobs = load_job_group(root, options.jobs)
+            result = map_app(root, group, runner.tasks, jobs)
             if feature is not None:
                 available = sorted(
                     node.name for node in result.nodes if node.kind == "feature"

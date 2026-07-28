@@ -24,14 +24,11 @@ class RepairProjectMembersResult(BaseModel):
 
 
 class MemberAdded(BaseModel):
-    """Payload of the ``member_added`` outbox job.
+    """Payload of the ``projects.member_added`` outbox job.
 
-    Enqueuer (``add_project_member``) and worker share this one
-    declaration; the worker validates inbound payloads against it before
-    any use case runs, mirroring HTTP boundary validation. The payload is
-    self-contained — it carries the facts as they were when the event
-    happened, so delivery does not re-read state that may have changed
-    (or vanished) since enqueue time.
+    The job declaration is shared by the producer and consumer. The payload
+    is self-contained, so delivery does not re-read state that may have
+    changed (or vanished) since enqueue time.
     """
 
     project_id: str

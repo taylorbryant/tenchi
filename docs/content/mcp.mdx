@@ -123,6 +123,7 @@ uv run tenchi mcp \
   --api-routes my_app.server.routes:api_routes \
   --preflight my_app.server.preflight:checks \
   --tasks my_app.server.tasks:runner \
+  --jobs my_app.server.jobs:jobs \
   --snapshot api/openapi.json \
   --title "My API" \
   --version 1.0.0
@@ -130,6 +131,7 @@ uv run tenchi mcp \
 
 `routes` uses `--routes`. The map, OpenAPI diff, and `check` tools use
 `--api-routes`; `preflight` uses `--preflight`; the task tools use `--tasks`.
+The map loads registered background jobs through `--jobs`.
 OpenAPI title, version,
 description, and security defaults come from the same literal route-module
 declarations used by `tenchi check`.

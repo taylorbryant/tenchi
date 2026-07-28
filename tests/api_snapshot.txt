@@ -1,6 +1,8 @@
 # tenchi
 AppError (re-export of tenchi.errors.AppError)
 Client (re-export of tenchi.client.Client)
+ClientAttemptObserver = collections.abc.Callable[[tenchi.client.ClientAttemptOutcome], typing.Any]
+ClientAttemptOutcome (re-export of tenchi.client.ClientAttemptOutcome)
 ClientObserver = collections.abc.Callable[[tenchi.client.ClientOutcome], typing.Any]
 ClientOutcome (re-export of tenchi.client.ClientOutcome)
 ClientResponse (re-export of tenchi.client.ClientResponse)
@@ -13,6 +15,14 @@ IDEMPOTENCY_IN_PROGRESS = ErrorDef(code='IDEMPOTENCY_IN_PROGRESS', status=409, m
 IdempotencyResultError (re-export of tenchi.idempotency.IdempotencyResultError)
 IdempotencyStore (re-export of tenchi.idempotency.IdempotencyStore)
 IdempotencyStoreError (re-export of tenchi.idempotency.IdempotencyStoreError)
+Job (re-export of tenchi.jobs.Job)
+JobBindingError (re-export of tenchi.jobs.JobBindingError)
+JobDispatcher (re-export of tenchi.jobs.JobDispatcher)
+JobGroup (re-export of tenchi.jobs.JobGroup)
+JobHandler (re-export of tenchi.jobs.JobHandler)
+JobMessage (re-export of tenchi.jobs.JobMessage)
+JobNotFoundError (re-export of tenchi.jobs.JobNotFoundError)
+JobResultError (re-export of tenchi.jobs.JobResultError)
 MemoryRateLimitStore (re-export of tenchi.rate_limits.MemoryRateLimitStore)
 OutcomeObserver = collections.abc.Callable[[tenchi.server.RequestOutcome], typing.Any]
 Page (re-export of tenchi.pagination.Page)
@@ -32,6 +42,8 @@ RateLimitStoreError (re-export of tenchi.rate_limits.RateLimitStoreError)
 RequestInfo (re-export of tenchi.server.RequestInfo)
 RequestOutcome (re-export of tenchi.server.RequestOutcome)
 ResponseDef (re-export of tenchi.responses.ResponseDef)
+RetryPolicy (re-export of tenchi.retries.RetryPolicy)
+RetryTimeoutError (re-export of tenchi.retries.RetryTimeoutError)
 Route (re-export of tenchi.routes.Route)
 RouteGroup (re-export of tenchi.routes.RouteGroup)
 Task (re-export of tenchi.tasks.Task)
@@ -50,11 +62,16 @@ WebhookRequest (re-export of tenchi.webhooks.WebhookRequest)
 WebhookVerifier = collections.abc.Callable[['WebhookRequest', typing.Any], typing.Any]
 contract (re-export of tenchi.contracts.contract)
 create_app (re-export of tenchi.server.create_app)
+create_job_dispatcher (re-export of tenchi.jobs.create_job_dispatcher)
 create_task_runner (re-export of tenchi.tasks.create_task_runner)
 enforce_rate_limit (re-export of tenchi.rate_limits.enforce_rate_limit)
 execute (re-export of tenchi.execution.execute)
 fingerprint (re-export of tenchi.idempotency.fingerprint)
 health_route (re-export of tenchi.health.health_route)
+job (re-export of tenchi.jobs.job)
+job_group (re-export of tenchi.jobs.job_group)
+job_handler (re-export of tenchi.jobs.job_handler)
+job_message (re-export of tenchi.jobs.job_message)
 openapi_route (re-export of tenchi.openapi.openapi_route)
 openapi_schema (re-export of tenchi.openapi.openapi_schema)
 page (re-export of tenchi.pagination.page)
@@ -62,6 +79,7 @@ preflight_check (re-export of tenchi.preflight.preflight_check)
 preflight_group (re-export of tenchi.preflight.preflight_group)
 present (re-export of tenchi.responses.present)
 response (re-export of tenchi.responses.response)
+retry_policy (re-export of tenchi.retries.retry_policy)
 route (re-export of tenchi.routes.route)
 route_group (re-export of tenchi.routes.route_group)
 run_idempotently (re-export of tenchi.idempotency.run_idempotently)
@@ -73,18 +91,31 @@ webhook (re-export of tenchi.webhooks.webhook)
 
 # tenchi.client
 class Client
-    def __init__(self, *, base_url: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, http: 'httpx.AsyncClient | None' = None, errors: 'Sequence[ErrorDef]' = (), observers: 'Sequence[ClientObserver]' = ()) -> 'None'
+    def __init__(self, *, base_url: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, http: 'httpx.AsyncClient | None' = None, errors: 'Sequence[ErrorDef]' = (), observers: 'Sequence[ClientObserver]' = (), attempt_observers: 'Sequence[ClientAttemptObserver]' = ()) -> 'None'
     def aclose(self) -> 'None'
-    def call(self, contract: 'Contract[ResponseT, ResponseHeadersT]', *, params: 'Any' = None, query: 'Any' = None, headers: 'Any' = None, request: 'Any' = UNSET) -> 'ResponseT'
-    def call_with_response(self, contract: 'Contract[ResponseT, ResponseHeadersT]', *, params: 'Any' = None, query: 'Any' = None, headers: 'Any' = None, request: 'Any' = UNSET) -> 'ClientResponse[ResponseT, ResponseHeadersT]'
-ClientObserver = collections.abc.Callable[[tenchi.client.ClientOutcome], typing.Any]
-class ClientOutcome
+    def call(self, contract: 'Contract[ResponseT, ResponseHeadersT]', *, params: 'Any' = None, query: 'Any' = None, headers: 'Any' = None, request: 'Any' = UNSET, retry: 'RetryPolicy | None' = None) -> 'ResponseT'
+    def call_with_response(self, contract: 'Contract[ResponseT, ResponseHeadersT]', *, params: 'Any' = None, query: 'Any' = None, headers: 'Any' = None, request: 'Any' = UNSET, retry: 'RetryPolicy | None' = None) -> 'ClientResponse[ResponseT, ResponseHeadersT]'
+ClientAttemptObserver = collections.abc.Callable[[tenchi.client.ClientAttemptOutcome], typing.Any]
+class ClientAttemptOutcome
     contract: Contract[Any, Any]
-    status: Literal['succeeded', 'app_error', 'unexpected_response', 'transport_error', 'failed', 'cancelled']
+    attempt: int
+    max_attempts: int
+    status: Literal['succeeded', 'app_error', 'unexpected_response', 'transport_error', 'timed_out', 'failed', 'cancelled']
     status_code: int | None
     duration_seconds: float
     error_code: str | None = None
-    def __init__(self, contract: 'Contract[Any, Any]', status: "Literal['succeeded', 'app_error', 'unexpected_response', 'transport_error', 'failed', 'cancelled']", status_code: 'int | None', duration_seconds: 'float', error_code: 'str | None' = None) -> None
+    will_retry: bool = False
+    retry_delay_seconds: float | None = None
+    def __init__(self, contract: 'Contract[Any, Any]', attempt: 'int', max_attempts: 'int', status: "Literal['succeeded', 'app_error', 'unexpected_response', 'transport_error', 'timed_out', 'failed', 'cancelled']", status_code: 'int | None', duration_seconds: 'float', error_code: 'str | None' = None, will_retry: 'bool' = False, retry_delay_seconds: 'float | None' = None) -> None
+ClientObserver = collections.abc.Callable[[tenchi.client.ClientOutcome], typing.Any]
+class ClientOutcome
+    contract: Contract[Any, Any]
+    status: Literal['succeeded', 'app_error', 'unexpected_response', 'transport_error', 'timed_out', 'failed', 'cancelled']
+    status_code: int | None
+    duration_seconds: float
+    error_code: str | None = None
+    attempts: int = 1
+    def __init__(self, contract: 'Contract[Any, Any]', status: "Literal['succeeded', 'app_error', 'unexpected_response', 'transport_error', 'timed_out', 'failed', 'cancelled']", status_code: 'int | None', duration_seconds: 'float', error_code: 'str | None' = None, attempts: 'int' = 1) -> None
 class ClientResponse(Generic)
     body: BodyT
     headers: HeadersT
@@ -162,11 +193,11 @@ class ExecutionError(TenchiError, TypeError)
 UseCaseObserver = collections.abc.Callable[[tenchi.execution.UseCaseOutcome], typing.Any]
 class UseCaseOutcome
     use_case: Callable[..., Awaitable[Any]]
-    entrypoint: Literal['http', 'execute', 'task']
+    entrypoint: Literal['http', 'execute', 'job', 'task']
     status: Literal['succeeded', 'app_error', 'failed', 'cancelled']
     duration_seconds: float
     error_code: str | None = None
-    def __init__(self, use_case: 'Callable[..., Awaitable[Any]]', entrypoint: "Literal['http', 'execute', 'task']", status: "Literal['succeeded', 'app_error', 'failed', 'cancelled']", duration_seconds: 'float', error_code: 'str | None' = None) -> None
+    def __init__(self, use_case: 'Callable[..., Awaitable[Any]]', entrypoint: "Literal['http', 'execute', 'job', 'task']", status: "Literal['succeeded', 'app_error', 'failed', 'cancelled']", duration_seconds: 'float', error_code: 'str | None' = None) -> None
 def execute(use_case: 'Callable[..., Awaitable[ResultT]]', *, context: 'Any', request: 'Any' = UNSET, request_json: 'bytes | str | None' = None, use_case_observers: 'Sequence[UseCaseObserver]' = ()) -> 'ResultT'
 def open_context(source: 'Any') -> 'AsyncGenerator[Any]'
 
@@ -206,6 +237,38 @@ class IdempotencyStore(Protocol)
 class IdempotencyStoreError(TenchiError, RuntimeError)
 def fingerprint(value: 'Any', *, annotation: 'Any' = UNSET) -> 'str'
 def run_idempotently(store: 'IdempotencyStore', *, namespace: 'str', scope: 'str', key: 'str', fingerprint: 'str', result_type: 'Any', operation: 'Callable[[], Awaitable[ResultT]]', completed_ttl: 'float | None' = None, reservation_ttl: 'float' = 300.0) -> 'ResultT'
+
+# tenchi.jobs
+class Job(Generic)
+    name: str
+    description: str | None
+    request: Any
+    result: Any
+    def __init__(self, name: 'str', description: 'str | None', request: 'Any', result: 'Any') -> None
+class JobBindingError(ConfigurationError, TypeError)
+class JobDispatcher
+    jobs: JobGroup
+    use_case_observers: tuple[UseCaseObserver, ...] = ()
+    def __init__(self, jobs: 'JobGroup', use_case_observers: 'tuple[UseCaseObserver, ...]' = ()) -> None
+    def dispatch(self, name: 'str', *, payload_json: 'bytes | str', context: 'Any') -> 'Any'
+class JobGroup
+    handlers: tuple[JobHandler[Any, Any], ...]
+    def __init__(self, handlers: 'tuple[JobHandler[Any, Any], ...]') -> None
+class JobHandler(Generic)
+    job: Job[RequestT, ResultT]
+    use_case: Callable[..., Awaitable[ResultT]]
+    def __init__(self, job: 'Job[RequestT, ResultT]', use_case: 'Callable[..., Awaitable[ResultT]]') -> None
+class JobMessage
+    name: str
+    payload_json: bytes
+    def __init__(self, name: 'str', payload_json: 'bytes') -> None
+class JobNotFoundError(TenchiError, LookupError)
+class JobResultError(TenchiError, TypeError)
+def create_job_dispatcher(*, jobs: 'JobGroup', use_case_observers: 'Sequence[UseCaseObserver]' = ()) -> 'JobDispatcher'
+def job(name: 'str', *, request: 'type[Any] | UnionType', result: 'type[Any] | UnionType | None', description: 'str | None' = None) -> 'Job[Any, Any]'
+def job_group(*items: 'JobHandler[Any, Any] | JobGroup | Sequence[JobHandler[Any, Any]]') -> 'JobGroup'
+def job_handler(declaration: 'Job[RequestT, ResultT]', use_case: 'Callable[..., Awaitable[ResultT]]') -> 'JobHandler[RequestT, ResultT]'
+def job_message(declaration: 'Job[RequestT, ResultT]', request: 'RequestT') -> 'JobMessage'
 
 # tenchi.openapi
 def openapi_route(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, path: 'str' = '/openapi.json', tags: 'Sequence[str]' = ('docs',), public: 'bool' = True) -> 'Route'
@@ -307,6 +370,21 @@ class ResponseDef(Generic)
 def present(definition: 'ResponseDef[Any, Any]', body: 'Any' = UNSET, /, *, headers: 'Any' = UNSET, response: 'Response | None' = None) -> 'PresentedResponse'
 def response(body: 'type[Any] | UnionType | None', /, *body_alternatives: 'type[Any]', status: 'int', headers: 'type[Any] | None' = None, media_type: 'str | None' = 'application/json', description: 'str' = 'Successful response', passthrough: 'bool' = False) -> 'ResponseDef[Any, Any]'
 
+# tenchi.retries
+class RetryPolicy
+    max_attempts: int = 3
+    retry_on: tuple[str, ...] = ()
+    retry_transport_errors: bool = True
+    base_delay_seconds: float = 0.1
+    max_delay_seconds: float = 5.0
+    jitter: float = 0.2
+    total_timeout_seconds: float | None = None
+    allow_unsafe_methods: bool = False
+    def __init__(self, *, max_attempts: 'int' = 3, retry_on: 'tuple[str, ...]' = (), retry_transport_errors: 'bool' = True, base_delay_seconds: 'float' = 0.1, max_delay_seconds: 'float' = 5.0, jitter: 'float' = 0.2, total_timeout_seconds: 'float | None' = None, allow_unsafe_methods: 'bool' = False) -> None
+class RetryTimeoutError(TenchiError, TimeoutError)
+    def __init__(self, *, contract_name: 'str', attempts: 'int') -> 'None'
+def retry_policy(*, max_attempts: 'int' = 3, retry_on: 'Sequence[str]' = (), retry_transport_errors: 'bool' = True, base_delay_seconds: 'float' = 0.1, max_delay_seconds: 'float' = 5.0, jitter: 'float' = 0.2, total_timeout_seconds: 'float | None' = None, allow_unsafe_methods: 'bool' = False) -> 'RetryPolicy'
+
 # tenchi.server
 ContextFactory = collections.abc.Callable[..., typing.Any]
 DEFAULT_MAX_REQUEST_BYTES = 1048576
@@ -332,7 +410,7 @@ def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifes
 
 # tenchi.testing
 ASGIApp = collections.abc.Callable[..., collections.abc.Awaitable[None]]
-def open_client(app: 'ASGIApp', *, headers: 'Mapping[str, str] | None' = None, errors: 'Sequence[ErrorDef]' = (), observers: 'Sequence[ClientObserver]' = (), base_url: 'str' = 'http://testserver') -> 'AsyncGenerator[Client]'
+def open_client(app: 'ASGIApp', *, headers: 'Mapping[str, str] | None' = None, errors: 'Sequence[ErrorDef]' = (), observers: 'Sequence[ClientObserver]' = (), attempt_observers: 'Sequence[ClientAttemptObserver]' = (), base_url: 'str' = 'http://testserver') -> 'AsyncGenerator[Client]'
 def open_http(app: 'ASGIApp', *, headers: 'Mapping[str, str] | None' = None, base_url: 'str' = 'http://testserver') -> 'AsyncGenerator[httpx.AsyncClient]'
 
 # tenchi.tasks

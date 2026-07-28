@@ -27,6 +27,13 @@ A stable name bound to a use case for a backfill, repair, replay, or maintenance
 command. A task validates its input and result and runs with application
 lifecycle resources. It is an invocation boundary, not a scheduler or queue.
 
+## Background job
+
+A durable, stable name with validated request and result types. Producers
+serialize a `JobMessage`; the composition root binds the declaration to a plain
+async consumer; a dispatcher validates delivery. Queue persistence, retries,
+acknowledgement, and scheduling stay in infrastructure.
+
 ## Port
 
 An interface the application needs, declared with `typing.Protocol`. The

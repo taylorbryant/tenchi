@@ -83,12 +83,12 @@ returns. Export through a non-blocking logging or telemetry pipeline.
 ## Observe use cases across entrypoints
 
 `UseCaseOutcome` reports every use case that was actually invoked through HTTP,
-an operational task, or `execute()`:
+a background job, an operational task, or `execute()`:
 
 | Field | Meaning |
 | --- | --- |
 | `use_case` | The invoked async function |
-| `entrypoint` | `http`, `execute`, or `task` |
+| `entrypoint` | `http`, `execute`, `job`, or `task` |
 | `status` | `succeeded`, `app_error`, `failed`, or `cancelled` |
 | `duration_seconds` | Time spent inside the use-case function |
 | `error_code` | The stable `AppError` code for `app_error`; otherwise `None` |
@@ -96,6 +96,8 @@ an operational task, or `execute()`:
 Pass the observer to `create_app(use_case_observers=...)` for HTTP,
 `execute(use_case_observers=...)` for workers, schedules, scripts, and direct
 calls, or `create_task_runner(use_case_observers=...)` for operational tasks.
+Background dispatchers accept the same observer through
+`create_job_dispatcher(use_case_observers=...)`.
 It runs after the surrounding context scope closes, so transactional cleanup
 finishes before telemetry is exported. Input values, return values, and
 exception objects are never included.
@@ -134,10 +136,11 @@ async with Client(
 | Field | Meaning |
 | --- | --- |
 | `contract` | The contract used by the call |
-| `status` | `succeeded`, `app_error`, `unexpected_response`, `transport_error`, `failed`, or `cancelled` |
+| `status` | `succeeded`, `app_error`, `unexpected_response`, `transport_error`, `timed_out`, `failed`, or `cancelled` |
 | `status_code` | The HTTP status when a response arrived; otherwise `None` |
-| `duration_seconds` | Local preparation, transport, and response-validation time |
+| `duration_seconds` | Local preparation, transport, retry backoff, and response-validation time; observer work is excluded |
 | `error_code` | The declared remote `AppError` code for `app_error`; otherwise `None` |
+| `attempts` | Number of transport attempts made for the logical call |
 
 The outcome is emitted for local validation failures before any request leaves
 the process as well as for completed transport attempts. A response whose
@@ -154,6 +157,11 @@ or OpenTelemetry instrumentation, with an explicit redaction policy.
 Client observers run in declaration order before the call returns or raises.
 Their failures are logged and isolated from later observers and from the
 caller.
+
+When a call uses an explicit retry policy, pass `attempt_observers=` to receive
+one payload-safe `ClientAttemptOutcome` per attempt. It adds the attempt
+number, selected retry delay, and `will_retry` decision. Use the logical
+outcome for availability and latency; use attempt outcomes for retry pressure.
 
 ## Use bounded labels
 
@@ -176,7 +184,7 @@ policy.
 
 When HTTP enqueues work, copy the trusted request or trace correlation into
 message metadata. A worker should start or continue a trace from that metadata
-and attach its attempt and queue measurements around `execute()`. The shared
+and attach its attempt and queue measurements around `dispatcher.dispatch()`. The shared
 use-case observer reports the application call; the consumer still owns
 transport-specific metadata and acknowledgement.
 
@@ -185,12 +193,13 @@ transport-specific metadata and acknowledgement.
 | Need | Use |
 | --- | --- |
 | Final HTTP status, duration, contract, request ID, error ownership | `RequestOutcome` observer |
-| Use-case status and duration across HTTP, tasks, and `execute()` | `UseCaseOutcome` observer |
+| Use-case status and duration across HTTP, jobs, tasks, and `execute()` | `UseCaseOutcome` observer |
 | Outbound typed-call status, HTTP status, duration, and declared error code | `ClientOutcome` observer |
+| Outbound attempt status, retry decision, and selected delay | `ClientAttemptOutcome` observer |
 | Trace the full ASGI lifecycle, unmatched routes, or streaming bodies | ASGI/OpenTelemetry middleware |
 | Full database and outbound HTTP spans | Driver or SDK instrumentation |
 | Use-case-specific business measurements | An application port called by the use case |
-| Worker attempts, queue latency, and correlation | Instrument the consumer around `execute()` |
+| Worker attempts, queue latency, and correlation | Instrument the consumer around `dispatcher.dispatch()` |
 
 HTTP request and use-case observers run only for matched Tenchi routes. ASGI
 middleware is the correct layer for 404s outside the composed route group and

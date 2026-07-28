@@ -9,6 +9,25 @@ versions may change the public API.
 
 ### Added
 
+- Explicit outbound retry orchestration for the typed client. `retry_policy()`
+  bounds attempts, exponential backoff, jitter, and total elapsed time;
+  retries only transport failures and explicitly named declared application
+  errors; honors `Retry-After`; preserves caller cancellation; never retries
+  invalid responses; and requires deliberate authorization for unsafe HTTP
+  methods. Logical `ClientOutcome` values now report attempt counts, while
+  payload-safe `ClientAttemptOutcome` observers expose individual attempt and
+  backoff decisions.
+- Queue-neutral background-job contracts. `job()` declares a stable typed
+  message, `job_message()` validates and serializes producer input,
+  `job_handler()` checks consumer annotations at composition, and
+  `JobDispatcher` validates stored JSON and handler results through the shared
+  use-case observer boundary. Taskboard now uses these primitives across its
+  transactional outbox while retaining application ownership of claims,
+  acknowledgements, retry, rollback, and dead letters. The application map and
+  scaffold include conventional job composition.
+- Agent protocol v3 adds background-job nodes and counts to the application
+  map. The complete v1 and v2 snapshots remain intact as immutable protocol
+  history.
 - Infrastructure-neutral fixed-window rate limiting. `RateLimitStore` defines
   one atomic consume operation, `enforce_rate_limit()` validates policy and
   adapter decisions and raises the standard declared `RATE_LIMITED` 429 with

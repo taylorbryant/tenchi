@@ -17,11 +17,15 @@ payload-safe outcomes for metrics, logs, and tracing.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
+import random
 from asyncio import CancelledError
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from time import perf_counter
 from types import TracebackType
 from typing import Any, Literal, Self, cast
@@ -56,10 +60,15 @@ from .errors import (
     _validated_error_defs,  # pyright: ignore[reportPrivateUsage]
 )
 from .responses import ResponseDef
+from .retries import RetryPolicy, RetryTimeoutError
 
 _adapters: dict[Any, TypeAdapter[Any]] = {}
 
 logger = logging.getLogger("tenchi.client")
+
+
+class _RetryDeadlineElapsed(TimeoutError):
+    """Internal marker for policy expiry rather than a user TimeoutError."""
 
 
 class _Unset:
@@ -108,12 +117,14 @@ class ClientOutcome:
         "app_error",
         "unexpected_response",
         "transport_error",
+        "timed_out",
         "failed",
         "cancelled",
     ]
     status_code: int | None
     duration_seconds: float
     error_code: str | None = None
+    attempts: int = 1
 
 
 ClientObserver = Callable[[ClientOutcome], Any]
@@ -122,6 +133,38 @@ ClientObserver = Callable[[ClientOutcome], Any]
 Observers run in declaration order before the call returns or raises. Their
 failures are logged and isolated from later observers and the caller.
 """
+
+
+@dataclass(frozen=True, slots=True)
+class ClientAttemptOutcome:
+    """The payload-safe result of one transport attempt.
+
+    ``will_retry`` describes the decision made after this attempt.
+    ``retry_delay_seconds`` is the selected backoff, including a declared
+    ``Retry-After`` response header when present.
+    """
+
+    contract: Contract[Any, Any]
+    attempt: int
+    max_attempts: int
+    status: Literal[
+        "succeeded",
+        "app_error",
+        "unexpected_response",
+        "transport_error",
+        "timed_out",
+        "failed",
+        "cancelled",
+    ]
+    status_code: int | None
+    duration_seconds: float
+    error_code: str | None = None
+    will_retry: bool = False
+    retry_delay_seconds: float | None = None
+
+
+ClientAttemptObserver = Callable[[ClientAttemptOutcome], Any]
+"""A sync or async observer of each finalized outbound attempt."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,23 +186,33 @@ class _ClientResponseDef:
     response_headers_adapter: TypeAdapter[Any] | None
 
 
-class _ClientCall:
-    """Track response arrival so failures can be classified without payloads."""
+class _ClientAttempt:
+    """Track one attempt so failures can be classified without payloads."""
 
     __slots__ = (
+        "attempt",
         "contract",
+        "max_attempts",
         "outcome",
         "remote_error_code",
         "started",
         "status_code",
     )
 
-    def __init__(self, contract: Contract[Any, Any]) -> None:
+    def __init__(
+        self,
+        contract: Contract[Any, Any],
+        *,
+        attempt: int,
+        max_attempts: int,
+    ) -> None:
         self.contract = contract
+        self.attempt = attempt
+        self.max_attempts = max_attempts
         self.started = perf_counter()
         self.status_code: int | None = None
         self.remote_error_code: str | None = None
-        self.outcome: ClientOutcome | None = None
+        self.outcome: ClientAttemptOutcome | None = None
 
     def response_received(self, response: httpx.Response) -> None:
         self.status_code = response.status_code
@@ -174,6 +227,63 @@ class _ClientCall:
             "app_error",
             "unexpected_response",
             "transport_error",
+            "timed_out",
+            "failed",
+            "cancelled",
+        ],
+        *,
+        error_code: str | None = None,
+        will_retry: bool = False,
+        retry_delay_seconds: float | None = None,
+    ) -> None:
+        self.outcome = ClientAttemptOutcome(
+            contract=self.contract,
+            attempt=self.attempt,
+            max_attempts=self.max_attempts,
+            status=status,
+            status_code=self.status_code,
+            duration_seconds=perf_counter() - self.started,
+            error_code=error_code,
+            will_retry=will_retry,
+            retry_delay_seconds=retry_delay_seconds,
+        )
+
+
+class _ClientCall:
+    """Track one logical client call across all transport attempts."""
+
+    __slots__ = (
+        "active_attempt",
+        "attempts",
+        "contract",
+        "observer_seconds",
+        "outcome",
+        "started",
+        "status_code",
+    )
+
+    def __init__(self, contract: Contract[Any, Any]) -> None:
+        self.contract = contract
+        self.started = perf_counter()
+        self.status_code: int | None = None
+        self.attempts = 0
+        self.observer_seconds = 0.0
+        self.active_attempt: _ClientAttempt | None = None
+        self.outcome: ClientOutcome | None = None
+
+    def record(self, attempt: _ClientAttempt) -> None:
+        self.attempts = max(self.attempts, attempt.attempt)
+        self.status_code = attempt.status_code
+        self.active_attempt = None
+
+    def finish(
+        self,
+        status: Literal[
+            "succeeded",
+            "app_error",
+            "unexpected_response",
+            "transport_error",
+            "timed_out",
             "failed",
             "cancelled",
         ],
@@ -184,8 +294,12 @@ class _ClientCall:
             contract=self.contract,
             status=status,
             status_code=self.status_code,
-            duration_seconds=perf_counter() - self.started,
+            duration_seconds=max(
+                0.0,
+                perf_counter() - self.started - self.observer_seconds,
+            ),
             error_code=error_code,
+            attempts=self.attempts,
         )
 
 
@@ -214,6 +328,10 @@ class Client:
     ``observers`` receive one immutable, payload-safe :class:`ClientOutcome`
     for every call. Sync and async observers run in order; failures are logged
     and do not alter the returned value or raised exception.
+
+    ``attempt_observers`` receive one :class:`ClientAttemptOutcome` for each
+    transport attempt. Calls still make exactly one attempt unless a
+    :class:`~tenchi.retries.RetryPolicy` is passed explicitly.
     """
 
     def __init__(
@@ -225,9 +343,19 @@ class Client:
         http: httpx.AsyncClient | None = None,
         errors: Sequence[ErrorDef] = (),
         observers: Sequence[ClientObserver] = (),
+        attempt_observers: Sequence[ClientAttemptObserver] = (),
     ) -> None:
         declared_errors = _validated_error_defs(errors, label="Client errors")
-        observer_chain = _validated_observers(observers)
+        observer_chain = _validated_observers(
+            observers,
+            label="observers",
+            argument="ClientOutcome",
+        )
+        attempt_observer_chain = _validated_observers(
+            attempt_observers,
+            label="attempt_observers",
+            argument="ClientAttemptOutcome",
+        )
         if http is not None:
             if base_url is not None or headers is not None or transport is not None:
                 raise ConfigurationError(
@@ -251,6 +379,7 @@ class Client:
             )
         self._errors = declared_errors
         self._observers = observer_chain
+        self._attempt_observers = attempt_observer_chain
 
     async def aclose(self) -> None:
         if self._owns_http:
@@ -275,6 +404,7 @@ class Client:
         query: Any = None,
         headers: Any = None,
         request: Any = _UNSET,
+        retry: RetryPolicy | None = None,
     ) -> ResponseT:
         """Send one request described by ``contract`` and return the
         validated response value.
@@ -292,6 +422,7 @@ class Client:
             query=query,
             headers=headers,
             request=request,
+            retry=retry,
         )
         return response.body
 
@@ -303,6 +434,7 @@ class Client:
         query: Any = None,
         headers: Any = None,
         request: Any = _UNSET,
+        retry: RetryPolicy | None = None,
     ) -> ClientResponse[ResponseT, ResponseHeadersT]:
         """Send one contract call and return its validated body, declared
         success headers, and underlying :class:`httpx.Response`.
@@ -311,7 +443,8 @@ class Client:
         validate declared success headers; this method preserves them for the
         caller.
         """
-        if not self._observers:
+        policy = self._validated_retry_policy(contract, retry)
+        if policy is None and not self._observers and not self._attempt_observers:
             return await self._perform_call(
                 contract,
                 params=params,
@@ -322,43 +455,220 @@ class Client:
 
         call = _ClientCall(contract)
         try:
-            result = await self._perform_call(
+            deadline = (
+                asyncio.get_running_loop().time() + policy.total_timeout_seconds
+                if policy is not None and policy.total_timeout_seconds is not None
+                else None
+            )
+            return await self._run_attempts(
                 contract,
                 params=params,
                 query=query,
                 headers=headers,
                 request=request,
+                policy=policy,
                 call=call,
+                deadline=deadline,
             )
+        except _RetryDeadlineElapsed as exc:
+            if policy is None or policy.total_timeout_seconds is None:
+                raise
+            if call.active_attempt is not None:
+                call.active_attempt.finish("timed_out")
+                await self._finish_attempt(call, call.active_attempt)
+            call.finish("timed_out")
+            raise RetryTimeoutError(
+                contract_name=contract.name,
+                attempts=call.attempts,
+            ) from exc
         except CancelledError:
+            if call.active_attempt is not None:
+                call.active_attempt.finish("cancelled")
+                await self._finish_attempt(call, call.active_attempt)
             call.finish("cancelled")
             raise
-        except AppError:
-            if call.remote_error_code is not None:
-                call.finish("app_error", error_code=call.remote_error_code)
-            elif call.status_code is None:
-                call.finish("failed")
-            else:
-                call.finish("unexpected_response")
-            raise
-        except UnexpectedResponseError:
-            call.finish("unexpected_response")
-            raise
-        except httpx.TransportError:
-            call.finish(
-                "transport_error" if call.status_code is None else "unexpected_response"
-            )
-            raise
-        except BaseException:
-            call.finish(
-                "unexpected_response" if call.status_code is not None else "failed"
-            )
-            raise
-        else:
-            call.finish("succeeded")
-            return result
         finally:
             await _notify_client_observers(self._observers, call)
+
+    async def _run_attempts(
+        self,
+        contract: Contract[ResponseT, ResponseHeadersT],
+        *,
+        params: Any,
+        query: Any,
+        headers: Any,
+        request: Any,
+        policy: RetryPolicy | None,
+        call: _ClientCall,
+        deadline: float | None,
+    ) -> ClientResponse[ResponseT, ResponseHeadersT]:
+        max_attempts = policy.max_attempts if policy is not None else 1
+        for attempt_number in range(1, max_attempts + 1):
+            attempt = _ClientAttempt(
+                contract,
+                attempt=attempt_number,
+                max_attempts=max_attempts,
+            )
+            call.active_attempt = attempt
+            deadline_scope = asyncio.timeout_at(deadline)
+            try:
+                async with deadline_scope:
+                    result = await self._perform_call(
+                        contract,
+                        params=params,
+                        query=query,
+                        headers=headers,
+                        request=request,
+                        call=attempt,
+                    )
+            except CancelledError:
+                raise
+            except AppError as exc:
+                error_code = attempt.remote_error_code
+                should_retry = (
+                    policy is not None
+                    and error_code is not None
+                    and error_code in policy.retry_on
+                    and attempt_number < max_attempts
+                )
+                delay = (
+                    _retry_delay(policy, attempt_number, error=exc)
+                    if should_retry and policy is not None
+                    else None
+                )
+                app_status: Literal["app_error", "unexpected_response", "failed"]
+                if error_code is not None:
+                    app_status = "app_error"
+                elif attempt.status_code is not None:
+                    app_status = "unexpected_response"
+                else:
+                    app_status = "failed"
+                attempt.finish(
+                    app_status,
+                    error_code=error_code,
+                    will_retry=should_retry,
+                    retry_delay_seconds=delay,
+                )
+                observer_seconds = await self._finish_attempt(call, attempt)
+                if deadline is not None:
+                    deadline += observer_seconds
+                if not should_retry:
+                    call.finish(app_status, error_code=error_code)
+                    raise
+            except UnexpectedResponseError:
+                attempt.finish("unexpected_response")
+                await self._finish_attempt(call, attempt)
+                call.finish("unexpected_response")
+                raise
+            except httpx.TransportError:
+                transport_status: Literal["transport_error", "unexpected_response"] = (
+                    "transport_error"
+                    if attempt.status_code is None
+                    else "unexpected_response"
+                )
+                should_retry = (
+                    policy is not None
+                    and policy.retry_transport_errors
+                    and transport_status == "transport_error"
+                    and attempt_number < max_attempts
+                )
+                delay = (
+                    _retry_delay(policy, attempt_number)
+                    if should_retry and policy is not None
+                    else None
+                )
+                attempt.finish(
+                    transport_status,
+                    will_retry=should_retry,
+                    retry_delay_seconds=delay,
+                )
+                observer_seconds = await self._finish_attempt(call, attempt)
+                if deadline is not None:
+                    deadline += observer_seconds
+                if not should_retry:
+                    call.finish(transport_status)
+                    raise
+            except TimeoutError as exc:
+                if deadline_scope.expired():
+                    raise _RetryDeadlineElapsed from exc
+                failure_status: Literal["unexpected_response", "failed"] = (
+                    "unexpected_response"
+                    if attempt.status_code is not None
+                    else "failed"
+                )
+                attempt.finish(failure_status)
+                await self._finish_attempt(call, attempt)
+                call.finish(failure_status)
+                raise
+            except BaseException:
+                failure_status: Literal["unexpected_response", "failed"] = (
+                    "unexpected_response"
+                    if attempt.status_code is not None
+                    else "failed"
+                )
+                attempt.finish(failure_status)
+                await self._finish_attempt(call, attempt)
+                call.finish(failure_status)
+                raise
+            else:
+                attempt.finish("succeeded")
+                await self._finish_attempt(call, attempt)
+                call.finish("succeeded")
+                return result
+
+            assert delay is not None
+            sleep_scope = asyncio.timeout_at(deadline)
+            try:
+                async with sleep_scope:
+                    await asyncio.sleep(delay)
+            except TimeoutError as exc:
+                if sleep_scope.expired():
+                    raise _RetryDeadlineElapsed from exc
+                raise
+        raise AssertionError("client retry loop exhausted without a result")
+
+    async def _finish_attempt(
+        self,
+        call: _ClientCall,
+        attempt: _ClientAttempt,
+    ) -> float:
+        call.record(attempt)
+        observer_seconds = await _notify_client_attempt_observers(
+            self._attempt_observers,
+            attempt,
+        )
+        call.observer_seconds += observer_seconds
+        return observer_seconds
+
+    def _validated_retry_policy(
+        self,
+        contract: Contract[Any, Any],
+        value: object,
+    ) -> RetryPolicy | None:
+        if value is None:
+            return None
+        if not isinstance(value, RetryPolicy):
+            raise ConfigurationError(
+                f"{contract.name}: retry must be a RetryPolicy or None"
+            )
+        policy = value
+        if (
+            contract.method not in {"GET", "HEAD", "OPTIONS", "TRACE"}
+            and not policy.allow_unsafe_methods
+        ):
+            raise ConfigurationError(
+                f"{contract.name}: retrying {contract.method} requires "
+                "allow_unsafe_methods=True; pair unsafe retries with an "
+                "idempotency key"
+            )
+        declared = {error.code for error in (*contract.errors, *self._errors)}
+        unknown = [code for code in policy.retry_on if code not in declared]
+        if unknown:
+            raise ConfigurationError(
+                f"{contract.name}: retry_on contains undeclared error "
+                f"code{'s' if len(unknown) != 1 else ''} {unknown!r}"
+            )
+        return policy
 
     async def _perform_call(
         self,
@@ -368,7 +678,7 @@ class Client:
         query: Any,
         headers: Any,
         request: Any,
-        call: _ClientCall | None = None,
+        call: _ClientAttempt | None = None,
     ) -> ClientResponse[ResponseT, ResponseHeadersT]:
         self._reject_undeclared(contract, params, query, headers, request)
         declared_errors = _validated_error_defs(
@@ -619,7 +929,7 @@ class Client:
         response: httpx.Response,
         errors: Sequence[ErrorDef],
         *,
-        call: _ClientCall | None,
+        call: _ClientAttempt | None,
     ) -> Any:
         if response.status_code >= 400:
             self._require_response_media_type(
@@ -743,9 +1053,35 @@ async def _notify_client_observers(
             )
 
 
-def _validated_observers(
-    observers: Sequence[ClientObserver],
-) -> tuple[ClientObserver, ...]:
+async def _notify_client_attempt_observers(
+    observers: tuple[ClientAttemptObserver, ...],
+    attempt: _ClientAttempt,
+) -> float:
+    outcome = attempt.outcome
+    if outcome is None:
+        return 0.0
+    started = perf_counter()
+    for index, observer in enumerate(observers):
+        try:
+            result = observer(outcome)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception(
+                "Client attempt observer[%d] failed for %s attempt %d",
+                index,
+                outcome.contract.name,
+                outcome.attempt,
+            )
+    return perf_counter() - started
+
+
+def _validated_observers[OutcomeT](
+    observers: Sequence[Callable[[OutcomeT], Any]],
+    *,
+    label: str,
+    argument: str,
+) -> tuple[Callable[[OutcomeT], Any], ...]:
     chain = tuple(observers)
     for index, observer in enumerate(chain):
         try:
@@ -753,10 +1089,50 @@ def _validated_observers(
             signature.bind(object())
         except (TypeError, ValueError) as exc:
             raise ConfigurationError(
-                f"Client: observers[{index}] must accept one positional "
-                f"ClientOutcome argument: {exc}"
+                f"Client: {label}[{index}] must accept one positional "
+                f"{argument} argument: {exc}"
             ) from exc
     return chain
+
+
+def _retry_delay(
+    policy: RetryPolicy,
+    attempt: int,
+    *,
+    error: AppError | None = None,
+) -> float:
+    exponential = policy.base_delay_seconds * (2.0 ** min(attempt - 1, 1023))
+    if exponential and policy.jitter:
+        exponential *= random.uniform(1 - policy.jitter, 1 + policy.jitter)
+    exponential = min(policy.max_delay_seconds, exponential)
+    retry_after = _retry_after_seconds(error) if error is not None else None
+    return max(exponential, retry_after or 0.0)
+
+
+def _retry_after_seconds(error: AppError) -> float | None:
+    raw = next(
+        (
+            value
+            for name, value in error.headers.items()
+            if name.casefold() == "retry-after"
+        ),
+        None,
+    )
+    if raw is None:
+        return None
+    try:
+        delay = float(raw)
+    except ValueError:
+        try:
+            value = parsedate_to_datetime(raw)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        delay = (value - datetime.now(UTC)).total_seconds()
+    if not delay >= 0 or not delay < float("inf"):
+        return None
+    return delay
 
 
 def _adapter(

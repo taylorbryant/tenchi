@@ -95,7 +95,8 @@ Framework agent workflow: https://tenchi.io/agents
    `uv run tenchi make use-case <feature> <name> --dry-run` before creating
    framework-shaped files manually.
 3. Keep explicit wiring visible in `app/server/routes.py`,
-   `app/server/preflight.py`, `app/server/tasks.py`, `app/server/runtime.py`,
+   `app/server/jobs.py`, `app/server/preflight.py`, `app/server/tasks.py`,
+   `app/server/runtime.py`,
    `app/server/webhooks.py` when signed endpoints exist,
    `app/infra/port_wiring.py`, and `app/server/asgi.py`.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
@@ -123,6 +124,8 @@ reviewable source edits.
 - `routes.py` binds contracts to use cases; it never imports infrastructure.
 - `tasks.py` gives selected use cases stable operational names; it never
   imports infrastructure.
+- `jobs.py` declares stable background messages shared by producers and
+  consumers; handlers are bound in `app/server/jobs.py`.
 - `use_cases/` contains one plain async function per workflow. Use cases may
   depend on schemas, ports, policies, shared code, and `app.server.context`, but
   never concrete infrastructure, routes, or the Tenchi/Starlette runtime.
@@ -130,7 +133,8 @@ reviewable source edits.
   or server composition.
 - `app/server/` is the composition root and may import every application layer.
   Shared lifespan/context wiring lives in `runtime.py`; task composition lives
-  in `tasks.py`; read-only deployment observations live in `preflight.py`.
+  in `tasks.py`; background handlers live in `jobs.py`; read-only deployment
+  observations live in `preflight.py`.
 - `app/shared/` never imports features.
 
 Authentication belongs in boundary hooks. Authorization belongs in use cases
@@ -525,6 +529,13 @@ runner = create_task_runner(
 )
 """
 
+_SERVER_JOBS = """\
+from tenchi.jobs import job_group
+
+# Bind feature job declarations to consumer use cases here.
+jobs = job_group()
+"""
+
 _SERVER_PREFLIGHT = """\
 from tenchi.preflight import preflight_group
 
@@ -850,6 +861,7 @@ _FILES: dict[str, str] = {
     "app/server/__init__.py": "",
     "app/server/asgi.py": _SERVER_APP,
     "app/server/context.py": _CONTEXT,
+    "app/server/jobs.py": _SERVER_JOBS,
     "app/server/preflight.py": _SERVER_PREFLIGHT,
     "app/server/routes.py": _SERVER_ROUTES,
     "app/server/runtime.py": _SERVER_RUNTIME,
@@ -899,6 +911,14 @@ from tenchi.tasks import task_group
 tasks = task_group()
 '''
 
+_MAKE_FEATURE_JOBS = '''\
+"""Background-job messages owned by the __FEATURE__ feature.
+
+Declare stable messages with job(name, request=..., result=...). Producers
+serialize them with job_message(); app/server/jobs.py binds consumer use cases.
+"""
+'''
+
 
 def feature_files(feature: str) -> dict[str, str]:
     """Return a feature skeleton, relative to ``app/features/<feature>/``."""
@@ -919,6 +939,7 @@ def feature_files(feature: str) -> dict[str, str]:
         ),
         "routes.py": _MAKE_FEATURE_ROUTES.replace("__FEATURE__", feature),
         "tasks.py": _MAKE_FEATURE_TASKS.replace("__FEATURE__", feature),
+        "jobs.py": _MAKE_FEATURE_JOBS.replace("__FEATURE__", feature),
         "use_cases/__init__.py": "",
         "tests/__init__.py": "",
     }

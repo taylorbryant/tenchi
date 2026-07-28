@@ -25,7 +25,7 @@ from typing import Any
 
 import httpx
 
-from .client import Client, ClientObserver
+from .client import Client, ClientAttemptObserver, ClientObserver
 from .errors import ErrorDef
 
 ASGIApp = Callable[..., Awaitable[None]]
@@ -46,13 +46,15 @@ async def open_client(
     headers: Mapping[str, str] | None = None,
     errors: Sequence[ErrorDef] = (),
     observers: Sequence[ClientObserver] = (),
+    attempt_observers: Sequence[ClientAttemptObserver] = (),
     base_url: str = _DEFAULT_BASE_URL,
 ) -> AsyncGenerator[Client]:
     """A typed :class:`~tenchi.client.Client` calling ``app`` in-process,
     with the app lifespan running around it.
 
-    ``observers`` is forwarded to :class:`~tenchi.client.Client`, so tests can
-    assert the same outbound outcomes as deployed clients.
+    ``observers`` and ``attempt_observers`` are forwarded to
+    :class:`~tenchi.client.Client`, so tests can assert the same outbound
+    outcomes as deployed clients.
     """
     async with (
         _run_lifespan(app),
@@ -62,6 +64,7 @@ async def open_client(
             headers=headers,
             errors=errors,
             observers=observers,
+            attempt_observers=attempt_observers,
         ) as client,
     ):
         yield client

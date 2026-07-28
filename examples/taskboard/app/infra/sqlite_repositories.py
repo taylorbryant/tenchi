@@ -7,7 +7,6 @@ rolls back uncommitted work when closed after an error.
 """
 
 import json
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 from uuid import uuid4
@@ -74,7 +73,7 @@ class OutboxEntry:
 
     id: int
     job: str
-    payload: str
+    payload_json: str
 
 
 class SqliteOutbox:
@@ -91,10 +90,10 @@ class SqliteOutbox:
     def __init__(self, connection: aiosqlite.Connection) -> None:
         self._connection = connection
 
-    async def enqueue(self, *, job: str, payload: Mapping[str, Any]) -> None:
+    async def enqueue(self, *, job: str, payload_json: bytes) -> None:
         await self._connection.execute(
             "INSERT INTO outbox (job, payload) VALUES (?, ?)",
-            (job, json.dumps(dict(payload))),
+            (job, payload_json.decode("utf-8")),
         )
 
     async def claim_next(self) -> OutboxEntry | None:
@@ -106,7 +105,7 @@ class SqliteOutbox:
         row = await cursor.fetchone()
         if row is None:
             return None
-        return OutboxEntry(id=int(row[0]), job=row[1], payload=row[2])
+        return OutboxEntry(id=int(row[0]), job=row[1], payload_json=row[2])
 
     async def mark_failed(self, entry_id: int, *, error: str) -> None:
         """Dead-letter a row: settled with the error preserved, never

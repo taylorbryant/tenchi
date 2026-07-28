@@ -6,7 +6,7 @@ from ..schemas import MemberAdded
 
 
 async def notify_member_added(request: MemberAdded, context: AppContext) -> None:
-    """Deliver the notification announced by a ``member_added`` job.
+    """Deliver the notification announced by a member-added job.
 
     The payload is self-contained, so delivery does not depend on the
     project still existing or still having the same name.

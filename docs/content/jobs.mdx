@@ -1,0 +1,160 @@
+import { Callout } from "@/components/callout";
+
+# Background jobs
+
+Tenchi validates the message boundary between a producer and consumer without
+becoming a queue. Your infrastructure still owns persistence, claiming,
+acknowledgement, retries, backoff, concurrency, and dead letters.
+
+## Declare the message
+
+Keep the stable name and payload type with the feature that owns the event:
+
+```python
+# app/features/projects/jobs.py
+from tenchi.jobs import job
+
+from .schemas import MemberAdded
+
+
+member_added_job = job(
+    "projects.member_added",
+    request=MemberAdded,
+    result=None,
+    description="Notify a user after project membership is committed.",
+)
+```
+
+Changing a job name or payload can strand messages already stored in a queue.
+Treat both as durable wire contracts. Introduce a new name when a consumer
+cannot safely read both payload versions.
+
+## Validate before enqueueing
+
+Build a `JobMessage` before handing data to an outbox or queue port:
+
+```python
+from tenchi.jobs import job_message
+
+
+message = job_message(
+    member_added_job,
+    MemberAdded(
+        project_id=project.id,
+        project_name=project.name,
+        user_id=user_id,
+    ),
+)
+await context.outbox.enqueue(
+    job=message.name,
+    payload_json=message.payload_json,
+)
+```
+
+`job_message()` validates Python input, emits compact JSON bytes, and confirms
+that the declared consumer type can read those bytes back. A useful queue port
+therefore stays transport-shaped:
+
+```python
+from typing import Protocol
+
+
+class Outbox(Protocol):
+    async def enqueue(self, *, job: str, payload_json: bytes) -> None: ...
+```
+
+The job payload carries application facts. Delivery metadata such as message
+ids, trace ids, attempt counts, scheduled time, and queue partition belongs in
+your infrastructure envelope, not in every business payload.
+
+## Bind the consumer
+
+Bind declarations to plain async use cases at the composition root:
+
+```python
+# app/server/jobs.py
+from app.features.projects.jobs import member_added_job
+from app.features.projects.use_cases.notify_member_added import (
+    notify_member_added,
+)
+from tenchi.jobs import create_job_dispatcher, job_group, job_handler
+
+
+jobs = job_group(
+    job_handler(member_added_job, notify_member_added),
+)
+dispatcher = create_job_dispatcher(jobs=jobs)
+```
+
+The handler must accept `request` and `context`. Its request and return
+annotations must exactly match the job declaration, so bad wiring fails when
+the application imports:
+
+```python
+async def notify_member_added(
+    request: MemberAdded,
+    context: AppContext,
+) -> None:
+    await context.notifications.record(
+        user_id=request.user_id,
+        message=f"You joined {request.project_name}",
+    )
+```
+
+`job_group()` rejects duplicate names. Put every registered group in
+`app/server/jobs.py`; `tenchi map` then shows job nodes and their handler
+bindings.
+
+## Dispatch one delivery
+
+After your worker claims a message and creates its unit-of-work context,
+dispatch the raw stored JSON:
+
+```python
+await dispatcher.dispatch(
+    entry.job,
+    payload_json=entry.payload_json,
+    context=context,
+)
+```
+
+The dispatcher:
+
+1. rejects unknown names before opening the supplied context;
+2. validates JSON before the handler runs;
+3. invokes the handler through the shared use-case observer boundary;
+4. validates the result before the context exits successfully.
+
+If you pass an async context manager or factory, result validation happens
+before its successful exit, so an invalid result can still roll back the unit
+of work. Passing a ready context leaves commit and rollback with the caller.
+
+| Failure | Typical worker decision |
+| --- | --- |
+| `JobNotFoundError` | Dead-letter; deploying the correct consumer may make a later replay possible |
+| Pydantic `ValidationError` | Dead-letter; the stored payload does not match the declared request |
+| `JobResultError` | Roll back and dead-letter; the handler violates its result contract |
+| `AppError` | Decide from the stable application error code |
+| Cancellation | Release or roll back the claim and stop promptly |
+| Dependency or transport failure | Roll back, apply bounded backoff, and retry |
+
+<Callout type="warning" title="Dispatch does not acknowledge a queue message">
+  Commit application writes and acknowledgement together when your queue or
+  outbox supports it. A worker can still crash after an external service
+  accepts work but before acknowledgement commits, so consumers must be
+  idempotent or use a downstream idempotency key.
+</Callout>
+
+## Observe handlers
+
+Pass `use_case_observers=` to `create_job_dispatcher()`. Each
+`UseCaseOutcome.entrypoint` is `"job"` and contains only the use-case identity,
+status, duration, and stable application error code. Queue latency, attempt
+number, message id, and dead-letter state remain worker telemetry because the
+dispatcher never owns them.
+
+The taskboard example demonstrates a SQLite transactional outbox, typed
+producer message, registered dispatcher, rollback before dead-lettering, and
+retry ownership in the worker. Continue with [Retries and background
+work](/reliability) for the complete transaction and failure-classification
+pattern.

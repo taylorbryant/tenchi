@@ -69,7 +69,7 @@ class UseCaseOutcome:
     """
 
     use_case: Callable[..., Awaitable[Any]]
-    entrypoint: Literal["http", "execute", "task"]
+    entrypoint: Literal["http", "execute", "job", "task"]
     status: Literal["succeeded", "app_error", "failed", "cancelled"]
     duration_seconds: float
     error_code: str | None = None
@@ -90,14 +90,14 @@ class _UseCaseCall:
     __slots__ = ("entrypoint", "outcome", "use_case")
 
     use_case: Callable[..., Awaitable[Any]]
-    entrypoint: Literal["http", "execute", "task"]
+    entrypoint: Literal["http", "execute", "job", "task"]
     outcome: UseCaseOutcome | None
 
     def __init__(
         self,
         use_case: Callable[..., Awaitable[Any]],
         *,
-        entrypoint: Literal["http", "execute", "task"],
+        entrypoint: Literal["http", "execute", "job", "task"],
     ) -> None:
         self.use_case = use_case
         self.entrypoint = entrypoint
