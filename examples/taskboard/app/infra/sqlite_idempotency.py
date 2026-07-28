@@ -1,5 +1,6 @@
 """SQLite idempotency storage sharing the request transaction."""
 
+from collections.abc import Callable
 from math import ceil
 from time import time
 from uuid import uuid4
@@ -18,8 +19,14 @@ from tenchi.idempotency import (
 class SqliteIdempotencyStore:
     """Durable reservations and replays on a request-scoped connection."""
 
-    def __init__(self, connection: aiosqlite.Connection) -> None:
+    def __init__(
+        self,
+        connection: aiosqlite.Connection,
+        *,
+        clock: Callable[[], float] = time,
+    ) -> None:
         self._connection = connection
+        self._clock = clock
 
     async def reserve(
         self,
@@ -31,7 +38,11 @@ class SqliteIdempotencyStore:
         completed_ttl: float | None,
         reservation_ttl: float,
     ) -> IdempotencyDecision:
-        now = time()
+        # Acquire SQLite's writer lock before sampling time. A concurrent
+        # transaction may otherwise make the lease expire while this caller
+        # waits, even though its SQL still uses the earlier timestamp.
+        await self._connection.execute("DELETE FROM idempotency_records WHERE 0")
+        now = self._clock()
         token = uuid4().hex
         cursor = await self._connection.execute(
             "INSERT INTO idempotency_records "
@@ -101,16 +112,19 @@ class SqliteIdempotencyStore:
         *,
         result_json: bytes,
     ) -> None:
+        await self._connection.execute("DELETE FROM idempotency_records WHERE 0")
+        now = self._clock()
         completed_expires_at = (
             None
             if reservation.completed_ttl is None
-            else time() + reservation.completed_ttl
+            else now + reservation.completed_ttl
         )
         cursor = await self._connection.execute(
             "UPDATE idempotency_records "
             "SET state = 'completed', result_json = ?, completed_expires_at = ? "
             "WHERE namespace = ? AND scope = ? AND idempotency_key = ? "
             "AND fingerprint = ? AND reservation_token = ? AND state = 'reserved' "
+            "AND reservation_expires_at > ? "
             "RETURNING namespace",
             (
                 result_json,
@@ -120,6 +134,7 @@ class SqliteIdempotencyStore:
                 reservation.key,
                 reservation.fingerprint,
                 reservation.token,
+                now,
             ),
         )
         if await cursor.fetchone() is None:

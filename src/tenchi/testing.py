@@ -1,4 +1,4 @@
-"""Test helpers: in-process clients that run the app's lifespan.
+"""Test helpers for applications and infrastructure adapters.
 
 ``httpx.ASGITransport`` alone never triggers ASGI lifespan events, so apps
 using ``create_app(lifespan=...)`` need their startup and shutdown driven
@@ -14,21 +14,42 @@ explicitly in tests. These helpers do that internally:
 
 Both enter the app lifespan on entry and exit it on exit; apps without a
 lifespan work unchanged.
+
+Applications can also run Tenchi's reusable idempotency and rate-limit store
+conformance checks against every infrastructure adapter they provide.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
 
 import httpx
 
+from ._idempotency_store_conformance import (
+    verify_idempotency_store as _verify_idempotency_store,
+)
+from ._rate_limit_store_conformance import (
+    verify_rate_limit_store as _verify_rate_limit_store,
+)
+from ._store_conformance import StoreConformanceError
 from .client import Client, ClientAttemptObserver, ClientObserver
 from .errors import ErrorDef
+from .idempotency import IdempotencyStore
+from .rate_limits import RateLimitStore
 
 ASGIApp = Callable[..., Awaitable[None]]
+type ClockAdvance = Callable[[float], Awaitable[None] | None]
+type IdempotencyStoreFactory = Callable[
+    [],
+    AbstractAsyncContextManager[IdempotencyStore],
+]
+type RateLimitStoreFactory = Callable[
+    [],
+    AbstractAsyncContextManager[RateLimitStore],
+]
 
 _DEFAULT_BASE_URL = "http://testserver"
 
@@ -36,7 +57,43 @@ _LIFESPAN_TIMEOUT = 30.0
 """Ceiling on each lifespan phase, so a stuck app fails the test with a
 diagnostic instead of hanging the whole suite."""
 
-__all__ = ["ASGIApp", "open_client", "open_http"]
+__all__ = [
+    "ASGIApp",
+    "ClockAdvance",
+    "IdempotencyStoreFactory",
+    "RateLimitStoreFactory",
+    "StoreConformanceError",
+    "open_client",
+    "open_http",
+    "verify_idempotency_store",
+    "verify_rate_limit_store",
+]
+
+
+async def verify_idempotency_store(
+    open_store: IdempotencyStoreFactory,
+    *,
+    advance: ClockAdvance,
+) -> None:
+    """Verify the required idempotency-store state machine.
+
+    The factory must open independently usable scopes over shared storage, and
+    ``advance`` must move the deterministic clock used by those scopes.
+    """
+    await _verify_idempotency_store(open_store, advance=advance)
+
+
+async def verify_rate_limit_store(
+    open_store: RateLimitStoreFactory,
+    *,
+    advance: ClockAdvance,
+) -> None:
+    """Verify the required atomic fixed-window store behavior.
+
+    The factory and deterministic clock follow
+    :func:`verify_idempotency_store` semantics.
+    """
+    await _verify_rate_limit_store(open_store, advance=advance)
 
 
 @asynccontextmanager

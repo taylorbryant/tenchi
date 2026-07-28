@@ -1,6 +1,8 @@
 """The taskboard's process-shared SQLite rate-limit adapter."""
 
 import asyncio
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
@@ -14,7 +16,13 @@ from app.infra.port_wiring import (
 from app.infra.sqlite_rate_limits import SqliteRateLimitStore
 from app.shared.users import OwnerScope
 from tenchi.errors import AppError
-from tenchi.rate_limits import RATE_LIMITED, RateLimitPermit, enforce_rate_limit
+from tenchi.rate_limits import (
+    RATE_LIMITED,
+    RateLimitPermit,
+    RateLimitStore,
+    enforce_rate_limit,
+)
+from tenchi.testing import verify_rate_limit_store
 
 
 class Clock:
@@ -23,6 +31,29 @@ class Clock:
 
     def __call__(self) -> float:
         return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += seconds
+
+
+async def test_sqlite_rate_limit_store_conforms(tmp_path: Path) -> None:
+    database = str(tmp_path / "taskboard.db")
+    await ensure_schema(database)
+    clock = Clock()
+
+    @asynccontextmanager
+    async def open_store() -> AsyncGenerator[RateLimitStore]:
+        async with aiosqlite.connect(database) as connection:
+            await configure_connection(connection)
+            try:
+                yield SqliteRateLimitStore(connection, clock=clock)
+            except BaseException:
+                await connection.rollback()
+                raise
+            else:
+                await connection.commit()
+
+    await verify_rate_limit_store(open_store, advance=clock.advance)
 
 
 async def test_sqlite_rate_limits_persist_and_reset_across_store_instances(

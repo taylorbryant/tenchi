@@ -88,7 +88,7 @@ expected application failures.
 | --- | --- |
 | `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver`, `ContextFactory`, `Lifespan`, `DEFAULT_MAX_REQUEST_BYTES`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER` |
 | `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `UseCaseOutcome`, `UseCaseObserver` |
-| `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
+| `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `MemoryIdempotencyStore`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
 | `tenchi.jobs` | `Job`, `JobMessage`, `JobHandler`, `JobGroup`, `JobDispatcher`, `JobBindingError`, `JobNotFoundError`, `JobResultError`, `job()`, `job_message()`, `job_handler()`, `job_group()`, `create_job_dispatcher()` |
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.rate_limits` | `RateLimitStore`, `RateLimitPermit`, `RateLimitExceeded`, `RateLimitDecision`, `RateLimitStoreError`, `MemoryRateLimitStore`, `RATE_LIMITED`, `enforce_rate_limit()` |
@@ -96,7 +96,7 @@ expected application failures.
 | `tenchi.webhooks` | `Webhook`, `WebhookRequest`, `WebhookVerifier`, `WebhookBindingError`, `webhook()` |
 | `tenchi.client` | `Client`, `ClientResponse`, `ClientOutcome`, `ClientObserver`, `ClientAttemptOutcome`, `ClientAttemptObserver`, `UnexpectedResponseError` |
 | `tenchi.retries` | `RetryPolicy`, `RetryTimeoutError`, `retry_policy()` |
-| `tenchi.testing` | `open_client()`, `open_http()`, `ASGIApp` |
+| `tenchi.testing` | `open_client()`, `open_http()`, `verify_idempotency_store()`, `verify_rate_limit_store()`, `StoreConformanceError`, `IdempotencyStoreFactory`, `RateLimitStoreFactory`, `ClockAdvance`, `ASGIApp` |
 
 `create_app()` owns HTTP dispatch and lifecycle composition. `execute()` runs
 the application boundary without HTTP. A preflight group defines read-only,

@@ -42,7 +42,6 @@ from app.features.tasks.schemas import (
     UpdateTask,
     UpdateTaskHeaders,
 )
-from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -64,7 +63,7 @@ from app.shared.errors import (
 from app.shared.users import User
 from tenchi.client import Client
 from tenchi.errors import ERROR_SOURCE_HEADER, AppError
-from tenchi.idempotency import IDEMPOTENCY_CONFLICT
+from tenchi.idempotency import IDEMPOTENCY_CONFLICT, MemoryIdempotencyStore
 from tenchi.rate_limits import MemoryRateLimitStore
 from tenchi.server import create_app
 from tenchi.testing import open_http

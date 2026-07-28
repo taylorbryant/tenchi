@@ -78,12 +78,27 @@ The protocol has three async operations:
 | Method | Required behavior |
 | --- | --- |
 | `reserve()` | Atomically return one reservation, a completed replay, a fingerprint conflict, or an active matching reservation |
-| `complete()` | Store the serialized result only when the reservation token still owns the key |
+| `complete()` | Store the serialized result only when the active, unexpired reservation token still owns the key; fail if it cannot be stored |
 | `abandon()` | Release only the matching active token; repeated calls must be safe |
 
 An adapter uses `(namespace, scope, key)` as its unique identity. It stores the
 fingerprint separately, fences completion with the opaque reservation token,
 and expires abandoned reservations after `reservation_ttl`.
+
+Use `MemoryIdempotencyStore` for use-case and in-process HTTP tests. It is
+concurrency-safe within one process and accepts a deterministic clock:
+
+```python
+from tenchi.idempotency import MemoryIdempotencyStore
+
+
+now = 1_000.0
+store = MemoryIdempotencyStore(clock=lambda: now)
+```
+
+Share one instance across every context created by the test application. The
+memory store loses all records on restart and cannot coordinate multiple
+processes or hosts, so it is not a production durability boundary.
 
 `reservation_ttl` is a lease, not an operation deadline. Set it longer than
 the longest permitted operation, including expected dependency latency. The
@@ -229,6 +244,10 @@ key inside retry machinery or per attempt; a new key describes new work and
 permits the operation to run again. See the [typed client](/client#retry-a-logical-call)
 for declared-error retries, `Retry-After`, deadlines, and attempt outcomes.
 
-The taskboard example contains complete memory and SQLite stores. The SQLite
-store shares the request-scoped connection with task creation, so concurrent
-requests either create once or replay the committed result.
+The taskboard example contains a transactional SQLite store and uses the
+built-in memory store in tests. The SQLite store shares the request-scoped
+connection with task creation, so concurrent requests either create once or
+replay the committed result. Run
+[`verify_idempotency_store()`](/testing#verify-store-adapters) against your
+production adapter before relying on it, then separately test rollback with
+the application writes it protects.

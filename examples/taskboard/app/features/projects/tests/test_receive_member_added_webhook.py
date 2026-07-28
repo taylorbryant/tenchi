@@ -1,6 +1,5 @@
 import pytest
 
-from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -11,6 +10,7 @@ from app.infra.memory_repositories import (
 from app.server.context import AppContext
 from app.shared.errors import unauthorized
 from tenchi.errors import AppError
+from tenchi.idempotency import MemoryIdempotencyStore
 from tenchi.rate_limits import MemoryRateLimitStore
 
 from ..schemas import MemberAddedWebhook

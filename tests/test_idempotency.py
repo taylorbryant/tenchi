@@ -16,6 +16,7 @@ from tenchi.idempotency import (
     IdempotencyReservation,
     IdempotencyResultError,
     IdempotencyStoreError,
+    MemoryIdempotencyStore,
     fingerprint,
     run_idempotently,
 )
@@ -33,6 +34,17 @@ class Result(BaseModel):
 
 class SetRequest(BaseModel):
     tags: set[str]
+
+
+class Clock:
+    def __init__(self, value: float = 100.0) -> None:
+        self.value = value
+
+    def __call__(self) -> float:
+        return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += seconds
 
 
 class Store:
@@ -423,3 +435,77 @@ async def test_invalid_result_type_fails_before_storage() -> None:
         )
 
     assert store.reservations == []
+
+
+async def test_memory_store_rejects_invalid_direct_calls_and_clock_values() -> None:
+    store = MemoryIdempotencyStore(clock=lambda: math.nan)
+
+    with pytest.raises(ConfigurationError, match="scope"):
+        await store.reserve(
+            namespace="tasks.create",
+            scope="",
+            key="request-1",
+            fingerprint="input-1",
+            completed_ttl=None,
+            reservation_ttl=60,
+        )
+    with pytest.raises(IdempotencyStoreError, match="clock"):
+        await store.reserve(
+            namespace="tasks.create",
+            scope="alice",
+            key="request-1",
+            fingerprint="input-1",
+            completed_ttl=None,
+            reservation_ttl=60,
+        )
+    with pytest.raises(ConfigurationError, match="clock must be callable"):
+        MemoryIdempotencyStore(clock=object())  # type: ignore[arg-type]
+
+
+async def test_memory_store_fails_closed_when_clock_moves_backwards() -> None:
+    clock = Clock()
+    store = MemoryIdempotencyStore(clock=clock)
+    await store.reserve(
+        namespace="tasks.create",
+        scope="alice",
+        key="request-1",
+        fingerprint="input-1",
+        completed_ttl=None,
+        reservation_ttl=60,
+    )
+    clock.advance(-1)
+
+    with pytest.raises(IdempotencyStoreError, match="must not move backwards"):
+        await store.reserve(
+            namespace="tasks.create",
+            scope="alice",
+            key="request-1",
+            fingerprint="input-1",
+            completed_ttl=None,
+            reservation_ttl=60,
+        )
+
+    clock.advance(1)
+    decision = await store.reserve(
+        namespace="tasks.create",
+        scope="alice",
+        key="request-1",
+        fingerprint="input-1",
+        completed_ttl=None,
+        reservation_ttl=60,
+    )
+    assert decision == IdempotencyInProgress(retry_after_seconds=60)
+
+
+async def test_memory_store_rejects_a_clock_without_future_precision() -> None:
+    store = MemoryIdempotencyStore(clock=lambda: 1e308)
+
+    with pytest.raises(IdempotencyStoreError, match="finite future expiration"):
+        await store.reserve(
+            namespace="tasks.create",
+            scope="alice",
+            key="request-1",
+            fingerprint="input-1",
+            completed_ttl=None,
+            reservation_ttl=60,
+        )

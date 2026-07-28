@@ -7,7 +7,6 @@ from app.features.tasks.schemas import (
     UpdateTaskHeaders,
 )
 from app.features.tasks.use_cases.update_task import update_task
-from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -24,6 +23,7 @@ from app.shared.errors import (
 )
 from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
+from tenchi.idempotency import MemoryIdempotencyStore
 from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")

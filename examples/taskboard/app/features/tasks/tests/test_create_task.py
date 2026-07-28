@@ -2,7 +2,6 @@ import pytest
 
 from app.features.tasks.schemas import CreateTask, CreateTaskHeaders, TaskStatus
 from app.features.tasks.use_cases.create_task import create_task
-from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -14,7 +13,7 @@ from app.server.context import AppContext
 from app.shared.errors import forbidden, project_not_found
 from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
-from tenchi.idempotency import IDEMPOTENCY_CONFLICT
+from tenchi.idempotency import IDEMPOTENCY_CONFLICT, MemoryIdempotencyStore
 from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")

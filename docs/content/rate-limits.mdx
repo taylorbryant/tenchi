@@ -259,6 +259,12 @@ A production adapter must atomically read and update one
 or another operation that cannot admit two concurrent callers beyond the
 limit.
 
+Run [`verify_rate_limit_store()`](/testing#verify-store-adapters) against the
+adapter with a shared test backend and deterministic clock. It exercises
+capacity, rejected-cost behavior, resets, policy changes, identity isolation,
+and concurrent admission. Keep separate integration tests for transaction
+rollback and coordination across the processes or hosts you deploy.
+
 Store at least:
 
 - namespace and scope;

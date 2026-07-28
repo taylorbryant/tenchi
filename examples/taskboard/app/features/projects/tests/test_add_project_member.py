@@ -5,7 +5,6 @@ from app.features.projects.use_cases.add_project_member import add_project_membe
 from app.features.projects.use_cases.get_project import get_project
 from app.features.tasks.schemas import CreateTask, CreateTaskHeaders
 from app.features.tasks.use_cases.create_task import create_task
-from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -17,6 +16,7 @@ from app.server.context import AppContext
 from app.shared.errors import forbidden
 from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
+from tenchi.idempotency import MemoryIdempotencyStore
 from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")

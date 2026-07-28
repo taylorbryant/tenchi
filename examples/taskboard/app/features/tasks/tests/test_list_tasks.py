@@ -1,6 +1,5 @@
 from app.features.tasks.schemas import ListTasksQuery, TaskStatus
 from app.features.tasks.use_cases.list_tasks import list_tasks
-from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -10,6 +9,7 @@ from app.infra.memory_repositories import (
 )
 from app.server.context import AppContext
 from app.shared.users import OwnerScope, User
+from tenchi.idempotency import MemoryIdempotencyStore
 from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")

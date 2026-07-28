@@ -36,10 +36,11 @@ framework code, the CLI, docs, or the example apps.
   - `pagination.py` — `Page[Item]`, `PageQuery`, and `page()`.
   - `health.py` — `health_route()` and the `UNHEALTHY` error definition.
   - `idempotency.py` — canonical input fingerprints, durable store transitions,
-    typed replay, and standard conflict/in-progress errors.
+    typed replay, the memory test adapter, and standard conflict/in-progress
+    errors.
   - `rate_limits.py` — atomic fixed-window limits and the memory test adapter.
-  - `testing.py` — `open_client`/`open_http`, in-process clients that run
-    the app lifespan.
+  - `testing.py` — in-process clients that run the app lifespan and reusable
+    idempotency/rate-limit adapter conformance checks.
   - `routes.py` — route/route-group binding with eager signature checks.
   - `errors.py` — `ErrorDef`, `AppError`, framework error definitions, the
     standard envelope.

@@ -25,6 +25,7 @@ from .idempotency import (
     IdempotencyResultError,
     IdempotencyStore,
     IdempotencyStoreError,
+    MemoryIdempotencyStore,
     fingerprint,
     run_idempotently,
 )
@@ -116,6 +117,7 @@ __all__ = [
     "JobMessage",
     "JobNotFoundError",
     "JobResultError",
+    "MemoryIdempotencyStore",
     "MemoryRateLimitStore",
     "OutcomeObserver",
     "Page",

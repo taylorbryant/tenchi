@@ -133,10 +133,14 @@ The main pieces are:
   checks, and in-process testing helpers.
 - Infrastructure-neutral idempotency with canonical validated-input
   fingerprints, durable store transitions, typed result replay, scoped keys,
-  expiration, and standard conflict/in-progress errors.
+  expiration, standard conflict/in-progress errors, and a concurrency-safe
+  memory adapter for tests.
 - Infrastructure-neutral fixed-window rate limits with atomic store decisions,
   weighted costs, a standard declared 429 response, and a concurrency-safe
   memory adapter for tests.
+- Reusable idempotency and rate-limit adapter conformance checks for
+  persistence, identity isolation, expiration boundaries, token fencing, and
+  concurrent admission.
 - Signed inbound webhook bindings that verify exact, size-bounded bytes before
   parsing, attach service identity to the request context, and fail composition
   when a marked webhook contract has no verifier.

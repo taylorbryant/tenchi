@@ -23,6 +23,7 @@ JobHandler (re-export of tenchi.jobs.JobHandler)
 JobMessage (re-export of tenchi.jobs.JobMessage)
 JobNotFoundError (re-export of tenchi.jobs.JobNotFoundError)
 JobResultError (re-export of tenchi.jobs.JobResultError)
+MemoryIdempotencyStore (re-export of tenchi.idempotency.MemoryIdempotencyStore)
 MemoryRateLimitStore (re-export of tenchi.rate_limits.MemoryRateLimitStore)
 OutcomeObserver = collections.abc.Callable[[tenchi.server.RequestOutcome], typing.Any]
 Page (re-export of tenchi.pagination.Page)
@@ -235,6 +236,11 @@ class IdempotencyStore(Protocol)
     def complete(self, reservation: 'IdempotencyReservation', *, result_json: 'bytes') -> 'None'
     def reserve(self, *, namespace: 'str', scope: 'str', key: 'str', fingerprint: 'str', completed_ttl: 'float | None', reservation_ttl: 'float') -> 'IdempotencyDecision'
 class IdempotencyStoreError(TenchiError, RuntimeError)
+class MemoryIdempotencyStore
+    def __init__(self, *, clock: 'Callable[[], float]' = <built-in function monotonic>) -> 'None'
+    def abandon(self, reservation: 'IdempotencyReservation') -> 'None'
+    def complete(self, reservation: 'IdempotencyReservation', *, result_json: 'bytes') -> 'None'
+    def reserve(self, *, namespace: 'str', scope: 'str', key: 'str', fingerprint: 'str', completed_ttl: 'float | None', reservation_ttl: 'float') -> 'IdempotencyDecision'
 def fingerprint(value: 'Any', *, annotation: 'Any' = UNSET) -> 'str'
 def run_idempotently(store: 'IdempotencyStore', *, namespace: 'str', scope: 'str', key: 'str', fingerprint: 'str', result_type: 'Any', operation: 'Callable[[], Awaitable[ResultT]]', completed_ttl: 'float | None' = None, reservation_ttl: 'float' = 300.0) -> 'ResultT'
 
@@ -410,8 +416,14 @@ def create_app(*, routes: 'RouteGroup', context_factory: 'ContextFactory', lifes
 
 # tenchi.testing
 ASGIApp = collections.abc.Callable[..., collections.abc.Awaitable[None]]
+ClockAdvance = ClockAdvance
+IdempotencyStoreFactory = IdempotencyStoreFactory
+RateLimitStoreFactory = RateLimitStoreFactory
+StoreConformanceError (re-export of tenchi._store_conformance.StoreConformanceError)
 def open_client(app: 'ASGIApp', *, headers: 'Mapping[str, str] | None' = None, errors: 'Sequence[ErrorDef]' = (), observers: 'Sequence[ClientObserver]' = (), attempt_observers: 'Sequence[ClientAttemptObserver]' = (), base_url: 'str' = 'http://testserver') -> 'AsyncGenerator[Client]'
 def open_http(app: 'ASGIApp', *, headers: 'Mapping[str, str] | None' = None, base_url: 'str' = 'http://testserver') -> 'AsyncGenerator[httpx.AsyncClient]'
+def verify_idempotency_store(open_store: 'IdempotencyStoreFactory', *, advance: 'ClockAdvance') -> 'None'
+def verify_rate_limit_store(open_store: 'RateLimitStoreFactory', *, advance: 'ClockAdvance') -> 'None'
 
 # tenchi.tasks
 class Task

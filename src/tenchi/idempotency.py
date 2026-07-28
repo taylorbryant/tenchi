@@ -13,14 +13,17 @@ mutation and its idempotency record atomic.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence, Set
 from dataclasses import dataclass
-from math import isfinite
+from math import ceil, isfinite
+from time import monotonic
 from typing import Any, Protocol, cast
+from uuid import uuid4
 
 from pydantic import TypeAdapter
 
@@ -107,8 +110,9 @@ class IdempotencyStore(Protocol):
     """Durable state transitions required by :func:`run_idempotently`.
 
     ``reserve`` must atomically identify one winner for a scoped key and
-    fingerprint. ``complete`` must settle only the matching reservation token;
-    ``abandon`` must release only that token and be safe to repeat.
+    fingerprint. ``complete`` must settle only an active, unexpired matching
+    reservation token and fail if it cannot; ``abandon`` must release only
+    that token and be safe to repeat.
     """
 
     async def reserve(
@@ -130,6 +134,167 @@ class IdempotencyStore(Protocol):
     ) -> None: ...
 
     async def abandon(self, reservation: IdempotencyReservation) -> None: ...
+
+
+@dataclass(slots=True)
+class _MemoryIdempotencyRecord:
+    fingerprint: str
+    token: str
+    result_json: bytes | None
+    reservation_expires_at: float
+    completed_expires_at: float | None = None
+
+
+class MemoryIdempotencyStore:
+    """Process-local idempotency storage for tests and local development.
+
+    The adapter is concurrency-safe within one process and accepts a
+    controllable monotonic clock for deterministic expiration tests. It is not
+    a production durability boundary.
+    """
+
+    def __init__(self, *, clock: Callable[[], float] = monotonic) -> None:
+        if not callable(clock):
+            raise ConfigurationError(
+                "MemoryIdempotencyStore: clock must be callable, got "
+                f"{type(clock).__name__}"
+            )
+        self._clock = clock
+        self._lock = asyncio.Lock()
+        self._records: dict[tuple[str, str, str], _MemoryIdempotencyRecord] = {}
+        self._last_now: float | None = None
+
+    async def reserve(
+        self,
+        *,
+        namespace: str,
+        scope: str,
+        key: str,
+        fingerprint: str,
+        completed_ttl: float | None,
+        reservation_ttl: float,
+    ) -> IdempotencyDecision:
+        _validate_identity(
+            namespace=namespace,
+            scope=scope,
+            key=key,
+            fingerprint=fingerprint,
+            label="MemoryIdempotencyStore.reserve",
+        )
+        validated_completed_ttl = _validated_ttl(
+            completed_ttl,
+            label="MemoryIdempotencyStore.reserve: completed_ttl",
+            optional=True,
+        )
+        validated_reservation_ttl = cast(
+            float,
+            _validated_ttl(
+                reservation_ttl,
+                label="MemoryIdempotencyStore.reserve: reservation_ttl",
+                optional=False,
+            ),
+        )
+        identity = (namespace, scope, key)
+        async with self._lock:
+            now = self._now()
+            existing = self._records.get(identity)
+            if existing is not None and _memory_record_expired(existing, now=now):
+                del self._records[identity]
+                existing = None
+            if existing is not None:
+                if existing.fingerprint != fingerprint:
+                    return IdempotencyConflict()
+                if existing.result_json is not None:
+                    return IdempotencyReplay(result_json=bytes(existing.result_json))
+                return IdempotencyInProgress(
+                    retry_after_seconds=max(
+                        1,
+                        ceil(existing.reservation_expires_at - now),
+                    )
+                )
+
+            reservation_expires_at = now + validated_reservation_ttl
+            if not isfinite(reservation_expires_at) or reservation_expires_at <= now:
+                raise IdempotencyStoreError(
+                    "MemoryIdempotencyStore: clock and reservation_ttl must "
+                    "produce a finite future expiration"
+                )
+            token = uuid4().hex
+            self._records[identity] = _MemoryIdempotencyRecord(
+                fingerprint=fingerprint,
+                token=token,
+                result_json=None,
+                reservation_expires_at=reservation_expires_at,
+            )
+            return IdempotencyReservation(
+                namespace=namespace,
+                scope=scope,
+                key=key,
+                fingerprint=fingerprint,
+                token=token,
+                completed_ttl=validated_completed_ttl,
+            )
+
+    async def complete(
+        self,
+        reservation: IdempotencyReservation,
+        *,
+        result_json: bytes,
+    ) -> None:
+        identity = (reservation.namespace, reservation.scope, reservation.key)
+        async with self._lock:
+            now = self._now()
+            existing = self._records.get(identity)
+            if existing is not None and _memory_record_expired(existing, now=now):
+                del self._records[identity]
+                existing = None
+            if (
+                existing is None
+                or existing.token != reservation.token
+                or existing.fingerprint != reservation.fingerprint
+                or existing.result_json is not None
+            ):
+                raise IdempotencyStoreError(
+                    "MemoryIdempotencyStore: reservation is no longer active"
+                )
+            completed_ttl = _validated_ttl(
+                reservation.completed_ttl,
+                label="MemoryIdempotencyStore.complete: completed_ttl",
+                optional=True,
+            )
+            completed_expires_at = (
+                None if completed_ttl is None else now + completed_ttl
+            )
+            if completed_expires_at is not None and (
+                not isfinite(completed_expires_at) or completed_expires_at <= now
+            ):
+                raise IdempotencyStoreError(
+                    "MemoryIdempotencyStore: clock and completed_ttl must "
+                    "produce a finite future expiration"
+                )
+            existing.result_json = bytes(result_json)
+            existing.completed_expires_at = completed_expires_at
+
+    async def abandon(self, reservation: IdempotencyReservation) -> None:
+        identity = (reservation.namespace, reservation.scope, reservation.key)
+        async with self._lock:
+            existing = self._records.get(identity)
+            if (
+                existing is not None
+                and existing.token == reservation.token
+                and existing.fingerprint == reservation.fingerprint
+                and existing.result_json is None
+            ):
+                del self._records[identity]
+
+    def _now(self) -> float:
+        now = _memory_clock_value(self._clock)
+        if self._last_now is not None and now < self._last_now:
+            raise IdempotencyStoreError(
+                "MemoryIdempotencyStore: clock must not move backwards"
+            )
+        self._last_now = now
+        return now
 
 
 def fingerprint(value: Any, *, annotation: Any = _UNSET) -> str:
@@ -202,6 +367,7 @@ async def run_idempotently[ResultT](
         scope=scope,
         key=key,
         fingerprint=fingerprint,
+        label="run_idempotently",
     )
     validated_completed_ttl = _validated_ttl(
         completed_ttl,
@@ -370,6 +536,37 @@ def _runtime_object(value: Any) -> object:
     return value
 
 
+def _memory_clock_value(clock: Callable[[], float]) -> float:
+    value = _runtime_object(clock())
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise IdempotencyStoreError(
+            "MemoryIdempotencyStore: clock must return a finite number"
+        )
+    try:
+        now = float(value)
+    except OverflowError as exc:
+        raise IdempotencyStoreError(
+            "MemoryIdempotencyStore: clock must return a finite number"
+        ) from exc
+    if not isfinite(now):
+        raise IdempotencyStoreError(
+            "MemoryIdempotencyStore: clock must return a finite number"
+        )
+    return now
+
+
+def _memory_record_expired(
+    record: _MemoryIdempotencyRecord,
+    *,
+    now: float,
+) -> bool:
+    if record.result_json is None:
+        return record.reservation_expires_at <= now
+    return (
+        record.completed_expires_at is not None and record.completed_expires_at <= now
+    )
+
+
 def _build_adapter(annotation: Any, *, label: str) -> TypeAdapter[Any]:
     try:
         adapter = TypeAdapter(annotation)
@@ -388,10 +585,11 @@ def _validate_identity(
     scope: object,
     key: object,
     fingerprint: object,
+    label: str,
 ) -> None:
     if not isinstance(namespace, str) or _NAMESPACE.fullmatch(namespace) is None:
         raise ConfigurationError(
-            "run_idempotently: namespace must use dotted snake_case, "
+            f"{label}: namespace must use dotted snake_case, "
             f"such as 'tasks.create'; got {namespace!r}"
         )
     for name, value in (
@@ -400,9 +598,7 @@ def _validate_identity(
         ("fingerprint", fingerprint),
     ):
         if not isinstance(value, str) or not value:
-            raise ConfigurationError(
-                f"run_idempotently: {name} must be a non-empty string"
-            )
+            raise ConfigurationError(f"{label}: {name} must be a non-empty string")
 
 
 def _validated_ttl(
@@ -445,6 +641,7 @@ __all__ = [
     "IdempotencyResultError",
     "IdempotencyStore",
     "IdempotencyStoreError",
+    "MemoryIdempotencyStore",
     "fingerprint",
     "run_idempotently",
 ]

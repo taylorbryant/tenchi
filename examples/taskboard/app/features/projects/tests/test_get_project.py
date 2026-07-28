@@ -2,7 +2,6 @@ import pytest
 
 from app.features.projects.schemas import GetProjectParams
 from app.features.projects.use_cases.get_project import get_project
-from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -14,6 +13,7 @@ from app.server.context import AppContext
 from app.shared.errors import project_not_found
 from app.shared.users import OwnerScope, User
 from tenchi.errors import AppError
+from tenchi.idempotency import MemoryIdempotencyStore
 from tenchi.rate_limits import MemoryRateLimitStore
 
 ALICE = User(id="alice", name="Alice")

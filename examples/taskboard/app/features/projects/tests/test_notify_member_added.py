@@ -1,6 +1,5 @@
 from app.features.projects.schemas import MemberAdded
 from app.features.projects.use_cases.notify_member_added import notify_member_added
-from app.infra.memory_idempotency import MemoryIdempotencyStore
 from app.infra.memory_repositories import (
     MemoryNotificationLog,
     MemoryOutbox,
@@ -9,6 +8,7 @@ from app.infra.memory_repositories import (
     MemoryTaskSearch,
 )
 from app.server.context import AppContext
+from tenchi.idempotency import MemoryIdempotencyStore
 from tenchi.rate_limits import MemoryRateLimitStore
 
 

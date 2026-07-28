@@ -70,6 +70,68 @@ that todos survive a new application instance against the same temporary
 SQLite database. Avoid monkeypatching route dispatch or internal Tenchi
 functions—the purpose of these tests is to exercise the real boundary.
 
+## Verify store adapters
+
+Run Tenchi's conformance checks against each idempotency or rate-limit adapter
+you plan to deploy:
+
+```python
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
+from tenchi.idempotency import IdempotencyStore
+from tenchi.testing import verify_idempotency_store
+
+
+class TestClock:
+    def __init__(self, value: float = 1_000.0) -> None:
+        self.value = value
+
+    def __call__(self) -> float:
+        return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += seconds
+
+
+clock = TestClock()
+
+
+@asynccontextmanager
+async def open_store() -> AsyncGenerator[IdempotencyStore]:
+    async with open_test_connection() as connection:
+        try:
+            yield PostgresIdempotencyStore(connection, clock=clock)
+        except BaseException:
+            await connection.rollback()
+            raise
+        else:
+            await connection.commit()
+
+
+async def test_postgres_idempotency_store_conforms() -> None:
+    await verify_idempotency_store(open_store, advance=clock.advance)
+```
+
+Replace `open_test_connection()` and `PostgresIdempotencyStore` with your
+adapter's test connection and constructor. `open_store()` must open a fresh
+independently usable scope over one shared test backend. A successful scope
+must persist before it exits. The adapter and the `advance(seconds)` callback
+must use the same deterministic clock; the callback may be synchronous or
+asynchronous.
+
+`verify_idempotency_store()` checks the reservation, replay, conflict,
+expiration, token-fencing, identity-isolation, and concurrent-winner rules.
+Use `verify_rate_limit_store()` with the same factory shape for fixed-window
+capacity, rejected costs, reset boundaries, policy changes, isolation, and
+concurrent admission. Failures raise `StoreConformanceError` with the store
+kind, case name, and reason.
+
+These checks verify the protocol state machine. Keep separate integration tests
+for behavior outside that contract: transaction rollback with application
+writes, migrations, cleanup, backend clock configuration, and coordination
+across the processes or hosts you deploy.
+
 ## Keep OpenAPI reproducible
 
 Generated applications include a test that runs:
