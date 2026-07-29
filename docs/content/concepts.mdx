@@ -34,6 +34,14 @@ serialize a `JobMessage`; the composition root binds the declaration to a plain
 async consumer; a dispatcher validates delivery. Queue persistence, retries,
 acknowledgement, and scheduling stay in infrastructure.
 
+## Application tool
+
+A stable machine-facing name with validated input, output, declared errors,
+and safety annotations, explicitly bound to a plain async use case. A tool
+runner supplies application lifecycle and context wiring. Model providers,
+agent loops, authentication, approval interfaces, and transport protocols stay
+outside the declaration.
+
 ## Port
 
 An interface the application needs, declared with `typing.Protocol`. The

@@ -9,6 +9,20 @@ versions may change the public API.
 
 ### Added
 
+- Transport-neutral application tools. `tool()` declares stable typed input,
+  output, error, and safety metadata; `tool_handler()` checks use-case wiring
+  at composition; `ToolRunner` applies input and result validation,
+  application lifespan/context scoping, cancellation cleanup, declared-error
+  honesty, and payload-safe use-case observation. Undeclared application
+  errors and unexpected failures become a generic `ToolInvocationError`.
+  `tool_manifest()` returns deterministic JSON Schemas and portable annotations
+  without choosing an MCP or model SDK. A versioned protocol snapshot guards
+  manifest compatibility, while runtime regressions enforce the empty-object
+  convention for no-input tools. Serialized results are checked against their
+  published JSON Schema before context commit. Doctor recognizes feature
+  `tools.py` modules, and taskboard demonstrates authenticated read and write
+  tools with authorization, idempotency, rate limiting, and transaction
+  rollback.
 - Optional OpenTelemetry integration through the `tenchi[otel]` extra.
   `create_opentelemetry_observers()` turns finalized HTTP, use-case, logical
   client-call, and retry-attempt outcomes into internal logical spans and

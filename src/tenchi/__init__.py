@@ -2,7 +2,7 @@
 
 Canonical imports use the submodules — ``tenchi.contracts``,
 ``tenchi.routes``, ``tenchi.jobs``, ``tenchi.errors``, ``tenchi.server``,
-``tenchi.client``, ``tenchi.retries``
+``tenchi.client``, ``tenchi.retries``, ``tenchi.tools``
 — and the most common names are re-exported here for convenience.
 """
 
@@ -81,6 +81,22 @@ from .tasks import (
     task,
     task_group,
 )
+from .tools import (
+    TOOL_MANIFEST_VERSION,
+    Tool,
+    ToolBinding,
+    ToolBindingError,
+    ToolGroup,
+    ToolInvocationError,
+    ToolNotFoundError,
+    ToolResultError,
+    ToolRunner,
+    create_tool_runner,
+    tool,
+    tool_group,
+    tool_handler,
+    tool_manifest,
+)
 from .webhooks import (
     Webhook,
     WebhookBindingError,
@@ -95,6 +111,7 @@ __all__ = [
     "IDEMPOTENCY_CONFLICT",
     "IDEMPOTENCY_IN_PROGRESS",
     "RATE_LIMITED",
+    "TOOL_MANIFEST_VERSION",
     "AppError",
     "Client",
     "ClientAttemptObserver",
@@ -147,6 +164,14 @@ __all__ = [
     "TaskResultError",
     "TaskRunner",
     "TenchiError",
+    "Tool",
+    "ToolBinding",
+    "ToolBindingError",
+    "ToolGroup",
+    "ToolInvocationError",
+    "ToolNotFoundError",
+    "ToolResultError",
+    "ToolRunner",
     "UnexpectedResponseError",
     "UseCaseObserver",
     "UseCaseOutcome",
@@ -159,6 +184,7 @@ __all__ = [
     "create_app",
     "create_job_dispatcher",
     "create_task_runner",
+    "create_tool_runner",
     "enforce_rate_limit",
     "execute",
     "fingerprint",
@@ -182,5 +208,9 @@ __all__ = [
     "swagger_ui_route",
     "task",
     "task_group",
+    "tool",
+    "tool_group",
+    "tool_handler",
+    "tool_manifest",
     "webhook",
 ]

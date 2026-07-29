@@ -12,13 +12,13 @@ import { LogoMark } from "@/components/logo-mark";
   releases](/stability) before adopting it for a long-lived service.
 </Callout>
 
-A contract-first, Python-native framework for typed JSON APIs that stay
-coherent as they grow.
+A contract-first, Python-native framework for typed JSON APIs and AI-facing
+tools that stay coherent as they grow.
 
-Tenchi gives the HTTP boundary, application use cases, a typed Python client,
-OpenAPI, compatibility checks, and structural tooling one shared model.
-Contracts describe what crosses the wire. Plain async functions own behavior.
-Protocols and frozen dataclasses keep dependencies explicit.
+Tenchi gives the HTTP boundary, application tools, use cases, a typed Python
+client, OpenAPI, compatibility checks, and structural tooling one shared
+model. Contracts describe what crosses the wire. Plain async functions own
+behavior. Protocols and frozen dataclasses keep dependencies explicit.
 
 ## Start an application
 
@@ -53,6 +53,9 @@ an OpenAPI snapshot, an agent guide, and CI. The
   evidence used by people and CI.
 - **HTTP is one entrypoint.** Workers and scripts can execute the same use cases
   with the same request validation and context-scoping guarantees.
+- **AI tools reuse application behavior.** Typed tool declarations add
+  deterministic schemas, declared errors, and safety metadata around ordinary
+  use cases without choosing a model provider or agent loop.
 
 ## One declaration, several guarantees
 
@@ -98,4 +101,6 @@ as OpenAPI 3.1, and compared against a previous release.
   coupling use cases to Redis, a database, or an API gateway.
 - [Coding agents](/agents) defines the inspect, preview, edit, and validate
   protocol for automated changes.
+- [Application tools](/tools) exposes existing use cases to AI and machine
+  callers through a validated, transport-neutral boundary.
 - [Comparisons](/comparisons) explains where Tenchi fits and where it does not.

@@ -15,6 +15,7 @@ app/
     routes.py
     jobs.py
     tasks.py
+    tools.py
     use_cases/
     tests/
   shared/
@@ -28,6 +29,7 @@ app/
     runtime.py
     preflight.py
     tasks.py
+    tools.py
     asgi.py
 tests/
 ```
@@ -39,7 +41,8 @@ by contracts, ports, and use cases. `ports.py` defines the interfaces the
 feature needs. `policy.py` owns pure authorization rules. `routes.py` binds
 contracts to use cases. `tasks.py` gives selected use cases stable operational
 names. `jobs.py` declares durable background messages without importing their
-consumer use cases.
+consumer use cases. `tools.py` gives selected use cases stable, typed
+machine-facing contracts.
 
 Each file in `use_cases/` contains one plain async function. Unit tests sit
 beside the feature and call those functions directly with memory adapters.
@@ -68,6 +71,7 @@ The `app/server/` package is the application root:
 - `runtime.py` owns resources shared by HTTP and operational entrypoints.
 - `preflight.py` declares read-only checks of the target deployment environment.
 - `tasks.py` composes the application's operational task runner.
+- `tools.py` composes application tools with authenticated context wiring.
 - `asgi.py` creates adapters, lifecycle resources, hooks, middleware, and the
   final Starlette application.
 
@@ -81,6 +85,7 @@ routes -> use cases -> ports -> schemas/domain
 server composition -> routes
 server composition -> infrastructure -> ports
 server composition -> job declarations + consumer use cases
+server composition -> tool bindings + authenticated context
 ```
 
 Arrows point from the importing layer to the layer it depends on. Server
@@ -94,6 +99,9 @@ on it.
 - Routes may import contracts and use cases, but never infrastructure.
 - Job declarations may import schemas but not use cases or infrastructure;
   producers may import declarations and `job_message()`.
+- Tool modules may import schemas and use cases to bind them, but never
+  infrastructure or server composition. Safety annotations describe behavior;
+  authorization remains in the use case.
 - Infrastructure implements ports, but never imports use cases or routes.
 - Server composition wires the complete graph.
 

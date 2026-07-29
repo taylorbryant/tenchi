@@ -63,7 +63,7 @@ function main(): void {
     "",
     `> ${siteDescription}`,
     "",
-    `Tenchi is a contract-first Python framework for typed JSON APIs. The full extracted documentation is available at ${siteUrl}/llms-full.txt.`,
+    `Tenchi is a contract-first Python framework for typed JSON APIs and AI-facing tools. The full extracted documentation is available at ${siteUrl}/llms-full.txt.`,
   ];
   const fullPages: string[] = [];
 

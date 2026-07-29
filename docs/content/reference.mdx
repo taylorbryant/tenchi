@@ -12,6 +12,7 @@ selected package-root re-exports for compact application code.
 from tenchi import (
     IDEMPOTENCY_CONFLICT,
     IDEMPOTENCY_IN_PROGRESS,
+    TOOL_MANIFEST_VERSION,
     AppError,
     Client,
     ClientAttemptObserver,
@@ -33,6 +34,8 @@ from tenchi import (
     RateLimitStore,
     RetryPolicy,
     RetryTimeoutError,
+    Tool,
+    ToolRunner,
     UseCaseObserver,
     UseCaseOutcome,
     Webhook,
@@ -41,6 +44,7 @@ from tenchi import (
     create_app,
     create_job_dispatcher,
     create_task_runner,
+    create_tool_runner,
     execute,
     enforce_rate_limit,
     fingerprint,
@@ -62,6 +66,10 @@ from tenchi import (
     swagger_ui_route,
     task,
     task_group,
+    tool,
+    tool_group,
+    tool_handler,
+    tool_manifest,
     webhook,
 )
 ```
@@ -93,6 +101,7 @@ expected application failures.
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.rate_limits` | `RateLimitStore`, `RateLimitPermit`, `RateLimitExceeded`, `RateLimitDecision`, `RateLimitStoreError`, `MemoryRateLimitStore`, `RATE_LIMITED`, `enforce_rate_limit()` |
 | `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `task()`, `task_group()`, `create_task_runner()` |
+| `tenchi.tools` | `TOOL_MANIFEST_VERSION`, `Tool`, `ToolBinding`, `ToolGroup`, `ToolRunner`, `ToolBindingError`, `ToolNotFoundError`, `ToolResultError`, `ToolInvocationError`, `tool()`, `tool_handler()`, `tool_group()`, `create_tool_runner()`, `tool_manifest()` |
 | `tenchi.webhooks` | `Webhook`, `WebhookRequest`, `WebhookVerifier`, `WebhookBindingError`, `webhook()` |
 | `tenchi.client` | `Client`, `ClientResponse`, `ClientOutcome`, `ClientObserver`, `ClientAttemptOutcome`, `ClientAttemptObserver`, `UnexpectedResponseError` |
 | `tenchi.retries` | `RetryPolicy`, `RetryTimeoutError`, `retry_policy()` |
@@ -107,7 +116,10 @@ servers; an explicit `RetryPolicy` coordinates bounded logical retries. A
 `JobDispatcher` validates durable messages and their registered consumer
 results without owning a queue. A `Webhook` binds an exact-body verifier to a
 contract marked `webhook=True`. A `RateLimitStore` atomically applies
-fixed-window application quotas.
+fixed-window application quotas. An application `ToolRunner` validates
+machine-facing calls, applies lifecycle and context wiring, and masks
+undeclared failures. `tool_manifest()` exposes portable JSON Schemas and
+safety metadata without choosing an agent transport.
 
 ## Optional integrations
 

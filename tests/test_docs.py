@@ -49,6 +49,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "execution",
         "jobs",
         "tasks",
+        "tools",
         "testing",
         "webhooks",
         "production",

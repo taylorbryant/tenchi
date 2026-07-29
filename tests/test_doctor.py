@@ -517,6 +517,53 @@ def test_feature_tasks_may_bind_use_cases_but_not_infrastructure(
     )
 
 
+def test_feature_tools_may_bind_use_cases_but_not_infrastructure(
+    app_root: Path,
+) -> None:
+    tools = app_root / "app/features/todos/tools.py"
+    tools.write_text(
+        "from app.features.todos.schemas import Todo\n"
+        "from app.features.todos.use_cases.list_todos import list_todos\n"
+        "from tenchi.tools import tool, tool_handler\n"
+        "declaration = tool(\n"
+        "    'todos.list', result=list[Todo], description='List todos.',\n"
+        "    read_only=True,\n"
+        ")\n"
+        "binding = tool_handler(declaration, list_todos)\n"
+    )
+
+    assert not any(
+        finding.path == tools.relative_to(app_root).as_posix()
+        for finding in run_doctor(app_root)
+    )
+
+    tools.write_text(
+        tools.read_text()
+        + "from app.infra.memory_todo_repository import MemoryTodoRepository\n"
+    )
+    assert any(
+        finding.path == tools.relative_to(app_root).as_posix()
+        and "tools must not import concrete infrastructure" in finding.message
+        for finding in run_doctor(app_root)
+    )
+
+
+def test_use_cases_must_not_import_tool_declarations(app_root: Path) -> None:
+    tools = app_root / "app/features/todos/tools.py"
+    tools.write_text("search_tool = object()\n")
+    use_case = app_root / "app/features/todos/use_cases/list_todos.py"
+    use_case.write_text(
+        "from app.features.todos.tools import search_tool  # noqa: F401\n"
+        + use_case.read_text()
+    )
+
+    assert any(
+        finding.path == use_case.relative_to(app_root).as_posix()
+        and "use cases must not import tool declarations" in finding.message
+        for finding in run_doctor(app_root)
+    )
+
+
 @pytest.mark.parametrize(
     "statement",
     [

@@ -1,8 +1,9 @@
 # Tenchi
 
-Tenchi is a small, contract-first Python framework for building typed HTTP
-APIs. Contracts define the boundary, plain async functions implement use cases,
-and frozen dataclasses carry explicitly wired dependencies.
+Tenchi is a small, contract-first Python framework for building typed
+backends. HTTP contracts and application tools define validated boundaries,
+plain async functions implement use cases, and frozen dataclasses carry
+explicitly wired dependencies.
 
 Tenchi uses Pydantic for validation, Starlette for ASGI, and httpx for its typed
 client. It requires Python 3.12 or newer and is currently pre-1.0.
@@ -110,10 +111,10 @@ Applications use this structure:
 
 ```text
 app/
-  features/<feature>/   # contracts, schemas, ports, routes, jobs, tasks, use cases
+  features/<feature>/   # contracts, schemas, ports, routes, jobs, tasks, tools, use cases
   shared/               # shared errors and domain concepts
   infra/                # concrete port implementations
-  server/               # context, runtime, preflight, route/job/task composition, ASGI app
+  server/               # context, runtime, preflight, route/job/task/tool composition, ASGI app
 tests/                  # HTTP integration tests
 ```
 
@@ -268,10 +269,11 @@ catches the injected cancellation. `create_app(observers=...)` delivers an
 immutable `RequestOutcome`, including a read-only header mapping, after each
 matched route has finalized. Observer failures are logged and never change the
 response. `create_app(use_case_observers=...)` and
-`execute(use_case_observers=...)` and task runners deliver the same immutable
-`UseCaseOutcome` after context cleanup for every use case that was actually
-invoked. Finalized outcomes include a UTC `completed_at` captured before
-observer delivery, so delayed observers do not move the event's timestamp.
+`execute(use_case_observers=...)`, task runners, and tool runners deliver the
+same immutable `UseCaseOutcome` after context cleanup for every use case that
+was actually invoked. Finalized outcomes include a UTC `completed_at` captured
+before observer delivery, so delayed observers do not move the event's
+timestamp.
 `Client(observers=...)` delivers immutable `ClientOutcome` values for outbound
 contract calls, including transport failures, invalid responses, and
 cancellation, without carrying input, URL, header, body, or exception payloads.
@@ -289,11 +291,37 @@ repair_members_task = task(
 )
 ```
 
+Application tools expose selected use cases to AI and other machine callers
+without choosing a model provider or transport:
+
+```python
+search_projects_tool = tool(
+    "projects.search",
+    result=list[Project],
+    description="List projects owned by the authenticated user.",
+    errors=(unauthorized,),
+    read_only=True,
+    open_world=False,
+)
+
+tools = tool_group(
+    tool_handler(search_projects_tool, list_projects),
+)
+```
+
+`ToolRunner` validates input before application resources open, validates the
+result and its serialized form before context commit, preserves only declared
+application errors, and masks unexpected failures. `tool_manifest()` returns
+deterministic input and output JSON Schemas plus safety metadata for a transport
+adapter; `TOOL_MANIFEST_VERSION` identifies that guarded protocol. See the
+[application tools guide](https://tenchi.io/tools).
+
 See [`examples/todos`](examples/todos) for the small teaching app and
 [`examples/taskboard`](examples/taskboard) for a larger application with
 authentication, authorization, SQLite transactions, optimistic concurrency
 through `ETag` / `If-Match`, idempotent task creation, multiple successful
-outcomes, request observation, deadlines, and background work.
+outcomes, request observation, deadlines, background work, and authenticated
+application tools.
 
 ## CLI
 

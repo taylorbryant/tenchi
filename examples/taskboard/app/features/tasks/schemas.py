@@ -66,3 +66,16 @@ class Task(BaseModel):
     title: str
     status: TaskStatus
     version: int = Field(ge=1)
+
+
+class MoveTaskInput(BaseModel):
+    """One authenticated, retry-safe task transition requested by a tool."""
+
+    task_id: str
+    status: TaskStatus
+    expected_version: int = Field(ge=1)
+    idempotency_key: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=IDEMPOTENCY_KEY_PATTERN,
+    )

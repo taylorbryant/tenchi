@@ -1,7 +1,7 @@
 export const siteName = "Tenchi";
 
 export const siteDescription =
-  "A contract-first, Python-native framework for typed JSON APIs that stay coherent as they grow.";
+  "A contract-first, Python-native framework for typed JSON APIs and AI-facing tools that stay coherent as they grow.";
 
 export const defaultSiteUrl = "https://tenchi.io";
 
@@ -139,6 +139,13 @@ export const docsSections = [
         description:
           "Declare, discover, and safely run validated backfills, repairs, replays, and maintenance commands.",
         priority: 0.79,
+      },
+      {
+        path: "/tools",
+        title: "Application tools",
+        description:
+          "Expose existing use cases to AI and machine callers through typed declarations, validated execution, and portable manifests.",
+        priority: 0.81,
       },
       {
         path: "/testing",

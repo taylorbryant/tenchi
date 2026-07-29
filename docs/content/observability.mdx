@@ -195,12 +195,12 @@ returns. Export through a non-blocking logging or telemetry pipeline.
 ## Observe use cases across entrypoints
 
 `UseCaseOutcome` reports every use case that was actually invoked through HTTP,
-a background job, an operational task, or `execute()`:
+a background job, an operational task, an application tool, or `execute()`:
 
 | Field | Meaning |
 | --- | --- |
 | `use_case` | The invoked async function |
-| `entrypoint` | `http`, `execute`, `job`, or `task` |
+| `entrypoint` | `http`, `execute`, `job`, `task`, or `tool` |
 | `status` | `succeeded`, `app_error`, `failed`, or `cancelled` |
 | `duration_seconds` | Time spent inside the use-case function |
 | `error_code` | The stable `AppError` code for `app_error`; otherwise `None` |
@@ -210,13 +210,14 @@ Pass the observer to `create_app(use_case_observers=...)` for HTTP,
 `execute(use_case_observers=...)` for workers, schedules, scripts, and direct
 calls, or `create_task_runner(use_case_observers=...)` for operational tasks.
 Background dispatchers accept the same observer through
-`create_job_dispatcher(use_case_observers=...)`.
+`create_job_dispatcher(use_case_observers=...)`. Application tool runners use
+`create_tool_runner(use_case_observers=...)`.
 It runs after the surrounding context scope closes, so transactional cleanup
 finishes before telemetry is exported. Input values, return values, and
 exception objects are never included.
 
-Keep use-case observers fast too. HTTP, tasks, and `execute()` all wait for the
-observer chain after scope cleanup.
+Keep use-case observers fast too. HTTP, tasks, tools, and `execute()` all wait
+for the observer chain after scope cleanup.
 
 Validation, hook, and context-acquisition failures that happen before
 invocation do not produce a use-case outcome. Conversely, a use case that
@@ -308,7 +309,7 @@ transport-specific metadata and acknowledgement.
 | Need | Use |
 | --- | --- |
 | Final HTTP status, duration, contract, request ID, error ownership | `RequestOutcome` observer |
-| Use-case status and duration across HTTP, jobs, tasks, and `execute()` | `UseCaseOutcome` observer |
+| Use-case status and duration across HTTP, jobs, tasks, tools, and `execute()` | `UseCaseOutcome` observer |
 | Outbound typed-call status, HTTP status, duration, and declared error code | `ClientOutcome` observer |
 | Outbound attempt status, retry decision, and selected delay | `ClientAttemptOutcome` observer |
 | Trace the full ASGI lifecycle, unmatched routes, or streaming bodies | ASGI/OpenTelemetry middleware |

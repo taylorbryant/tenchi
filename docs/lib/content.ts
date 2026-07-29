@@ -32,6 +32,7 @@ import Server from "@/content/server.mdx";
 import Stability from "@/content/stability.mdx";
 import Tasks from "@/content/tasks.mdx";
 import Testing from "@/content/testing.mdx";
+import Tools from "@/content/tools.mdx";
 import Webhooks from "@/content/webhooks.mdx";
 import type { DocsPath } from "@/lib/docs";
 
@@ -53,6 +54,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/execution": Execution,
   "/jobs": Jobs,
   "/tasks": Tasks,
+  "/tools": Tools,
   "/testing": Testing,
   "/production": Production,
   "/configuration": Configuration,

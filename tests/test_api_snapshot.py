@@ -40,6 +40,7 @@ PUBLIC_MODULES = (
     "tenchi.server",
     "tenchi.testing",
     "tenchi.tasks",
+    "tenchi.tools",
     "tenchi.webhooks",
 )
 

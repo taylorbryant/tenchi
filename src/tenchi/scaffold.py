@@ -98,6 +98,7 @@ Framework agent workflow: https://tenchi.io/agents
    `app/server/jobs.py`, `app/server/preflight.py`, `app/server/tasks.py`,
    `app/server/runtime.py`,
    `app/server/webhooks.py` when signed endpoints exist,
+   `app/server/tools.py` when application tools exist,
    `app/infra/port_wiring.py`, and `app/server/asgi.py`.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
@@ -126,6 +127,8 @@ reviewable source edits.
   imports infrastructure.
 - `jobs.py` declares stable background messages shared by producers and
   consumers; handlers are bound in `app/server/jobs.py`.
+- `tools.py` binds stable machine-facing contracts to use cases; it never
+  imports infrastructure or server composition.
 - `use_cases/` contains one plain async function per workflow. Use cases may
   depend on schemas, ports, policies, shared code, and `app.server.context`, but
   never concrete infrastructure, routes, or the Tenchi/Starlette runtime.
@@ -134,7 +137,8 @@ reviewable source edits.
 - `app/server/` is the composition root and may import every application layer.
   Shared lifespan/context wiring lives in `runtime.py`; task composition lives
   in `tasks.py`; background handlers live in `jobs.py`; read-only deployment
-  observations live in `preflight.py`.
+  observations live in `preflight.py`; authenticated application-tool wiring
+  lives in `tools.py` when present.
 - `app/shared/` never imports features.
 
 Authentication belongs in boundary hooks. Authorization belongs in use cases
@@ -147,6 +151,10 @@ Application-level quotas use `enforce_rate_limit()` against a context-owned
 `RateLimitStore`, scoped from authenticated identity. Put the consume inside
 idempotent work when one logical operation should cost once. Request floods and
 unauthenticated abuse belong at the edge; `MemoryRateLimitStore` is test-only.
+Application tools receive identity through context wiring, never model-supplied
+input. Their safety annotations describe behavior but do not authorize calls.
+Declare every caller-visible `AppError`; undeclared and unexpected failures are
+masked by the tool runner.
 
 ## Change checklist
 

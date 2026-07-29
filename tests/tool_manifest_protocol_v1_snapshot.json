@@ -1,0 +1,123 @@
+{
+  "manifest_schema": {
+    "$defs": {
+      "ToolAnnotationManifest": {
+        "additionalProperties": false,
+        "description": "Portable safety hints attached to a manifest tool.",
+        "properties": {
+          "destructive": {
+            "title": "Destructive",
+            "type": "boolean"
+          },
+          "idempotent": {
+            "title": "Idempotent",
+            "type": "boolean"
+          },
+          "open_world": {
+            "title": "Open World",
+            "type": "boolean"
+          },
+          "read_only": {
+            "title": "Read Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "read_only",
+          "destructive",
+          "idempotent",
+          "open_world"
+        ],
+        "title": "ToolAnnotationManifest",
+        "type": "object"
+      },
+      "ToolErrorManifest": {
+        "additionalProperties": false,
+        "description": "One declared, caller-visible application error.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ToolErrorManifest",
+        "type": "object"
+      },
+      "ToolManifestEntry": {
+        "additionalProperties": false,
+        "description": "One registered tool's portable discovery document.",
+        "properties": {
+          "annotations": {
+            "$ref": "#/$defs/ToolAnnotationManifest"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/$defs/ToolErrorManifest"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "input_schema": {
+            "additionalProperties": true,
+            "title": "Input Schema",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output_schema": {
+            "additionalProperties": true,
+            "title": "Output Schema",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "input_schema",
+          "output_schema",
+          "errors",
+          "annotations"
+        ],
+        "title": "ToolManifestEntry",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "Versioned deterministic discovery document for a tool group.",
+    "properties": {
+      "schema_version": {
+        "const": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "tools": {
+        "items": {
+          "$ref": "#/$defs/ToolManifestEntry"
+        },
+        "title": "Tools",
+        "type": "array"
+      }
+    },
+    "required": [
+      "schema_version",
+      "tools"
+    ],
+    "title": "ToolManifest",
+    "type": "object"
+  },
+  "schema_version": 1
+}

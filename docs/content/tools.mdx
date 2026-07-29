@@ -1,0 +1,205 @@
+import { Callout } from "@/components/callout";
+
+# Expose use cases as AI tools
+
+Application tools give an AI runtime or another machine caller a stable name,
+validated input and output, declared errors, and safety metadata for an
+existing use case. The tool boundary does not choose a model provider, agent
+loop, or transport.
+
+A `ToolRunner` owns one application lifespan and scoped context per call. It
+validates input before opening either resource and validates the result before
+the context commits.
+
+## Declare and bind a tool
+
+Keep the declaration and its binding with the feature:
+
+```python
+# app/features/projects/tools.py
+from app.shared.errors import unauthorized
+from tenchi.tools import tool, tool_group, tool_handler
+
+from .schemas import Project
+from .use_cases.list_projects import list_projects
+
+
+search_projects_tool = tool(
+    "projects.search",
+    result=list[Project],
+    description="List projects owned by the authenticated user.",
+    errors=(unauthorized,),
+    read_only=True,
+    open_world=False,
+)
+
+tools = tool_group(
+    tool_handler(search_projects_tool, list_projects),
+)
+```
+
+The use case remains an ordinary async function:
+
+```python
+async def list_projects(context: AppContext) -> list[Project]:
+    owner = require_owner_scope(context.user)
+    return await context.projects.list_owned_by(owner)
+```
+
+`tool_handler()` checks the function when the module imports. A tool with a
+request requires exactly annotated `request` and `context` parameters; a tool
+without a request requires only `context`. The return annotation must exactly
+match the declared result.
+
+The same use case may also be bound to an HTTP route. Authentication and
+presentation remain entrypoint concerns while authorization stays inside the
+shared use case.
+
+## Compose an authenticated runner
+
+Combine feature groups at server composition, after the caller's identity has
+been authenticated:
+
+```python
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from dataclasses import replace
+
+from app.features.projects.tools import tools as project_tools
+from app.server.context import AppContext
+from app.server.runtime import create_context, create_lifespan
+from app.shared.users import User
+from tenchi.tools import ToolRunner, create_tool_runner, tool_group
+
+tools = tool_group(project_tools)
+
+
+def create_user_tool_runner(
+    *,
+    database_path: str,
+    user: User,
+) -> ToolRunner:
+    @asynccontextmanager
+    async def tool_context(state: str) -> AsyncGenerator[AppContext]:
+        async with create_context(state) as context:
+            yield replace(context, user=user)
+
+    return create_tool_runner(
+        tools=tools,
+        context_factory=tool_context,
+        lifespan=create_lifespan(database_path),
+    )
+```
+
+The identity is application-owned context, not model-supplied tool input.
+Use cases still call `require_user()` and pure policies because the same
+behavior may run through HTTP, a job, a test, or another future entrypoint.
+
+<Callout type="warning" title="Safety annotations do not authorize calls">
+  `read_only`, `destructive`, `idempotent`, and `open_world` describe expected
+  behavior to a trusted adapter or client. They never replace authentication,
+  application policies, idempotency, quotas, or an approval decision.
+</Callout>
+
+## Call a tool
+
+Pass Python data or raw JSON:
+
+```python
+result = await runner.call(
+    "projects.search",
+)
+
+moved = await runner.call(
+    "tasks.move",
+    input_json="""{
+      "task_id": "task_123",
+      "status": "done",
+      "expected_version": 4,
+      "idempotency_key": "agent-run_456"
+    }""",
+)
+```
+
+Input validation happens before lifespan or context acquisition. Output
+validation happens inside the context scope, so a result-contract violation
+can roll back transactional writes. Cancellation passes through the use case
+and both cleanup scopes.
+
+Pass `use_case_observers=` to `create_tool_runner()` to receive the normal
+payload-safe `UseCaseOutcome` with `entrypoint="tool"`.
+
+## Declare caller-visible errors
+
+List every `ErrorDef` that a caller may receive:
+
+```python
+move_task_tool = tool(
+    "tasks.move",
+    request=MoveTaskInput,
+    result=Task,
+    description="Move one visible task to another workflow status.",
+    errors=(
+        unauthorized,
+        task_not_found,
+        forbidden,
+        precondition_failed,
+        IDEMPOTENCY_CONFLICT,
+        IDEMPOTENCY_IN_PROGRESS,
+        RATE_LIMITED,
+    ),
+    destructive=True,
+    idempotent=True,
+    open_world=False,
+)
+```
+
+| Failure | Runner behavior |
+| --- | --- |
+| Invalid input | Raises Pydantic `ValidationError` before resources open |
+| Unknown name | Raises `ToolNotFoundError` |
+| Declared `AppError` | Preserves the declared application error |
+| Undeclared `AppError` | Raises generic `ToolInvocationError` with the original error as its cause |
+| Unexpected exception | Raises the same generic `ToolInvocationError` |
+| Invalid result | Raises `ToolResultError` before context commit |
+| Cancellation | Propagates cancellation through cleanup |
+
+The generic invocation error contains the tool name but no exception message,
+details, request, or result.
+
+## Inspect the portable manifest
+
+Use `tool_manifest()` when an adapter or a test needs deterministic discovery:
+
+```python
+from tenchi.tools import tool_manifest
+
+manifest = tool_manifest(tools)
+```
+
+The versioned manifest sorts tools and errors by stable name. Each entry
+contains the description, input and output JSON Schemas, declared error codes
+and messages, and all four safety annotations. A no-input tool receives an
+empty object input schema; callers may either omit input or pass `{}`.
+
+`TOOL_MANIFEST_VERSION` identifies the portable manifest contract. Tenchi
+retains a schema snapshot for every version so breaking changes require a new
+version rather than silently changing an adapter's assumptions.
+
+The manifest describes registered application tools only. It does not expose
+Python functions, context values, credentials, request payloads, or results.
+
+## Connect an AI or transport SDK
+
+Use the manifest for discovery and call `ToolRunner.call()` from the SDK's tool
+callback. The adapter remains responsible for:
+
+- authenticating the caller and constructing the appropriate app context;
+- deciding which registered tools that caller may discover;
+- applying approval policy before state-changing calls;
+- mapping declared errors into the transport's error shape;
+- propagating cancellation and trace context.
+
+`tenchi mcp` is the development server that lets a coding agent inspect and
+validate a Tenchi repository. It does not expose the application's
+`ToolGroup`. A generic application MCP adapter is a separate integration.

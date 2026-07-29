@@ -55,6 +55,8 @@ framework code, the CLI, docs, or the example apps.
   - `retries.py` — explicit bounded retry policies for outbound client calls.
   - `jobs.py` — queue-neutral job declarations, messages, handler bindings,
     and validated dispatch.
+  - `tools.py` — transport-neutral application-tool declarations, explicit
+    use-case bindings, lifecycle-aware execution, and deterministic manifests.
   - `openapi.py` — OpenAPI 3.1 generation (`openapi_schema` is a pure
     function; `openapi_route` serves it and `swagger_ui_route` serves an
     optional interactive UI through Tenchi's own machinery).
@@ -119,6 +121,7 @@ app/
     routes.py      # binds contracts to use cases via route()/route_group()
     jobs.py        # declares stable background messages via job()
     tasks.py       # binds operational names to use cases via task()/task_group()
+    tools.py       # binds machine-facing contracts to use cases
     use_cases/     # one plain async function per module
     tests/         # use-case tests, no HTTP required
   shared/          # app-wide errors and shared-kernel concepts (users, ...)
@@ -132,6 +135,7 @@ app/
     runtime.py     # resources shared by HTTP and operational entrypoints
     preflight.py   # read-only checks of the target deployment environment
     tasks.py       # composes the operational task runner
+    tools.py       # composes tools with authenticated context wiring
     asgi.py        # concrete wiring, lifespan, hooks; exposes `app`
 tests/             # integration tests over HTTP / the typed client
 ```
@@ -156,6 +160,9 @@ example and template:
   never migrate, repair, enqueue, or return dependency values.
 - Tasks bind stable operational names to use cases; they never import
   infrastructure.
+- Tools bind stable machine-facing contracts to use cases; they never import
+  infrastructure, HTTP contracts, or server composition. Safety annotations
+  are descriptive hints, never authorization.
 - Shared code never depends on features.
 - Infrastructure implements ports; it never imports use cases, routes,
   contracts, or server composition.
@@ -231,6 +238,10 @@ API shape:
   consume inside idempotent work when one logical operation should cost once.
   Edge request floods and unauthenticated abuse remain proxy or gateway
   concerns; `MemoryRateLimitStore` is for tests and local development only.
+- Application tools receive identity through app-owned context wiring, never
+  model-supplied input. Tool declarations list every caller-visible `ErrorDef`;
+  undeclared application errors and unexpected exceptions stay behind the
+  generic tool invocation failure.
 
 ## CLI expectations
 
@@ -265,6 +276,9 @@ platform supports one when the client cancels.
 Task discovery is read-only. MCP task execution must remain explicitly opt-in,
 propagate cancellation through lifespan and context cleanup, and never expose
 task input in its result.
+Application-tool manifests have their own `TOOL_MANIFEST_VERSION` and retained
+versioned schema snapshots. Additive protocol changes may update the current
+snapshot; breaking or unknown changes require a version bump and a new snapshot.
 Structured CLI results and MCP tool inputs and outputs share one agent protocol
 version. Additive changes may update its current canonical snapshot; breaking
 or unknown changes require a version bump and a new snapshot, leaving earlier

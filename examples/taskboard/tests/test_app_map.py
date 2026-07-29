@@ -17,7 +17,7 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
     assert result.summary.routes == 9
     assert result.summary.jobs == 1
     assert result.summary.tasks == 1
-    assert result.summary.use_cases == 11
+    assert result.summary.use_cases == 12
     assert result.summary.ports == 6
     assert result.summary.adapters == 11
     assert result.summary.entrypoints == 2
@@ -81,6 +81,10 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
         "job:projects.member_added",
         "use-case:projects.notify_member_added",
     ) in edges
+    move_task = next(
+        node for node in result.nodes if node.id == "use-case:tasks.move_task"
+    )
+    assert move_task.status == "declared"
     member_contract = next(
         node
         for node in result.nodes
