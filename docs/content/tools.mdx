@@ -193,6 +193,50 @@ adapter's assumptions.
 The manifest describes registered application tools only. It does not expose
 Python functions, context values, credentials, request payloads, or results.
 
+## Protect the contract in version control
+
+Write the composed manifest from the application root:
+
+```shell
+uv run tenchi tools --write tools.json
+```
+
+`tenchi check` compares the generated manifest with `tools.json` so an
+unrecorded contract change fails locally and in CI. Before accepting a changed
+snapshot, classify it against the current file:
+
+```shell
+uv run tenchi tools --diff tools.json
+uv run tenchi tools --write tools.json
+```
+
+For pull requests, compare with a historical baseline even when the branch
+also updates `tools.json`:
+
+```shell
+uv run tenchi tools \
+  --diff-ref origin/main \
+  --snapshot tools.json
+```
+
+The compatibility report treats these changes directionally:
+
+- removing or renaming a tool is breaking;
+- narrowing accepted input is breaking;
+- widening possible output is breaking;
+- adding a caller-visible application error is breaking;
+- changing a safety annotation in the less-safe direction is breaking;
+- adding a tool or making a contract provably safer is additive;
+- descriptions and error messages are metadata.
+
+Breaking and unknown changes exit non-zero. Use `--diff-format json` when an
+agent or CI system needs the versioned report. `tenchi tools --json` returns
+the current registered manifest in a versioned result without writing a file.
+
+`tenchi map` includes tool nodes, their feature ownership, safety details,
+registration state, and exact bindings to use cases. This lets a coding agent
+find both the contract and the behavior it exposes before editing either one.
+
 ## Connect a transport
 
 Use the manifest for discovery and call `ToolRunner.call()` from the SDK's tool

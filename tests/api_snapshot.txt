@@ -156,7 +156,9 @@ class CompatibilityReport
     def count(self, severity: 'ChangeSeverity') -> 'int'
     property status(self) -> 'CompatibilityStatus'
 def analyze_openapi_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
+def analyze_tool_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
 def render_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
+def render_tool_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
 
 # tenchi.contracts
 class Contract(Generic)

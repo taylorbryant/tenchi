@@ -146,3 +146,17 @@ def test_openapi_snapshot_is_current() -> None:
 
 This checks exact drift. Compatibility belongs in CI against a historical
 baseline; see [OpenAPI and compatibility](/openapi).
+
+Generated applications also keep the machine-facing tool contract current:
+
+```python
+from tenchi.cli import main
+
+
+def test_tool_snapshot_is_current() -> None:
+    assert main(["tools", "--check", "tools.json"]) == 0
+```
+
+Run `tenchi tools --diff` against the previous snapshot before replacing it.
+The exact test proves reproducibility; the historical diff proves
+compatibility. See [Application tools](/tools) for the complete workflow.

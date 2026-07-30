@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "tools": [
+    {
+      "annotations": {
+        "destructive": false,
+        "idempotent": true,
+        "open_world": false,
+        "read_only": true
+      },
+      "description": "List projects owned by the authenticated user.",
+      "errors": [
+        {
+          "code": "UNAUTHORIZED",
+          "message": "Unauthorized"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "projects.search",
+      "output_schema": {
+        "$defs": {
+          "Project": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "member_ids": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Member Ids",
+                "type": "array"
+              },
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "owner_id": {
+                "title": "Owner Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "owner_id"
+            ],
+            "title": "Project",
+            "type": "object"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/Project"
+        },
+        "type": "array"
+      }
+    },
+    {
+      "annotations": {
+        "destructive": true,
+        "idempotent": true,
+        "open_world": false,
+        "read_only": false
+      },
+      "description": "Move one visible task to another workflow status.",
+      "errors": [
+        {
+          "code": "FORBIDDEN",
+          "message": "You do not have access to this resource"
+        },
+        {
+          "code": "IDEMPOTENCY_CONFLICT",
+          "message": "The idempotency key was already used with different input"
+        },
+        {
+          "code": "IDEMPOTENCY_IN_PROGRESS",
+          "message": "An operation with this idempotency key is already in progress"
+        },
+        {
+          "code": "PRECONDITION_FAILED",
+          "message": "The resource has changed since it was read"
+        },
+        {
+          "code": "RATE_LIMITED",
+          "message": "Too many requests"
+        },
+        {
+          "code": "TASK_NOT_FOUND",
+          "message": "Task not found"
+        },
+        {
+          "code": "UNAUTHORIZED",
+          "message": "Unauthorized"
+        }
+      ],
+      "input_schema": {
+        "$defs": {
+          "TaskStatus": {
+            "enum": [
+              "todo",
+              "doing",
+              "done"
+            ],
+            "title": "TaskStatus",
+            "type": "string"
+          }
+        },
+        "description": "One authenticated, retry-safe task transition requested by a tool.",
+        "properties": {
+          "expected_version": {
+            "minimum": 1,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/TaskStatus"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "status",
+          "expected_version",
+          "idempotency_key"
+        ],
+        "title": "MoveTaskInput",
+        "type": "object"
+      },
+      "name": "tasks.move",
+      "output_schema": {
+        "$defs": {
+          "TaskStatus": {
+            "enum": [
+              "todo",
+              "doing",
+              "done"
+            ],
+            "title": "TaskStatus",
+            "type": "string"
+          }
+        },
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/TaskStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "title",
+          "status",
+          "version"
+        ],
+        "title": "Task",
+        "type": "object"
+      }
+    }
+  ]
+}

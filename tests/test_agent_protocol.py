@@ -50,8 +50,10 @@ BASE_REF_ENVIRONMENT = "TENCHI_AGENT_PROTOCOL_BASE_REF"
 MCP_RESULT_NAMES: dict[str, AgentResultName] = {
     "app_map": "app_map",
     "routes": "routes",
+    "tools": "tool_list",
     "doctor": "doctor",
     "openapi_diff": "openapi_diff",
+    "tools_diff": "tool_diff",
     "make_preview": "make",
     "check": "check",
     "preflight": "preflight",

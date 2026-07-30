@@ -1,4 +1,4 @@
-"""Canonical rendering and drift diagnostics for OpenAPI snapshots."""
+"""Canonical rendering and drift diagnostics for boundary snapshots."""
 
 from __future__ import annotations
 
@@ -18,6 +18,11 @@ _HTTP_METHODS = frozenset(
 def render_openapi_snapshot(document: Mapping[str, object]) -> str:
     """Render an OpenAPI document in the one canonical snapshot format."""
     return json.dumps(document, indent=2, sort_keys=True) + "\n"
+
+
+def render_tool_snapshot(manifest: Mapping[str, object]) -> str:
+    """Render an application-tool manifest in its canonical snapshot format."""
+    return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
 
 
 def describe_openapi_drift(expected: object, actual: object) -> list[str]:
@@ -107,6 +112,18 @@ def openapi_snapshot_diff(expected: str, actual: str, *, snapshot_path: str) -> 
             actual.splitlines(keepends=True),
             fromfile=snapshot_path,
             tofile="generated OpenAPI",
+        )
+    )
+
+
+def tool_snapshot_diff(expected: str, actual: str, *, snapshot_path: str) -> str:
+    """Return a unified diff between stored and generated tool snapshots."""
+    return "".join(
+        unified_diff(
+            expected.splitlines(keepends=True),
+            actual.splitlines(keepends=True),
+            fromfile=snapshot_path,
+            tofile="generated tools",
         )
     )
 

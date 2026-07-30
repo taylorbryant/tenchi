@@ -7,6 +7,24 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- Verifiable application-tool contracts. `tenchi tools` prints, writes, checks,
+  and directionally compares canonical `tools.json` snapshots. Compatibility
+  analysis treats removed tools, narrower inputs, wider outputs, newly exposed
+  application errors, and less-safe annotations as breaking; metadata and
+  proven-safe additions remain reviewable without blocking CI. `tenchi check`
+  now includes the exact tool snapshot, while generated CI and both example
+  applications compare committed contracts against historical baselines.
+  Existing applications add `app/server/tools.py` (an empty `tool_group()` is
+  valid) and create the first baseline with `tenchi tools --write tools.json`.
+- Coding-agent inspection for application tools. The coding MCP server exposes
+  `tools` and `tools_diff` with the same versioned result schemas as the CLI,
+  and `tenchi map` includes declared and registered tool nodes, safety details,
+  feature ownership, and exact use-case bindings. Agent protocol v4 records the
+  expanded application map and the new tool-inspection results while retaining
+  all earlier protocol snapshots.
+
 ## [0.11.0] - 2026-07-29
 
 ### Added

@@ -31,6 +31,47 @@ def _tenchi(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _write_tool_module(
+    root: Path,
+    *,
+    required: bool = False,
+    description: str = "Search projects.",
+) -> None:
+    required_line = '        "required": ["query"],\n' if required else ""
+    (root / "tool_app.py").write_text(
+        "from typing import Annotated\n"
+        "\n"
+        "from pydantic import WithJsonSchema\n"
+        "from tenchi.tools import tool, tool_group, tool_handler\n"
+        "\n"
+        "SearchInput = Annotated[\n"
+        "    dict[str, str],\n"
+        "    WithJsonSchema(\n"
+        "        {\n"
+        '            "type": "object",\n'
+        '            "properties": {"query": {"type": "string"}},\n'
+        f"{required_line}"
+        '            "additionalProperties": False,\n'
+        "        }\n"
+        "    ),\n"
+        "]\n"
+        "\n"
+        "async def search(request: SearchInput, context: object) -> str:\n"
+        "    del context\n"
+        '    return request.get("query", "")\n'
+        "\n"
+        "search_tool = tool(\n"
+        '    "projects.search",\n'
+        "    request=SearchInput,\n"
+        "    result=str,\n"
+        f"    description={description!r},\n"
+        "    read_only=True,\n"
+        ")\n"
+        "tools = tool_group(tool_handler(search_tool, search))\n",
+        encoding="utf-8",
+    )
+
+
 def test_new_scaffolds_a_working_app(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -52,10 +93,13 @@ def test_new_scaffolds_a_working_app(
     assert (root / "app/server/preflight.py").is_file()
     assert (root / "app/server/runtime.py").is_file()
     assert (root / "app/server/tasks.py").is_file()
+    assert (root / "app/server/tools.py").is_file()
     assert (root / "openapi.json").is_file()
+    assert (root / "tools.json").is_file()
     assert (root / "AGENTS.md").is_file()
     assert (root / ".mcp.json").is_file()
     assert (root / "tests/test_openapi_snapshot.py").is_file()
+    assert (root / "tests/test_tool_snapshot.py").is_file()
     assert (root / ".github/workflows/ci.yml").is_file()
     assert "uv run tenchi check" in (root / "AGENTS.md").read_text()
     assert "https://tenchi.io/agents" in (root / "AGENTS.md").read_text()
@@ -95,20 +139,21 @@ def test_new_scaffolds_a_working_app(
     mapped = _tenchi(root, "map", "--json")
     assert mapped.returncode == 0, mapped.stdout + mapped.stderr
     app_map = json.loads(mapped.stdout)
-    assert app_map["schema_version"] == 3
+    assert app_map["schema_version"] == 4
     assert app_map["summary"] == {
         "features": 1,
         "contracts": 2,
         "routes": 2,
         "jobs": 0,
         "tasks": 0,
+        "tools": 0,
         "use_cases": 2,
         "policies": 0,
         "ports": 1,
         "adapters": 2,
         "contexts": 1,
         "entrypoints": 1,
-        "tests": 3,
+        "tests": 4,
         "diagnostics": 0,
         "unresolved": 0,
     }
@@ -116,7 +161,7 @@ def test_new_scaffolds_a_working_app(
     preflight = _tenchi(root, "preflight", "--json")
     assert preflight.returncode == 0, preflight.stdout + preflight.stderr
     preflight_result = json.loads(preflight.stdout)
-    assert preflight_result["schema_version"] == 3
+    assert preflight_result["schema_version"] == 4
     assert preflight_result["ok"] is True
     assert preflight_result["counts"] == {
         "passed": 0,
@@ -124,6 +169,126 @@ def test_new_scaffolds_a_working_app(
         "timed_out": 0,
         "total": 0,
     }
+
+
+def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> None:
+    _write_tool_module(tmp_path)
+    target = "tool_app:tools"
+
+    listed = _tenchi(tmp_path, "tools", "--tools", target)
+    assert listed.returncode == 0, listed.stderr
+    manifest = json.loads(listed.stdout)
+    assert manifest["schema_version"] == 1
+    assert [tool["name"] for tool in manifest["tools"]] == ["projects.search"]
+
+    agent_result = _tenchi(tmp_path, "tools", "--tools", target, "--json")
+    assert agent_result.returncode == 0, agent_result.stderr
+    listed_result = json.loads(agent_result.stdout)
+    assert listed_result["schema_version"] == 4
+    assert listed_result["root"] == str(tmp_path)
+    assert listed_result["manifest"] == manifest
+
+    written = _tenchi(
+        tmp_path,
+        "tools",
+        "--tools",
+        target,
+        "--write",
+        "tools.json",
+    )
+    assert written.returncode == 0, written.stderr
+    checked = _tenchi(
+        tmp_path,
+        "tools",
+        "--tools",
+        target,
+        "--check",
+        "tools.json",
+    )
+    assert checked.returncode == 0, checked.stderr
+
+    _write_tool_module(tmp_path, required=True, description="Find projects.")
+    diff = _tenchi(
+        tmp_path,
+        "tools",
+        "--tools",
+        target,
+        "--diff",
+        "tools.json",
+        "--diff-format",
+        "json",
+    )
+    assert diff.returncode == 1
+    report = json.loads(diff.stdout)
+    assert report["schema_version"] == 4
+    assert report["status"] == "incompatible"
+    assert report["counts"]["breaking"] == 1
+    assert report["counts"]["metadata"] == 1
+
+    drift = _tenchi(
+        tmp_path,
+        "tools",
+        "--tools",
+        target,
+        "--check",
+        "tools.json",
+    )
+    assert drift.returncode == 1
+    assert "[breaking]" in drift.stderr
+    assert "property became required" in drift.stderr
+    assert "generated tools" in drift.stderr
+
+
+def test_tools_diff_ref_uses_the_historical_snapshot(tmp_path: Path) -> None:
+    _write_tool_module(tmp_path)
+    target = "tool_app:tools"
+    snapshot = _tenchi(
+        tmp_path,
+        "tools",
+        "--tools",
+        target,
+        "--write",
+        "tools.json",
+    )
+    assert snapshot.returncode == 0, snapshot.stderr
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.email", "tests@example.com")
+    _git(tmp_path, "config", "user.name", "Tenchi tests")
+    _git(tmp_path, "add", "tools.json")
+    _git(tmp_path, "commit", "-m", "baseline")
+
+    _write_tool_module(tmp_path, required=True)
+    result = _tenchi(
+        tmp_path,
+        "tools",
+        "--tools",
+        target,
+        "--diff-ref",
+        "HEAD",
+        "--snapshot",
+        "tools.json",
+    )
+
+    assert result.returncode == 1
+    assert "HEAD:tools.json" in result.stdout
+    assert "property became required" in result.stdout
+
+
+def test_tools_rejects_incompatible_output_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["tools", "--diff-format", "json"]) == 1
+    assert "--diff-format requires --diff" in capsys.readouterr().err
+
+    assert main(["tools", "--snapshot", "tools.json"]) == 1
+    assert "--snapshot requires --diff-ref" in capsys.readouterr().err
+
+    assert main(["tools", "--json", "--check", "tools.json"]) == 1
+    assert "--json cannot be combined" in capsys.readouterr().err
 
 
 def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> None:
@@ -156,7 +321,7 @@ def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> Non
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
     assert payload["target"] == target
     assert payload["ok"] is False
     assert payload["counts"] == {
@@ -222,7 +387,7 @@ def test_task_cli_lists_runs_and_reports_validation_as_versioned_json(
     listed = _tenchi(tmp_path, "task", "list", "--tasks", target, "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     listing = json.loads(listed.stdout)
-    assert listing["schema_version"] == 3
+    assert listing["schema_version"] == 4
     assert listing["target"] == target
     assert listing["tasks"][0]["name"] == "records.repair"
     assert listing["tasks"][0]["input_required"] is True
@@ -274,9 +439,9 @@ def test_generated_app_checks_pass(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 4
     assert report["ok"] is True
-    assert report["counts"] == {"passed": 6, "failed": 0, "total": 6}
+    assert report["counts"] == {"passed": 7, "failed": 0, "total": 7}
     assert [step["name"] for step in report["steps"]] == [
         "ruff format",
         "ruff",
@@ -284,6 +449,7 @@ def test_generated_app_checks_pass(
         "pytest",
         "doctor",
         "openapi",
+        "tools",
     ]
 
 
@@ -320,7 +486,7 @@ def test_check_discovers_an_openapi_description(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    openapi_step = report["steps"][-1]
+    openapi_step = report["steps"][-2]
     assert openapi_step["status"] == "passed"
     assert openapi_step["command"][8:10] == ["--description", "Generated API"]
 
@@ -364,7 +530,7 @@ def test_openapi_diff_ref_reads_the_snapshot_from_git(
     )
     assert compatible_result.returncode == 0, compatible_result.stderr
     compatible = json.loads(compatible_result.stdout)
-    assert compatible["schema_version"] == 3
+    assert compatible["schema_version"] == 4
     assert compatible["root"] == str(root)
     assert compatible["baseline"] == "HEAD:openapi.json"
     assert compatible["compatible"] is True
@@ -503,6 +669,7 @@ def test_make_feature_scaffolds_importable_skeleton(
         "routes.py",
         "tasks.py",
         "jobs.py",
+        "tools.py",
         "use_cases/__init__.py",
         "tests/__init__.py",
     ):
@@ -514,15 +681,16 @@ def test_make_feature_scaffolds_importable_skeleton(
             "-c",
             "from app.features.notes.routes import routes; "
             "from app.features.notes.tasks import tasks; "
+            "from app.features.notes.tools import tools; "
             "from app.server.jobs import jobs; "
-            "print(len(routes), len(tasks), len(jobs))",
+            "print(len(routes), len(tasks), len(tools), len(jobs))",
         ],
         cwd=tmp_path / "my_app",
         capture_output=True,
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "0 0 0"
+    assert result.stdout.strip() == "0 0 0 0"
 
 
 def test_make_dry_run_and_json_share_a_versioned_result(
@@ -539,11 +707,13 @@ def test_make_dry_run_and_json_share_a_versioned_result(
     assert main(["make", "feature", "notes", "--dry-run", "--json"]) == 0
     planned = json.loads(capsys.readouterr().out)
 
-    assert planned["schema_version"] == 3
+    assert planned["schema_version"] == 4
     assert planned["ok"] is True
     assert planned["dry_run"] is True
     assert planned["artifact"] == "feature"
     assert "app/features/notes/contracts.py" in planned["files"]
+    assert "app/features/notes/tools.py" in planned["files"]
+    assert any("app/server/tools.py" in step for step in planned["next_steps"])
     assert not (root / "app/features/notes").exists()
 
     assert main(["make", "feature", "notes", "--json"]) == 0
@@ -584,7 +754,7 @@ def test_make_json_reports_errors_without_writing(
     assert main(["make", "feature", "notes", "--json"]) == 1
 
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == 3
+    assert result["schema_version"] == 4
     assert result["ok"] is False
     assert result["files"] == []
     assert "app/features/ not found" in result["error"]
@@ -1130,7 +1300,7 @@ def test_routes_json_emits_a_machine_readable_map(
     assert main(["routes", "--json"]) == 0
 
     result = cast(dict[str, Any], json.loads(capsys.readouterr().out))
-    assert result["schema_version"] == 3
+    assert result["schema_version"] == 4
     assert result["root"] == str(EXAMPLE_DIR)
     entries = cast(list[dict[str, Any]], result["routes"])
     assert entries

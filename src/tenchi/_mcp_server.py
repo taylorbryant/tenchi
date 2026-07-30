@@ -63,6 +63,13 @@ from ._task_operations import (
     task_list_result,
     task_run_result,
 )
+from ._tool_operations import (
+    ToolDiffPayload,
+    ToolListPayload,
+    load_tool_group,
+    tool_diff_result,
+    tool_list_result,
+)
 
 _READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 _CHECK_ANNOTATIONS = ToolAnnotations(
@@ -102,8 +109,10 @@ class McpServerOptions:
     preflight: str = "app.server.preflight:checks"
     tasks: str = "app.server.tasks:runner"
     jobs: str = "app.server.jobs:jobs"
+    tools: str = "app.server.tools:tools"
     allow_task_runs: bool = False
     snapshot: str = "openapi.json"
+    tool_snapshot: str = "tools.json"
     title: str | None = None
     version: str | None = None
     description: str | None = None
@@ -118,6 +127,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             f"app/ not found under {root}; choose a Tenchi application root"
         )
     project_path(root, options.snapshot)
+    project_path(root, options.tool_snapshot)
     operation_lock = asyncio.Lock()
     progress_tasks: set[asyncio.Task[None]] = set()
     module_names = tuple(
@@ -128,6 +138,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             options.preflight,
             options.tasks,
             options.jobs,
+            options.tools,
         )
     )
 
@@ -143,7 +154,8 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             "preview generated structure before editing, discover operational "
             "tasks before invoking one, validate source with check, run preflight "
             "only against the intended environment, and compare OpenAPI before "
-            "accepting a changed snapshot. Tenchi MCP inspection and preview "
+            "accepting a changed snapshot. Compare application tools before "
+            "accepting a changed tool snapshot. Tenchi MCP inspection and preview "
             "tools do not write application files; check runs project-owned "
             "validation commands."
         ),
@@ -179,7 +191,8 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             group = load_route_group(root, options.api_routes)
             runner = load_task_runner(root, options.tasks)
             jobs = load_job_group(root, options.jobs)
-            result = map_app(root, group, runner.tasks, jobs)
+            tools = load_tool_group(root, options.tools)
+            result = map_app(root, group, runner.tasks, jobs, tools)
             if feature is not None:
                 available = sorted(
                     node.name for node in result.nodes if node.kind == "feature"
@@ -205,6 +218,22 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         return await call(
             lambda: routes_result(
                 root, load_route_group(root, options.routes)
+            ).as_dict()
+        )
+
+    @server.tool(
+        name="tools",
+        description=(
+            "Return the versioned manifest for registered application tools, "
+            "including schemas, errors, and safety annotations."
+        ),
+        annotations=_READ_ONLY,
+    )
+    async def tools() -> ToolListPayload:  # pyright: ignore[reportUnusedFunction]
+        return await call(
+            lambda: tool_list_result(
+                root,
+                load_tool_group(root, options.tools),
             ).as_dict()
         )
 
@@ -343,6 +372,32 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         return await call(operation)
 
     @server.tool(
+        name="tools_diff",
+        description=(
+            "Compare registered application tools with a project snapshot or "
+            "the same snapshot at a Git ref. Breaking and unknown changes are "
+            "incompatible."
+        ),
+        annotations=_READ_ONLY,
+    )
+    async def tools_diff(  # pyright: ignore[reportUnusedFunction]
+        snapshot: str | None = None,
+        ref: str | None = None,
+    ) -> ToolDiffPayload:
+        selected = options.tool_snapshot if snapshot is None else snapshot
+
+        def operation() -> ToolDiffPayload:
+            project_path(root, selected)
+            return tool_diff_result(
+                root,
+                tools=options.tools,
+                snapshot=Path(selected),
+                ref=ref,
+            ).as_dict()
+
+        return await call(operation)
+
+    @server.tool(
         name="make_preview",
         description=(
             "Preview a Tenchi feature or use-case generator. The result performs "
@@ -373,8 +428,9 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         name="check",
         description=(
             "Run Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI "
-            "snapshot check. Project-owned commands run with their normal side "
-            "effects; output is bounded and cancellation stops the active process."
+            "and application-tool snapshot checks. Project-owned commands run "
+            "with their normal side effects; output is bounded and cancellation "
+            "stops the active process."
         ),
         annotations=_CHECK_ANNOTATIONS,
     )
@@ -385,6 +441,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         async with operation_lock:
             try:
                 snapshot_path = project_path(root, options.snapshot)
+                tool_snapshot_path = project_path(root, options.tool_snapshot)
             except OperationError as exc:
                 raise ToolError(str(exc)) from exc
             title, version, description, security_json = openapi_defaults(
@@ -429,6 +486,8 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
                         version=version,
                         description=description,
                         snapshot=str(snapshot_path),
+                        tools=options.tools,
+                        tool_snapshot=str(tool_snapshot_path),
                         security_json=security_json,
                         timeout_seconds=timeout_seconds,
                         cancelled=cancelled.is_set,
@@ -487,8 +546,11 @@ def run_mcp_server(options: McpServerOptions) -> None:
             api_routes=options.api_routes,
             preflight=options.preflight,
             tasks=options.tasks,
+            jobs=options.jobs,
+            tools=options.tools,
             allow_task_runs=options.allow_task_runs,
             snapshot=options.snapshot,
+            tool_snapshot=options.tool_snapshot,
             title=options.title,
             version=options.version,
             description=options.description,
@@ -522,7 +584,8 @@ def _fallback_agent_instructions() -> str:
 4. Run `check` after a coherent change.
 5. Run `preflight` only against the intended deployment environment.
 6. Run `openapi_diff` before accepting a changed OpenAPI snapshot.
-7. Use `task_list` before any separately authorized operational task run.
+7. Run `tools_diff` before accepting a changed application-tool snapshot.
+8. Use `task_list` before any separately authorized operational task run.
 
 Full guidance: https://tenchi.io/agents
 """

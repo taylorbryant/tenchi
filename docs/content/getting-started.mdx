@@ -33,10 +33,12 @@ single route. Its important files are:
 | `app/server/preflight.py` | Read-only checks of the target deployment environment |
 | `app/server/jobs.py` | Background-job handler composition |
 | `app/server/tasks.py` | Operational task composition |
+| `app/server/tools.py` | Registered machine-facing tool composition |
 | `app/server/asgi.py` | Composition root and ASGI application |
+| `openapi.json` and `tools.json` | Version-controlled HTTP and tool contracts |
 | `AGENTS.md` | Placement rules and the complete agent validation loop |
 | `.mcp.json` | Project-local registration for MCP-aware coding agents |
-| `.github/workflows/ci.yml` | Checks and historical API compatibility gate |
+| `.github/workflows/ci.yml` | Checks and historical boundary compatibility gates |
 
 The starter preflight group is empty because a local source check must not
 contact an environment implicitly. Add production dependency observations by
@@ -49,10 +51,10 @@ uv run tenchi check
 ```
 
 The command runs Ruff formatting and linting, Pyright, pytest, doctor, and the
-OpenAPI snapshot check. It runs every step even after a failure so one pass
-reports the complete repair list. Generated code passes untouched. Use-case
-tests run without an HTTP server; integration tests exercise the composed ASGI
-application.
+OpenAPI and application-tool snapshot checks. It runs every step even after a
+failure so one pass reports the complete repair list. Generated code passes
+untouched. Use-case tests run without an HTTP server; integration tests
+exercise the composed ASGI application.
 
 ## Start the server
 

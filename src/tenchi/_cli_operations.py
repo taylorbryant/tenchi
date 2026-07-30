@@ -158,6 +158,7 @@ def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
             f"Compose app.features.{name}.routes in app/server/routes.py",
             f"Compose app.features.{name}.jobs in app/server/jobs.py",
             f"Compose app.features.{name}.tasks in app/server/tasks.py",
+            f"Compose app.features.{name}.tools in app/server/tools.py",
         ),
     )
 

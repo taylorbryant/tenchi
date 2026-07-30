@@ -24,8 +24,9 @@ and inspect its diagnostics and unresolved references. Explain the intended
 files and relationships before changing them. Preview any generated structure
 with `uv run tenchi make --dry-run`. Implement the change without hiding
 explicit wiring, then run `uv run tenchi check`. If a contract changed, run the
-OpenAPI compatibility diff before updating its snapshot. Report the files
-changed and every check.
+OpenAPI compatibility diff before updating its snapshot. If an application
+tool changed, run the tool compatibility diff before updating `tools.json`.
+Report the files changed and every check.
 ```
 
 If you already know the feature, include its name in the task so the agent can
@@ -43,9 +44,11 @@ complete application graph.
 | `tenchi task list --json` | Validated operational task names and their input/output JSON Schemas |
 | `tenchi make --dry-run --json` | A mutation preview with the files and follow-up wiring steps before anything is written |
 | `tenchi doctor --json` | Stable diagnostic codes and source locations for architectural violations |
-| `tenchi check --json` | One bounded, complete result for formatting, linting, types, tests, architecture, and OpenAPI drift |
+| `tenchi tools --json` | Registered machine-facing names, schemas, errors, and safety annotations |
+| `tenchi check --json` | One bounded, complete result for formatting, linting, types, tests, architecture, and boundary snapshot drift |
 | `tenchi preflight --json` | Redacted, timeout-bounded evidence that the selected deployment environment is ready |
 | OpenAPI compatibility commands | A historical contract baseline that an agent cannot accidentally replace and then compare to itself |
+| Tool compatibility commands | Directional proof that machine-facing input, output, errors, and safety did not break existing callers |
 
 Tenchi's documentation is also published as [/llms.txt](/llms.txt) for compact
 navigation and [/llms-full.txt](/llms-full.txt) for the complete guide.
@@ -71,15 +74,17 @@ uv run tenchi map --feature notes \
 ```
 
 The complete map combines source declarations with composed API routes,
-operational tasks, and background jobs. A feature projection retains directly
-connected shared and cross-feature nodes, giving an agent a bounded starting
-context without hiding dependencies that cross the feature directory.
+operational tasks, background jobs, and application tools. A feature projection
+retains directly connected shared and cross-feature nodes, giving an agent a
+bounded starting context without hiding dependencies that cross the feature
+directory.
 
 Inspect these fields before editing:
 
 - `nodes` identify concepts and their source declarations. Runtime-bound kinds
-  such as contracts, routes, jobs, tasks, use cases, and adapters become `registered`
-  when composition reaches them; source-only declarations remain `declared`.
+  such as contracts, routes, jobs, tasks, tools, use cases, and adapters become
+  `registered` when composition reaches them; source-only declarations remain
+  `declared`.
 - `edges` explain ownership, route bindings, dependencies, authorization,
   implementations, and feature tests. Evidence points to the source that
   supports each relationship.
@@ -141,9 +146,9 @@ standard output and error output, and whether either stream was truncated.
 
 Treat `ok: false` as unfinished work. Do not stop after fixing only the first
 failed step, and do not silently weaken Ruff, Pyright, pytest, doctor, or the
-OpenAPI snapshot to make the aggregate pass.
+OpenAPI and application-tool snapshots to make the aggregate pass.
 
-### 6. Compare API changes historically
+### 6. Compare boundary changes historically
 
 For a contract change, compare before replacing the snapshot:
 
@@ -165,10 +170,23 @@ previous push, or previous release remains meaningful even when the branch also
 updates its committed snapshot. See [OpenAPI and compatibility](/openapi) for
 the complete workflow.
 
+For an application-tool change, use the parallel workflow:
+
+```shell
+uv run tenchi tools --diff tools.json
+uv run tenchi tools \
+  --diff-ref origin/main \
+  --snapshot tools.json
+```
+
+This catches removed tools, narrower inputs, wider outputs, newly possible
+application errors, and less-safe annotations before an agent replaces the
+evidence. See [Application tools](/tools) for the complete compatibility rules.
+
 <Callout type="warning" title="Never replace the evidence first">
   Do not use `--write` before reviewing `--diff`. Comparing the generated
-  document with the snapshot updated in the same change proves equality, not
-  compatibility.
+  document or manifest with the snapshot updated in the same change proves
+  equality, not compatibility.
 </Callout>
 
 ## Choose the right command
@@ -181,7 +199,9 @@ the complete workflow.
 | `tenchi check --json` | Overall status, counts, duration, and every validation step |
 | `tenchi preflight --json` | Deployment-environment status, counts, durations, and stable failure codes without dependency details |
 | `tenchi routes --json` | A versioned result containing the app root and composed HTTP route table |
-| `tenchi openapi --diff-format json` | A machine-readable compatibility report |
+| `tenchi tools --json` | A versioned result containing the app root and registered tool manifest |
+| `tenchi openapi --diff openapi.json --diff-format json` | A machine-readable API compatibility report |
+| `tenchi tools --diff tools.json --diff-format json` | A machine-readable tool compatibility report |
 
 Human and JSON modes represent the same operation. Use JSON when another tool
 will make a decision; use human output when a person is reviewing the work in a

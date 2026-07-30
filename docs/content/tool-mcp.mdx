@@ -269,6 +269,18 @@ acts as. Do not use a shared, privileged principal for untrusted clients.
 
 ## Verify the integration
 
+Protect the transport-neutral tool contract before testing the adapter:
+
+```shell
+uv run tenchi tools --diff tools.json
+uv run tenchi tools --check tools.json
+```
+
+The snapshot covers the names, JSON Schemas, declared errors, and safety
+annotations this MCP server publishes. Use `--diff-ref` in pull requests so the
+baseline comes from before the branch. The application MCP result envelope has
+its own protocol version; Tenchi tests that wire shape separately.
+
 Test through an in-memory MCP session so discovery, schemas, approval, and
 execution use the real protocol adapter:
 

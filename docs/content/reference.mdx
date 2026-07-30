@@ -138,14 +138,15 @@ does not create an SDK, exporter, background worker, or shutdown lifecycle.
 | Module | Public names |
 | --- | --- |
 | `tenchi.openapi` | `openapi_schema()`, `openapi_route()`, `swagger_ui_route()` |
-| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `render_compatibility_report()` |
+| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `analyze_tool_compatibility()`, and their report renderers |
 | `tenchi.pagination` | `Page`, `PageQuery`, `page()` |
 | `tenchi.health` | `HealthCheck`, `HealthReport`, `health_route()` |
 
 Use the [`tenchi` CLI](/cli) for scaffolding, application inspection,
-architecture diagnostics, project checks, and OpenAPI snapshots. Modules such
-as `tenchi.cli`, `tenchi.doctor`, `tenchi.scaffold`, and `tenchi.snapshots`
-implement that command surface; they are not supported application imports.
+architecture diagnostics, project checks, and OpenAPI and application-tool
+snapshots. Modules such as `tenchi.cli`, `tenchi.doctor`, `tenchi.scaffold`,
+and `tenchi.snapshots` implement that command surface; they are not supported
+application imports.
 
 ## Exact signatures
 

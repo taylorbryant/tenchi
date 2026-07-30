@@ -27,16 +27,20 @@ async def main() -> None:
         initialized = await session.initialize()
         tools = await session.list_tools()
         routes = await session.call_tool("routes", {})
+        application_tools = await session.call_tool("tools", {})
+        tools_diff = await session.call_tool("tools_diff", {})
         preflight = await session.call_tool("preflight", {})
         tasks = await session.call_tool("task_list", {})
     names = {tool.name for tool in tools.tools}
     expected = {
         "app_map",
         "routes",
+        "tools",
         "doctor",
         "preflight",
         "task_list",
         "openapi_diff",
+        "tools_diff",
         "make_preview",
         "check",
     }
@@ -50,6 +54,19 @@ async def main() -> None:
         raise RuntimeError("routes MCP smoke call failed")
     if routes.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:
         raise RuntimeError("routes MCP result is not versioned")
+    if application_tools.isError or application_tools.structuredContent is None:
+        raise RuntimeError("tools MCP smoke call failed")
+    if (
+        application_tools.structuredContent.get("schema_version")
+        != AGENT_PROTOCOL_VERSION
+    ):
+        raise RuntimeError("tools MCP result is not versioned")
+    if application_tools.structuredContent.get("manifest", {}).get("tools") != []:
+        raise RuntimeError("generated app unexpectedly registered application tools")
+    if tools_diff.isError or tools_diff.structuredContent is None:
+        raise RuntimeError("tools_diff MCP smoke call failed")
+    if tools_diff.structuredContent.get("compatible") is not True:
+        raise RuntimeError("generated app tool snapshot is incompatible")
     if tasks.isError or tasks.structuredContent is None:
         raise RuntimeError("task_list MCP smoke call failed")
     if tasks.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:

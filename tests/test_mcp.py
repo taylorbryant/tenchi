@@ -41,6 +41,55 @@ def test_project_reload_preserves_modules_from_the_active_environment(
     assert sys.modules[module.__name__] is module
 
 
+def test_stdio_runner_preserves_every_captured_application_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    options = McpServerOptions(
+        root=tmp_path,
+        routes="custom.routes:routes",
+        api_routes="custom.routes:api_routes",
+        preflight="custom.preflight:checks",
+        tasks="custom.tasks:runner",
+        jobs="custom.jobs:jobs",
+        tools="custom.tools:tools",
+        allow_task_runs=True,
+        snapshot="api/openapi.json",
+        tool_snapshot="api/tools.json",
+        title="Custom",
+        version="2.0.0",
+        description="Custom API",
+        security_json='{"bearerAuth":{}}',
+    )
+    captured: McpServerOptions | None = None
+    received_transport: str | None = None
+
+    class _Server:
+        def run(self, *, transport: str) -> None:
+            nonlocal received_transport
+            received_transport = transport
+
+    def build(received: McpServerOptions) -> _Server:
+        nonlocal captured
+        captured = received
+        return _Server()
+
+    changed_to: Path | None = None
+
+    def change_directory(path: Path) -> None:
+        nonlocal changed_to
+        changed_to = path
+
+    monkeypatch.setattr(_mcp_server, "build_mcp_server", build)
+    monkeypatch.setattr(os, "chdir", change_directory)
+
+    _mcp_server.run_mcp_server(options)
+
+    assert captured == options
+    assert changed_to == tmp_path.resolve()
+    assert received_transport == "stdio"
+
+
 async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
     server = build_mcp_server(McpServerOptions(EXAMPLE_ROOT))
 
@@ -50,10 +99,12 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
     assert [tool.name for tool in result.tools] == [
         "app_map",
         "routes",
+        "tools",
         "doctor",
         "preflight",
         "task_list",
         "openapi_diff",
+        "tools_diff",
         "make_preview",
         "check",
     ]
@@ -89,6 +140,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     async with create_connected_server_and_client_session(server) as session:
         routes = await session.call_tool("routes", {})
+        tools = await session.call_tool("tools", {})
         app_map = await session.call_tool(
             "app_map", {"feature": "todos", "kinds": ["contract", "route"]}
         )
@@ -102,12 +154,19 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
             "make_preview", {"artifact": "feature", "name": "todos"}
         )
         diff = await session.call_tool("openapi_diff", {})
+        tool_diff = await session.call_tool("tools_diff", {})
 
     assert routes.isError is False
     assert routes.structuredContent is not None
-    assert routes.structuredContent["schema_version"] == 3
+    assert routes.structuredContent["schema_version"] == 4
     assert routes.structuredContent["root"] == str(EXAMPLE_ROOT)
     assert any(item["path"] == "/todos" for item in routes.structuredContent["routes"])
+
+    assert tools.isError is False
+    assert tools.structuredContent is not None
+    assert tools.structuredContent["schema_version"] == 4
+    assert tools.structuredContent["manifest"]["schema_version"] == 1
+    assert tools.structuredContent["manifest"]["tools"] == []
 
     assert app_map.isError is False
     assert app_map.structuredContent is not None
@@ -119,17 +178,17 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert doctor.isError is False
     assert doctor.structuredContent is not None
-    assert doctor.structuredContent["schema_version"] == 3
+    assert doctor.structuredContent["schema_version"] == 4
 
     assert preflight.isError is False
     assert preflight.structuredContent is not None
-    assert preflight.structuredContent["schema_version"] == 3
+    assert preflight.structuredContent["schema_version"] == 4
     assert preflight.structuredContent["ok"] is True
     assert preflight.structuredContent["checks"] == []
 
     assert tasks.isError is False
     assert tasks.structuredContent is not None
-    assert tasks.structuredContent["schema_version"] == 3
+    assert tasks.structuredContent["schema_version"] == 4
     assert tasks.structuredContent["tasks"] == []
 
     assert preview.isError is False
@@ -144,8 +203,13 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert diff.isError is False
     assert diff.structuredContent is not None
-    assert diff.structuredContent["schema_version"] == 3
+    assert diff.structuredContent["schema_version"] == 4
     assert diff.structuredContent["compatible"] is True
+
+    assert tool_diff.isError is False
+    assert tool_diff.structuredContent is not None
+    assert tool_diff.structuredContent["schema_version"] == 4
+    assert tool_diff.structuredContent["compatible"] is True
 
 
 async def test_mcp_preflight_discards_application_output(
@@ -274,6 +338,10 @@ async def test_mcp_returns_tool_errors_for_invalid_boundaries() -> None:
             "openapi_diff", {"snapshot": "../openapi.json"}
         )
         empty = await session.call_tool("openapi_diff", {"snapshot": ""})
+        escaped_tools = await session.call_tool(
+            "tools_diff", {"snapshot": "../tools.json"}
+        )
+        empty_tools = await session.call_tool("tools_diff", {"snapshot": ""})
         invalid_preview = await session.call_tool(
             "make_preview",
             {"artifact": "use-case", "name": "create_note"},
@@ -282,6 +350,8 @@ async def test_mcp_returns_tool_errors_for_invalid_boundaries() -> None:
     assert unknown.isError is True
     assert escaped.isError is True
     assert empty.isError is True
+    assert escaped_tools.isError is True
+    assert empty_tools.isError is True
     assert invalid_preview.isError is True
 
 
@@ -320,14 +390,16 @@ async def test_mcp_rejects_agent_instructions_outside_the_root(
         await server.read_resource(AnyUrl("tenchi://project/agents"))
 
 
-async def test_mcp_revalidates_the_check_snapshot_for_each_call(
+@pytest.mark.parametrize("snapshot_name", ["openapi.json", "tools.json"])
+async def test_mcp_revalidates_the_check_snapshots_for_each_call(
     tmp_path: Path,
+    snapshot_name: str,
 ) -> None:
     (tmp_path / "app").mkdir()
     server = build_mcp_server(McpServerOptions(tmp_path))
-    outside = tmp_path.parent / f"{tmp_path.name}-outside-openapi.json"
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-{snapshot_name}"
     outside.write_text("{}")
-    (tmp_path / "openapi.json").symlink_to(outside)
+    (tmp_path / snapshot_name).symlink_to(outside)
 
     async with create_connected_server_and_client_session(server) as session:
         result = await session.call_tool("check", {})
@@ -375,6 +447,7 @@ async def test_mcp_check_returns_failed_validation_as_data(
     assert captured["version"] == "2.0.0"
     assert captured["description"] == "Custom description"
     assert captured["snapshot"] == str((EXAMPLE_ROOT / "openapi.json").resolve())
+    assert captured["tool_snapshot"] == str((EXAMPLE_ROOT / "tools.json").resolve())
     assert captured["security_json"] == (
         '{"apiKey":{"type":"apiKey","in":"header","name":"x-key"}}'
     )
@@ -433,10 +506,12 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
     assert {tool.name for tool in listed.tools} == {
         "app_map",
         "routes",
+        "tools",
         "doctor",
         "preflight",
         "task_list",
         "openapi_diff",
+        "tools_diff",
         "make_preview",
         "check",
     }
@@ -444,7 +519,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
     assert initialized.serverInfo.version == __version__
     assert routes.isError is False
     assert routes.structuredContent is not None
-    assert routes.structuredContent["schema_version"] == 3
+    assert routes.structuredContent["schema_version"] == 4
     assert diff.isError is False
     assert diff.structuredContent is not None
     assert diff.structuredContent["counts"]["metadata"] == 1

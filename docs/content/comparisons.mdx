@@ -18,6 +18,8 @@ architecture need to remain aligned over time.
 
 - The server and a Python client should share one executable contract.
 - API compatibility must be checked in CI against a historical baseline.
+- The same use cases should be exposed to AI callers through versioned,
+  verifiable tool contracts.
 - Business behavior should run unchanged from HTTP, workers, scripts, and
   direct tests.
 - You want composition-time signature failures and explicit dependency wiring.

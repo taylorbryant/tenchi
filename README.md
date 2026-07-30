@@ -351,7 +351,12 @@ tenchi make feature notes --json
 tenchi make use-case notes create_note --dry-run
 tenchi routes
 tenchi map
-tenchi map --feature notes --kind route,use-case,port --json
+tenchi map --feature notes --kind route,tool,use-case,port --json
+tenchi tools
+tenchi tools --diff tools.json
+tenchi tools --diff-ref origin/main --snapshot tools.json
+tenchi tools --check tools.json
+tenchi tools --write tools.json
 tenchi openapi
 tenchi openapi --diff openapi.json
 tenchi openapi --diff-ref origin/main --snapshot openapi.json
@@ -380,9 +385,18 @@ baseline with `--write`. `--output` and `-o` remain aliases for `--write`. For
 programmatic checks, import `analyze_openapi_compatibility` from
 `tenchi.compatibility`.
 
+`tools --write` stores the registered application-tool manifest as canonical
+JSON. Before replacing it, run `tools --diff` or `tools --diff-ref` to classify
+changes to stable names, input and output schemas, declared application errors,
+descriptions, and safety annotations. Removed tools, narrower inputs, wider
+outputs, newly possible errors, and less-safe annotations fail compatibility.
+Use `--diff-format json` for a versioned result, or import
+`analyze_tool_compatibility` from `tenchi.compatibility`.
+
 `tenchi map` combines source declarations with the composed route group into a
-deterministic graph of features, contracts, routes, operational tasks, use
-cases, policies, ports, adapters, context, entrypoints, and tests. Every
+deterministic graph of features, contracts, routes, operational tasks,
+background jobs, application tools, use cases, policies, ports, adapters,
+context, entrypoints, and tests. Every
 relationship includes source evidence and a confidence level. Use `--feature`
 for a feature plus its direct cross-feature dependencies, `--kind` for a
 comma-separated node projection, and `--json` for the versioned result.
@@ -402,18 +416,20 @@ codes, statuses, and durations. See the [deployment preflight
 guide](https://tenchi.io/preflight).
 
 Generator `--dry-run` output lists every file without writing it. `make`,
-`map`, `doctor`, and `check` accept `--json` and return versioned results for
-agents and automation. `tenchi check` runs Ruff formatting and linting,
-Pyright, pytest, doctor, and the OpenAPI snapshot check even when an earlier
-step fails; failed output is bounded and each step reports its duration.
+`map`, `tools`, `doctor`, and `check` accept `--json` and return versioned
+results for agents and automation. `tenchi check` runs Ruff formatting and
+linting, Pyright, pytest, doctor, and the OpenAPI and application-tool snapshot
+checks even when an earlier step fails; failed output is bounded and each step
+reports its duration.
 Tenchi snapshots the JSON Schema for these results and the MCP tool surface;
 breaking protocol changes require a new `schema_version`.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
 inspect, preview, edit, validate, and compatibility loop.
 
-The `tenchi mcp` CLI serves the same versioned map, route, preflight, task-discovery,
-doctor, generator-preview, OpenAPI-diff, and check results over stdio. Task
-execution is absent unless the server starts with `--allow-task-runs`.
+The `tenchi mcp` CLI serves the same versioned map, route, application-tool,
+preflight, task-discovery, doctor, generator-preview, OpenAPI-diff, tool-diff,
+and check results over stdio. Task execution is absent unless the server starts
+with `--allow-task-runs`.
 Preflight remains available as a read-only tool but deliberately contacts the
 environment captured by the server process. Inspection and preview tools do
 not write application files; project-owned commands executed by `check` retain

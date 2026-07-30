@@ -11,8 +11,9 @@ uvx tenchi new my_app
 
 Names use `snake_case`. The generated project includes a todos feature,
 SQLite persistence with request-scoped transactions, a memory test adapter,
-strict checks, integration tests, Swagger UI, an OpenAPI snapshot, a concise
-`AGENTS.md`, project-local MCP configuration, and GitHub Actions CI.
+strict checks, integration tests, Swagger UI, OpenAPI and application-tool
+snapshots, a concise `AGENTS.md`, project-local
+MCP configuration, and GitHub Actions CI.
 
 ## Generate application slices
 
@@ -46,13 +47,15 @@ application root and the composed HTTP surface under `routes`.
 uv run tenchi map
 uv run tenchi map --json
 uv run tenchi map --feature notes --json
-uv run tenchi map --feature notes --kind route,job,use-case,policy,port --json
+uv run tenchi map --feature notes \
+  --kind route,job,task,tool,use-case,policy,port --json
 ```
 
 Map combines the canonical source layout with composed API routes, operational
-tasks, and background jobs. It returns a deterministic, versioned graph
-covering features, contracts, routes, background jobs, operational tasks, use
-cases, policies, ports, adapters, context types, entrypoints, and tests.
+tasks, background jobs, and application tools. It returns a deterministic,
+versioned graph covering features, contracts, routes, background jobs,
+operational tasks, application tools, use cases, policies, ports, adapters,
+context types, entrypoints, and tests.
 Edges describe ownership, route bindings, dependencies, authorization,
 implementations, and feature tests. Each edge carries project-relative source
 evidence and an `exact` or `inferred` confidence value.
@@ -62,13 +65,39 @@ makes cross-feature policy and shared-port dependencies visible without loading
 the entire application. `--kind` accepts a comma-separated projection of node
 kinds. The default route target is `app.server.routes:api_routes`; override it
 with `--routes module:attribute`. The default job target is
-`app.server.jobs:jobs`; override it with `--jobs module:attribute`.
+`app.server.jobs:jobs`; override it with `--jobs module:attribute`. The default
+tool target is `app.server.tools:tools`; override it with
+`--tools module:attribute`.
 
 The JSON result also embeds `tenchi doctor` diagnostics and unresolved source
 relationships. Agents should inspect both before editing and use stable node
 IDs and source locations to choose the files involved in a change. See [coding
 agents](/agents) for the complete workflow across map, make, check, and OpenAPI
 compatibility.
+
+## Manage application-tool contracts
+
+```shell
+uv run tenchi tools
+uv run tenchi tools --json
+uv run tenchi tools --diff tools.json
+uv run tenchi tools \
+  --diff-ref origin/main \
+  --snapshot tools.json
+uv run tenchi tools --check tools.json
+uv run tenchi tools --write tools.json
+```
+
+The default target is `app.server.tools:tools`; override it with
+`--tools module:attribute`. Plain output is the canonical portable manifest.
+`--json` wraps that manifest with the application root and agent protocol
+version for automation.
+
+`--check` is an exact drift check. `--diff` and `--diff-ref` classify changes
+directionally and fail on breaking or unknown changes. A Git ref supplies a
+meaningful historical baseline even when the working branch updates its
+snapshot. Use `--diff-format json` for the versioned compatibility result. See
+[Application tools](/tools) for the compatibility rules.
 
 ## Manage OpenAPI
 
@@ -111,17 +140,18 @@ uv run tenchi check
 uv run tenchi check --json
 ```
 
-Check runs Ruff format, Ruff lint, Pyright, pytest, doctor, and the exact OpenAPI
-snapshot check. Every step runs even when an earlier one fails. Human output
-shows a compact status list; JSON includes stable step names, commands, exit
-codes, durations, and bounded failure output. Use `--timeout` to change the
-per-step limit.
+Check runs Ruff format, Ruff lint, Pyright, pytest, doctor, and the exact
+OpenAPI and application-tool snapshot checks. Every step runs even when an
+earlier one fails. Human output shows a compact status list; JSON includes
+stable step names, commands, exit codes, durations, and bounded failure output.
+Use `--timeout` to change the per-step limit.
 
 OpenAPI defaults come from literal top-level `OPENAPI_TITLE`, `OPENAPI_VERSION`,
 optional `OPENAPI_DESCRIPTION`, and optional `OPENAPI_SECURITY` declarations in
 the module selected by `--routes`; command flags override them. The route target
 defaults to `app.server.routes:api_routes`, and the snapshot defaults to
-`openapi.json`.
+`openapi.json`. The tool target defaults to `app.server.tools:tools`, and its
+snapshot defaults to `tools.json`.
 
 ## Verify the deployment environment
 
@@ -174,8 +204,9 @@ application's `ToolGroup`. MCP support is installed through the `tenchi[mcp]`
 extra. Generated
 applications include it as a development dependency and register the default
 command in `.mcp.json`.
-`--routes`, `--api-routes`, `--preflight`, `--tasks`, `--jobs`, and
-`--snapshot` override the conventions captured by the server when it starts.
+`--routes`, `--api-routes`, `--preflight`, `--tasks`, `--jobs`, `--tools`,
+`--snapshot`, and `--tool-snapshot` override the conventions captured by the
+server when it starts.
 `--title`, `--version`,
 `--description`, and `--security` override discovered OpenAPI metadata for the
 diff and check tools. Pass `--allow-task-runs` only when the connected agent

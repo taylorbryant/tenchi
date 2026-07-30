@@ -9,6 +9,8 @@ Commands are intentionally few and reliable:
   Generators create files and print wiring instructions — they never edit
   existing modules, because dependency wiring stays explicit and app-owned.
 - ``tenchi routes`` prints the application's bound route table.
+- ``tenchi tools`` prints, writes, checks, or compatibility-diffs the
+  application's registered tool manifest.
 - ``tenchi map`` builds a source-backed graph of the application.
 - ``tenchi openapi`` prints, writes, checks, or compatibility-diffs the
   application's canonical OpenAPI document.
@@ -19,9 +21,10 @@ Commands are intentionally few and reliable:
 - ``tenchi mcp`` serves the same structured operations to MCP-aware agents.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
-The ``routes``, ``map``, ``openapi``, ``check``, ``preflight``, ``task``,
-``mcp``, and ``dev`` commands rely on the structural convention that
+The ``routes``, ``tools``, ``map``, ``openapi``, ``check``, ``preflight``,
+``task``, ``mcp``, and ``dev`` commands rely on the structural convention that
 ``app/server/routes.py`` exposes ``routes`` and ``api_routes``,
+``app/server/tools.py`` exposes ``tools``,
 ``app/server/preflight.py`` exposes ``checks``, ``app/server/tasks.py`` exposes
 ``runner``, ``app/server/jobs.py`` exposes ``jobs``, and
 ``app/server/asgi.py`` exposes ``app``; targets can be overridden by flag.
@@ -72,7 +75,15 @@ from ._preflight_operations import (
     preflight_result,
 )
 from ._task_operations import load_task_runner, task_list_result, task_run_result
-from .compatibility import render_compatibility_report
+from ._tool_operations import (
+    compare_tool_baseline,
+    load_tool_group,
+    tool_list_result,
+)
+from .compatibility import (
+    render_compatibility_report,
+    render_tool_compatibility_report,
+)
 from .errors import ConfigurationError
 from .openapi import openapi_schema
 from .routes import RouteGroup
@@ -81,7 +92,10 @@ from .snapshots import (
     describe_openapi_drift,
     openapi_snapshot_diff,
     render_openapi_snapshot,
+    render_tool_snapshot,
+    tool_snapshot_diff,
 )
+from .tools import ToolManifest, tool_manifest
 
 
 def _positive_float(value: str) -> float:
@@ -112,6 +126,7 @@ _DEFAULT_APP = "app.server.asgi:app"
 _DEFAULT_PREFLIGHT = "app.server.preflight:checks"
 _DEFAULT_TASKS = "app.server.tasks:runner"
 _DEFAULT_JOBS = "app.server.jobs:jobs"
+_DEFAULT_TOOLS = "app.server.tools:tools"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -131,11 +146,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if args.command == "routes":
         return _routes(args.target, as_json=args.json)
+    if args.command == "tools":
+        return _tools(
+            args.target,
+            as_json=args.json,
+            write=args.write,
+            check=args.check,
+            diff=args.diff,
+            diff_ref=args.diff_ref,
+            snapshot=args.snapshot,
+            diff_format=args.diff_format,
+        )
     if args.command == "map":
         return _map_app(
             args.target,
             tasks_target=args.tasks,
             jobs_target=args.jobs,
+            tools_target=args.tools,
             feature=args.feature,
             kinds=args.kinds,
             as_json=args.json,
@@ -163,6 +190,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             version=args.version,
             description=args.description,
             snapshot=args.snapshot,
+            tools=args.tools,
+            tool_snapshot=args.tool_snapshot,
             security_json=args.security,
             timeout_seconds=args.timeout,
             as_json=args.json,
@@ -195,7 +224,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             preflight=args.preflight,
             tasks=args.tasks,
             jobs=args.jobs,
+            tools=args.tools,
             allow_task_runs=args.allow_task_runs,
+            tool_snapshot=args.tool_snapshot,
         )
     return _dev(args.app, args.host, args.port, reload=not args.no_reload)
 
@@ -250,6 +281,59 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit the route table as JSON",
     )
 
+    tools_parser = subparsers.add_parser(
+        "tools",
+        help="Print, write, check, or diff the registered tool manifest",
+    )
+    tools_parser.add_argument(
+        "--tools",
+        dest="target",
+        default=_DEFAULT_TOOLS,
+        help="module:attribute of the ToolGroup (default: %(default)s)",
+    )
+    tools_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a versioned machine-readable result",
+    )
+    tools_mode = tools_parser.add_mutually_exclusive_group()
+    tools_mode.add_argument(
+        "--write",
+        default=None,
+        metavar="PATH",
+        help="Write the canonical tool snapshot",
+    )
+    tools_mode.add_argument(
+        "--check",
+        default=None,
+        metavar="PATH",
+        help="Fail if this snapshot differs from the generated manifest",
+    )
+    tools_mode.add_argument(
+        "--diff",
+        default=None,
+        metavar="BASELINE",
+        help="Classify changes from a baseline; fail on breaking or unknown changes",
+    )
+    tools_mode.add_argument(
+        "--diff-ref",
+        default=None,
+        metavar="REF",
+        help="Classify changes from the snapshot committed at a Git ref",
+    )
+    tools_parser.add_argument(
+        "--snapshot",
+        default=None,
+        metavar="PATH",
+        help="Snapshot path for --diff-ref (default: tools.json)",
+    )
+    tools_parser.add_argument(
+        "--diff-format",
+        choices=("text", "json"),
+        default="text",
+        help="Compatibility report format (default: %(default)s)",
+    )
+
     map_parser = subparsers.add_parser(
         "map", help="Build a deterministic, source-backed application graph"
     )
@@ -268,6 +352,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--jobs",
         default=_DEFAULT_JOBS,
         help="module:attribute of the JobGroup (default: %(default)s)",
+    )
+    map_parser.add_argument(
+        "--tools",
+        default=_DEFAULT_TOOLS,
+        help="module:attribute of the ToolGroup (default: %(default)s)",
     )
     map_parser.add_argument(
         "--feature",
@@ -367,7 +456,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     check_parser = subparsers.add_parser(
-        "check", help="Run formatting, lint, types, tests, doctor, and OpenAPI checks"
+        "check",
+        help=("Run formatting, lint, types, tests, doctor, OpenAPI, and tool checks"),
     )
     check_parser.add_argument(
         "--routes",
@@ -408,6 +498,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--snapshot",
         default="openapi.json",
         help="OpenAPI snapshot to check (default: %(default)s)",
+    )
+    check_parser.add_argument(
+        "--tools",
+        default=_DEFAULT_TOOLS,
+        help="module:attribute of the ToolGroup (default: %(default)s)",
+    )
+    check_parser.add_argument(
+        "--tool-snapshot",
+        default="tools.json",
+        help="Application-tool snapshot to check (default: %(default)s)",
     )
     check_parser.add_argument(
         "--timeout",
@@ -509,6 +609,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="module:attribute used by the app-map tool (default: %(default)s)",
     )
     mcp_parser.add_argument(
+        "--tools",
+        default=_DEFAULT_TOOLS,
+        help=(
+            "module:attribute used by application-tool inspection "
+            "(default: %(default)s)"
+        ),
+    )
+    mcp_parser.add_argument(
         "--allow-task-runs",
         action="store_true",
         help="Expose the state-changing task_run tool (disabled by default)",
@@ -517,6 +625,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--snapshot",
         default="openapi.json",
         help="Default project-relative OpenAPI baseline (default: %(default)s)",
+    )
+    mcp_parser.add_argument(
+        "--tool-snapshot",
+        default="tools.json",
+        help="Default project-relative tool baseline (default: %(default)s)",
     )
     mcp_parser.add_argument(
         "--title",
@@ -650,10 +763,12 @@ def _doctor(*, as_json: bool) -> int:
 def _check(
     *,
     routes: str,
+    tools: str,
     title: str | None,
     version: str | None,
     description: str | None,
     snapshot: str,
+    tool_snapshot: str,
     security_json: str | None,
     timeout_seconds: float,
     as_json: bool,
@@ -674,6 +789,8 @@ def _check(
         version=version,
         description=description,
         snapshot=snapshot,
+        tools=tools,
+        tool_snapshot=tool_snapshot,
         security_json=security_json,
         timeout_seconds=timeout_seconds,
     )
@@ -775,6 +892,7 @@ def _map_app(
     *,
     tasks_target: str,
     jobs_target: str,
+    tools_target: str,
     feature: str | None,
     kinds: Sequence[AppMapNodeKind] | None,
     as_json: bool,
@@ -785,11 +903,12 @@ def _map_app(
     try:
         runner = load_task_runner(Path.cwd(), tasks_target)
         jobs = load_job_group(Path.cwd(), jobs_target)
+        tools = load_tool_group(Path.cwd(), tools_target)
     except OperationError as exc:
         _fail(f"tenchi map: {exc}")
         return 1
 
-    result = map_app(Path.cwd(), group, runner.tasks, jobs)
+    result = map_app(Path.cwd(), group, runner.tasks, jobs, tools)
     if feature is not None:
         features = sorted(node.name for node in result.nodes if node.kind == "feature")
         if feature not in features:
@@ -879,6 +998,193 @@ def _task_run(
             json.dump(result.error.details, sys.stderr, indent=2, sort_keys=True)
             print(file=sys.stderr)
     return 0 if result.ok else 1
+
+
+def _tools(
+    target: str,
+    *,
+    as_json: bool,
+    write: str | None,
+    check: str | None,
+    diff: str | None,
+    diff_ref: str | None,
+    snapshot: str | None,
+    diff_format: str,
+) -> int:
+    has_snapshot_mode = any(
+        value is not None for value in (write, check, diff, diff_ref)
+    )
+    if as_json and has_snapshot_mode:
+        _fail(
+            "tenchi tools: --json cannot be combined with snapshot write, "
+            "check, or diff modes"
+        )
+        return 1
+    if diff is None and diff_ref is None and diff_format != "text":
+        _fail("tenchi tools: --diff-format requires --diff or --diff-ref")
+        return 1
+    if snapshot is not None and diff_ref is None:
+        _fail("tenchi tools: --snapshot requires --diff-ref")
+        return 1
+
+    try:
+        with redirect_stdout(sys.stderr):
+            group = load_tool_group(Path.cwd(), target)
+            manifest = tool_manifest(group)
+    except OperationError as exc:
+        _fail(f"tenchi tools: {exc}")
+        return 1
+
+    rendered = render_tool_snapshot(manifest)
+    if write is not None:
+        try:
+            Path(write).write_text(rendered, encoding="utf-8")
+        except OSError as exc:
+            _fail(f"tenchi tools: could not write snapshot {write!r}: {exc}")
+            return 1
+        print(f"Wrote {write}")
+        return 0
+    if check is not None:
+        return _check_tool_snapshot(Path(check), rendered, manifest)
+    if diff is not None:
+        return _diff_tool_snapshot(
+            Path(diff),
+            manifest,
+            output_format=diff_format,
+        )
+    if diff_ref is not None:
+        return _diff_tool_ref(
+            diff_ref,
+            Path(snapshot or "tools.json"),
+            manifest,
+            output_format=diff_format,
+        )
+    if as_json:
+        _print_agent_json(
+            "tool_list",
+            tool_list_result(Path.cwd(), group).as_dict(),
+        )
+    else:
+        sys.stdout.write(rendered)
+    return 0
+
+
+def _check_tool_snapshot(
+    path: Path,
+    rendered: str,
+    current: ToolManifest,
+) -> int:
+    try:
+        expected = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi tools: could not read snapshot {str(path)!r}: {exc}")
+        _fail(
+            f"Rerun the same command with --write {path} instead of --check "
+            "to create it."
+        )
+        return 1
+
+    if expected == rendered:
+        print(f"Tool snapshot matches {path}")
+        return 0
+
+    _fail(f"tenchi tools: snapshot differs: {path}")
+    try:
+        result = compare_tool_baseline(
+            Path.cwd(),
+            baseline_text=expected,
+            baseline_label=str(path),
+            current=current,
+        )
+    except OperationError as exc:
+        _fail(f"  - {exc}")
+    else:
+        for change in result.report.changes:
+            _fail(f"  - [{change.severity}] {change.location}: {change.message}")
+
+    diff = tool_snapshot_diff(expected, rendered, snapshot_path=str(path))
+    if diff:
+        print(file=sys.stderr)
+        print(diff, file=sys.stderr, end="" if diff.endswith("\n") else "\n")
+    print(file=sys.stderr)
+    _fail(
+        f"Run the same command with --write {path} instead of --check "
+        "to accept this change."
+    )
+    return 1
+
+
+def _diff_tool_snapshot(
+    path: Path,
+    current: ToolManifest,
+    *,
+    output_format: str,
+) -> int:
+    try:
+        baseline_text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi tools: could not read baseline {str(path)!r}: {exc}")
+        return 1
+    return _compare_tool_baseline(
+        baseline_text,
+        baseline_label=str(path),
+        current=current,
+        output_format=output_format,
+    )
+
+
+def _diff_tool_ref(
+    ref: str,
+    snapshot: Path,
+    current: ToolManifest,
+    *,
+    output_format: str,
+) -> int:
+    try:
+        baseline_text, baseline_label = read_git_snapshot(
+            Path.cwd(),
+            ref=ref,
+            snapshot=snapshot,
+        )
+    except OperationError as exc:
+        _fail(f"tenchi tools: {exc}")
+        return 1
+    return _compare_tool_baseline(
+        baseline_text,
+        baseline_label=baseline_label,
+        current=current,
+        output_format=output_format,
+    )
+
+
+def _compare_tool_baseline(
+    baseline_text: str,
+    *,
+    baseline_label: str,
+    current: ToolManifest,
+    output_format: str,
+) -> int:
+    try:
+        result = compare_tool_baseline(
+            Path.cwd(),
+            baseline_text=baseline_text,
+            baseline_label=baseline_label,
+            current=current,
+        )
+    except OperationError as exc:
+        _fail(f"tenchi tools: {exc}")
+        return 1
+
+    if output_format == "json":
+        _print_agent_json("tool_diff", result.as_dict())
+    else:
+        sys.stdout.write(
+            render_tool_compatibility_report(
+                result.report,
+                baseline_path=baseline_label,
+            )
+        )
+    return 0 if result.report.compatible else 1
 
 
 def _openapi(
@@ -1076,8 +1382,10 @@ def _mcp(
     preflight: str,
     tasks: str,
     jobs: str,
+    tools: str,
     allow_task_runs: bool,
     snapshot: str,
+    tool_snapshot: str,
     title: str | None,
     version: str | None,
     description: str | None,
@@ -1103,8 +1411,10 @@ def _mcp(
                 preflight=preflight,
                 tasks=tasks,
                 jobs=jobs,
+                tools=tools,
                 allow_task_runs=allow_task_runs,
                 snapshot=snapshot,
+                tool_snapshot=tool_snapshot,
                 title=title,
                 version=version,
                 description=description,

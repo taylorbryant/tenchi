@@ -24,6 +24,7 @@ from .doctor import run_doctor
 from .jobs import Job, JobGroup, JobHandler
 from .routes import Route, RouteGroup
 from .tasks import Task, TaskGroup
+from .tools import Tool, ToolBinding, ToolGroup
 
 type AppMapNodeKind = Literal[
     "feature",
@@ -31,6 +32,7 @@ type AppMapNodeKind = Literal[
     "route",
     "job",
     "task",
+    "tool",
     "use-case",
     "policy",
     "port",
@@ -91,6 +93,7 @@ class AppMapSummaryPayload(TypedDict):
     routes: int
     jobs: int
     tasks: int
+    tools: int
     use_cases: int
     policies: int
     ports: int
@@ -118,6 +121,7 @@ app_map_node_kinds: tuple[AppMapNodeKind, ...] = (
     "route",
     "job",
     "task",
+    "tool",
     "use-case",
     "policy",
     "port",
@@ -216,6 +220,7 @@ class AppMapSummary:
     routes: int
     jobs: int
     tasks: int
+    tools: int
     use_cases: int
     policies: int
     ports: int
@@ -233,6 +238,7 @@ class AppMapSummary:
             "routes": self.routes,
             "jobs": self.jobs,
             "tasks": self.tasks,
+            "tools": self.tools,
             "use_cases": self.use_cases,
             "policies": self.policies,
             "ports": self.ports,
@@ -322,6 +328,15 @@ class _JobRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class _ToolRecord:
+    node_id: str
+    module: str
+    symbol: str
+    name: str | None
+    source: AppMapSource
+
+
+@dataclass(frozen=True, slots=True)
 class _ImportBinding:
     reference: _SymbolRef
     line: int
@@ -384,14 +399,16 @@ def map_app(
     routes: RouteGroup,
     tasks: TaskGroup | None = None,
     jobs: JobGroup | None = None,
+    tools: ToolGroup | None = None,
 ) -> AppMapResult:
-    """Combine source structure with registered routes, tasks, and jobs."""
+    """Combine source structure with registered routes, tasks, jobs, and tools."""
     resolved_root = root.resolve()
     builder = _GraphBuilder()
     modules = _read_modules(resolved_root, builder)
     contracts: dict[str, _ContractRecord] = {}
     task_records: list[_TaskRecord] = []
     job_records: list[_JobRecord] = []
+    tool_records: list[_ToolRecord] = []
 
     _discover_features(resolved_root, builder)
     _discover_source_nodes(
@@ -400,6 +417,7 @@ def map_app(
         contracts,
         task_records,
         job_records,
+        tool_records,
     )
     _discover_adapters(modules, builder)
     _register_wired_adapters(modules, builder)
@@ -413,6 +431,8 @@ def map_app(
         _add_runtime_tasks(tasks, builder, task_records, resolved_root)
     if jobs is not None:
         _add_runtime_jobs(jobs, builder, job_records, resolved_root)
+    if tools is not None:
+        _add_runtime_tools(tools, builder, tool_records, resolved_root)
 
     diagnostics = tuple(
         sorted(
@@ -536,6 +556,7 @@ def format_app_map(result: AppMapResult) -> str:
             f"{summary.features} features, {summary.contracts} contracts, "
             f"{summary.routes} routes, {summary.use_cases} use cases, "
             f"{summary.jobs} jobs, {summary.tasks} tasks, "
+            f"{summary.tools} tools, "
             f"{summary.ports} ports, {summary.adapters} adapters, "
             f"{len(result.edges)} relationships"
         ),
@@ -646,6 +667,7 @@ def _discover_source_nodes(
     contracts: dict[str, _ContractRecord],
     task_records: list[_TaskRecord],
     job_records: list[_JobRecord],
+    tool_records: list[_ToolRecord],
 ) -> None:
     for info in modules:
         if _is_test_path(info.relative):
@@ -665,6 +687,8 @@ def _discover_source_nodes(
             _discover_tasks(info, builder, task_records)
         if info.relative.endswith("/jobs.py"):
             _discover_jobs(info, builder, job_records)
+        if info.relative.endswith("/tools.py"):
+            _discover_tools(info, builder, tool_records)
         if "/use_cases/" in info.relative:
             _discover_functions(info, builder, kind="use-case")
         if info.relative.endswith("/policy.py"):
@@ -844,6 +868,58 @@ def _discover_jobs(
         )
         records.append(
             _JobRecord(
+                node_id=node_id,
+                module=info.module,
+                symbol=symbol,
+                name=name,
+                source=source,
+            )
+        )
+
+
+def _discover_tools(
+    info: _ModuleInfo,
+    builder: _GraphBuilder,
+    records: list[_ToolRecord],
+) -> None:
+    for statement in info.tree.body:
+        symbol, call = _assigned_call(statement)
+        if symbol is None or call is None or _terminal_name(call.func) != "tool":
+            continue
+        name = _literal_expression(call.args[0], str) if call.args else None
+        description = _literal_keyword(call, "description", str)
+        node_id = (
+            f"tool:{name}"
+            if name is not None
+            else _symbol_id("tool", info.feature, info.module, symbol)
+        )
+        source = AppMapSource(
+            path=info.relative,
+            line=statement.lineno,
+            symbol=symbol,
+        )
+        builder.add_node(
+            AppMapNode(
+                id=node_id,
+                kind="tool",
+                name=name or symbol,
+                source=source,
+                status="declared",
+                feature=info.feature,
+                details=_details(
+                    export_name=symbol,
+                    description=description,
+                    read_only=_literal_keyword(call, "read_only", bool),
+                    destructive=_literal_keyword(call, "destructive", bool),
+                    idempotent=_literal_keyword(call, "idempotent", bool),
+                    open_world=_literal_keyword(call, "open_world", bool),
+                ),
+            ),
+            module=info.module,
+            symbol=symbol,
+        )
+        records.append(
+            _ToolRecord(
                 node_id=node_id,
                 module=info.module,
                 symbol=symbol,
@@ -1502,6 +1578,91 @@ def _add_runtime_jobs(
         )
 
 
+def _add_runtime_tools(
+    tools: ToolGroup,
+    builder: _GraphBuilder,
+    records: Sequence[_ToolRecord],
+    root: Path,
+) -> None:
+    for handler in tools:
+        declaration = handler.tool
+        use_case_ref = _tool_callable_reference(handler)
+        use_case_id = (
+            builder.symbol_nodes.get((use_case_ref.module, use_case_ref.symbol))
+            if use_case_ref is not None and use_case_ref.symbol is not None
+            else None
+        )
+        identity_matches = [
+            record for record in records if _tool_record_value(record) is declaration
+        ]
+        name_matches = [record for record in records if record.name == declaration.name]
+        record = (
+            identity_matches[0]
+            if len(identity_matches) == 1
+            else name_matches[0]
+            if len(name_matches) == 1
+            else None
+        )
+        node_id = record.node_id if record is not None else f"tool:{declaration.name}"
+        source = (
+            record.source
+            if record is not None
+            else _tool_fallback_source(handler, root)
+        )
+        feature = (
+            builder.nodes[record.node_id].feature
+            if record is not None and record.node_id in builder.nodes
+            else _node_feature(use_case_id, builder)
+        )
+        builder.add_node(
+            AppMapNode(
+                id=node_id,
+                kind="tool",
+                name=declaration.name,
+                source=source,
+                status="registered",
+                feature=feature,
+                details=_details(
+                    export_name=record.symbol if record is not None else None,
+                    description=declaration.description,
+                    input_required=declaration.request is not None,
+                    errors=tuple(error.code for error in declaration.errors),
+                    read_only=declaration.read_only,
+                    destructive=declaration.destructive,
+                    idempotent=declaration.idempotent,
+                    open_world=declaration.open_world,
+                ),
+            )
+        )
+        if feature is not None:
+            builder.add_edge(
+                AppMapEdge(
+                    kind="owns",
+                    source=_feature_id(feature),
+                    target=node_id,
+                    evidence=source,
+                    confidence="exact",
+                )
+            )
+        if use_case_id is None:
+            builder.add_unresolved(
+                "TENCHI_MAP_TOOL_USE_CASE_SOURCE_UNRESOLVED",
+                f"could not locate the use case for tool {declaration.name!r}",
+                source,
+            )
+            continue
+        builder.register(use_case_id)
+        builder.add_edge(
+            AppMapEdge(
+                kind="binds",
+                source=node_id,
+                target=use_case_id,
+                evidence=source,
+                confidence="exact",
+            )
+        )
+
+
 def _matching_binding(
     route: Route,
     use_case: _SymbolRef | None,
@@ -1611,10 +1772,25 @@ def _job_callable_reference(item: JobHandler[Any, Any]) -> _SymbolRef | None:
     return None
 
 
+def _tool_callable_reference(item: ToolBinding[Any, Any]) -> _SymbolRef | None:
+    value = inspect.unwrap(item.use_case)
+    module = getattr(value, "__module__", None)
+    name = getattr(value, "__name__", None)
+    if isinstance(module, str) and isinstance(name, str):
+        return _SymbolRef(module=module, symbol=name)
+    return None
+
+
 def _job_record_value(record: _JobRecord) -> Job[Any, Any] | None:
     module = sys.modules.get(record.module)
     candidate = getattr(module, record.symbol, None) if module is not None else None
     return cast(Job[Any, Any], candidate) if isinstance(candidate, Job) else None
+
+
+def _tool_record_value(record: _ToolRecord) -> Tool[Any, Any] | None:
+    module = sys.modules.get(record.module)
+    candidate = getattr(module, record.symbol, None) if module is not None else None
+    return cast(Tool[Any, Any], candidate) if isinstance(candidate, Tool) else None
 
 
 def _route_fallback_source(route: Route, root: Path) -> AppMapSource:
@@ -1678,6 +1854,29 @@ def _job_fallback_source(
     )
 
 
+def _tool_fallback_source(
+    item: ToolBinding[Any, Any],
+    root: Path,
+) -> AppMapSource:
+    value = inspect.unwrap(item.use_case)
+    try:
+        path = inspect.getsourcefile(value)
+        _, line = inspect.getsourcelines(value)
+    except (OSError, TypeError):
+        return AppMapSource(path="<runtime>")
+    if path is None:
+        return AppMapSource(path="<runtime>", line=line)
+    try:
+        relative = Path(path).resolve().relative_to(root).as_posix()
+    except ValueError:
+        relative = path
+    return AppMapSource(
+        path=relative,
+        line=line,
+        symbol=getattr(value, "__name__", None),
+    )
+
+
 def _add_summary_count(kind: AppMapNodeKind, counts: dict[AppMapNodeKind, int]) -> None:
     counts[kind] = counts.get(kind, 0) + 1
 
@@ -1704,6 +1903,7 @@ def _summary(
         routes=counts.get("route", 0),
         jobs=counts.get("job", 0),
         tasks=counts.get("task", 0),
+        tools=counts.get("tool", 0),
         use_cases=counts.get("use-case", 0),
         policies=counts.get("policy", 0),
         ports=counts.get("port", 0),

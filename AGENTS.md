@@ -62,12 +62,12 @@ framework code, the CLI, docs, or the example apps.
   - `openapi.py` — OpenAPI 3.1 generation (`openapi_schema` is a pure
     function; `openapi_route` serves it and `swagger_ui_route` serves an
     optional interactive UI through Tenchi's own machinery).
-  - `compatibility.py` — conservative compatibility analysis between two
-    Tenchi-generated OpenAPI documents.
+  - `compatibility.py` — conservative compatibility analysis for
+    Tenchi-generated OpenAPI documents and application-tool manifests.
   - `_schema_compatibility.py` — directional JSON Schema comparison used by
     the compatibility analyzer.
-  - `snapshots.py` — canonical OpenAPI snapshot rendering and readable drift
-    diagnostics used by the CLI.
+  - `snapshots.py` — canonical OpenAPI and application-tool snapshot rendering
+    and readable drift diagnostics used by the CLI.
   - `doctor.py` — dependency-direction and structure checks.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
   - `_agent_protocol.py` — the authoritative result-name adapters used for
@@ -256,18 +256,20 @@ API shape:
 The CLI is product surface. Generated code must pass Ruff, Ruff format,
 Pyright strict, pytest, and `tenchi doctor` untouched — CI-grade, as
 generated. Generators create files and print wiring instructions; they
-never edit existing modules. `routes`, `map`, `openapi`, `check`, `preflight`,
-`mcp`, and `dev` rely on the structural conventions
+never edit existing modules. `routes`, `map`, `tools`, `openapi`, `check`,
+`preflight`, `mcp`, and `dev` rely on the structural conventions
 (`app.server.routes:routes`, `app.server.routes:api_routes`,
-`app.server.jobs:jobs`, `app.server.preflight:checks`,
+`app.server.jobs:jobs`, `app.server.tools:tools`,
+`app.server.preflight:checks`,
 `app.server.asgi:app`); keep flags available to
 override, and keep `tenchi new` output aligned with `examples/todos` minus
 capabilities the starter intentionally omits.
-`map` combines source declarations with composed routes, operational tasks, and
-background jobs and must stay deterministic, source-backed, and versioned in
-JSON. Feature projections retain directly related cross-feature and shared
-nodes; kind projections never leave dangling edges.
-`map` loads registered background jobs from `app.server.jobs:jobs` by default.
+`map` combines source declarations with composed routes, operational tasks,
+background jobs, and application tools and must stay deterministic,
+source-backed, and versioned in JSON. Feature projections retain directly
+related cross-feature and shared nodes; kind projections never leave dangling
+edges. `map` loads registered background jobs from `app.server.jobs:jobs` and
+application tools from `app.server.tools:tools` by default.
 `task list|run` loads `app.server.tasks:runner` by default. Tasks provide named,
 validated operator entrypoints for backfills, repairs, replays, and maintenance;
 they do not schedule, retry, queue, lock, or persist progress.
@@ -287,6 +289,10 @@ task input in its result.
 Application-tool manifests have their own `TOOL_MANIFEST_VERSION` and retained
 versioned schema snapshots. Additive protocol changes may update the current
 snapshot; breaking or unknown changes require a version bump and a new snapshot.
+`tools --write`, `tools --check`, `tools --diff`, and Git-backed
+`tools --diff-ref` use one canonical manifest format. Checked-in example and
+generated-app snapshots must be reproducible; compare against a historical
+baseline before replacing the snapshot.
 The public `tenchi.mcp` module is a separate adapter for an application's own
 `ToolGroup`. Its MCP schemas and structured result envelope have their own
 version and immutable snapshots; the coding-agent protocol version does not

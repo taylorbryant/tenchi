@@ -43,6 +43,7 @@ app/
     routes.py
     runtime.py
     tasks.py
+    tools.py
 ```
 
 ## Declare the boundary
@@ -208,6 +209,20 @@ This gives `tenchi map` its conventional job target before the application has
 durable work. Add producer and consumer bindings later by following
 [Background jobs](/jobs).
 
+Create an empty application-tool composition in `app/server/tools.py`:
+
+```python
+from tenchi.tools import tool_group
+
+
+tools = tool_group()
+```
+
+This gives `tenchi map`, `tenchi tools`, and `tenchi check` their conventional
+target before the application exposes a use case to machine callers. Add
+declarations and authenticated runner wiring later by following [Application
+tools](/tools).
+
 Create an empty deployment gate in `app/server/preflight.py`:
 
 ```python
@@ -263,7 +278,8 @@ project's configuration.
 
 ## Create the baseline and verify the app
 
-Write the first canonical OpenAPI snapshot, then run the complete project gate:
+Write the first canonical OpenAPI and application-tool snapshots, then run the
+complete project gate:
 
 ```shell
 uv run tenchi openapi \
@@ -272,6 +288,7 @@ uv run tenchi openapi \
   --version 0.1.0 \
   --description "Greeting API" \
   --write openapi.json
+uv run tenchi tools --write tools.json
 uv run tenchi check
 uv run tenchi preflight
 uv run tenchi task list

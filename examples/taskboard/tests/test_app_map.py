@@ -3,13 +3,14 @@ from pathlib import Path
 from app.server.jobs import jobs
 from app.server.routes import api_routes
 from app.server.tasks import tasks
+from app.server.tools import tools
 from tenchi._app_map import map_app, project_app_map
 
 ROOT = Path(__file__).parent.parent
 
 
 def test_taskboard_app_map_covers_real_application_relationships() -> None:
-    result = map_app(ROOT, api_routes, tasks, jobs)
+    result = map_app(ROOT, api_routes, tasks, jobs, tools)
     edges = {(edge.kind, edge.source, edge.target) for edge in result.edges}
 
     assert result.summary.features == 2
@@ -17,6 +18,7 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
     assert result.summary.routes == 9
     assert result.summary.jobs == 1
     assert result.summary.tasks == 1
+    assert result.summary.tools == 2
     assert result.summary.use_cases == 12
     assert result.summary.ports == 6
     assert result.summary.adapters == 11
@@ -81,10 +83,18 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
         "job:projects.member_added",
         "use-case:projects.notify_member_added",
     ) in edges
-    move_task = next(
-        node for node in result.nodes if node.id == "use-case:tasks.move_task"
-    )
-    assert move_task.status == "declared"
+    move_tool = next(node for node in result.nodes if node.id == "tool:tasks.move")
+    assert move_tool.status == "registered"
+    assert (
+        "binds",
+        "tool:tasks.move",
+        "use-case:tasks.move_task",
+    ) in edges
+    assert (
+        "binds",
+        "tool:projects.search",
+        "use-case:projects.list_projects",
+    ) in edges
     member_contract = next(
         node
         for node in result.nodes
@@ -101,7 +111,7 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
 
 
 def test_taskboard_feature_projection_keeps_direct_cross_feature_policy() -> None:
-    result = map_app(ROOT, api_routes, tasks, jobs)
+    result = map_app(ROOT, api_routes, tasks, jobs, tools)
 
     projected = project_app_map(result, feature="tasks")
 

@@ -36,6 +36,8 @@ jobs:
           --routes app.server.routes:api_routes
           --title Todos --version 0.1.0
           --check openapi.json
+      - name: Check todos tool snapshot
+        run: uv run --directory examples/todos tenchi tools --check tools.json
       - run: uv run --directory examples/taskboard pytest
       - run: uv run --directory examples/taskboard pyright
       - run: uv run --directory examples/taskboard tenchi doctor
@@ -46,6 +48,8 @@ jobs:
           --title Taskboard --version 0.1.0
           --security '{"bearerAuth":{"type":"http","scheme":"bearer"}}'
           --check openapi.json
+      - name: Check taskboard tool snapshot
+        run: uv run --directory examples/taskboard tenchi tools --check tools.json
       - run: uv build
       - name: Smoke-test the built wheel and generated app
         run: |

@@ -18,6 +18,7 @@ from ._cli_results import (
     TaskRunPayload,
 )
 from ._openapi_operations import OpenApiDiffPayload
+from ._tool_operations import ToolDiffPayload, ToolListPayload
 
 type AgentResultName = Literal[
     "app_map",
@@ -29,6 +30,8 @@ type AgentResultName = Literal[
     "preflight",
     "task_list",
     "task_run",
+    "tool_list",
+    "tool_diff",
 ]
 type JsonObject = dict[str, object]
 
@@ -42,6 +45,8 @@ AGENT_RESULT_ADAPTERS: dict[AgentResultName, TypeAdapter[object]] = {
     "preflight": cast(TypeAdapter[object], TypeAdapter(PreflightPayload)),
     "task_list": cast(TypeAdapter[object], TypeAdapter(TaskListPayload)),
     "task_run": cast(TypeAdapter[object], TypeAdapter(TaskRunPayload)),
+    "tool_list": cast(TypeAdapter[object], TypeAdapter(ToolListPayload)),
+    "tool_diff": cast(TypeAdapter[object], TypeAdapter(ToolDiffPayload)),
 }
 AGENT_RESULT_NAMES: tuple[AgentResultName, ...] = tuple(AGENT_RESULT_ADAPTERS)
 

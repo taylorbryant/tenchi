@@ -16,6 +16,8 @@ from tenchi._app_map import (
     project_app_map,
 )
 from tenchi._cli_results import DiagnosticResult
+from tenchi._openapi_operations import isolated_project_imports, load_route_group
+from tenchi._tool_operations import load_tool_group
 
 EXAMPLE_DIR = Path(__file__).parent.parent / "examples" / "todos"
 WIRE_SNAPSHOT = Path(__file__).with_name("app_map_snapshot.json")
@@ -36,7 +38,7 @@ def test_app_map_is_deterministic_and_versioned() -> None:
     second = map_app(EXAMPLE_DIR, api_routes)
 
     assert first.as_dict() == second.as_dict()
-    assert first.schema_version == 3
+    assert first.schema_version == 4
     assert first.summary.features == 1
     assert first.summary.contracts == 3
     assert first.summary.routes == 3
@@ -47,7 +49,7 @@ def test_app_map_is_deterministic_and_versioned() -> None:
     assert first.diagnostics == ()
     assert first.unresolved == ()
     assert len({node.id for node in first.nodes}) == len(first.nodes)
-    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 3
+    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 4
 
 
 def test_app_map_json_wire_format_matches_snapshot() -> None:
@@ -64,6 +66,7 @@ def test_app_map_json_wire_format_matches_snapshot() -> None:
         "entrypoint",
         "test",
         "job",
+        "tool",
     )
     nodes = tuple(
         AppMapNode(
@@ -117,6 +120,7 @@ def test_app_map_json_wire_format_matches_snapshot() -> None:
             routes=1,
             jobs=1,
             tasks=1,
+            tools=1,
             use_cases=1,
             policies=1,
             ports=1,
@@ -196,6 +200,65 @@ def test_app_map_connects_routes_ports_adapters_and_tests() -> None:
         "MemoryTodoRepository": "declared",
         "SqliteTodoRepository": "registered",
     }
+
+
+def test_app_map_connects_registered_tools_to_use_cases(tmp_path: Path) -> None:
+    root = tmp_path / "app"
+    shutil.copytree(EXAMPLE_DIR, root)
+    feature_tools = root / "app/features/todos/tools.py"
+    feature_tools.write_text(
+        "from tenchi.tools import tool, tool_group, tool_handler\n"
+        "from .schemas import CreateTodo, Todo\n"
+        "from .use_cases.create_todo import create_todo\n\n"
+        "create_todo_tool = tool(\n"
+        '    "todos.create",\n'
+        "    request=CreateTodo,\n"
+        "    result=Todo,\n"
+        '    description="Create a todo.",\n'
+        "    destructive=True,\n"
+        "    open_world=False,\n"
+        ")\n"
+        "tools = tool_group(tool_handler(create_todo_tool, create_todo))\n",
+        encoding="utf-8",
+    )
+    server_tools = root / "app/server/tools.py"
+    server_tools.write_text(
+        "from app.features.todos.tools import tools as todo_tools\n"
+        "from tenchi.tools import tool_group\n\n"
+        "tools = tool_group(todo_tools)\n",
+        encoding="utf-8",
+    )
+
+    with isolated_project_imports(
+        root,
+        module_names=(
+            "app.server.routes",
+            "app.server.tools",
+            "app.features.todos.tools",
+        ),
+    ):
+        routes = load_route_group(root, "app.server.routes:api_routes")
+        tools = load_tool_group(root, "app.server.tools:tools")
+        result = map_app(root, routes, tools=tools)
+
+    tool_node = next(node for node in result.nodes if node.id == "tool:todos.create")
+    assert tool_node.status == "registered"
+    assert tool_node.feature == "todos"
+    assert dict(tool_node.details) == {
+        "description": "Create a todo.",
+        "destructive": True,
+        "errors": (),
+        "export_name": "create_todo_tool",
+        "idempotent": False,
+        "input_required": True,
+        "open_world": False,
+        "read_only": False,
+    }
+    assert (
+        "binds",
+        "tool:todos.create",
+        "use-case:todos.create_todo",
+    ) in {(edge.kind, edge.source, edge.target) for edge in result.edges}
 
 
 def test_app_map_projection_filters_features_and_kinds() -> None:
@@ -555,7 +618,7 @@ def test_map_cli_supports_json_human_and_projections() -> None:
     complete = _tenchi("map", "--json")
     assert complete.returncode == 0, complete.stderr
     payload = json.loads(complete.stdout)
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
     assert payload["summary"]["routes"] == 3
 
     projected = _tenchi(

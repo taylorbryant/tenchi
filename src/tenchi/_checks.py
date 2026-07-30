@@ -40,6 +40,8 @@ def run_check(
     snapshot: str,
     security_json: str | None,
     timeout_seconds: float,
+    tools: str = "app.server.tools:tools",
+    tool_snapshot: str = "tools.json",
     cancelled: Callable[[], bool] | None = None,
     step_completed: Callable[[int, int, CheckStepResult], None] | None = None,
 ) -> CheckResult:
@@ -69,6 +71,8 @@ def run_check(
         version=version,
         description=description,
         snapshot=snapshot,
+        tools=tools,
+        tool_snapshot=tool_snapshot,
         security_json=security_json,
     )
     results: list[CheckStepResult] = []
@@ -99,6 +103,8 @@ def _check_commands(
     version: str,
     description: str | None,
     snapshot: str,
+    tools: str,
+    tool_snapshot: str,
     security_json: str | None,
 ) -> tuple[_CheckCommand, ...]:
     openapi = [
@@ -123,6 +129,17 @@ def _check_commands(
         _CheckCommand("pytest", ("pytest",)),
         _CheckCommand("doctor", ("tenchi", "doctor")),
         _CheckCommand("openapi", tuple(openapi)),
+        _CheckCommand(
+            "tools",
+            (
+                "tenchi",
+                "tools",
+                "--tools",
+                tools,
+                "--check",
+                tool_snapshot,
+            ),
+        ),
     )
 
 

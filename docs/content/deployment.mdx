@@ -125,11 +125,14 @@ deployed:
 uv run tenchi check
 uv run tenchi openapi --routes app.server.routes:api_routes \
   --title my_app --diff-ref "$BASE_SHA" --snapshot openapi.json
+uv run tenchi tools \
+  --diff-ref "$BASE_SHA" --snapshot tools.json
 ```
 
-`tenchi check` includes the exact OpenAPI snapshot check. The separate
-historical compatibility command remains necessary because it compares the
-working contract with a baseline from before the deployment change.
+`tenchi check` includes the exact OpenAPI and application-tool snapshot checks.
+The separate historical compatibility commands remain necessary because they
+compare the working contracts with baselines from before the deployment
+change.
 
 Then release in this order:
 

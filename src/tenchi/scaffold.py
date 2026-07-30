@@ -56,6 +56,9 @@ uv run tenchi map       # inspect the complete application graph
 uv run tenchi preflight # verify the selected deployment environment
 uv run tenchi task list # discover operational tasks
 uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
+uv run tenchi tools --diff tools.json
+uv run tenchi tools --check tools.json
+uv run tenchi tools --write tools.json
 uv run tenchi openapi --routes app.server.routes:api_routes \\
   --title __APP_NAME__ --diff openapi.json
 uv run tenchi openapi --routes app.server.routes:api_routes \\
@@ -68,6 +71,9 @@ uv run tenchi doctor    # check dependency direction and structure
 Run `openapi --diff` before using `openapi --write` to replace the baseline. In
 CI, the generated workflow uses `--diff-ref` to compare against the pull
 request's base commit rather than the snapshot committed in the same change.
+Use the same diff-before-write workflow for `tools.json`; it protects the
+machine-facing names, schemas, errors, and safety annotations exposed by the
+application.
 
 The API persists to `__APP_NAME__.db` by default. Override the location with
 `__APP_ENV_PREFIX___DATABASE`. With the development server running, browse
@@ -104,18 +110,18 @@ Framework agent workflow: https://tenchi.io/agents
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
 
-Use `--json` with `tenchi map`, `tenchi routes`, `tenchi preflight`, `tenchi
-task`, `tenchi doctor`, `tenchi check`, and `tenchi make ...` when structured
-output is more useful than terminal text.
+Use `--json` with `tenchi map`, `tenchi routes`, `tenchi tools`, `tenchi
+preflight`, `tenchi task`, `tenchi doctor`, `tenchi check`, and `tenchi make
+...` when structured output is more useful than terminal text.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
-`app_map`, `routes`, `preflight`, `task_list`, `doctor`, `openapi_diff`,
-`make_preview`, and `check` tools return the same versioned results. Inspection
-and preview tools never write application files; `check` runs the project's
-normal validation commands. Run `preflight` only against the intended
-environment. Task execution is not exposed unless an operator deliberately
-starts the server with `--allow-task-runs`. The agent still makes ordinary,
-reviewable source edits.
+`app_map`, `routes`, `tools`, `preflight`, `task_list`, `doctor`,
+`openapi_diff`, `tools_diff`, `make_preview`, and `check` tools return the same
+versioned results. Inspection and preview tools never write application files;
+`check` runs the project's normal validation commands. Run `preflight` only
+against the intended environment. Task execution is not exposed unless an
+operator deliberately starts the server with `--allow-task-runs`. The agent
+still makes ordinary, reviewable source edits.
 
 ## Placement and dependency direction
 
@@ -171,6 +177,8 @@ server.
 - Run `tenchi openapi --routes app.server.routes:api_routes --title __APP_NAME__
   --version 0.1.0 --diff openapi.json` before replacing the snapshot with
   `--write`; preserve those metadata flags when writing it.
+- Run `tenchi tools --diff tools.json` before replacing the application-tool
+  snapshot with `tenchi tools --write tools.json`.
 - Do not hand-edit generated files into a different application structure to
   avoid a doctor finding; fix the dependency or placement problem instead.
 """
@@ -550,6 +558,13 @@ from tenchi.jobs import job_group
 jobs = job_group()
 """
 
+_SERVER_TOOLS = """\
+from tenchi.tools import tool_group
+
+# Import feature tool groups here as machine-facing capabilities are added.
+tools = tool_group()
+"""
+
 _SERVER_PREFLIGHT = """\
 from tenchi.preflight import preflight_group
 
@@ -641,6 +656,14 @@ def test_openapi_snapshot_is_current() -> None:
     )
 """
 
+_TOOLS_TEST = """\
+from tenchi.cli import main
+
+
+def test_tool_snapshot_is_current() -> None:
+    assert main(["tools", "--check", "tools.json"]) == 0
+"""
+
 _CI_WORKFLOW = """\
 name: CI
 
@@ -672,6 +695,19 @@ jobs:
           --title __APP_NAME__ --version 0.1.0
           --diff-ref "${{ github.event.pull_request.base.sha }}"
           --snapshot openapi.json
+      - name: Check application-tool compatibility
+        if: github.event_name == 'pull_request'
+        run: >-
+          uv run tenchi tools
+          --diff-ref "${{ github.event.pull_request.base.sha }}"
+          --snapshot tools.json
+"""
+
+_TOOLS_SNAPSHOT = """\
+{
+  "schema_version": 1,
+  "tools": []
+}
 """
 
 _OPENAPI_SNAPSHOT = """\
@@ -856,6 +892,7 @@ _FILES: dict[str, str] = {
     ".gitignore": _GITIGNORE,
     ".github/workflows/ci.yml": _CI_WORKFLOW,
     "openapi.json": _OPENAPI_SNAPSHOT,
+    "tools.json": _TOOLS_SNAPSHOT,
     "app/__init__.py": "",
     "app/features/__init__.py": "",
     "app/features/todos/__init__.py": "",
@@ -880,10 +917,12 @@ _FILES: dict[str, str] = {
     "app/server/routes.py": _SERVER_ROUTES,
     "app/server/runtime.py": _SERVER_RUNTIME,
     "app/server/tasks.py": _SERVER_TASKS,
+    "app/server/tools.py": _SERVER_TOOLS,
     "app/shared/__init__.py": "",
     "app/shared/errors.py": _SHARED_ERRORS,
     "tests/test_http.py": _HTTP_TEST,
     "tests/test_openapi_snapshot.py": _OPENAPI_TEST,
+    "tests/test_tool_snapshot.py": _TOOLS_TEST,
 }
 
 
@@ -933,6 +972,18 @@ serialize them with job_message(); app/server/jobs.py binds consumer use cases.
 """
 '''
 
+_MAKE_FEATURE_TOOLS = '''\
+"""Machine-facing tools for the __FEATURE__ feature.
+
+Bind selected use cases with tool_handler(declaration, use_case), then compose
+this group in app/server/tools.py.
+"""
+
+from tenchi.tools import tool_group
+
+tools = tool_group()
+'''
+
 
 def feature_files(feature: str) -> dict[str, str]:
     """Return a feature skeleton, relative to ``app/features/<feature>/``."""
@@ -954,6 +1005,7 @@ def feature_files(feature: str) -> dict[str, str]:
         "routes.py": _MAKE_FEATURE_ROUTES.replace("__FEATURE__", feature),
         "tasks.py": _MAKE_FEATURE_TASKS.replace("__FEATURE__", feature),
         "jobs.py": _MAKE_FEATURE_JOBS.replace("__FEATURE__", feature),
+        "tools.py": _MAKE_FEATURE_TOOLS.replace("__FEATURE__", feature),
         "use_cases/__init__.py": "",
         "tests/__init__.py": "",
     }

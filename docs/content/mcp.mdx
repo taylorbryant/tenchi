@@ -3,9 +3,9 @@ import { Callout } from "@/components/callout";
 # Connect an MCP-aware coding agent
 
 Tenchi's MCP server gives a coding agent structured access to the application
-map, route table, architecture diagnostics, generator previews, OpenAPI
-compatibility, deployment preflight, operational-task discovery, and the
-complete validation loop.
+map, route table, registered application-tool contract, architecture
+diagnostics, generator previews, OpenAPI and tool compatibility, deployment
+preflight, operational-task discovery, and the complete validation loop.
 Inspection and preview tools do not edit application files; `check` runs the
 project's own validation commands and can have their usual side effects.
 
@@ -53,9 +53,9 @@ resource supplies a short fallback workflow and a link to the full coding-agent
 guide.
 
 The server captures one application root when it starts. Every tool operates
-inside that root, and OpenAPI snapshot paths cannot escape it. Inspection tools
-reload the application's source for each call, so a server that stays open sees
-edits made during the agent session.
+inside that root, and OpenAPI and application-tool snapshot paths cannot escape
+it. Inspection tools reload the application's source for each call, so a server
+that stays open sees edits made during the agent session.
 
 ## Use the tools
 
@@ -63,12 +63,14 @@ edits made during the agent session.
 | --- | --- |
 | `app_map` | Versioned nodes, relationships, evidence, diagnostics, and unresolved references; accepts feature and node-kind projections |
 | `routes` | The composed route table with use cases, responses, errors, access metadata, and runtime limits |
+| `tools` | The registered application-tool manifest with input/output schemas, declared errors, and safety annotations |
 | `doctor` | Source-anchored architecture and dependency diagnostics |
 | `preflight` | Read-only, timeout-bounded observations of the target deployment environment with redacted results |
 | `task_list` | Registered operational tasks with validated input and output JSON Schemas |
 | `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true` |
 | `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
-| `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI snapshot check |
+| `tools_diff` | A directional compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
+| `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI and tool snapshot checks |
 
 `task_run` is absent by default. Start the server with
 `--allow-task-runs` to expose it:
@@ -88,11 +90,12 @@ process has the intended deployment configuration and read-only dependency
 credentials. See [deployment preflight](/preflight) for the application-side
 contract and redaction boundary.
 
-Every tool returns structured content with a `schema_version`. A doctor finding,
-failed check, generator conflict, or incompatible API is a valid result with
-`ok: false` or `compatible: false`; malformed arguments and unreadable or
-unsafe paths are MCP errors. Tenchi snapshots every tool's input and output
-schema in CI; breaking or unknown changes require a new protocol version.
+Every tool returns structured content with a `schema_version`. A doctor
+finding, failed check, generator conflict, or incompatible API or tool contract
+is a valid result with `ok: false` or `compatible: false`; malformed arguments
+and unreadable or unsafe paths are MCP errors. Tenchi snapshots every tool's
+input and output schema in CI; breaking or unknown changes require a new
+protocol version.
 
 <Callout type="warning" title="Check runs project-owned commands">
   `check` executes the application's tests and validation commands. Those
@@ -112,6 +115,7 @@ For a feature change, give the agent this sequence:
 4. Edit ordinary Python files through the agent's normal filesystem tools.
 5. Call `check` and resolve every failed step.
 6. Call `openapi_diff` before accepting a changed OpenAPI snapshot.
+7. Call `tools_diff` before accepting a changed application-tool snapshot.
 
 The agent must still make route and infrastructure wiring explicit in the
 application source. MCP previews follow the same rule as `tenchi make`: they
@@ -130,14 +134,18 @@ uv run tenchi mcp \
   --preflight my_app.server.preflight:checks \
   --tasks my_app.server.tasks:runner \
   --jobs my_app.server.jobs:jobs \
+  --tools my_app.server.tools:tools \
   --snapshot api/openapi.json \
+  --tool-snapshot api/tools.json \
   --title "My API" \
   --version 1.0.0
 ```
 
 `routes` uses `--routes`. The map, OpenAPI diff, and `check` tools use
 `--api-routes`; `preflight` uses `--preflight`; the task tools use `--tasks`.
-The map loads registered background jobs through `--jobs`.
+The map loads registered background jobs through `--jobs` and registered
+application tools through `--tools`. Tool discovery and compatibility also use
+`--tools`; `tools_diff` and `check` use `--tool-snapshot`.
 OpenAPI title, version,
 description, and security defaults come from the same literal route-module
 declarations used by `tenchi check`.

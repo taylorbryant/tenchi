@@ -33,6 +33,21 @@ jobs:
         run: |
           git show "${BASE_SHA}:examples/todos/openapi.json" > "${RUNNER_TEMP}/todos-openapi-baseline.json"
           git show "${BASE_SHA}:examples/taskboard/openapi.json" > "${RUNNER_TEMP}/taskboard-openapi-baseline.json"
+      - name: Export historical tool baselines
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          empty='{"schema_version":1,"tools":[]}'
+          if git cat-file -e "${BASE_SHA}:examples/todos/tools.json"; then
+            git show "${BASE_SHA}:examples/todos/tools.json" > "${RUNNER_TEMP}/todos-tools-baseline.json"
+          else
+            printf '%s\n' "$empty" > "${RUNNER_TEMP}/todos-tools-baseline.json"
+          fi
+          if git cat-file -e "${BASE_SHA}:examples/taskboard/tools.json"; then
+            git show "${BASE_SHA}:examples/taskboard/tools.json" > "${RUNNER_TEMP}/taskboard-tools-baseline.json"
+          else
+            printf '%s\n' "$empty" > "${RUNNER_TEMP}/taskboard-tools-baseline.json"
+          fi
       - name: Check todos OpenAPI compatibility
         run: >-
           uv run --directory examples/todos tenchi openapi
@@ -45,6 +60,12 @@ jobs:
           --routes app.server.routes:api_routes
           --title Todos --version 0.1.0
           --check openapi.json
+      - name: Check todos tool compatibility
+        run: >-
+          uv run --directory examples/todos tenchi tools
+          --diff "${RUNNER_TEMP}/todos-tools-baseline.json"
+      - name: Check todos tool snapshot
+        run: uv run --directory examples/todos tenchi tools --check tools.json
       # The taskboard example is a standalone project consuming tenchi as
       # a path dependency; it gets its own environment and checks.
       - run: uv run --directory examples/taskboard tenchi check
@@ -55,3 +76,7 @@ jobs:
           --title Taskboard --version 0.1.0
           --security '{"bearerAuth":{"type":"http","scheme":"bearer"}}'
           --diff "${RUNNER_TEMP}/taskboard-openapi-baseline.json"
+      - name: Check taskboard tool compatibility
+        run: >-
+          uv run --directory examples/taskboard tenchi tools
+          --diff "${RUNNER_TEMP}/taskboard-tools-baseline.json"
