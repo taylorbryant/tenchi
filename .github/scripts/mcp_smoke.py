@@ -10,6 +10,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from tenchi import __version__
+from tenchi._cli_results import AGENT_PROTOCOL_VERSION
 
 
 async def main() -> None:
@@ -47,17 +48,17 @@ async def main() -> None:
         raise RuntimeError("MCP server reported the wrong Tenchi version")
     if routes.isError or routes.structuredContent is None:
         raise RuntimeError("routes MCP smoke call failed")
-    if routes.structuredContent.get("schema_version") != 2:
+    if routes.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:
         raise RuntimeError("routes MCP result is not versioned")
     if tasks.isError or tasks.structuredContent is None:
         raise RuntimeError("task_list MCP smoke call failed")
-    if tasks.structuredContent.get("schema_version") != 2:
+    if tasks.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:
         raise RuntimeError("task_list MCP result is not versioned")
     if tasks.structuredContent.get("tasks") != []:
         raise RuntimeError("generated app unexpectedly registered operational tasks")
     if preflight.isError or preflight.structuredContent is None:
         raise RuntimeError("preflight MCP smoke call failed")
-    if preflight.structuredContent.get("schema_version") != 2:
+    if preflight.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:
         raise RuntimeError("preflight MCP result is not versioned")
     if preflight.structuredContent.get("checks") != []:
         raise RuntimeError("generated app unexpectedly registered preflight checks")
