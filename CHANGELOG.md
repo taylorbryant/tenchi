@@ -7,7 +7,7 @@ versions may change the public API.
 
 ## [Unreleased]
 
-## [0.12.0] - 2026-07-29
+## [0.11.0] - 2026-07-29
 
 ### Added
 
@@ -50,10 +50,6 @@ versions may change the public API.
   `ClientAttemptOutcome` values now include a payload-safe UTC `completed_at`
   timestamp. It anchors logs and completed logical spans to the measured
   operation rather than to delayed observer execution.
-
-## [0.11.0] - 2026-07-27
-
-### Added
 
 - Reusable conformance checks for application-owned `IdempotencyStore` and
   `RateLimitStore` adapters. The async test helpers verify persistence across
