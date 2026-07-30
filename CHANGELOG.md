@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-29
+
 ### Added
 
 - Transport-neutral application tools. `tool()` declares stable typed input,
