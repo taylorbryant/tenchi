@@ -21,6 +21,7 @@ from pydantic import (
     ValidationError,
     field_validator,
 )
+from pydantic_core import core_schema
 
 from tenchi._schema_compatibility import ChangeSeverity, compare_schema
 from tenchi.contracts import contract
@@ -37,6 +38,7 @@ from tenchi.tools import (
     ToolManifest,
     ToolNotFoundError,
     ToolResultError,
+    ToolRunner,
     create_tool_runner,
     tool,
     tool_group,
@@ -50,6 +52,7 @@ TOOL_MANIFEST_SNAPSHOT_PATH = Path(__file__).with_name(
 UPDATE_TOOL_MANIFEST_SNAPSHOT = "TENCHI_UPDATE_TOOL_MANIFEST_SNAPSHOT"
 TOOL_MANIFEST_BASE_REF = "TENCHI_AGENT_PROTOCOL_BASE_REF"
 REPOSITORY_ROOT = Path(__file__).parent.parent
+_request_schema_calls = 0
 
 
 def serialize_as_string(value: int) -> str:
@@ -84,6 +87,74 @@ class ExplodingInput(BaseModel):
         raise ToolResultError(f"validator secret: {value}")
 
 
+class InvalidRequestSchema:
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: Any,
+    ) -> core_schema.CoreSchema:
+        del cls, source_type, handler
+        return core_schema.str_schema()
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        schema: core_schema.CoreSchema,
+        handler: Any,
+    ) -> dict[str, Any]:
+        del cls, schema, handler
+        return {"type": "not-a-json-schema-type"}
+
+
+class NonJsonRequestSchema:
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: Any,
+    ) -> core_schema.CoreSchema:
+        del cls, source_type, handler
+        return core_schema.str_schema()
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        schema: core_schema.CoreSchema,
+        handler: Any,
+    ) -> dict[str, Any]:
+        del cls, schema, handler
+        return {
+            "type": "string",
+            "default": object(),
+        }
+
+
+class ChangingRequestSchema:
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: Any,
+    ) -> core_schema.CoreSchema:
+        del cls, source_type, handler
+        return core_schema.str_schema()
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        schema: core_schema.CoreSchema,
+        handler: Any,
+    ) -> dict[str, Any]:
+        del cls, schema, handler
+        global _request_schema_calls
+        _request_schema_calls += 1
+        return {
+            "type": "string",
+            "title": f"render-{_request_schema_calls}",
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class Context:
     events: list[str]
@@ -97,6 +168,14 @@ async def search(request: SearchInput, context: Context) -> SearchResult:
 async def ping(context: Context) -> str:
     context.events.append("ping")
     return "pong"
+
+
+async def echo_changing_schema(
+    request: ChangingRequestSchema,
+    context: Context,
+) -> str:
+    del context
+    return str(request)
 
 
 def search_tool(
@@ -184,6 +263,20 @@ def test_tool_declaration_validates_types_and_declared_errors() -> None:
             result=str,
             description="Invalid.",
         )
+    with pytest.raises(ToolBindingError, match="not-a-json-schema-type"):
+        tool(
+            "invalid.request_schema",
+            request=InvalidRequestSchema,
+            result=str,
+            description="Invalid.",
+        )
+    with pytest.raises(ToolBindingError, match="not JSON serializable"):
+        tool(
+            "invalid.non_json_request_schema",
+            request=NonJsonRequestSchema,
+            result=str,
+            description="Invalid.",
+        )
     with pytest.raises(ConfigurationError, match=r"errors\[0\].*ErrorDef"):
         tool(
             "invalid.error",
@@ -191,6 +284,40 @@ def test_tool_declaration_validates_types_and_declared_errors() -> None:
             description="Invalid.",
             errors=cast(Any, ("no",)),
         )
+
+
+def test_tool_manifest_retains_the_validated_request_schema() -> None:
+    global _request_schema_calls
+    _request_schema_calls = 0
+    declaration = tool(
+        "system.changing_schema",
+        request=ChangingRequestSchema,
+        result=str,
+        description="Retain one request schema.",
+        read_only=True,
+    )
+    tools = tool_group(tool_handler(declaration, echo_changing_schema))
+
+    first = tool_manifest(tools)
+    second = tool_manifest(tools)
+
+    assert first == second
+    assert first["tools"][0]["input_schema"]["title"] == "render-1"
+    assert _request_schema_calls == 1
+
+
+def test_tool_manifest_does_not_expose_retained_schemas_to_mutation() -> None:
+    tools = tool_group(tool_handler(search_tool(), search))
+    first = tool_manifest(tools)
+    entry = first["tools"][0]
+
+    entry["input_schema"].clear()
+    entry["output_schema"].clear()
+
+    second = tool_manifest(tools)
+
+    assert second["tools"][0]["input_schema"]["type"] == "object"
+    assert second["tools"][0]["output_schema"]["type"] == "object"
 
 
 def test_tool_handler_accepts_the_same_use_case_as_an_http_route() -> None:
@@ -651,12 +778,55 @@ def test_runner_validates_composition_eagerly() -> None:
             tools=tool_group(),
             context_factory=stateful_context,
         )
+    with pytest.raises(ConfigurationError, match="no lifespan"):
+        ToolRunner(
+            tools=tool_group(),
+            context_factory=stateful_context,
+        )
     with pytest.raises(ConfigurationError, match=r"lifespan.*zero arguments"):
         create_tool_runner(
             tools=tool_group(),
             context_factory=lambda: object(),
             lifespan=lifespan_with_argument,  # type: ignore[arg-type]
         )
+
+
+async def test_direct_tool_runner_construction_preserves_lifecycle_wiring() -> None:
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def lifespan() -> AsyncGenerator[list[str]]:
+        events.append("lifespan:enter")
+        yield events
+        events.append("lifespan:exit")
+
+    def context_factory(state: list[str]) -> Context:
+        state.append("context:create")
+        return Context(state)
+
+    runner = ToolRunner(
+        tools=tool_group(
+            tool_handler(
+                tool(
+                    "system.ping",
+                    result=str,
+                    description="Ping.",
+                    read_only=True,
+                ),
+                ping,
+            )
+        ),
+        context_factory=context_factory,
+        lifespan=lifespan,
+    )
+
+    assert await runner.call("system.ping") == "pong"
+    assert events == [
+        "lifespan:enter",
+        "context:create",
+        "ping",
+        "lifespan:exit",
+    ]
 
 
 async def test_tool_calls_share_use_case_observability_after_cleanup() -> None:

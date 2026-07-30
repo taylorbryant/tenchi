@@ -1,0 +1,295 @@
+import { Callout } from "@/components/callout";
+
+# Serve application tools over MCP
+
+Use `tenchi.mcp` to expose a registered `ToolGroup` to Model Context Protocol
+(MCP) clients. The adapter publishes each tool's JSON Schemas and safety
+annotations, authenticates discovery and invocation, and executes calls through
+the caller's `ToolRunner`.
+
+<Callout type="note" title="This is your application's MCP server">
+  `tenchi.mcp` serves the application tools you declared. The `tenchi mcp` CLI
+  command is a separate development server that lets coding agents inspect and
+  validate a Tenchi repository.
+</Callout>
+
+## Install the MCP integration
+
+Add the optional dependency to the environment that will run the server:
+
+```shell
+uv add "tenchi[mcp]"
+```
+
+Keep it as a development dependency only when you use the coding-agent server
+and do not expose application tools at runtime.
+
+## Authenticate and create the server
+
+Authentication is application-owned. The callback receives the MCP request id
+and, for HTTP transports, the underlying Starlette `Request`. Resolve identity
+from that request, then build a runner whose context carries the authenticated
+principal:
+
+```python
+# app/server/mcp.py
+from app.infra.tokens import token_directory
+from app.server.tools import create_user_tool_runner, tools
+from app.shared.users import User
+from tenchi.mcp import McpRequest, create_tool_mcp_server
+
+
+async def authenticate(request: McpRequest) -> User:
+    transport = request.transport_request
+    if transport is None:
+        raise PermissionError("This server requires HTTP authentication.")
+
+    scheme, _, token = transport.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise PermissionError("A bearer token is required.")
+
+    user = await token_directory.lookup(token)
+    if user is None:
+        raise PermissionError("The bearer token is invalid.")
+    return user
+
+
+mcp = create_tool_mcp_server(
+    tools=tools,
+    authenticate=authenticate,
+    runner_factory=lambda user: create_user_tool_runner(user=user),
+    name="Acme backend",
+    instructions="Search records freely. Request approval before changing them.",
+)
+
+app = mcp.streamable_http_app()
+```
+
+Serve the returned ASGI application with its lifespan enabled:
+
+```shell
+uv run uvicorn app.server.mcp:app
+```
+
+The default Streamable HTTP endpoint is `/mcp`. Tenchi uses the MCP SDK's
+stateless HTTP mode, so calls do not depend on sticky routing to an in-memory
+MCP session. Application resources still follow the lifespan and context
+wiring in each caller's `ToolRunner`.
+
+The MCP SDK's default DNS-rebinding policy accepts loopback hosts for local
+development. Configure the public host—and any browser origins you
+allow—before deployment:
+
+```python
+from mcp.server.transport_security import TransportSecuritySettings
+
+mcp = create_tool_mcp_server(
+    tools=tools,
+    authenticate=authenticate,
+    runner_factory=lambda user: create_user_tool_runner(user=user),
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["mcp.example.com"],
+        allowed_origins=["https://console.example.com"],
+    ),
+)
+
+app = mcp.streamable_http_app()
+```
+
+Requests with another `Host` or `Origin` are rejected before authentication.
+Use your deployed host names rather than the placeholders above.
+
+To mount `app` inside another Starlette application, explicitly enter the MCP
+app's lifespan from the parent lifespan; Starlette does not run a mounted
+sub-application's lifespan automatically:
+
+```python
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+mcp_app = mcp.streamable_http_app()
+
+
+@asynccontextmanager
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
+    del app
+    async with mcp.session_manager.run():
+        yield
+
+
+app = Starlette(
+    routes=[Mount("/tools", app=mcp_app)],
+    lifespan=lifespan,
+)
+```
+
+This mount serves MCP at `/tools/mcp`. Deployment remains responsible for TLS,
+trusted hosts, origin policy, edge rate limits, and any network-level access
+control.
+
+Authentication runs again for every `tools/list` and `tools/call` request.
+Authentication failures become generic MCP errors; callback exception messages
+are not returned to the client.
+
+## Limit discovery per caller
+
+Use `allow_tool` when different principals should discover different tool
+names. In this example, `allowed_tools` is application-owned identity data:
+
+```python
+from typing import Any
+
+from app.shared.users import User
+from tenchi.tools import Tool
+
+
+def allow_tool(user: User, declaration: Tool[Any, Any]) -> bool:
+    return declaration.name in user.allowed_tools
+```
+
+Pass the callback to `create_tool_mcp_server(allow_tool=allow_tool)`. The
+adapter applies it during discovery and rechecks it before every call. A hidden
+tool behaves like an unknown tool.
+
+Discovery filtering is not business authorization. Use cases still assert
+identity and enforce policies because the same behavior may run through HTTP,
+a job, a script, or a direct test.
+
+## Require approval for destructive tools
+
+A tool declared with `destructive=True` cannot run until an `approve` callback
+accepts that principal, tool declaration, and normalized JSON input. Tenchi
+validates the input once, gives the callback a JSON copy with serialization
+aliases applied, and passes the validated Python value to the use case. Changes
+to the callback's copy cannot change the invocation. Here, `approvals` is an
+application-owned durable store that consumes one approval for the exact call:
+
+```python
+from typing import Any
+
+from app.shared.users import User
+from tenchi.tools import Tool
+
+
+async def approve(
+    user: User,
+    declaration: Tool[Any, Any],
+    input_value: object,
+) -> bool:
+    return await approvals.consume(
+        user_id=user.id,
+        tool_name=declaration.name,
+        input_value=input_value,
+    )
+```
+
+Without an approval callback, the call returns `approval_required`. A callback
+that returns `False` produces `approval_denied`. Both results are structured,
+successful MCP responses so a client can obtain approval out of band and retry.
+The adapter validates input and obtains approval before opening the tool
+runner's lifespan or context.
+
+<Callout type="warning" title="Approval does not replace authorization">
+  Approval answers whether this caller may attempt this exact destructive
+  action now. The use case must still enforce ownership, roles, quotas,
+  idempotency, and domain policy.
+</Callout>
+
+## Understand MCP input and output
+
+MCP requires object-shaped tool arguments. Tenchi maps declarations
+predictably:
+
+| Declared request | MCP arguments |
+| --- | --- |
+| Pydantic model or object schema | The declared fields directly |
+| Scalar, list, or union | `{ "input": <value> }` |
+| No request | `{}` |
+
+Every call returns a versioned structured result:
+
+```json
+{
+  "schema_version": 1,
+  "ok": true,
+  "result": {
+    "id": "project_123",
+    "name": "Launch"
+  }
+}
+```
+
+Expected failures use the same envelope:
+
+```json
+{
+  "schema_version": 1,
+  "ok": false,
+  "error": {
+    "kind": "application_error",
+    "code": "PROJECT_NOT_FOUND",
+    "message": "Project not found"
+  }
+}
+```
+
+The published output schema enumerates each tool's declared application error
+codes. Undeclared `AppError` values and unexpected exceptions become a generic
+`failed` result. Invalid output becomes `invalid_result`; neither result
+contains exception text, request input, or the invalid value.
+
+`TOOL_MCP_PROTOCOL_VERSION` identifies this envelope and schema mapping. Tenchi
+uses a new version whenever the wire shape changes.
+
+## Run a trusted local stdio server
+
+For a local process launched on behalf of one trusted user, the authentication
+callback can return a fixed principal:
+
+```python
+from tenchi.mcp import create_tool_mcp_server
+
+
+mcp = create_tool_mcp_server(
+    tools=tools,
+    authenticate=lambda request: local_operator,
+    runner_factory=lambda user: create_user_tool_runner(user=user),
+)
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
+```
+
+The process credentials and configured principal define who the stdio client
+acts as. Do not use a shared, privileged principal for untrusted clients.
+
+## Verify the integration
+
+Test through an in-memory MCP session so discovery, schemas, approval, and
+execution use the real protocol adapter:
+
+```python
+from mcp.shared.memory import create_connected_server_and_client_session
+
+
+async with create_connected_server_and_client_session(mcp) as session:
+    listed = await session.list_tools()
+    result = await session.call_tool(
+        "projects.search",
+        {"query": "launch"},
+    )
+
+assert [item.name for item in listed.tools] == ["projects.search"]
+assert result.structuredContent == {
+    "schema_version": 1,
+    "ok": True,
+    "result": [{"id": "project_123", "name": "Launch"}],
+}
+```
+
+The in-memory transport still runs authentication and visibility callbacks. A
+real HTTP transport additionally supplies `McpRequest.transport_request`.

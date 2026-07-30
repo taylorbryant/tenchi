@@ -29,6 +29,7 @@ PUBLIC_MODULES = (
     "tenchi.health",
     "tenchi.idempotency",
     "tenchi.jobs",
+    "tenchi.mcp",
     "tenchi.openapi",
     "tenchi.opentelemetry",
     "tenchi.pagination",

@@ -313,8 +313,27 @@ tools = tool_group(
 result and its serialized form before context commit, preserves only declared
 application errors, and masks unexpected failures. `tool_manifest()` returns
 deterministic input and output JSON Schemas plus safety metadata for a transport
-adapter; `TOOL_MANIFEST_VERSION` identifies that guarded protocol. See the
+adapter; `TOOL_MANIFEST_VERSION` identifies that versioned protocol. See the
 [application tools guide](https://tenchi.io/tools).
+
+Install `tenchi[mcp]` and use `create_tool_mcp_server()` to publish the same
+group over MCP. The adapter authenticates discovery and invocation, can filter
+visible tools per principal, denies destructive tools without an explicit
+approval decision, and returns versioned structured results:
+
+```python
+from tenchi.mcp import create_tool_mcp_server
+
+mcp = create_tool_mcp_server(
+    tools=tools,
+    authenticate=authenticate_mcp_request,
+    runner_factory=create_user_tool_runner,
+)
+```
+
+The application still owns identity, approval policy, and use-case
+authorization. See [Serve application tools over
+MCP](https://tenchi.io/tool-mcp).
 
 See [`examples/todos`](examples/todos) for the small teaching app and
 [`examples/taskboard`](examples/taskboard) for a larger application with
@@ -392,7 +411,7 @@ breaking protocol changes require a new `schema_version`.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
 inspect, preview, edit, validate, and compatibility loop.
 
-`tenchi mcp` serves the same versioned map, route, preflight, task-discovery,
+The `tenchi mcp` CLI serves the same versioned map, route, preflight, task-discovery,
 doctor, generator-preview, OpenAPI-diff, and check results over stdio. Task
 execution is absent unless the server starts with `--allow-task-runs`.
 Preflight remains available as a read-only tool but deliberately contacts the
@@ -400,7 +419,8 @@ environment captured by the server process. Inspection and preview tools do
 not write application files; project-owned commands executed by `check` retain
 their normal side effects. Generated apps register the command in `.mcp.json`.
 Existing apps install the optional development dependency with
-`uv add --dev "tenchi[mcp]"`.
+`uv add --dev "tenchi[mcp]"`. This coding-agent server is separate from the
+application MCP adapter described above.
 
 Run `tenchi <command> --help` for command options.
 

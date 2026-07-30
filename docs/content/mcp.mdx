@@ -9,6 +9,12 @@ complete validation loop.
 Inspection and preview tools do not edit application files; `check` runs the
 project's own validation commands and can have their usual side effects.
 
+<Callout type="note" title="This server is for building the application">
+  `tenchi mcp` exposes repository inspection and validation to a coding agent.
+  To expose your application's own `ToolGroup` to users or AI features, see
+  [Serve application tools over MCP](/tool-mcp).
+</Callout>
+
 New applications include the required development dependency and a
 project-local `.mcp.json`. After `uv sync`, an MCP client that recognizes this
 file can start the server with no additional Tenchi configuration.

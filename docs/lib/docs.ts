@@ -148,6 +148,14 @@ export const docsSections = [
         priority: 0.81,
       },
       {
+        path: "/tool-mcp",
+        title: "Serve tools over MCP",
+        navLabel: "Application MCP",
+        description:
+          "Publish authenticated application tools over MCP with caller-specific discovery, explicit destructive-call approval, and versioned structured results.",
+        priority: 0.81,
+      },
+      {
         path: "/testing",
         title: "Testing",
         description:
@@ -265,7 +273,8 @@ export const docsSections = [
       },
       {
         path: "/mcp",
-        title: "MCP server",
+        title: "Connect a coding agent over MCP",
+        navLabel: "Coding-agent MCP",
         description:
           "Connect an MCP-aware coding agent to Tenchi's application map, previews, diagnostics, compatibility report, and validation loop.",
         priority: 0.83,

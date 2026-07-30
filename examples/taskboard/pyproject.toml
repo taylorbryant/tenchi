@@ -5,7 +5,7 @@ description = "Tenchi stress-test application: projects and tasks with auth."
 requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.20",
-    "tenchi[otel]",
+    "tenchi[mcp,otel]",
 ]
 
 [dependency-groups]
@@ -16,7 +16,6 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
-    "tenchi[mcp]",
     "uvicorn>=0.30",
 ]
 

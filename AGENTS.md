@@ -57,6 +57,8 @@ framework code, the CLI, docs, or the example apps.
     and validated dispatch.
   - `tools.py` — transport-neutral application-tool declarations, explicit
     use-case bindings, lifecycle-aware execution, and deterministic manifests.
+  - `mcp.py` — the optional authenticated application MCP adapter over a
+    registered tool group; applications own identity, visibility, and approval.
   - `openapi.py` — OpenAPI 3.1 generation (`openapi_schema` is a pure
     function; `openapi_route` serves it and `swagger_ui_route` serves an
     optional interactive UI through Tenchi's own machinery).
@@ -71,7 +73,8 @@ framework code, the CLI, docs, or the example apps.
   - `_agent_protocol.py` — the authoritative result-name adapters used for
     CLI validation and canonical agent-facing JSON Schema generation.
   - `_mcp_server.py` — optional stdio MCP adapter over the CLI result
-    operations; it is loaded only when the `mcp` extra is installed.
+    operations for coding agents; it is loaded only when the `mcp` extra is
+    installed and is separate from the public application adapter.
 - `tests/` — framework tests, roughly one file per module plus
   cross-cutting files (`test_hooks.py`, `test_lifespan.py`,
   `test_request_scope.py`, `test_request_ids.py`, `test_middleware.py`,
@@ -136,6 +139,7 @@ app/
     preflight.py   # read-only checks of the target deployment environment
     tasks.py       # composes the operational task runner
     tools.py       # composes tools with authenticated context wiring
+    mcp.py         # optionally exposes application tools over MCP
     asgi.py        # concrete wiring, lifespan, hooks; exposes `app`
 tests/             # integration tests over HTTP / the typed client
 ```
@@ -242,6 +246,10 @@ API shape:
   model-supplied input. Tool declarations list every caller-visible `ErrorDef`;
   undeclared application errors and unexpected exceptions stay behind the
   generic tool invocation failure.
+- Application MCP authenticates both discovery and invocation, rechecks
+  per-principal visibility before a call, and denies destructive tools without
+  an application-owned approval decision. Discovery and approval never replace
+  use-case authorization.
 
 ## CLI expectations
 
@@ -279,6 +287,10 @@ task input in its result.
 Application-tool manifests have their own `TOOL_MANIFEST_VERSION` and retained
 versioned schema snapshots. Additive protocol changes may update the current
 snapshot; breaking or unknown changes require a version bump and a new snapshot.
+The public `tenchi.mcp` module is a separate adapter for an application's own
+`ToolGroup`. Its MCP schemas and structured result envelope have their own
+version and immutable snapshots; the coding-agent protocol version does not
+govern them.
 Structured CLI results and MCP tool inputs and outputs share one agent protocol
 version. Additive changes may update its current canonical snapshot; breaking
 or unknown changes require a version bump and a new snapshot, leaving earlier
@@ -350,3 +362,9 @@ tests/test_agent_protocol.py` and review the canonical JSON Schema diff. The
 updater refuses breaking or unknown changes at the current version; bump
 `AGENT_PROTOCOL_VERSION`, update the embedded result version, and create a new
 versioned snapshot instead. Never replace an earlier protocol snapshot.
+
+Application MCP schema changes fail `tests/test_tool_mcp.py`. Generate the
+first snapshot for a new `TOOL_MCP_PROTOCOL_VERSION` with
+`TENCHI_UPDATE_TOOL_MCP_SNAPSHOT=1 uv run pytest tests/test_tool_mcp.py`.
+Existing snapshots are immutable; any changed application MCP wire shape
+requires a version bump and a new snapshot.

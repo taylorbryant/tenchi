@@ -907,7 +907,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiosqlite" },
-    { name = "tenchi", extra = ["otel"] },
+    { name = "tenchi", extra = ["mcp", "otel"] },
 ]
 
 [package.dev-dependencies]
@@ -918,14 +918,13 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
-    { name = "tenchi", extra = ["mcp"] },
     { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20" },
-    { name = "tenchi", extras = ["otel"], editable = "../../" },
+    { name = "tenchi", extras = ["mcp", "otel"], editable = "../../" },
 ]
 
 [package.metadata.requires-dev]
@@ -936,7 +935,6 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "ruff", specifier = ">=0.8" },
-    { name = "tenchi", extras = ["mcp"], editable = "../../" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 

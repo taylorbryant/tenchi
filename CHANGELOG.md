@@ -16,13 +16,26 @@ versions may change the public API.
   honesty, and payload-safe use-case observation. Undeclared application
   errors and unexpected failures become a generic `ToolInvocationError`.
   `tool_manifest()` returns deterministic JSON Schemas and portable annotations
-  without choosing an MCP or model SDK. A versioned protocol snapshot guards
-  manifest compatibility, while runtime regressions enforce the empty-object
-  convention for no-input tools. Serialized results are checked against their
-  published JSON Schema before context commit. Doctor recognizes feature
-  `tools.py` modules, and taskboard demonstrates authenticated read and write
-  tools with authorization, idempotency, rate limiting, and transaction
+  without choosing an MCP or model SDK. Request and result schemas are
+  validated, canonicalized, and retained when the tool is declared.
+  `TOOL_MANIFEST_VERSION` identifies the portable contract, no-input tools
+  consistently accept an empty object, and serialized results are checked
+  against their published JSON Schema before context commit. Doctor recognizes
+  feature `tools.py` modules, and taskboard demonstrates authenticated read and
+  write tools with authorization, idempotency, rate limiting, and transaction
   rollback.
+- An optional application MCP adapter through `tenchi[mcp]`.
+  `create_tool_mcp_server()` authenticates every discovery and invocation,
+  filters visible tools per principal, reuses caller-specific `ToolRunner`
+  wiring, and denies destructive tools without an explicit approval callback.
+  It maps object, scalar, and no-input declarations to MCP schemas; returns
+  versioned structured success and failure envelopes; publishes declared
+  application error codes; propagates cancellation; and masks authentication,
+  configuration, and unexpected failure details. Applications can provide the
+  MCP SDK's transport-security settings for production hosts and origins;
+  Streamable HTTP runs statelessly so calls do not require sticky routing.
+  `TOOL_MCP_PROTOCOL_VERSION` versions this wire contract separately from the
+  portable tool manifest.
 - Optional OpenTelemetry integration through the `tenchi[otel]` extra.
   `create_opentelemetry_observers()` turns finalized HTTP, use-case, logical
   client-call, and retry-attempt outcomes into internal logical spans and

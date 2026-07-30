@@ -50,6 +50,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "jobs",
         "tasks",
         "tools",
+        "tool-mcp",
         "testing",
         "webhooks",
         "production",

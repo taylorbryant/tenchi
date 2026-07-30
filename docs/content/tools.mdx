@@ -182,14 +182,18 @@ contains the description, input and output JSON Schemas, declared error codes
 and messages, and all four safety annotations. A no-input tool receives an
 empty object input schema; callers may either omit input or pass `{}`.
 
+`tool()` validates, converts to JSON, and retains both schemas when the
+declaration is built. Invalid custom schemas therefore fail during composition,
+and repeated manifest calls return the same schema.
+
 `TOOL_MANIFEST_VERSION` identifies the portable manifest contract. Tenchi
-retains a schema snapshot for every version so breaking changes require a new
-version rather than silently changing an adapter's assumptions.
+uses a new version for breaking changes rather than silently changing an
+adapter's assumptions.
 
 The manifest describes registered application tools only. It does not expose
 Python functions, context values, credentials, request payloads, or results.
 
-## Connect an AI or transport SDK
+## Connect a transport
 
 Use the manifest for discovery and call `ToolRunner.call()` from the SDK's tool
 callback. The adapter remains responsible for:
@@ -200,6 +204,9 @@ callback. The adapter remains responsible for:
 - mapping declared errors into the transport's error shape;
 - propagating cancellation and trace context.
 
-`tenchi mcp` is the development server that lets a coding agent inspect and
-validate a Tenchi repository. It does not expose the application's
-`ToolGroup`. A generic application MCP adapter is a separate integration.
+For MCP clients, [`create_tool_mcp_server()`](/tool-mcp) maps schemas and
+failures, propagates cancellation, and invokes callbacks for authentication,
+visibility, and approval policy.
+
+`tenchi mcp` is a different server: it lets a coding agent inspect and validate
+a Tenchi repository. It does not expose the application's `ToolGroup`.

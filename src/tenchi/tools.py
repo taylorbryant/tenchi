@@ -29,6 +29,7 @@ import re
 from asyncio import CancelledError
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterator, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar, cast, overload
 
@@ -126,6 +127,9 @@ class Tool(Generic[_ToolRequestT, _ToolResultT]):  # noqa: UP046
     _request_adapter: TypeAdapter[Any] | None = field(
         init=False, repr=False, compare=False, hash=False
     )
+    _request_schema: dict[str, Any] | None = field(
+        init=False, repr=False, compare=False, hash=False
+    )
     _result_adapter: TypeAdapter[Any] = field(
         init=False, repr=False, compare=False, hash=False
     )
@@ -173,19 +177,31 @@ class Tool(Generic[_ToolRequestT, _ToolResultT]):  # noqa: UP046
             raise ToolBindingError(
                 f"tool({self.name!r}): a read-only tool must be idempotent"
             )
-        object.__setattr__(
-            self,
-            "_request_adapter",
-            (
-                None
-                if self.request is None
-                else _build_adapter(self.name, self.request, label="request")
-            ),
+        request_adapter = (
+            None
+            if self.request is None
+            else _build_adapter(self.name, self.request, label="request")
         )
+        request_schema = (
+            None
+            if request_adapter is None
+            else _adapter_schema(
+                self.name,
+                self.request,
+                request_adapter,
+                label="request",
+                mode="validation",
+            )
+        )
+        object.__setattr__(self, "_request_adapter", request_adapter)
+        object.__setattr__(self, "_request_schema", request_schema)
         result_adapter = _build_adapter(self.name, self.result, label="result")
-        result_schema = result_adapter.json_schema(
+        result_schema = _adapter_schema(
+            self.name,
+            self.result,
+            result_adapter,
+            label="result",
             mode="serialization",
-            by_alias=True,
         )
         object.__setattr__(self, "_result_adapter", result_adapter)
         object.__setattr__(self, "_result_schema", result_schema)
@@ -432,6 +448,28 @@ class ToolRunner:
     use_case_observers: tuple[UseCaseObserver, ...] = field(default=(), repr=False)
     _context_takes_state: bool = field(init=False, default=False, repr=False)
 
+    def __post_init__(self) -> None:
+        _require_tool_group(self.tools)
+        takes_state = _context_factory_takes_state(self.context_factory)
+        if takes_state and self.lifespan is None:
+            raise ConfigurationError(
+                "ToolRunner context_factory accepts a lifespan state argument "
+                "but no lifespan= was provided"
+            )
+        if self.lifespan is not None:
+            _require_call_shape(
+                self.lifespan,
+                positional_arguments=0,
+                label="ToolRunner lifespan",
+                expectation="accept zero arguments",
+            )
+        try:
+            observers = _validated_observers(self.use_case_observers)
+        except Exception as exc:
+            raise ConfigurationError(f"ToolRunner: {exc}") from exc
+        object.__setattr__(self, "use_case_observers", observers)
+        object.__setattr__(self, "_context_takes_state", takes_state)
+
     async def call(
         self,
         name: str,
@@ -440,6 +478,20 @@ class ToolRunner:
         input_json: bytes | str | None = None,
     ) -> Any:
         """Invoke one named tool and return its validated Python result."""
+        validated, _ = await self._call(
+            name,
+            input=input,
+            input_json=input_json,
+        )
+        return validated
+
+    async def _call(
+        self,
+        name: str,
+        *,
+        input: Any,
+        input_json: bytes | str | None,
+    ) -> tuple[Any, Any]:
         selected = next(
             (item for item in self.tools if item.tool.name == name),
             None,
@@ -457,6 +509,29 @@ class ToolRunner:
         except Exception as exc:
             raise ToolInvocationError(f"tool {name!r} failed") from exc
 
+        return await self._invoke(selected, kwargs)
+
+    async def _call_prepared_serialized(
+        self,
+        name: str,
+        *,
+        kwargs: dict[str, Any],
+    ) -> Any:
+        """Invoke a named tool with input already validated by its declaration."""
+        selected = next(
+            (item for item in self.tools if item.tool.name == name),
+            None,
+        )
+        if selected is None:
+            raise ToolNotFoundError(f"unknown tool {name!r}")
+        _, serialized = await self._invoke(selected, kwargs)
+        return serialized
+
+    async def _invoke(
+        self,
+        selected: ToolBinding[Any, Any],
+        kwargs: dict[str, Any],
+    ) -> tuple[Any, Any]:
         try:
             async with _open_lifespan(self.lifespan) as state:
                 context_source = (
@@ -476,7 +551,7 @@ class ToolRunner:
                             if call is None
                             else await call.invoke(**kwargs, context=context)
                         )
-                        return _validated_result(selected.tool, raw)
+                        return _validated_result_parts(selected.tool, raw)
                 finally:
                     if call is not None:
                         await _notify_use_case_observers(
@@ -488,9 +563,9 @@ class ToolRunner:
         except AppError as exc:
             if selected.tool.declares_error(exc.definition):
                 raise
-            raise ToolInvocationError(f"tool {name!r} failed") from exc
+            raise ToolInvocationError(f"tool {selected.tool.name!r} failed") from exc
         except Exception as exc:
-            raise ToolInvocationError(f"tool {name!r} failed") from exc
+            raise ToolInvocationError(f"tool {selected.tool.name!r} failed") from exc
 
 
 def create_tool_runner(
@@ -502,31 +577,16 @@ def create_tool_runner(
 ) -> ToolRunner:
     """Compose registered tools with application lifecycle and context wiring."""
     _require_tool_group(tools)
-    takes_state = _context_factory_takes_state(context_factory)
-    if takes_state and lifespan is None:
-        raise ConfigurationError(
-            "create_tool_runner: context_factory accepts a lifespan state "
-            "argument but no lifespan= was provided"
-        )
-    if lifespan is not None:
-        _require_call_shape(
-            lifespan,
-            positional_arguments=0,
-            label="create_tool_runner: lifespan",
-            expectation="accept zero arguments",
-        )
     try:
         observers = _validated_observers(use_case_observers)
     except Exception as exc:
         raise ConfigurationError(f"create_tool_runner: {exc}") from exc
-    runner = ToolRunner(
+    return ToolRunner(
         tools=tools,
         context_factory=context_factory,
         lifespan=lifespan,
         use_case_observers=observers,
     )
-    object.__setattr__(runner, "_context_takes_state", takes_state)
-    return runner
 
 
 @with_config(ConfigDict(extra="forbid"))
@@ -579,9 +639,14 @@ def tool_manifest(tools: ToolGroup) -> ToolManifest:
         input_schema: dict[str, Any] = (
             _empty_input_schema()
             if request_adapter is None
-            else request_adapter.json_schema(mode="validation", by_alias=True)
+            else deepcopy(
+                cast(
+                    dict[str, Any],
+                    declaration._request_schema,  # pyright: ignore[reportPrivateUsage]
+                )
+            )
         )
-        output_schema = (
+        output_schema = deepcopy(
             declaration._result_schema  # pyright: ignore[reportPrivateUsage]
         )
         entries.append(
@@ -641,11 +706,38 @@ def _validated_optional_bool(
 
 def _build_adapter(name: str, annotation: Any, *, label: str) -> TypeAdapter[Any]:
     try:
-        adapter = TypeAdapter(annotation)
-        adapter.json_schema(
-            mode="validation" if label == "request" else "serialization",
+        return TypeAdapter(annotation)
+    except Exception as exc:
+        raise ToolBindingError(
+            f"tool({name!r}): Pydantic cannot use {label} annotation "
+            f"{_type_name(annotation)}: {exc}"
+        ) from exc
+
+
+def _adapter_schema(
+    name: str,
+    annotation: Any,
+    adapter: TypeAdapter[Any],
+    *,
+    label: str,
+    mode: Literal["validation", "serialization"],
+) -> dict[str, Any]:
+    try:
+        schema = adapter.json_schema(mode=mode, by_alias=True)
+        canonical = cast(
+            dict[str, Any],
+            json.loads(
+                json.dumps(
+                    schema,
+                    allow_nan=False,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            ),
         )
-        return adapter
+        Draft202012Validator.check_schema(canonical)
+        return canonical
     except Exception as exc:
         raise ToolBindingError(
             f"tool({name!r}): Pydantic cannot use {label} annotation "
@@ -802,7 +894,10 @@ def _tool_kwargs(
     return {"request": adapter.validate_python(input)}
 
 
-def _validated_result(declaration: Tool[Any, Any], raw: Any) -> Any:
+def _validated_result_parts(
+    declaration: Tool[Any, Any],
+    raw: Any,
+) -> tuple[Any, Any]:
     try:
         adapter = (
             declaration._result_adapter  # pyright: ignore[reportPrivateUsage]
@@ -814,11 +909,18 @@ def _validated_result(declaration: Tool[Any, Any], raw: Any) -> Any:
             by_alias=True,
             warnings="error",
         )
-        json.dumps(json_value, allow_nan=False)
+        serialized = json.loads(
+            json.dumps(
+                json_value,
+                allow_nan=False,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
         validator = (
             declaration._result_schema_validator  # pyright: ignore[reportPrivateUsage]
         )
-        validator.validate(json_value)
+        validator.validate(serialized)
     except (CancelledError, KeyboardInterrupt):
         raise
     except Exception as exc:
@@ -826,7 +928,7 @@ def _validated_result(declaration: Tool[Any, Any], raw: Any) -> Any:
             f"tool {declaration.name!r} returned a value that does not match "
             f"{_type_name(declaration.result)}"
         ) from exc
-    return validated
+    return validated, serialized
 
 
 def _append_handlers(
@@ -874,7 +976,7 @@ def _require_tool_group(value: object) -> None:
 def _context_factory_takes_state(context_factory: Callable[..., Any]) -> bool:
     signature = _callable_signature(
         context_factory,
-        label="create_tool_runner: context_factory",
+        label="ToolRunner context_factory",
     )
     try:
         signature.bind()
@@ -886,7 +988,7 @@ def _context_factory_takes_state(context_factory: Callable[..., Any]) -> bool:
         signature.bind(object())
     except TypeError as exc:
         raise ConfigurationError(
-            "create_tool_runner: context_factory must accept zero arguments "
+            "ToolRunner context_factory must accept zero arguments "
             f"or a single positional lifespan state argument: {exc}"
         ) from exc
     return True
@@ -925,7 +1027,7 @@ async def _open_lifespan(
     manager = lifespan()
     if not isinstance(manager, AbstractAsyncContextManager):
         raise ConfigurationError(
-            "create_tool_runner: lifespan must return an async context manager"
+            "ToolRunner lifespan must return an async context manager"
         )
     scoped = cast(AbstractAsyncContextManager[Any], manager)
     async with scoped as state:

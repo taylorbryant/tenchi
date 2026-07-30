@@ -30,6 +30,7 @@ app/
     preflight.py
     tasks.py
     tools.py
+    mcp.py
     asgi.py
 tests/
 ```
@@ -72,6 +73,8 @@ The `app/server/` package is the application root:
 - `preflight.py` declares read-only checks of the target deployment environment.
 - `tasks.py` composes the application's operational task runner.
 - `tools.py` composes application tools with authenticated context wiring.
+- `mcp.py` optionally exposes those tools through authenticated MCP discovery
+  and invocation.
 - `asgi.py` creates adapters, lifecycle resources, hooks, middleware, and the
   final Starlette application.
 

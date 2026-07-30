@@ -162,14 +162,16 @@ Use `--tasks module:attribute` to override the runner target.
 See [Operational tasks](/tasks) for declarations, composition, dry-run design,
 failure semantics, and MCP access.
 
-## Serve MCP tools
+## Serve coding-agent tools over MCP
 
 ```shell
 uv run tenchi mcp
 uv run tenchi mcp --root path/to/application
 ```
 
-MCP support is installed through the `tenchi[mcp]` extra. Generated
+This command exposes repository inspection and validation—not the
+application's `ToolGroup`. MCP support is installed through the `tenchi[mcp]`
+extra. Generated
 applications include it as a development dependency and register the default
 command in `.mcp.json`.
 `--routes`, `--api-routes`, `--preflight`, `--tasks`, `--jobs`, and

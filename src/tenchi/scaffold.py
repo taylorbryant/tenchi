@@ -99,6 +99,7 @@ Framework agent workflow: https://tenchi.io/agents
    `app/server/runtime.py`,
    `app/server/webhooks.py` when signed endpoints exist,
    `app/server/tools.py` when application tools exist,
+   `app/server/mcp.py` when application tools are exposed over MCP,
    `app/infra/port_wiring.py`, and `app/server/asgi.py`.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
@@ -138,7 +139,8 @@ reviewable source edits.
   Shared lifespan/context wiring lives in `runtime.py`; task composition lives
   in `tasks.py`; background handlers live in `jobs.py`; read-only deployment
   observations live in `preflight.py`; authenticated application-tool wiring
-  lives in `tools.py` when present.
+  lives in `tools.py` when present; application MCP transport wiring lives in
+  `mcp.py` when present.
 - `app/shared/` never imports features.
 
 Authentication belongs in boundary hooks. Authorization belongs in use cases
@@ -155,6 +157,10 @@ Application tools receive identity through context wiring, never model-supplied
 input. Their safety annotations describe behavior but do not authorize calls.
 Declare every caller-visible `AppError`; undeclared and unexpected failures are
 masked by the tool runner.
+When application tools are exposed over MCP, authenticate discovery and calls,
+recheck per-principal visibility, and require an explicit approval decision for
+destructive tools. The `tenchi mcp` CLI remains the separate coding-agent
+server.
 
 ## Change checklist
 

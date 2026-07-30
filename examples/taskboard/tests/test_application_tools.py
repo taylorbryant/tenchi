@@ -4,10 +4,12 @@ from pathlib import Path
 
 import aiosqlite
 import pytest
+from mcp.shared.memory import create_connected_server_and_client_session
 
 from app.features.projects.schemas import Project
 from app.features.tasks.schemas import MoveTaskInput, TaskStatus
 from app.infra.port_wiring import configure_connection, ensure_schema
+from app.server.mcp import create_user_mcp_server
 from app.server.tools import create_user_tool_runner, tools
 from app.shared.users import User
 from tenchi.errors import AppError
@@ -161,3 +163,57 @@ async def test_tool_use_cases_enforce_identity_and_ownership(tmp_path: Path) -> 
             ),
         )
     assert hidden.value.code == "TASK_NOT_FOUND"
+
+
+async def test_application_mcp_reuses_authenticated_tool_wiring(
+    tmp_path: Path,
+) -> None:
+    database_path = str(tmp_path / "taskboard.db")
+    await seed_taskboard(database_path)
+
+    unapproved = create_user_mcp_server(
+        database_path=database_path,
+        user=ALICE,
+    )
+    async with create_connected_server_and_client_session(unapproved) as session:
+        listed = await session.list_tools()
+        projects = await session.call_tool("projects.search", {})
+        denied = await session.call_tool(
+            "tasks.move",
+            {
+                "task_id": "task-1",
+                "status": "doing",
+                "expected_version": 1,
+                "idempotency_key": "mcp-move-1",
+            },
+        )
+
+    assert [definition.name for definition in listed.tools] == [
+        "projects.search",
+        "tasks.move",
+    ]
+    assert projects.structuredContent is not None
+    assert projects.structuredContent["result"][0]["name"] == "Launch"
+    assert denied.structuredContent is not None
+    assert denied.structuredContent["error"]["kind"] == "approval_required"
+
+    approved = create_user_mcp_server(
+        database_path=database_path,
+        user=ALICE,
+        approve=lambda principal, declaration, input_value: True,
+    )
+    async with create_connected_server_and_client_session(approved) as session:
+        moved = await session.call_tool(
+            "tasks.move",
+            {
+                "task_id": "task-1",
+                "status": "doing",
+                "expected_version": 1,
+                "idempotency_key": "mcp-move-1",
+            },
+        )
+
+    assert moved.structuredContent is not None
+    assert moved.structuredContent["ok"] is True
+    assert moved.structuredContent["result"]["status"] == "doing"
+    assert moved.structuredContent["result"]["version"] == 2

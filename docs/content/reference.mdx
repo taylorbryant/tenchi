@@ -125,8 +125,11 @@ safety metadata without choosing an agent transport.
 
 | Module | Public names | Install |
 | --- | --- | --- |
+| `tenchi.mcp` | `TOOL_MCP_PROTOCOL_VERSION`, `McpRequest`, `create_tool_mcp_server()` | `uv add "tenchi[mcp]"` |
 | `tenchi.opentelemetry` | `OpenTelemetryObservers`, `create_opentelemetry_observers()` | `uv add "tenchi[otel]"` |
 
+The MCP module exposes an authenticated `ToolGroup` through the MCP SDK while
+the application owns identity, visibility, approval policy, and runner wiring.
 The OpenTelemetry module records through application-configured providers. It
 does not create an SDK, exporter, background worker, or shutdown lifecycle.
 
