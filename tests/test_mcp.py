@@ -20,6 +20,7 @@ from tenchi import __version__, _mcp_server, _openapi_operations
 from tenchi._checks import CheckCancelled
 from tenchi._cli_results import CheckResult
 from tenchi._mcp_server import McpServerOptions, build_mcp_server
+from tenchi._verify_operations import VerificationErrorResult, VerificationResult
 
 EXAMPLE_ROOT = Path(__file__).parent.parent / "examples" / "todos"
 
@@ -106,12 +107,13 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
         "openapi_diff",
         "tools_diff",
         "make_preview",
+        "verify",
         "check",
     ]
     for tool in result.tools:
         assert tool.outputSchema is not None
         assert tool.annotations is not None
-        if tool.name == "check":
+        if tool.name in {"check", "verify"}:
             assert tool.annotations.readOnlyHint is False
             assert tool.annotations.destructiveHint is True
             assert tool.annotations.idempotentHint is False
@@ -390,9 +392,11 @@ async def test_mcp_rejects_agent_instructions_outside_the_root(
         await server.read_resource(AnyUrl("tenchi://project/agents"))
 
 
+@pytest.mark.parametrize("tool_name", ["check", "verify"])
 @pytest.mark.parametrize("snapshot_name", ["openapi.json", "tools.json"])
-async def test_mcp_revalidates_the_check_snapshots_for_each_call(
+async def test_mcp_revalidates_validation_snapshots_for_each_call(
     tmp_path: Path,
+    tool_name: str,
     snapshot_name: str,
 ) -> None:
     (tmp_path / "app").mkdir()
@@ -402,7 +406,8 @@ async def test_mcp_revalidates_the_check_snapshots_for_each_call(
     (tmp_path / snapshot_name).symlink_to(outside)
 
     async with create_connected_server_and_client_session(server) as session:
-        result = await session.call_tool("check", {})
+        arguments = {"base_ref": "HEAD"} if tool_name == "verify" else {}
+        result = await session.call_tool(tool_name, arguments)
 
     assert result.isError is True
     assert result.content
@@ -453,6 +458,91 @@ async def test_mcp_check_returns_failed_validation_as_data(
     )
 
 
+async def test_mcp_verify_returns_the_shared_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_verification_result(root: Path, **kwargs: object) -> VerificationResult:
+        captured["root"] = root
+        captured.update(kwargs)
+        return VerificationResult(
+            root=str(root.resolve()),
+            baseline_ref=str(kwargs["base_ref"]),
+            baseline_commit=None,
+            duration_seconds=0.01,
+            check=None,
+            architecture=None,
+            openapi=None,
+            tools=None,
+            errors=(
+                VerificationErrorResult(
+                    stage="baseline",
+                    message="unknown ref",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        _mcp_server,
+        "verification_result",
+        fake_verification_result,
+    )
+    server = build_mcp_server(McpServerOptions(EXAMPLE_ROOT))
+
+    async with create_connected_server_and_client_session(server) as session:
+        result = await session.call_tool(
+            "verify",
+            {"base_ref": "origin/main", "timeout_seconds": 10},
+        )
+
+    assert result.isError is False
+    assert result.structuredContent is not None
+    assert result.structuredContent["schema_version"] == 4
+    assert result.structuredContent["tenchi_version"] == __version__
+    assert result.structuredContent["ok"] is False
+    assert result.structuredContent["baseline"] == {
+        "ref": "origin/main",
+        "commit": None,
+    }
+    assert result.structuredContent["errors"] == [
+        {"stage": "baseline", "message": "unknown ref"}
+    ]
+    assert captured["root"] == EXAMPLE_ROOT
+    assert captured["routes"] == "app.server.routes:api_routes"
+    assert captured["tasks"] == "app.server.tasks:runner"
+    assert captured["jobs"] == "app.server.jobs:jobs"
+    assert captured["tools"] == "app.server.tools:tools"
+    assert captured["timeout_seconds"] == 10
+
+
+async def test_mcp_verify_rejects_null_bytes_as_a_structured_failure() -> None:
+    server = build_mcp_server(McpServerOptions(EXAMPLE_ROOT))
+
+    async with create_connected_server_and_client_session(server) as session:
+        result = await session.call_tool(
+            "verify",
+            {"base_ref": "main\u0000other", "timeout_seconds": 10},
+        )
+
+    assert result.isError is False
+    assert result.structuredContent is not None
+    assert result.structuredContent["ok"] is False
+    assert result.structuredContent["baseline"] == {
+        "ref": "main\u0000other",
+        "commit": None,
+    }
+    assert result.structuredContent["errors"] == [
+        {
+            "stage": "baseline",
+            "message": (
+                "Git ref must be non-empty, must not start with '-', and must "
+                "contain neither whitespace nor control characters"
+            ),
+        }
+    ]
+
+
 async def test_mcp_cancellation_reaches_the_check_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -472,6 +562,38 @@ async def test_mcp_cancellation_reaches_the_check_runner(
     server = build_mcp_server(McpServerOptions(EXAMPLE_ROOT))
 
     call = asyncio.create_task(server.call_tool("check", {"timeout_seconds": 10}))
+    assert await asyncio.to_thread(started.wait, 1)
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+    assert await asyncio.to_thread(stopped.wait, 1)
+
+
+async def test_mcp_cancellation_reaches_the_verification_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = Event()
+    stopped = Event()
+
+    def fake_verification_result(root: Path, **kwargs: object) -> VerificationResult:
+        del root
+        cancelled = cast(Callable[[], bool], kwargs["cancelled"])
+        started.set()
+        while not cancelled():
+            sleep(0.01)
+        stopped.set()
+        raise CheckCancelled
+
+    monkeypatch.setattr(
+        _mcp_server,
+        "verification_result",
+        fake_verification_result,
+    )
+    server = build_mcp_server(McpServerOptions(EXAMPLE_ROOT))
+
+    call = asyncio.create_task(
+        server.call_tool("verify", {"base_ref": "HEAD", "timeout_seconds": 10})
+    )
     assert await asyncio.to_thread(started.wait, 1)
     call.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -513,6 +635,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
         "openapi_diff",
         "tools_diff",
         "make_preview",
+        "verify",
         "check",
     }
     assert initialized.serverInfo.name == "Tenchi"

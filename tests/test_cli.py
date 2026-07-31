@@ -107,8 +107,13 @@ def test_new_scaffolds_a_working_app(
         "uv run tenchi map --feature <name> --json" in (root / "AGENTS.md").read_text()
     )
     assert "uv run tenchi map" in (root / "README.md").read_text()
+    assert (
+        "uv run tenchi verify --base-ref origin/main"
+        in (root / "README.md").read_text()
+    )
     assert "app.server.routes:api_routes" in (root / "AGENTS.md").read_text()
     assert "uv run tenchi check" in (root / ".github/workflows/ci.yml").read_text()
+    assert "uv run tenchi verify" in (root / ".github/workflows/ci.yml").read_text()
     project_config = tomllib.loads((root / "pyproject.toml").read_text())
     assert project_config["project"]["dependencies"] == [
         "aiosqlite>=0.20",
@@ -451,6 +456,91 @@ def test_generated_app_checks_pass(
         "openapi",
         "tools",
     ]
+
+
+def test_verify_produces_one_receipt_against_an_immutable_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline")
+    commit = _git(root, "rev-parse", "HEAD").stdout.strip()
+
+    result = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["schema_version"] == 4
+    assert receipt["tenchi_version"]
+    assert receipt["ok"] is True
+    assert receipt["baseline"] == {"ref": "HEAD", "commit": commit}
+    assert receipt["check"]["ok"] is True
+    assert receipt["architecture"]["ok"] is True
+    assert receipt["architecture"]["diagnostics"] == []
+    assert receipt["architecture"]["unresolved"] == []
+    assert receipt["openapi"]["compatible"] is True
+    assert receipt["openapi"]["baseline"].startswith(f"{commit}:")
+    assert receipt["tools"]["compatible"] is True
+    assert receipt["tools"]["baseline"].startswith(f"{commit}:")
+    assert receipt["errors"] == []
+
+
+def test_verify_catches_a_breaking_snapshot_change_after_the_snapshot_is_replaced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    snapshot_path = root / "openapi.json"
+    current_snapshot = snapshot_path.read_text(encoding="utf-8")
+    baseline = json.loads(current_snapshot)
+    baseline["paths"]["/legacy"] = baseline["paths"]["/todos"]
+    snapshot_path.write_text(
+        json.dumps(baseline, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline with legacy route")
+    snapshot_path.write_text(current_snapshot, encoding="utf-8")
+
+    result = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["check"]["ok"] is True
+    assert receipt["architecture"]["ok"] is True
+    assert receipt["openapi"]["compatible"] is False
+    assert receipt["openapi"]["counts"]["breaking"] >= 1
+    assert receipt["tools"]["compatible"] is True
+    assert receipt["ok"] is False
+
+
+def test_verify_returns_a_structured_failure_for_an_unresolvable_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+
+    result = _tenchi(root, "verify", "--base-ref", "missing", "--json")
+
+    assert result.returncode == 1
+    receipt = json.loads(result.stdout)
+    assert receipt["ok"] is False
+    assert receipt["baseline"] == {"ref": "missing", "commit": None}
+    assert receipt["check"] is None
+    assert receipt["architecture"] is None
+    assert receipt["openapi"] is None
+    assert receipt["tools"] is None
+    assert receipt["errors"][0]["stage"] == "baseline"
 
 
 def test_check_discovers_an_openapi_description(

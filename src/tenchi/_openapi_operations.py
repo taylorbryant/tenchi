@@ -271,8 +271,7 @@ def compare_openapi_baseline(
 
 def read_git_snapshot(root: Path, *, ref: str, snapshot: Path) -> tuple[str, str]:
     """Read *snapshot* from *ref* in the Git repository containing *root*."""
-    if not ref.strip() or ref.startswith("-") or any(char.isspace() for char in ref):
-        raise OperationError("Git ref must be non-empty and contain no whitespace")
+    _validate_git_ref(ref)
     try:
         root_result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -301,25 +300,12 @@ def read_git_snapshot(root: Path, *, ref: str, snapshot: Path) -> tuple[str, str
             "snapshot must resolve inside the current Git repository"
         ) from exc
 
-    try:
-        ref_result = subprocess.run(
-            ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-    except (OSError, UnicodeError) as exc:
-        raise OperationError(f"could not resolve Git ref {ref!r}: {exc}") from exc
-    if ref_result.returncode != 0:
-        reason = ref_result.stderr.strip() or "unknown ref"
-        raise OperationError(f"could not resolve Git ref {ref!r}: {reason}")
+    commit = resolve_git_commit(root, ref)
 
     baseline_label = f"{ref}:{relative_snapshot}"
     try:
         show_result = subprocess.run(
-            ["git", "show", f"{ref_result.stdout.strip()}:{relative_snapshot}"],
+            ["git", "show", f"{commit}:{relative_snapshot}"],
             cwd=root,
             capture_output=True,
             text=True,
@@ -334,6 +320,41 @@ def read_git_snapshot(root: Path, *, ref: str, snapshot: Path) -> tuple[str, str
         reason = show_result.stderr.strip() or "snapshot not found"
         raise OperationError(f"could not read baseline {baseline_label!r}: {reason}")
     return show_result.stdout, baseline_label
+
+
+def resolve_git_commit(root: Path, ref: str) -> str:
+    """Resolve a safe Git ref to the immutable commit used for verification."""
+    _validate_git_ref(ref)
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise OperationError("could not run git; install Git to compare a ref") from exc
+    except (OSError, UnicodeError) as exc:
+        raise OperationError(f"could not resolve Git ref {ref!r}: {exc}") from exc
+    if result.returncode != 0:
+        reason = result.stderr.strip() or "unknown ref"
+        raise OperationError(f"could not resolve Git ref {ref!r}: {reason}")
+    return result.stdout.strip()
+
+
+def _validate_git_ref(ref: str) -> None:
+    if (
+        not ref.strip()
+        or ref.startswith("-")
+        or any(ord(char) < 32 or ord(char) == 127 for char in ref)
+        or any(char.isspace() for char in ref)
+    ):
+        raise OperationError(
+            "Git ref must be non-empty, must not start with '-', and must "
+            "contain neither whitespace nor control characters"
+        )
 
 
 def parse_security_json(

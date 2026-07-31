@@ -72,6 +72,8 @@ framework code, the CLI, docs, or the example apps.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
   - `_agent_protocol.py` — the authoritative result-name adapters used for
     CLI validation and canonical agent-facing JSON Schema generation.
+  - `_verify_operations.py` — the unified check, architecture, and historical
+    compatibility receipt shared by the CLI and coding-agent MCP server.
   - `_mcp_server.py` — optional stdio MCP adapter over the CLI result
     operations for coding agents; it is loaded only when the `mcp` extra is
     installed and is separate from the public application adapter.
@@ -257,7 +259,7 @@ The CLI is product surface. Generated code must pass Ruff, Ruff format,
 Pyright strict, pytest, and `tenchi doctor` untouched — CI-grade, as
 generated. Generators create files and print wiring instructions; they
 never edit existing modules. `routes`, `map`, `tools`, `openapi`, `check`,
-`preflight`, `mcp`, and `dev` rely on the structural conventions
+`verify`, `preflight`, `mcp`, and `dev` rely on the structural conventions
 (`app.server.routes:routes`, `app.server.routes:api_routes`,
 `app.server.jobs:jobs`, `app.server.tools:tools`,
 `app.server.preflight:checks`,
@@ -310,6 +312,11 @@ pass. CI compatibility checks must obtain their baseline from the pull-request
 base or preceding push; prefer `--diff-ref` when that baseline is committed.
 Comparing against the snapshot committed in the same change is only an equality
 check and belongs to `openapi --check`.
+`verify --base-ref <ref>` resolves the ref once, runs `check`, requires an
+application map with no diagnostics or unresolved relationships, and compares
+both OpenAPI and application-tool snapshots with that immutable commit. It
+never writes snapshots. The CLI and coding-agent MCP tool return the same
+versioned receipt and propagate cancellation to the active check subprocess.
 
 ## Testing conventions
 

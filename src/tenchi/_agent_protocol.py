@@ -19,6 +19,7 @@ from ._cli_results import (
 )
 from ._openapi_operations import OpenApiDiffPayload
 from ._tool_operations import ToolDiffPayload, ToolListPayload
+from ._verify_operations import VerificationPayload
 
 type AgentResultName = Literal[
     "app_map",
@@ -32,6 +33,7 @@ type AgentResultName = Literal[
     "task_run",
     "tool_list",
     "tool_diff",
+    "verify",
 ]
 type JsonObject = dict[str, object]
 
@@ -47,6 +49,7 @@ AGENT_RESULT_ADAPTERS: dict[AgentResultName, TypeAdapter[object]] = {
     "task_run": cast(TypeAdapter[object], TypeAdapter(TaskRunPayload)),
     "tool_list": cast(TypeAdapter[object], TypeAdapter(ToolListPayload)),
     "tool_diff": cast(TypeAdapter[object], TypeAdapter(ToolDiffPayload)),
+    "verify": cast(TypeAdapter[object], TypeAdapter(VerificationPayload)),
 }
 AGENT_RESULT_NAMES: tuple[AgentResultName, ...] = tuple(AGENT_RESULT_ADAPTERS)
 

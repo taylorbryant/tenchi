@@ -24,6 +24,14 @@ versions may change the public API.
   feature ownership, and exact use-case bindings. Agent protocol v4 records the
   expanded application map and the new tool-inspection results while retaining
   all earlier protocol snapshots.
+- Unified completion receipts for agent-written changes. `tenchi verify
+  --base-ref <ref>` resolves one immutable Git commit, runs the complete local
+  check, rejects application-map diagnostics and unresolved relationships, and
+  compares both OpenAPI and application-tool contracts with their historical
+  snapshots. The CLI and coding-agent MCP server return the same versioned
+  result, preserve partial evidence when a stage cannot run, and propagate
+  cancellation to the active validation process. Generated pull-request CI
+  uses the receipt as its single source, architecture, and compatibility gate.
 
 ## [0.11.0] - 2026-07-29
 

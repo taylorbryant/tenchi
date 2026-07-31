@@ -83,6 +83,7 @@ def test_docs_cover_the_framework_workflow() -> None:
     assert "http://127.0.0.1:8000/docs" in quickstart
     assert "tenchi map --json" in agents
     assert "tenchi check --json" in agents
+    assert "tenchi verify --base-ref" in agents
     assert "tenchi preflight --json" in agents
     assert "/llms.txt" in agents
 

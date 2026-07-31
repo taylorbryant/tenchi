@@ -105,7 +105,8 @@ Before the first deployment, verify that the service has:
 - readiness checks for dependencies required to serve traffic;
 - body-size limits and operation deadlines appropriate to the API;
 - a read-only `tenchi preflight` gate in the target environment;
-- `tenchi check` plus OpenAPI and application-tool comparisons against the
+- `tenchi verify --base-ref <release-ref>` for checks, strict architecture
+  evidence, and OpenAPI and application-tool comparisons against one immutable
   release baseline.
 
 The [deployment guide](/deployment) turns this list into the final release

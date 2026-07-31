@@ -364,6 +364,7 @@ tenchi openapi --check openapi.json
 tenchi openapi --write openapi.json
 tenchi doctor --json
 tenchi check
+tenchi verify --base-ref origin/main --json
 tenchi preflight
 tenchi preflight --json
 tenchi task list
@@ -401,6 +402,13 @@ relationship includes source evidence and a confidence level. Use `--feature`
 for a feature plus its direct cross-feature dependencies, `--kind` for a
 comma-separated node projection, and `--json` for the versioned result.
 
+`tenchi verify --base-ref <ref>` produces one completion receipt for the
+finished tree. It resolves the historical ref to an immutable commit, runs
+`tenchi check`, requires an application map without diagnostics or unresolved
+relationships, and compares both OpenAPI and application-tool boundaries with
+their snapshots at that commit. It never updates snapshots and exits non-zero
+when any evidence fails.
+
 `tenchi task list` reports the runner's task names and JSON Schemas. `tenchi
 task run` validates input, owns one application lifespan and scoped context,
 and validates output before transactional cleanup commits. Both commands
@@ -416,11 +424,11 @@ codes, statuses, and durations. See the [deployment preflight
 guide](https://tenchi.io/preflight).
 
 Generator `--dry-run` output lists every file without writing it. `make`,
-`map`, `tools`, `doctor`, and `check` accept `--json` and return versioned
-results for agents and automation. `tenchi check` runs Ruff formatting and
-linting, Pyright, pytest, doctor, and the OpenAPI and application-tool snapshot
-checks even when an earlier step fails; failed output is bounded and each step
-reports its duration.
+`map`, `tools`, `doctor`, `check`, and `verify` accept `--json` and return
+versioned results for agents and automation. `tenchi check` runs Ruff
+formatting and linting, Pyright, pytest, doctor, and the OpenAPI and
+application-tool snapshot checks even when an earlier step fails; failed
+output is bounded and each step reports its duration.
 Tenchi snapshots the JSON Schema for these results and the MCP tool surface;
 breaking protocol changes require a new `schema_version`.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
@@ -428,8 +436,8 @@ inspect, preview, edit, validate, and compatibility loop.
 
 The `tenchi mcp` CLI serves the same versioned map, route, application-tool,
 preflight, task-discovery, doctor, generator-preview, OpenAPI-diff, tool-diff,
-and check results over stdio. Task execution is absent unless the server starts
-with `--allow-task-runs`.
+check, and verification results over stdio. Task execution is absent unless
+the server starts with `--allow-task-runs`.
 Preflight remains available as a read-only tool but deliberately contacts the
 environment captured by the server process. Inspection and preview tools do
 not write application files; project-owned commands executed by `check` retain

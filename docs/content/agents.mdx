@@ -26,7 +26,8 @@ with `uv run tenchi make --dry-run`. Implement the change without hiding
 explicit wiring, then run `uv run tenchi check`. If a contract changed, run the
 OpenAPI compatibility diff before updating its snapshot. If an application
 tool changed, run the tool compatibility diff before updating `tools.json`.
-Report the files changed and every check.
+Finish with `uv run tenchi verify --base-ref <historical-ref> --json` and report
+the receipt with the files changed.
 ```
 
 If you already know the feature, include its name in the task so the agent can
@@ -46,6 +47,7 @@ complete application graph.
 | `tenchi doctor --json` | Stable diagnostic codes and source locations for architectural violations |
 | `tenchi tools --json` | Registered machine-facing names, schemas, errors, and safety annotations |
 | `tenchi check --json` | One bounded, complete result for formatting, linting, types, tests, architecture, and boundary snapshot drift |
+| `tenchi verify --base-ref <ref> --json` | One completion receipt tied to an immutable commit, including checks, strict architecture evidence, and both compatibility reports |
 | `tenchi preflight --json` | Redacted, timeout-bounded evidence that the selected deployment environment is ready |
 | OpenAPI compatibility commands | A historical contract baseline that an agent cannot accidentally replace and then compare to itself |
 | Tool compatibility commands | Directional proof that machine-facing input, output, errors, and safety did not break existing callers |
@@ -189,6 +191,26 @@ evidence. See [Application tools](/tools) for the complete compatibility rules.
   equality, not compatibility.
 </Callout>
 
+### 7. Produce the completion receipt
+
+After reviewing and accepting any snapshot updates, verify the finished tree
+against the same historical point:
+
+```shell
+uv run tenchi verify --base-ref origin/main --json
+```
+
+The receipt contains the resolved commit, complete check result, application
+summary, diagnostics, unresolved relationships, and both compatibility
+reports. It passes only when every check passes, the map has no diagnostics or
+unresolved relationships, and neither boundary contains a breaking or unknown
+change.
+
+`verify` does not replace the diff-before-write review. It proves that the
+finished tree—including accepted snapshot updates—still agrees with the
+historical contract. Use the pull request base, previous push, or previous
+release instead of the branch's current commit.
+
 ## Choose the right command
 
 | Command | Structured result |
@@ -197,6 +219,7 @@ evidence. See [Application tools](/tools) for the complete compatibility rules.
 | `tenchi make ... --json` | Artifact identity, dry-run state, files, next steps, and structured failure |
 | `tenchi doctor --json` | Overall status and source-anchored diagnostics with stable codes |
 | `tenchi check --json` | Overall status, counts, duration, and every validation step |
+| `tenchi verify --base-ref <ref> --json` | Resolved baseline commit, checks, strict architecture evidence, and OpenAPI and tool compatibility |
 | `tenchi preflight --json` | Deployment-environment status, counts, durations, and stable failure codes without dependency details |
 | `tenchi routes --json` | A versioned result containing the app root and composed HTTP route table |
 | `tenchi tools --json` | A versioned result containing the app root and registered tool manifest |

@@ -50,6 +50,7 @@ A [Tenchi](https://github.com/taylorbryant/tenchi) application.
 ```sh
 uv sync                 # install dependencies
 uv run tenchi check     # run every project check
+uv run tenchi verify --base-ref origin/main # produce a historical receipt
 uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
 uv run tenchi map       # inspect the complete application graph
@@ -73,7 +74,9 @@ CI, the generated workflow uses `--diff-ref` to compare against the pull
 request's base commit rather than the snapshot committed in the same change.
 Use the same diff-before-write workflow for `tools.json`; it protects the
 machine-facing names, schemas, errors, and safety annotations exposed by the
-application.
+application. After accepting any snapshot updates, `tenchi verify --base-ref
+<ref>` reruns the checks and records architecture plus both compatibility
+reports against one immutable commit.
 
 The API persists to `__APP_NAME__.db` by default. Override the location with
 `__APP_ENV_PREFIX___DATABASE`. With the development server running, browse
@@ -109,19 +112,23 @@ Framework agent workflow: https://tenchi.io/agents
    `app/infra/port_wiring.py`, and `app/server/asgi.py`.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
+5. Finish with `uv run tenchi verify --base-ref <ref> --json`, using the pull
+   request base, previous push, or previous release as `<ref>`. Treat a failed
+   check, architecture diagnostic, unresolved relationship, or incompatible
+   boundary as unfinished work.
 
 Use `--json` with `tenchi map`, `tenchi routes`, `tenchi tools`, `tenchi
-preflight`, `tenchi task`, `tenchi doctor`, `tenchi check`, and `tenchi make
-...` when structured output is more useful than terminal text.
+preflight`, `tenchi task`, `tenchi doctor`, `tenchi check`, `tenchi verify`,
+and `tenchi make ...` when structured output is more useful than terminal text.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
 `app_map`, `routes`, `tools`, `preflight`, `task_list`, `doctor`,
-`openapi_diff`, `tools_diff`, `make_preview`, and `check` tools return the same
-versioned results. Inspection and preview tools never write application files;
-`check` runs the project's normal validation commands. Run `preflight` only
-against the intended environment. Task execution is not exposed unless an
-operator deliberately starts the server with `--allow-task-runs`. The agent
-still makes ordinary, reviewable source edits.
+`openapi_diff`, `tools_diff`, `make_preview`, `check`, and `verify` tools return
+the same versioned results. Inspection and preview tools never write
+application files; `check` and `verify` run the project's normal validation
+commands. Run `preflight` only against the intended environment. Task execution
+is not exposed unless an operator deliberately starts the server with
+`--allow-task-runs`. The agent still makes ordinary, reviewable source edits.
 
 ## Placement and dependency direction
 
@@ -179,6 +186,8 @@ server.
   `--write`; preserve those metadata flags when writing it.
 - Run `tenchi tools --diff tools.json` before replacing the application-tool
   snapshot with `tenchi tools --write tools.json`.
+- After accepting snapshot changes, run `tenchi verify --base-ref <ref>` with a
+  historical ref and retain its complete pass/fail receipt.
 - Do not hand-edit generated files into a different application structure to
   avoid a doctor finding; fix the dependency or placement problem instead.
 """
@@ -687,20 +696,12 @@ jobs:
           python-version: "3.12"
       - run: uv sync
       - run: uv run tenchi check
-      - name: Check OpenAPI compatibility
+        if: github.event_name != 'pull_request'
+      - name: Verify source, architecture, and compatibility
         if: github.event_name == 'pull_request'
         run: >-
-          uv run tenchi openapi
-          --routes app.server.routes:api_routes
-          --title __APP_NAME__ --version 0.1.0
-          --diff-ref "${{ github.event.pull_request.base.sha }}"
-          --snapshot openapi.json
-      - name: Check application-tool compatibility
-        if: github.event_name == 'pull_request'
-        run: >-
-          uv run tenchi tools
-          --diff-ref "${{ github.event.pull_request.base.sha }}"
-          --snapshot tools.json
+          uv run tenchi verify
+          --base-ref "${{ github.event.pull_request.base.sha }}"
 """
 
 _TOOLS_SNAPSHOT = """\

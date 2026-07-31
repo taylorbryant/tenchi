@@ -36,6 +36,8 @@ release is source-compatible.
 5. Run `tenchi tools --diff` against the pre-upgrade snapshot.
 6. Review application wiring and generated-code convention changes.
 7. Update snapshots only after accepting both compatibility reports.
+8. Run `tenchi verify --base-ref <pre-upgrade-ref>` to produce one final
+   receipt against the pre-upgrade commit.
 
 Pin a compatible minor range or an exact version according to the application's
 risk tolerance. Production applications should not upgrade framework versions

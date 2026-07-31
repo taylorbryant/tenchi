@@ -42,6 +42,7 @@ async def main() -> None:
         "openapi_diff",
         "tools_diff",
         "make_preview",
+        "verify",
         "check",
     }
     if names != expected:

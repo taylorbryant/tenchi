@@ -153,6 +153,31 @@ defaults to `app.server.routes:api_routes`, and the snapshot defaults to
 `openapi.json`. The tool target defaults to `app.server.tools:tools`, and its
 snapshot defaults to `tools.json`.
 
+## Verify a completed change
+
+```shell
+uv run tenchi verify --base-ref origin/main
+uv run tenchi verify --base-ref origin/main --json
+```
+
+Verify produces one receipt for the finished source tree. It runs `tenchi
+check`, rejects application-map diagnostics and unresolved relationships, and
+compares the generated OpenAPI document and application-tool manifest with the
+snapshots at the selected Git ref. The receipt records the immutable commit
+resolved from `--base-ref`, so both compatibility reports use the same
+historical state even if the named ref moves later.
+
+Use the pull request base, previous push, or previous release as the base ref.
+The option is required: using the current branch snapshot could hide a breaking
+change when code and its updated snapshot are committed together. The command
+exits non-zero for a failed check, incomplete architecture evidence, a breaking
+or unknown boundary change, or a baseline that cannot be read.
+
+`--snapshot`, `--tool-snapshot`, and the route, task, job, tool, and OpenAPI
+metadata options override the generated application conventions. Verify never
+updates either snapshot. Because it runs the application's tests and validation
+commands, those commands retain their normal side effects and per-step timeout.
+
 ## Verify the deployment environment
 
 ```shell

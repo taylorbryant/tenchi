@@ -16,14 +16,15 @@ Commands are intentionally few and reliable:
   application's canonical OpenAPI document.
 - ``tenchi doctor`` checks dependency direction and prescribed structure.
 - ``tenchi check`` runs the complete application validation loop.
+- ``tenchi verify`` adds architecture and Git-baseline compatibility evidence.
 - ``tenchi preflight`` observes the target deployment environment.
 - ``tenchi task`` discovers and runs validated operational tasks.
 - ``tenchi mcp`` serves the same structured operations to MCP-aware agents.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
-The ``routes``, ``tools``, ``map``, ``openapi``, ``check``, ``preflight``,
-``task``, ``mcp``, and ``dev`` commands rely on the structural convention that
-``app/server/routes.py`` exposes ``routes`` and ``api_routes``,
+The ``routes``, ``tools``, ``map``, ``openapi``, ``check``, ``verify``,
+``preflight``, ``task``, ``mcp``, and ``dev`` commands rely on the structural
+convention that ``app/server/routes.py`` exposes ``routes`` and ``api_routes``,
 ``app/server/tools.py`` exposes ``tools``,
 ``app/server/preflight.py`` exposes ``checks``, ``app/server/tasks.py`` exposes
 ``runner``, ``app/server/jobs.py`` exposes ``jobs``, and
@@ -80,6 +81,7 @@ from ._tool_operations import (
     load_tool_group,
     tool_list_result,
 )
+from ._verify_operations import VerificationResult, verification_result
 from .compatibility import (
     render_compatibility_report,
     render_tool_compatibility_report,
@@ -191,6 +193,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             description=args.description,
             snapshot=args.snapshot,
             tools=args.tools,
+            tool_snapshot=args.tool_snapshot,
+            security_json=args.security,
+            timeout_seconds=args.timeout,
+            as_json=args.json,
+        )
+    if args.command == "verify":
+        return _verify(
+            base_ref=args.base_ref,
+            routes=args.routes,
+            tasks=args.tasks,
+            jobs=args.jobs,
+            tools=args.tools,
+            title=args.title,
+            version=args.version,
+            description=args.description,
+            snapshot=args.snapshot,
             tool_snapshot=args.tool_snapshot,
             security_json=args.security,
             timeout_seconds=args.timeout,
@@ -522,6 +540,89 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit a versioned result with bounded failure output",
     )
 
+    verify_parser = subparsers.add_parser(
+        "verify",
+        help="Produce one receipt for checks, architecture, and contract compatibility",
+    )
+    verify_parser.add_argument(
+        "--base-ref",
+        required=True,
+        metavar="REF",
+        help="Git ref containing the historical OpenAPI and tool snapshots",
+    )
+    verify_parser.add_argument(
+        "--routes",
+        default=_DEFAULT_API_ROUTES,
+        help="module:attribute of the API RouteGroup (default: %(default)s)",
+    )
+    verify_parser.add_argument(
+        "--tasks",
+        default=_DEFAULT_TASKS,
+        help="module:attribute of the TaskRunner (default: %(default)s)",
+    )
+    verify_parser.add_argument(
+        "--jobs",
+        default=_DEFAULT_JOBS,
+        help="module:attribute of the JobGroup (default: %(default)s)",
+    )
+    verify_parser.add_argument(
+        "--tools",
+        default=_DEFAULT_TOOLS,
+        help="module:attribute of the ToolGroup (default: %(default)s)",
+    )
+    verify_parser.add_argument(
+        "--title",
+        default=None,
+        help=(
+            "OpenAPI title (default: literal OPENAPI_TITLE in the route module "
+            "or the current directory name)"
+        ),
+    )
+    verify_parser.add_argument(
+        "--version",
+        default=None,
+        help=(
+            "OpenAPI version (default: literal OPENAPI_VERSION in the route module "
+            "or 0.1.0)"
+        ),
+    )
+    verify_parser.add_argument(
+        "--description",
+        default=None,
+        help=(
+            "OpenAPI description (default: literal OPENAPI_DESCRIPTION in the "
+            "route module)"
+        ),
+    )
+    verify_parser.add_argument(
+        "--security",
+        default=None,
+        metavar="JSON",
+        help="OpenAPI security schemes as a JSON object",
+    )
+    verify_parser.add_argument(
+        "--snapshot",
+        default="openapi.json",
+        help="Project-relative OpenAPI snapshot (default: %(default)s)",
+    )
+    verify_parser.add_argument(
+        "--tool-snapshot",
+        default="tools.json",
+        help="Project-relative application-tool snapshot (default: %(default)s)",
+    )
+    verify_parser.add_argument(
+        "--timeout",
+        default=600.0,
+        type=_positive_float,
+        metavar="SECONDS",
+        help="Per-check-step timeout (default: %(default)s)",
+    )
+    verify_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the versioned verification receipt",
+    )
+
     preflight_parser = subparsers.add_parser(
         "preflight",
         help="Run read-only checks against the target environment",
@@ -828,6 +929,91 @@ def _render_check_result(result: CheckResult) -> None:
         f"check: {summary} ({passed}/{total} steps passed in "
         f"{result.duration_seconds:.2f}s)"
     )
+
+
+def _verify(
+    *,
+    base_ref: str,
+    routes: str,
+    tasks: str,
+    jobs: str,
+    tools: str,
+    title: str | None,
+    version: str | None,
+    description: str | None,
+    snapshot: str,
+    tool_snapshot: str,
+    security_json: str | None,
+    timeout_seconds: float,
+    as_json: bool,
+) -> int:
+    with redirect_stdout(sys.stderr if as_json else sys.stdout):
+        result = verification_result(
+            Path.cwd(),
+            base_ref=base_ref,
+            routes=routes,
+            tasks=tasks,
+            jobs=jobs,
+            tools=tools,
+            title=title,
+            version=version,
+            description=description,
+            snapshot=snapshot,
+            tool_snapshot=tool_snapshot,
+            security_json=security_json,
+            timeout_seconds=timeout_seconds,
+        )
+    if as_json:
+        _print_agent_json("verify", result.as_dict())
+    else:
+        _render_verification_result(result)
+    return 0 if result.ok else 1
+
+
+def _render_verification_result(result: VerificationResult) -> None:
+    commit = result.baseline_commit or "unresolved"
+    print(f"Baseline: {result.baseline_ref} -> {commit}")
+    if result.check is not None:
+        _render_check_result(result.check)
+    if result.architecture is not None:
+        status = "passed" if result.architecture.ok else "failed"
+        print(
+            f"[{status}] architecture "
+            f"({len(result.architecture.diagnostics)} diagnostics, "
+            f"{len(result.architecture.unresolved)} unresolved)"
+        )
+        for diagnostic in result.architecture.diagnostics:
+            location = (
+                f"{diagnostic.path}:{diagnostic.line}"
+                if diagnostic.line is not None
+                else diagnostic.path
+            )
+            print(f"  {location}  [{diagnostic.code}] {diagnostic.message}")
+        for unresolved in result.architecture.unresolved:
+            source = unresolved.source
+            location = (
+                f"{source.path}:{source.line}"
+                if source.line is not None
+                else source.path
+            )
+            print(f"  {location}  [{unresolved.code}] {unresolved.message}")
+    if result.openapi is not None:
+        status = "passed" if result.openapi.report.compatible else "failed"
+        print(f"[{status}] OpenAPI compatibility ({result.openapi.report.status})")
+        for change in result.openapi.report.changes:
+            print(f"  [{change.severity}] {change.location}: {change.message}")
+    if result.tools is not None:
+        status = "passed" if result.tools.report.compatible else "failed"
+        print(
+            f"[{status}] application-tool compatibility ({result.tools.report.status})"
+        )
+        for change in result.tools.report.changes:
+            print(f"  [{change.severity}] {change.location}: {change.message}")
+    for error in result.errors:
+        print(f"[failed] {error.stage}: {error.message}")
+    summary = "passed" if result.ok else "failed"
+    print()
+    print(f"verify: {summary} in {result.duration_seconds:.2f}s")
 
 
 def _preflight(

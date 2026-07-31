@@ -70,6 +70,7 @@ that stays open sees edits made during the agent session.
 | `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true` |
 | `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
 | `tools_diff` | A directional compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
+| `verify` | One completion receipt containing checks, strict architecture evidence, and both compatibility reports against a required Git ref |
 | `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI and tool snapshot checks |
 
 `task_run` is absent by default. Start the server with
@@ -97,11 +98,11 @@ and unreadable or unsafe paths are MCP errors. Tenchi snapshots every tool's
 input and output schema in CI; breaking or unknown changes require a new
 protocol version.
 
-<Callout type="warning" title="Check runs project-owned commands">
-  `check` executes the application's tests and validation commands. Those
-  commands can have their usual filesystem, database, or network side effects.
-  MCP clients should treat it as an action rather than a read-only inspection.
-  Cancelling the tool stops the active validation process.
+<Callout type="warning" title="Check and verify run project-owned commands">
+  `check` and `verify` execute the application's tests and validation commands.
+  Those commands can have their usual filesystem, database, or network side
+  effects. MCP clients should treat them as actions rather than read-only
+  inspection. Cancelling either tool stops the active validation process.
 </Callout>
 
 ## Follow the agent loop
@@ -116,6 +117,8 @@ For a feature change, give the agent this sequence:
 5. Call `check` and resolve every failed step.
 6. Call `openapi_diff` before accepting a changed OpenAPI snapshot.
 7. Call `tools_diff` before accepting a changed application-tool snapshot.
+8. Call `verify` with the pull request base, previous push, or previous release
+   and retain its completion receipt.
 
 The agent must still make route and infrastructure wiring explicit in the
 application source. MCP previews follow the same rule as `tenchi make`: they
@@ -141,11 +144,11 @@ uv run tenchi mcp \
   --version 1.0.0
 ```
 
-`routes` uses `--routes`. The map, OpenAPI diff, and `check` tools use
+`routes` uses `--routes`. The map, OpenAPI diff, `check`, and `verify` tools use
 `--api-routes`; `preflight` uses `--preflight`; the task tools use `--tasks`.
 The map loads registered background jobs through `--jobs` and registered
 application tools through `--tools`. Tool discovery and compatibility also use
-`--tools`; `tools_diff` and `check` use `--tool-snapshot`.
+`--tools`; `tools_diff`, `check`, and `verify` use `--tool-snapshot`.
 OpenAPI title, version,
 description, and security defaults come from the same literal route-module
 declarations used by `tenchi check`.

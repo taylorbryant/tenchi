@@ -70,6 +70,7 @@ from ._tool_operations import (
     tool_diff_result,
     tool_list_result,
 )
+from ._verify_operations import VerificationPayload, verification_result
 
 _READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 _CHECK_ANNOTATIONS = ToolAnnotations(
@@ -90,6 +91,7 @@ _TASK_RUN_ANNOTATIONS = ToolAnnotations(
     idempotentHint=False,
     openWorldHint=True,
 )
+type _CheckProgress = Callable[[int, int, CheckStepResult], None]
 
 
 class _MissingTaskInput:
@@ -155,8 +157,9 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             "tasks before invoking one, validate source with check, run preflight "
             "only against the intended environment, and compare OpenAPI before "
             "accepting a changed snapshot. Compare application tools before "
-            "accepting a changed tool snapshot. Tenchi MCP inspection and preview "
-            "tools do not write application files; check runs project-owned "
+            "accepting a changed tool snapshot. Finish with verify against a "
+            "historical Git ref. Tenchi MCP inspection and preview tools do not "
+            "write application files; check and verify run project-owned "
             "validation commands."
         ),
         website_url="https://tenchi.io/mcp",
@@ -172,6 +175,56 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
                     module_names,
                     operation,
                 )
+            except OperationError as exc:
+                raise ToolError(str(exc)) from exc
+
+    async def validation_call[T](
+        ctx: Context[ServerSession, None],
+        operation: Callable[[Callable[[], bool], _CheckProgress], T],
+        *,
+        name: str,
+    ) -> T:
+        async with operation_lock:
+            cancelled = Event()
+            loop = asyncio.get_running_loop()
+
+            def progress(index: int, total: int, step: CheckStepResult) -> None:
+                def schedule() -> None:
+                    task = asyncio.create_task(
+                        ctx.report_progress(
+                            progress=float(index),
+                            total=float(total),
+                            message=(
+                                f"Completed {step.name} ({index}/{total}): "
+                                f"{step.status}"
+                            ),
+                        )
+                    )
+                    progress_tasks.add(task)
+                    task.add_done_callback(finish_progress)
+
+                try:
+                    loop.call_soon_threadsafe(schedule)
+                except RuntimeError:
+                    # A disconnected client may close the loop while the
+                    # validation worker is finishing its active step.
+                    return
+
+            worker = asyncio.create_task(
+                asyncio.to_thread(operation, cancelled.is_set, progress)
+            )
+            try:
+                result = await asyncio.shield(worker)
+                if progress_tasks:
+                    await asyncio.gather(*tuple(progress_tasks), return_exceptions=True)
+                return result
+            except asyncio.CancelledError:
+                cancelled.set()
+                with suppress(CheckCancelled, OperationError):
+                    await asyncio.shield(worker)
+                raise
+            except CheckCancelled as exc:
+                raise ToolError(f"{name} was cancelled") from exc
             except OperationError as exc:
                 raise ToolError(str(exc)) from exc
 
@@ -425,6 +478,52 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         )
 
     @server.tool(
+        name="verify",
+        description=(
+            "Produce one versioned completion receipt by running the project "
+            "checks, strict application-map validation, and OpenAPI and "
+            "application-tool compatibility against an explicit Git ref. "
+            "Project-owned commands run with their normal side effects; output "
+            "is bounded and cancellation stops the active process."
+        ),
+        annotations=_CHECK_ANNOTATIONS,
+    )
+    async def verify(  # pyright: ignore[reportUnusedFunction]
+        ctx: Context[ServerSession, None],
+        base_ref: str,
+        timeout_seconds: Annotated[float, Field(gt=0, le=3600)] = 600.0,
+    ) -> VerificationPayload:
+        def operation(
+            cancelled: Callable[[], bool],
+            progress: _CheckProgress,
+        ) -> VerificationPayload:
+            project_path(root, options.snapshot)
+            project_path(root, options.tool_snapshot)
+            return _isolated_call(
+                root,
+                module_names,
+                lambda: verification_result(
+                    root,
+                    base_ref=base_ref,
+                    routes=options.api_routes,
+                    tasks=options.tasks,
+                    jobs=options.jobs,
+                    tools=options.tools,
+                    title=options.title,
+                    version=options.version,
+                    description=options.description,
+                    snapshot=options.snapshot,
+                    tool_snapshot=options.tool_snapshot,
+                    security_json=options.security_json,
+                    timeout_seconds=timeout_seconds,
+                    cancelled=cancelled,
+                    step_completed=progress,
+                ).as_dict(),
+            )
+
+        return await validation_call(ctx, operation, name="verify")
+
+    @server.tool(
         name="check",
         description=(
             "Run Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI "
@@ -438,12 +537,12 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         ctx: Context[ServerSession, None],
         timeout_seconds: Annotated[float, Field(gt=0, le=3600)] = 600.0,
     ) -> CheckPayload:
-        async with operation_lock:
-            try:
-                snapshot_path = project_path(root, options.snapshot)
-                tool_snapshot_path = project_path(root, options.tool_snapshot)
-            except OperationError as exc:
-                raise ToolError(str(exc)) from exc
+        def operation(
+            cancelled: Callable[[], bool],
+            progress: _CheckProgress,
+        ) -> CheckPayload:
+            snapshot_path = project_path(root, options.snapshot)
+            tool_snapshot_path = project_path(root, options.tool_snapshot)
             title, version, description, security_json = openapi_defaults(
                 root,
                 routes=options.api_routes,
@@ -452,62 +551,24 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
                 description=options.description,
                 security_json=options.security_json,
             )
-            cancelled = Event()
-            loop = asyncio.get_running_loop()
+            return _redirected_call(
+                lambda: run_check(
+                    root,
+                    routes=options.api_routes,
+                    title=title,
+                    version=version,
+                    description=description,
+                    snapshot=str(snapshot_path),
+                    tools=options.tools,
+                    tool_snapshot=str(tool_snapshot_path),
+                    security_json=security_json,
+                    timeout_seconds=timeout_seconds,
+                    cancelled=cancelled,
+                    step_completed=progress,
+                ).as_dict()
+            )
 
-            def progress(index: int, total: int, step: CheckStepResult) -> None:
-                def schedule() -> None:
-                    task = asyncio.create_task(
-                        ctx.report_progress(
-                            progress=float(index),
-                            total=float(total),
-                            message=(
-                                f"Completed {step.name} ({index}/{total}): "
-                                f"{step.status}"
-                            ),
-                        )
-                    )
-                    progress_tasks.add(task)
-                    task.add_done_callback(finish_progress)
-
-                try:
-                    loop.call_soon_threadsafe(schedule)
-                except RuntimeError:
-                    # A disconnected client may close the loop while the
-                    # validation worker is finishing its active step.
-                    return
-
-            def operation() -> CheckPayload:
-                return _redirected_call(
-                    lambda: run_check(
-                        root,
-                        routes=options.api_routes,
-                        title=title,
-                        version=version,
-                        description=description,
-                        snapshot=str(snapshot_path),
-                        tools=options.tools,
-                        tool_snapshot=str(tool_snapshot_path),
-                        security_json=security_json,
-                        timeout_seconds=timeout_seconds,
-                        cancelled=cancelled.is_set,
-                        step_completed=progress,
-                    ).as_dict()
-                )
-
-            worker = asyncio.create_task(asyncio.to_thread(operation))
-            try:
-                result = await asyncio.shield(worker)
-                if progress_tasks:
-                    await asyncio.gather(*tuple(progress_tasks), return_exceptions=True)
-                return result
-            except asyncio.CancelledError:
-                cancelled.set()
-                with suppress(CheckCancelled):
-                    await asyncio.shield(worker)
-                raise
-            except CheckCancelled as exc:  # defensive: cancellation owns this path
-                raise ToolError("check was cancelled") from exc
+        return await validation_call(ctx, operation, name="check")
 
     @server.resource(
         "tenchi://project/agents",
@@ -585,7 +646,9 @@ def _fallback_agent_instructions() -> str:
 5. Run `preflight` only against the intended deployment environment.
 6. Run `openapi_diff` before accepting a changed OpenAPI snapshot.
 7. Run `tools_diff` before accepting a changed application-tool snapshot.
-8. Use `task_list` before any separately authorized operational task run.
+8. Run `verify` against the merge base, previous push, or previous release and
+   report its receipt.
+9. Use `task_list` before any separately authorized operational task run.
 
 Full guidance: https://tenchi.io/agents
 """
