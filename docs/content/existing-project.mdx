@@ -38,6 +38,7 @@ app/
     __init__.py
     asgi.py
     context.py
+    evaluations.py
     jobs.py
     preflight.py
     routes.py
@@ -223,6 +224,25 @@ target before the application exposes a use case to machine callers. Add
 declarations and authenticated runner wiring later by following [Application
 tools](/tools).
 
+Create an empty evaluation runner in `app/server/evaluations.py`:
+
+```python
+from tenchi.evaluations import create_evaluation_runner, evaluation_group
+
+from app.server.runtime import create_context
+
+
+evaluations = evaluation_group()
+runner = create_evaluation_runner(
+    evaluations=evaluations,
+    context_factory=create_context,
+)
+```
+
+This keeps `tenchi map`, `tenchi verify`, and `tenchi eval list` useful before
+the application has an AI evaluation gate. Add typed cases and provider-neutral
+evaluators later by following [AI evaluations](/evaluations).
+
 Create an empty deployment gate in `app/server/preflight.py`:
 
 ```python
@@ -290,7 +310,9 @@ uv run tenchi openapi \
   --write openapi.json
 uv run tenchi tools --write tools.json
 uv run tenchi check
+uv run tenchi map
 uv run tenchi preflight
+uv run tenchi eval list
 uv run tenchi task list
 ```
 

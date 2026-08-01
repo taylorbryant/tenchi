@@ -20,6 +20,8 @@ from tenchi import (
     ClientObserver,
     ClientOutcome,
     ErrorDef,
+    Evaluation,
+    EvaluationRunner,
     IdempotencyResultError,
     IdempotencyStore,
     IdempotencyStoreError,
@@ -42,11 +44,17 @@ from tenchi import (
     WebhookRequest,
     contract,
     create_app,
+    create_evaluation_runner,
     create_job_dispatcher,
     create_task_runner,
     create_tool_runner,
     execute,
     enforce_rate_limit,
+    evaluation,
+    evaluation_case,
+    evaluation_group,
+    evaluation_metric,
+    evaluation_result,
     fingerprint,
     health_route,
     job,
@@ -98,6 +106,7 @@ expected application failures.
 | `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `UseCaseOutcome`, `UseCaseObserver` |
 | `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `MemoryIdempotencyStore`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
 | `tenchi.jobs` | `Job`, `JobMessage`, `JobHandler`, `JobGroup`, `JobDispatcher`, `JobBindingError`, `JobNotFoundError`, `JobResultError`, `job()`, `job_message()`, `job_handler()`, `job_group()`, `create_job_dispatcher()` |
+| `tenchi.evaluations` | `Evaluation`, `EvaluationCase`, `EvaluationMetric`, `EvaluationMeasurement`, `EvaluationGroup`, `EvaluationRunner`, `EvaluationCaseOutcome`, `EvaluationMetricOutcome`, `EvaluationBudgetOutcome`, `EvaluationBudgetStatus`, `EvaluationOutcome`, `EvaluationReport`, `EvaluationBindingError`, `EvaluationNotFoundError`, `EvaluationResultError`, `MAX_EVALUATION_TOKENS`, `evaluation()`, `evaluation_case()`, `evaluation_metric()`, `evaluation_result()`, `evaluation_group()`, `create_evaluation_runner()` |
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.rate_limits` | `RateLimitStore`, `RateLimitPermit`, `RateLimitExceeded`, `RateLimitDecision`, `RateLimitStoreError`, `MemoryRateLimitStore`, `RATE_LIMITED`, `enforce_rate_limit()` |
 | `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `task()`, `task_group()`, `create_task_runner()` |
@@ -119,7 +128,9 @@ contract marked `webhook=True`. A `RateLimitStore` atomically applies
 fixed-window application quotas. An application `ToolRunner` validates
 machine-facing calls, applies lifecycle and context wiring, and masks
 undeclared failures. `tool_manifest()` exposes portable JSON Schemas and
-safety metadata without choosing an agent transport.
+safety metadata without choosing an agent transport. An `EvaluationRunner`
+applies the same lifecycle discipline to typed, budgeted AI quality gates
+without choosing a model provider or judge.
 
 ## Optional integrations
 

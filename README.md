@@ -111,10 +111,10 @@ Applications use this structure:
 
 ```text
 app/
-  features/<feature>/   # contracts, schemas, ports, routes, jobs, tasks, tools, use cases
+  features/<feature>/   # contracts, schemas, ports, routes, jobs, tasks, tools, evaluations, use cases
   shared/               # shared errors and domain concepts
   infra/                # concrete port implementations
-  server/               # context, runtime, preflight, route/job/task/tool composition, ASGI app
+  server/               # context, runtime, preflight, boundary composition, ASGI app
 tests/                  # HTTP integration tests
 ```
 
@@ -156,6 +156,11 @@ The main pieces are:
   composition-time handler bindings, validated consumer results, shared
   use-case outcomes, and application-map nodes. Applications keep ownership of
   queue persistence, acknowledgement, retries, and dead letters.
+- Provider-neutral AI evaluation gates with typed cases, normalized metric
+  thresholds, bounded lifecycle-aware execution, optional token and cost
+  budgets, redacted reports, CLI automation, and opt-in coding-agent MCP
+  execution. Applications keep ownership of models, prompts, judges, and
+  datasets.
 
 `public` defaults to `False`. Set `public=True` for operations that an
 authentication hook should exempt, then inspect the metadata in the hook:
@@ -335,12 +340,19 @@ The application still owns identity, approval policy, and use-case
 authorization. See [Serve application tools over
 MCP](https://tenchi.io/tool-mcp).
 
+Application-owned evaluations declare typed cases, normalized metric
+thresholds, per-case timeouts, and optional token and cost budgets. The runner
+uses the same lifespan and scoped-context pattern as other entrypoints while
+returning only scores, usage, status, durations, and stable failure codes.
+Budget status distinguishes measured limit overruns from usage that could not
+be verified. See the [AI evaluations guide](https://tenchi.io/evaluations).
+
 See [`examples/todos`](examples/todos) for the small teaching app and
 [`examples/taskboard`](examples/taskboard) for a larger application with
 authentication, authorization, SQLite transactions, optimistic concurrency
 through `ETag` / `If-Match`, idempotent task creation, multiple successful
 outcomes, request observation, deadlines, background work, and authenticated
-application tools.
+application tools plus an application evaluation gate.
 
 ## CLI
 
@@ -367,6 +379,8 @@ tenchi check
 tenchi verify --base-ref origin/main --json
 tenchi preflight
 tenchi preflight --json
+tenchi eval list
+tenchi eval run support.answer_quality --json
 tenchi task list
 tenchi task run projects.repair_members --input '{"dry_run": true}'
 tenchi mcp
@@ -396,8 +410,8 @@ Use `--diff-format json` for a versioned result, or import
 
 `tenchi map` combines source declarations with the composed route group into a
 deterministic graph of features, contracts, routes, operational tasks,
-background jobs, application tools, use cases, policies, ports, adapters,
-context, entrypoints, and tests. Every
+background jobs, application tools, evaluations, use cases, policies, ports,
+adapters, context, entrypoints, and tests. Every
 relationship includes source evidence and a confidence level. Use `--feature`
 for a feature plus its direct cross-feature dependencies, `--kind` for a
 comma-separated node projection, and `--json` for the versioned result.
@@ -423,9 +437,16 @@ readiness. Structured results expose only static names, descriptions, failure
 codes, statuses, and durations. See the [deployment preflight
 guide](https://tenchi.io/preflight).
 
+`tenchi eval list` discovers registered suites without exposing case inputs or
+running providers. `tenchi eval run` applies thresholds, timeouts, and declared
+usage budgets, returning a payload-safe result and a non-zero exit status when
+the gate fails. Evaluation runs remain separate from `check` and `verify`
+because they may be nondeterministic, contact external systems, and incur
+cost.
+
 Generator `--dry-run` output lists every file without writing it. `make`,
-`map`, `tools`, `doctor`, `check`, and `verify` accept `--json` and return
-versioned results for agents and automation. `tenchi check` runs Ruff
+`map`, `tools`, `eval`, `doctor`, `check`, and `verify` accept `--json` and
+return versioned results for agents and automation. `tenchi check` runs Ruff
 formatting and linting, Pyright, pytest, doctor, and the OpenAPI and
 application-tool snapshot checks even when an earlier step fails; failed
 output is bounded and each step reports its duration.
@@ -435,9 +456,10 @@ See the [coding-agent workflow](https://tenchi.io/agents) for the complete
 inspect, preview, edit, validate, and compatibility loop.
 
 The `tenchi mcp` CLI serves the same versioned map, route, application-tool,
-preflight, task-discovery, doctor, generator-preview, OpenAPI-diff, tool-diff,
-check, and verification results over stdio. Task execution is absent unless
-the server starts with `--allow-task-runs`.
+preflight, evaluation-discovery, task-discovery, doctor, generator-preview,
+OpenAPI-diff, tool-diff, check, and verification results over stdio. Evaluation
+execution is absent unless the server starts with `--allow-evaluation-runs`;
+task execution is absent unless it starts with `--allow-task-runs`.
 Preflight remains available as a read-only tool but deliberately contacts the
 environment captured by the server process. Inspection and preview tools do
 not write application files; project-owned commands executed by `check` retain

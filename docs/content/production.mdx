@@ -27,6 +27,7 @@ Tenchi provides the application seams and boundary guarantees:
 | Inbound webhooks | Exact-body verifier bindings, required composition, request limits, and typed validation | Verify the provider protocol, attach service identity, enforce replay rules, and store event ids |
 | Background work | Validated job messages, handler bindings, dispatch, and scoped contexts | Choose a queue or outbox, schedule workers, and define retry policy |
 | Operational maintenance | Validated named tasks, CLI/MCP discovery, and scoped execution | Define safe dry runs, operator access, and rollout procedure |
+| AI quality | Typed cases, normalized thresholds, bounded execution, redacted reports, and optional token/cost budgets | Choose providers, prompts, datasets, scorers, judge models, and acceptable variance |
 | Observability | Finalized outcomes plus an optional OpenTelemetry bridge | Configure the SDK, transport instrumentation, exporters, alerts, and retention |
 | Deployment | Health routes, request limits, deadlines, `tenchi check`, and environment preflight | Configure the ASGI server, proxy, secrets, migrations, dependency credentials, and rollout |
 
@@ -50,7 +51,8 @@ deployed service:
 6. [Verify inbound webhook bytes and collapse provider redeliveries](/webhooks).
 7. [Emit low-cardinality request and worker telemetry](/observability).
 8. [Declare read-only checks for the target environment](/preflight).
-9. [Configure health, limits, middleware, and the release gate](/deployment).
+9. [Gate model-backed behavior with explicit evaluations](/evaluations).
+10. [Configure health, limits, middleware, and the release gate](/deployment).
 
 Authentication and authorization have their own
 [boundary-to-policy workflow](/authentication). Testing follows the same
@@ -105,6 +107,8 @@ Before the first deployment, verify that the service has:
 - readiness checks for dependencies required to serve traffic;
 - body-size limits and operation deadlines appropriate to the API;
 - a read-only `tenchi preflight` gate in the target environment;
+- an explicitly budgeted `tenchi eval run` gate for model-backed behavior,
+  separate from deterministic source checks;
 - `tenchi verify --base-ref <release-ref>` for checks, strict architecture
   evidence, and OpenAPI and application-tool comparisons against one immutable
   release baseline.

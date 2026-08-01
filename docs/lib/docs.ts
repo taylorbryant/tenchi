@@ -156,6 +156,13 @@ export const docsSections = [
         priority: 0.81,
       },
       {
+        path: "/evaluations",
+        title: "AI evaluations",
+        description:
+          "Gate application-owned AI behavior with typed cases, metric thresholds, bounded execution, token and cost budgets, and payload-safe results.",
+        priority: 0.81,
+      },
+      {
         path: "/testing",
         title: "Testing",
         description:

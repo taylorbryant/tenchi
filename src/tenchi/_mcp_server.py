@@ -37,12 +37,20 @@ from ._cli_results import (
     CheckPayload,
     CheckStepResult,
     DoctorPayload,
+    EvaluationListPayload,
+    EvaluationRunPayload,
     GeneratedArtifact,
     MakePayload,
     PreflightPayload,
     RoutesPayload,
     TaskListPayload,
     TaskRunPayload,
+)
+from ._evaluation_operations import (
+    discard_evaluation_output,
+    evaluation_list_result,
+    evaluation_run_result,
+    load_evaluation_runner,
 )
 from ._job_operations import load_job_group
 from ._openapi_operations import (
@@ -91,6 +99,12 @@ _TASK_RUN_ANNOTATIONS = ToolAnnotations(
     idempotentHint=False,
     openWorldHint=True,
 )
+_EVALUATION_RUN_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=False,
+    openWorldHint=True,
+)
 type _CheckProgress = Callable[[int, int, CheckStepResult], None]
 
 
@@ -109,10 +123,12 @@ class McpServerOptions:
     routes: str = "app.server.routes:routes"
     api_routes: str = "app.server.routes:api_routes"
     preflight: str = "app.server.preflight:checks"
+    evaluations: str = "app.server.evaluations:runner"
     tasks: str = "app.server.tasks:runner"
     jobs: str = "app.server.jobs:jobs"
     tools: str = "app.server.tools:tools"
     allow_task_runs: bool = False
+    allow_evaluation_runs: bool = False
     snapshot: str = "openapi.json"
     tool_snapshot: str = "tools.json"
     title: str | None = None
@@ -138,6 +154,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             options.routes,
             options.api_routes,
             options.preflight,
+            options.evaluations,
             options.tasks,
             options.jobs,
             options.tools,
@@ -155,7 +172,8 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             "Inspect the project instructions first, map the affected feature, "
             "preview generated structure before editing, discover operational "
             "tasks before invoking one, validate source with check, run preflight "
-            "only against the intended environment, and compare OpenAPI before "
+            "only against the intended environment, discover evaluations before "
+            "running an explicitly authorized evaluation, and compare OpenAPI before "
             "accepting a changed snapshot. Compare application tools before "
             "accepting a changed tool snapshot. Finish with verify against a "
             "historical Git ref. Tenchi MCP inspection and preview tools do not "
@@ -245,7 +263,15 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             runner = load_task_runner(root, options.tasks)
             jobs = load_job_group(root, options.jobs)
             tools = load_tool_group(root, options.tools)
-            result = map_app(root, group, runner.tasks, jobs, tools)
+            evaluation_runner = load_evaluation_runner(root, options.evaluations)
+            result = map_app(
+                root,
+                group,
+                runner.tasks,
+                jobs,
+                tools,
+                evaluation_runner.evaluations,
+            )
             if feature is not None:
                 available = sorted(
                     node.name for node in result.nodes if node.kind == "feature"
@@ -332,6 +358,75 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
                     ).as_dict()
             except OperationError as exc:
                 raise ToolError(str(exc)) from exc
+
+    @server.tool(
+        name="evaluation_list",
+        description=(
+            "List application-owned evaluation suites, case names, typed case "
+            "schemas, metric thresholds, timeouts, and budgets without exposing "
+            "case inputs or running evaluators."
+        ),
+        annotations=_READ_ONLY,
+    )
+    async def evaluation_list(  # pyright: ignore[reportUnusedFunction]
+    ) -> EvaluationListPayload:
+        async with operation_lock:
+            try:
+                with (
+                    discard_evaluation_output(),
+                    isolated_project_imports(
+                        root,
+                        module_names=module_names,
+                    ),
+                ):
+                    runner = load_evaluation_runner(root, options.evaluations)
+                    return evaluation_list_result(
+                        root,
+                        options.evaluations,
+                        runner,
+                    ).as_dict()
+            except OperationError as exc:
+                raise ToolError(str(exc)) from exc
+
+    if options.allow_evaluation_runs:
+
+        @server.tool(
+            name="evaluation_run",
+            description=(
+                "Run one named application evaluation or every registered "
+                "evaluation. This may call external models and spend the "
+                "application's declared token or cost budget. Results never "
+                "contain case inputs, prompts, model outputs, or exceptions."
+            ),
+            annotations=_EVALUATION_RUN_ANNOTATIONS,
+        )
+        async def evaluation_run(  # pyright: ignore[reportUnusedFunction]
+            name: str | None = None,
+            concurrency: Annotated[int | None, Field(gt=0)] = None,
+            timeout_seconds: Annotated[float | None, Field(gt=0)] = None,
+        ) -> EvaluationRunPayload:
+            async with operation_lock:
+                try:
+                    with (
+                        discard_evaluation_output(),
+                        isolated_project_imports(
+                            root,
+                            module_names=module_names,
+                        ),
+                    ):
+                        runner = load_evaluation_runner(root, options.evaluations)
+                        return (
+                            await evaluation_run_result(
+                                root,
+                                options.evaluations,
+                                runner,
+                                name=name,
+                                concurrency=concurrency,
+                                timeout=timeout_seconds,
+                            )
+                        ).as_dict()
+                except OperationError as exc:
+                    raise ToolError(str(exc)) from exc
 
     @server.tool(
         name="task_list",
@@ -506,6 +601,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
                     root,
                     base_ref=base_ref,
                     routes=options.api_routes,
+                    evaluations=options.evaluations,
                     tasks=options.tasks,
                     jobs=options.jobs,
                     tools=options.tools,
@@ -606,10 +702,12 @@ def run_mcp_server(options: McpServerOptions) -> None:
             routes=options.routes,
             api_routes=options.api_routes,
             preflight=options.preflight,
+            evaluations=options.evaluations,
             tasks=options.tasks,
             jobs=options.jobs,
             tools=options.tools,
             allow_task_runs=options.allow_task_runs,
+            allow_evaluation_runs=options.allow_evaluation_runs,
             snapshot=options.snapshot,
             tool_snapshot=options.tool_snapshot,
             title=options.title,
@@ -644,11 +742,12 @@ def _fallback_agent_instructions() -> str:
    behind protocols, and wiring explicit in the server composition root.
 4. Run `check` after a coherent change.
 5. Run `preflight` only against the intended deployment environment.
-6. Run `openapi_diff` before accepting a changed OpenAPI snapshot.
-7. Run `tools_diff` before accepting a changed application-tool snapshot.
-8. Run `verify` against the merge base, previous push, or previous release and
+6. Use `evaluation_list` before any separately authorized evaluation run.
+7. Run `openapi_diff` before accepting a changed OpenAPI snapshot.
+8. Run `tools_diff` before accepting a changed application-tool snapshot.
+9. Run `verify` against the merge base, previous push, or previous release and
    report its receipt.
-9. Use `task_list` before any separately authorized operational task run.
+10. Use `task_list` before any separately authorized operational task run.
 
 Full guidance: https://tenchi.io/agents
 """

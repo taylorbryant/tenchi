@@ -28,6 +28,7 @@ from ._cli_results import (
     DiagnosticPayload,
     DiagnosticResult,
 )
+from ._evaluation_operations import load_evaluation_runner
 from ._job_operations import load_job_group
 from ._openapi_operations import (
     OpenApiDiffPayload,
@@ -168,6 +169,7 @@ def verification_result(
     *,
     base_ref: str,
     routes: str,
+    evaluations: str,
     tasks: str,
     jobs: str,
     tools: str,
@@ -236,6 +238,7 @@ def verification_result(
     _raise_if_cancelled(cancelled)
     try:
         route_group = load_route_group(resolved_root, routes)
+        evaluation_runner = load_evaluation_runner(resolved_root, evaluations)
         task_runner = load_task_runner(resolved_root, tasks)
         job_group = load_job_group(resolved_root, jobs)
         tool_group = load_tool_group(resolved_root, tools)
@@ -245,6 +248,7 @@ def verification_result(
             task_runner.tasks,
             job_group,
             tool_group,
+            evaluation_runner.evaluations,
         )
         architecture = VerificationArchitectureResult(
             summary=app_map.summary.as_dict(),

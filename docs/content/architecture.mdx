@@ -16,6 +16,7 @@ app/
     jobs.py
     tasks.py
     tools.py
+    evaluations.py
     use_cases/
     tests/
   shared/
@@ -28,6 +29,7 @@ app/
     jobs.py
     runtime.py
     preflight.py
+    evaluations.py
     tasks.py
     tools.py
     mcp.py
@@ -43,7 +45,8 @@ feature needs. `policy.py` owns pure authorization rules. `routes.py` binds
 contracts to use cases. `tasks.py` gives selected use cases stable operational
 names. `jobs.py` declares durable background messages without importing their
 consumer use cases. `tools.py` gives selected use cases stable, typed
-machine-facing contracts.
+machine-facing contracts. `evaluations.py` declares typed cases, metrics, and
+provider-neutral evaluators for behavior the feature needs to gate.
 
 Each file in `use_cases/` contains one plain async function. Unit tests sit
 beside the feature and call those functions directly with memory adapters.
@@ -71,6 +74,8 @@ The `app/server/` package is the application root:
 - `jobs.py` binds feature job declarations to consumer use cases.
 - `runtime.py` owns resources shared by HTTP and operational entrypoints.
 - `preflight.py` declares read-only checks of the target deployment environment.
+- `evaluations.py` composes evaluations with application lifecycle and context
+  wiring.
 - `tasks.py` composes the application's operational task runner.
 - `tools.py` composes application tools with authenticated context wiring.
 - `mcp.py` optionally exposes those tools through authenticated MCP discovery
@@ -89,6 +94,7 @@ server composition -> routes
 server composition -> infrastructure -> ports
 server composition -> job declarations + consumer use cases
 server composition -> tool bindings + authenticated context
+server composition -> evaluation declarations + application context
 ```
 
 Arrows point from the importing layer to the layer it depends on. Server
@@ -105,6 +111,9 @@ on it.
 - Tool modules may import schemas and use cases to bind them, but never
   infrastructure or server composition. Safety annotations describe behavior;
   authorization remains in the use case.
+- Evaluation modules may import schemas, ports, policies, and use cases, but
+  never infrastructure or server composition. They describe cases and scoring;
+  provider adapters arrive through the runner's context.
 - Infrastructure implements ports, but never imports use cases or routes.
 - Server composition wires the complete graph.
 

@@ -5,7 +5,8 @@ import { Callout } from "@/components/callout";
 Tenchi's MCP server gives a coding agent structured access to the application
 map, route table, registered application-tool contract, architecture
 diagnostics, generator previews, OpenAPI and tool compatibility, deployment
-preflight, operational-task discovery, and the complete validation loop.
+preflight, evaluation discovery, operational-task discovery, and the complete
+validation loop.
 Inspection and preview tools do not edit application files; `check` runs the
 project's own validation commands and can have their usual side effects.
 
@@ -66,6 +67,7 @@ that stays open sees edits made during the agent session.
 | `tools` | The registered application-tool manifest with input/output schemas, declared errors, and safety annotations |
 | `doctor` | Source-anchored architecture and dependency diagnostics |
 | `preflight` | Read-only, timeout-bounded observations of the target deployment environment with redacted results |
+| `evaluation_list` | Evaluation names, case names and schemas, metric thresholds, timeouts, and budgets without case inputs |
 | `task_list` | Registered operational tasks with validated input and output JSON Schemas |
 | `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true` |
 | `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
@@ -84,6 +86,18 @@ The tool can change application state and uses the credentials available to
 the MCP server process. Only enable it for an agent and environment authorized
 to perform operational work. See [Operational tasks](/tasks) for the complete
 workflow.
+
+`evaluation_run` is also absent by default. Enable it only for a trusted
+process that may call model providers and consume the application's declared
+budget:
+
+```shell
+uv run tenchi mcp --allow-evaluation-runs
+```
+
+The result contains scores, usage, statuses, and stable failure codes without
+case inputs, prompts, or model outputs. See [AI evaluations](/evaluations) for
+runner composition, budget behavior, and the recommended deployment gate.
 
 `preflight` is available by default and is marked read-only. It still contacts
 the environment selected by the MCP server process. Call it only when that
@@ -135,6 +149,7 @@ uv run tenchi mcp \
   --routes my_app.server.routes:routes \
   --api-routes my_app.server.routes:api_routes \
   --preflight my_app.server.preflight:checks \
+  --evaluations my_app.server.evaluations:runner \
   --tasks my_app.server.tasks:runner \
   --jobs my_app.server.jobs:jobs \
   --tools my_app.server.tools:tools \
@@ -146,6 +161,7 @@ uv run tenchi mcp \
 
 `routes` uses `--routes`. The map, OpenAPI diff, `check`, and `verify` tools use
 `--api-routes`; `preflight` uses `--preflight`; the task tools use `--tasks`.
+The evaluation tools use `--evaluations`.
 The map loads registered background jobs through `--jobs` and registered
 application tools through `--tools`. Tool discovery and compatibility also use
 `--tools`; `tools_diff`, `check`, and `verify` use `--tool-snapshot`.

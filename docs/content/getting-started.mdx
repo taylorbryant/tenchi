@@ -31,6 +31,7 @@ single route. Its important files are:
 | `app/server/context.py` | Frozen context passed to use cases |
 | `app/server/runtime.py` | Lifespan and context wiring shared by entrypoints |
 | `app/server/preflight.py` | Read-only checks of the target deployment environment |
+| `app/server/evaluations.py` | AI evaluation lifecycle and context composition |
 | `app/server/jobs.py` | Background-job handler composition |
 | `app/server/tasks.py` | Operational task composition |
 | `app/server/tools.py` | Registered machine-facing tool composition |
@@ -43,6 +44,10 @@ single route. Its important files are:
 The starter preflight group is empty because a local source check must not
 contact an environment implicitly. Add production dependency observations by
 following [deployment preflight](/preflight).
+
+The starter evaluation group is also empty. Add typed cases and score
+thresholds when the application gains model-backed behavior; see [AI
+evaluations](/evaluations).
 
 ## Run the checks
 

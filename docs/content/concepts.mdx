@@ -42,6 +42,14 @@ runner supplies application lifecycle and context wiring. Model providers,
 agent loops, authentication, approval interfaces, and transport protocols stay
 outside the declaration.
 
+## Evaluation
+
+A named suite of typed cases, normalized metrics, passing thresholds, and
+optional token and cost budgets for AI-powered behavior. An evaluation runner
+supplies application lifecycle and a scoped context to each case. Models,
+prompts, judges, and datasets stay application-owned; reports contain scores
+and usage, not evaluated payloads.
+
 ## Port
 
 An interface the application needs, declared with `typing.Protocol`. The

@@ -55,6 +55,7 @@ uv run tenchi dev       # run the server with reload
 uv run tenchi routes    # list bound routes
 uv run tenchi map       # inspect the complete application graph
 uv run tenchi preflight # verify the selected deployment environment
+uv run tenchi eval list # discover AI evaluation gates without running them
 uv run tenchi task list # discover operational tasks
 uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
 uv run tenchi tools --diff tools.json
@@ -104,8 +105,8 @@ Framework agent workflow: https://tenchi.io/agents
    `uv run tenchi make use-case <feature> <name> --dry-run` before creating
    framework-shaped files manually.
 3. Keep explicit wiring visible in `app/server/routes.py`,
-   `app/server/jobs.py`, `app/server/preflight.py`, `app/server/tasks.py`,
-   `app/server/runtime.py`,
+   `app/server/jobs.py`, `app/server/preflight.py`,
+   `app/server/evaluations.py`, `app/server/tasks.py`, `app/server/runtime.py`,
    `app/server/webhooks.py` when signed endpoints exist,
    `app/server/tools.py` when application tools exist,
    `app/server/mcp.py` when application tools are exposed over MCP,
@@ -118,17 +119,20 @@ Framework agent workflow: https://tenchi.io/agents
    boundary as unfinished work.
 
 Use `--json` with `tenchi map`, `tenchi routes`, `tenchi tools`, `tenchi
-preflight`, `tenchi task`, `tenchi doctor`, `tenchi check`, `tenchi verify`,
-and `tenchi make ...` when structured output is more useful than terminal text.
+preflight`, `tenchi eval`, `tenchi task`, `tenchi doctor`, `tenchi check`,
+`tenchi verify`, and `tenchi make ...` when structured output is more useful
+than terminal text.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
-`app_map`, `routes`, `tools`, `preflight`, `task_list`, `doctor`,
-`openapi_diff`, `tools_diff`, `make_preview`, `check`, and `verify` tools return
-the same versioned results. Inspection and preview tools never write
+`app_map`, `routes`, `tools`, `preflight`, `evaluation_list`, `task_list`,
+`doctor`, `openapi_diff`, `tools_diff`, `make_preview`, `check`, and `verify`
+tools return the same versioned results. Inspection and preview tools never write
 application files; `check` and `verify` run the project's normal validation
 commands. Run `preflight` only against the intended environment. Task execution
 is not exposed unless an operator deliberately starts the server with
-`--allow-task-runs`. The agent still makes ordinary, reviewable source edits.
+`--allow-task-runs`. Evaluation execution is not exposed unless an operator
+deliberately starts the server with `--allow-evaluation-runs`. The agent still
+makes ordinary, reviewable source edits.
 
 ## Placement and dependency direction
 
@@ -143,6 +147,8 @@ is not exposed unless an operator deliberately starts the server with
   consumers; handlers are bound in `app/server/jobs.py`.
 - `tools.py` binds stable machine-facing contracts to use cases; it never
   imports infrastructure or server composition.
+- `evaluations.py` declares typed cases, metrics, and provider-neutral
+  evaluators; it never imports infrastructure or server composition.
 - `use_cases/` contains one plain async function per workflow. Use cases may
   depend on schemas, ports, policies, shared code, and `app.server.context`, but
   never concrete infrastructure, routes, or the Tenchi/Starlette runtime.
@@ -151,9 +157,10 @@ is not exposed unless an operator deliberately starts the server with
 - `app/server/` is the composition root and may import every application layer.
   Shared lifespan/context wiring lives in `runtime.py`; task composition lives
   in `tasks.py`; background handlers live in `jobs.py`; read-only deployment
-  observations live in `preflight.py`; authenticated application-tool wiring
-  lives in `tools.py` when present; application MCP transport wiring lives in
-  `mcp.py` when present.
+  observations live in `preflight.py`; evaluation lifecycle/context wiring
+  lives in `evaluations.py`; authenticated application-tool wiring lives in
+  `tools.py` when present; application MCP transport wiring lives in `mcp.py`
+  when present.
 - `app/shared/` never imports features.
 
 Authentication belongs in boundary hooks. Authorization belongs in use cases
@@ -174,6 +181,13 @@ When application tools are exposed over MCP, authenticate discovery and calls,
 recheck per-principal visibility, and require an explicit approval decision for
 destructive tools. The `tenchi mcp` CLI remains the separate coding-agent
 server.
+Evaluation declarations own typed cases and score thresholds. Evaluators return
+only normalized scores and usage; never put prompts or generated outputs in
+result metadata. Each invocation receives an isolated case input. Treat
+`EVALUATION_BUDGET_EXCEEDED` as measured overage and
+`EVALUATION_BUDGET_UNVERIFIED` as missing evidence. Keep `tenchi eval run`
+separate from deterministic checks and authorize coding-agent execution
+explicitly because it may call providers and incur cost.
 
 ## Change checklist
 
@@ -499,7 +513,10 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from app.infra.port_wiring import ensure_schema, open_todo_repository
 from app.server.context import AppContext
 
-DATABASE_PATH = os.environ.get("__APP_ENV_PREFIX___DATABASE", "__APP_NAME__.db")
+DATABASE_PATH = os.environ.get(
+    "__APP_ENV_PREFIX___DATABASE",
+    "__APP_NAME__.db",
+)
 
 
 def create_lifespan(
@@ -572,6 +589,21 @@ from tenchi.tools import tool_group
 
 # Import feature tool groups here as machine-facing capabilities are added.
 tools = tool_group()
+"""
+
+_SERVER_EVALUATIONS = """\
+from tenchi.evaluations import create_evaluation_runner, evaluation_group
+
+from app.features.todos.evaluations import evaluations as todo_evaluations
+from app.server.runtime import DATABASE_PATH, create_context, create_lifespan
+
+evaluations = evaluation_group(todo_evaluations)
+
+runner = create_evaluation_runner(
+    evaluations=evaluations,
+    context_factory=create_context,
+    lifespan=create_lifespan(DATABASE_PATH),
+)
 """
 
 _SERVER_PREFLIGHT = """\
@@ -898,6 +930,11 @@ _FILES: dict[str, str] = {
     "app/features/__init__.py": "",
     "app/features/todos/__init__.py": "",
     "app/features/todos/contracts.py": _CONTRACTS,
+    "app/features/todos/evaluations.py": (
+        '"""Application-owned evaluations for the todos feature."""\n\n'
+        "from tenchi.evaluations import evaluation_group\n\n"
+        "evaluations = evaluation_group()\n"
+    ),
     "app/features/todos/ports.py": _PORTS,
     "app/features/todos/routes.py": _FEATURE_ROUTES,
     "app/features/todos/schemas.py": _SCHEMAS,
@@ -913,6 +950,7 @@ _FILES: dict[str, str] = {
     "app/server/__init__.py": "",
     "app/server/asgi.py": _SERVER_APP,
     "app/server/context.py": _CONTEXT,
+    "app/server/evaluations.py": _SERVER_EVALUATIONS,
     "app/server/jobs.py": _SERVER_JOBS,
     "app/server/preflight.py": _SERVER_PREFLIGHT,
     "app/server/routes.py": _SERVER_ROUTES,
@@ -985,6 +1023,19 @@ from tenchi.tools import tool_group
 tools = tool_group()
 '''
 
+_MAKE_FEATURE_EVALUATIONS = '''\
+"""Application-owned evaluations for the __FEATURE__ feature.
+
+Declare typed cases and evaluators with evaluation(), then compose this group
+in app/server/evaluations.py. Evaluator results contain scores and usage only;
+case inputs and generated outputs never cross Tenchi's result boundary.
+"""
+
+from tenchi.evaluations import evaluation_group
+
+evaluations = evaluation_group()
+'''
+
 
 def feature_files(feature: str) -> dict[str, str]:
     """Return a feature skeleton, relative to ``app/features/<feature>/``."""
@@ -996,6 +1047,7 @@ def feature_files(feature: str) -> dict[str, str]:
             'implemented in app/infra/."""\n'
         ),
         "contracts.py": f'"""HTTP contracts for the {feature} feature."""\n',
+        "evaluations.py": _MAKE_FEATURE_EVALUATIONS.replace("__FEATURE__", feature),
         "policy.py": (
             f'"""Authorization rules for the {feature} feature.\n'
             "\n"

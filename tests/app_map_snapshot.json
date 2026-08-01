@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "root": "<ROOT>",
   "summary": {
     "features": 1,
@@ -8,6 +8,7 @@
     "jobs": 1,
     "tasks": 1,
     "tools": 1,
+    "evaluations": 1,
     "use_cases": 1,
     "policies": 1,
     "ports": 1,
@@ -200,6 +201,19 @@
         "symbol": "example_tool"
       },
       "status": "registered",
+      "details": {}
+    },
+    {
+      "id": "evaluation:example",
+      "kind": "evaluation",
+      "name": "example-evaluation",
+      "feature": null,
+      "source": {
+        "path": "app/evaluation.py",
+        "line": null,
+        "symbol": null
+      },
+      "status": "declared",
       "details": {}
     }
   ],

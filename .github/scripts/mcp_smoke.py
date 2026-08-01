@@ -30,6 +30,7 @@ async def main() -> None:
         application_tools = await session.call_tool("tools", {})
         tools_diff = await session.call_tool("tools_diff", {})
         preflight = await session.call_tool("preflight", {})
+        evaluations = await session.call_tool("evaluation_list", {})
         tasks = await session.call_tool("task_list", {})
     names = {tool.name for tool in tools.tools}
     expected = {
@@ -38,6 +39,7 @@ async def main() -> None:
         "tools",
         "doctor",
         "preflight",
+        "evaluation_list",
         "task_list",
         "openapi_diff",
         "tools_diff",
@@ -80,6 +82,12 @@ async def main() -> None:
         raise RuntimeError("preflight MCP result is not versioned")
     if preflight.structuredContent.get("checks") != []:
         raise RuntimeError("generated app unexpectedly registered preflight checks")
+    if evaluations.isError or evaluations.structuredContent is None:
+        raise RuntimeError("evaluation_list MCP smoke call failed")
+    if evaluations.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:
+        raise RuntimeError("evaluation_list MCP result is not versioned")
+    if evaluations.structuredContent.get("evaluations") != []:
+        raise RuntimeError("generated app unexpectedly registered evaluations")
 
 
 if __name__ == "__main__":

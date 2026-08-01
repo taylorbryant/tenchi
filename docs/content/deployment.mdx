@@ -143,19 +143,23 @@ Then release in this order:
    [database migrations](/database#run-migrations-as-a-release-step) once.
 4. Start the new API generation without sending it traffic.
 5. Run [`tenchi preflight`](/preflight) against the target environment.
-6. Wait for startup and readiness checks, then shift traffic gradually.
-7. Start or update [background workers](/reliability) that are compatible with
+6. For model-backed behavior, run the explicitly budgeted
+   [`tenchi eval run`](/evaluations) gate with the provider configuration this
+   release will use.
+7. Wait for startup and readiness checks, then shift traffic gradually.
+8. Start or update [background workers](/reliability) that are compatible with
    both application generations.
-8. Smoke-test a public route and an authenticated operation through the
+9. Smoke-test a public route and an authenticated operation through the
    production edge.
-9. Watch error rate, latency, database saturation, and queue age during the
+10. Watch error rate, latency, database saturation, and queue age during the
    rollout.
 
 `tenchi check` does not contact production dependencies, validate secret
 manager permissions, run migrations, or prove that an external worker is
 healthy. Keep migrations as their own release step, then use
 [`tenchi preflight`](/preflight) for read-only, timeout-bounded dependency
-checks where the target environment is available.
+checks where the target environment is available. AI evaluations remain
+separate because they may be nondeterministic and incur provider cost.
 
 Plan rollback before rollout. Application rollback must remain compatible with
 the migrated schema and any work records already written by the new

@@ -12,6 +12,7 @@ import Contracts from "@/content/contracts.mdx";
 import Database from "@/content/database.mdx";
 import Deployment from "@/content/deployment.mdx";
 import Errors from "@/content/errors.mdx";
+import Evaluations from "@/content/evaluations.mdx";
 import Execution from "@/content/execution.mdx";
 import ExistingProject from "@/content/existing-project.mdx";
 import GettingStarted from "@/content/getting-started.mdx";
@@ -57,6 +58,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/tasks": Tasks,
   "/tools": Tools,
   "/tool-mcp": ToolMcp,
+  "/evaluations": Evaluations,
   "/testing": Testing,
   "/production": Production,
   "/configuration": Configuration,

@@ -16,6 +16,7 @@ from tenchi._app_map import (
     project_app_map,
 )
 from tenchi._cli_results import DiagnosticResult
+from tenchi._evaluation_operations import load_evaluation_runner
 from tenchi._openapi_operations import isolated_project_imports, load_route_group
 from tenchi._tool_operations import load_tool_group
 
@@ -38,7 +39,7 @@ def test_app_map_is_deterministic_and_versioned() -> None:
     second = map_app(EXAMPLE_DIR, api_routes)
 
     assert first.as_dict() == second.as_dict()
-    assert first.schema_version == 4
+    assert first.schema_version == 5
     assert first.summary.features == 1
     assert first.summary.contracts == 3
     assert first.summary.routes == 3
@@ -49,7 +50,7 @@ def test_app_map_is_deterministic_and_versioned() -> None:
     assert first.diagnostics == ()
     assert first.unresolved == ()
     assert len({node.id for node in first.nodes}) == len(first.nodes)
-    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 4
+    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 5
 
 
 def test_app_map_json_wire_format_matches_snapshot() -> None:
@@ -67,6 +68,7 @@ def test_app_map_json_wire_format_matches_snapshot() -> None:
         "test",
         "job",
         "tool",
+        "evaluation",
     )
     nodes = tuple(
         AppMapNode(
@@ -121,6 +123,7 @@ def test_app_map_json_wire_format_matches_snapshot() -> None:
             jobs=1,
             tasks=1,
             tools=1,
+            evaluations=1,
             use_cases=1,
             policies=1,
             ports=1,
@@ -257,6 +260,81 @@ def test_app_map_connects_registered_tools_to_use_cases(tmp_path: Path) -> None:
     assert (
         "binds",
         "tool:todos.create",
+        "use-case:todos.create_todo",
+    ) in {(edge.kind, edge.source, edge.target) for edge in result.edges}
+
+
+def test_app_map_registers_evaluations_with_runtime_details(tmp_path: Path) -> None:
+    root = tmp_path / "app"
+    shutil.copytree(EXAMPLE_DIR, root)
+    evaluations_path = root / "app/features/todos/evaluations.py"
+    evaluations_path.write_text(
+        "from pydantic import BaseModel\n"
+        "from tenchi.evaluations import (\n"
+        "    EvaluationMeasurement,\n"
+        "    evaluation,\n"
+        "    evaluation_case,\n"
+        "    evaluation_group,\n"
+        "    evaluation_metric,\n"
+        "    evaluation_result,\n"
+        ")\n"
+        "from .use_cases.create_todo import create_todo\n\n"
+        "class Case(BaseModel):\n"
+        "    answer: str\n\n"
+        "async def score(case: Case, context: object) -> EvaluationMeasurement:\n"
+        "    del case, context\n"
+        "    _ = create_todo\n"
+        "    return evaluation_result(scores={'quality': 1.0})\n\n"
+        "answer_quality = evaluation(\n"
+        "    'todos.answer_quality',\n"
+        "    case=Case,\n"
+        "    cases=(evaluation_case('todos.answer_quality.simple', "
+        "Case(answer='redacted')),),\n"
+        "    metrics=(evaluation_metric('quality', threshold=0.8),),\n"
+        "    evaluator=score,\n"
+        "    kind='model',\n"
+        "    timeout=5,\n"
+        "    max_tokens=100,\n"
+        "    max_cost_usd=0.01,\n"
+        ")\n\n"
+        "evaluations = evaluation_group(answer_quality)\n",
+        encoding="utf-8",
+    )
+
+    with isolated_project_imports(
+        root,
+        module_names=(
+            "app.server.routes",
+            "app.server.evaluations",
+            "app.features.todos.evaluations",
+        ),
+    ):
+        routes = load_route_group(root, "app.server.routes:api_routes")
+        runner = load_evaluation_runner(root, "app.server.evaluations:runner")
+        result = map_app(root, routes, evaluations=runner.evaluations)
+
+    node = next(
+        item for item in result.nodes if item.id == "evaluation:todos.answer_quality"
+    )
+    assert node.status == "registered"
+    assert node.feature == "todos"
+    assert dict(node.details) == {
+        "case_count": 1,
+        "export_name": "answer_quality",
+        "kind": "model",
+        "max_cost_usd": 0.01,
+        "max_tokens": 100,
+        "metrics": ("quality",),
+        "timeout": 5.0,
+    }
+    assert (
+        "owns",
+        "feature:todos",
+        "evaluation:todos.answer_quality",
+    ) in {(edge.kind, edge.source, edge.target) for edge in result.edges}
+    assert (
+        "depends-on",
+        "evaluation:todos.answer_quality",
         "use-case:todos.create_todo",
     ) in {(edge.kind, edge.source, edge.target) for edge in result.edges}
 
@@ -618,7 +696,7 @@ def test_map_cli_supports_json_human_and_projections() -> None:
     complete = _tenchi("map", "--json")
     assert complete.returncode == 0, complete.stderr
     payload = json.loads(complete.stdout)
-    assert payload["schema_version"] == 4
+    assert payload["schema_version"] == 5
     assert payload["summary"]["routes"] == 3
 
     projected = _tenchi(

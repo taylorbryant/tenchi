@@ -11,6 +11,8 @@ from ._app_map import AppMapPayload
 from ._cli_results import (
     CheckPayload,
     DoctorPayload,
+    EvaluationListPayload,
+    EvaluationRunPayload,
     MakePayload,
     PreflightPayload,
     RoutesPayload,
@@ -25,6 +27,8 @@ type AgentResultName = Literal[
     "app_map",
     "routes",
     "doctor",
+    "evaluation_list",
+    "evaluation_run",
     "openapi_diff",
     "make",
     "check",
@@ -41,6 +45,14 @@ AGENT_RESULT_ADAPTERS: dict[AgentResultName, TypeAdapter[object]] = {
     "app_map": cast(TypeAdapter[object], TypeAdapter(AppMapPayload)),
     "routes": cast(TypeAdapter[object], TypeAdapter(RoutesPayload)),
     "doctor": cast(TypeAdapter[object], TypeAdapter(DoctorPayload)),
+    "evaluation_list": cast(
+        TypeAdapter[object],
+        TypeAdapter(EvaluationListPayload),
+    ),
+    "evaluation_run": cast(
+        TypeAdapter[object],
+        TypeAdapter(EvaluationRunPayload),
+    ),
     "openapi_diff": cast(TypeAdapter[object], TypeAdapter(OpenApiDiffPayload)),
     "make": cast(TypeAdapter[object], TypeAdapter(MakePayload)),
     "check": cast(TypeAdapter[object], TypeAdapter(CheckPayload)),

@@ -57,6 +57,8 @@ framework code, the CLI, docs, or the example apps.
     and validated dispatch.
   - `tools.py` — transport-neutral application-tool declarations, explicit
     use-case bindings, lifecycle-aware execution, and deterministic manifests.
+  - `evaluations.py` — provider-neutral typed evaluation cases, metrics,
+    lifecycle-aware execution, timeouts, budgets, and redacted outcomes.
   - `mcp.py` — the optional authenticated application MCP adapter over a
     registered tool group; applications own identity, visibility, and approval.
   - `openapi.py` — OpenAPI 3.1 generation (`openapi_schema` is a pure
@@ -127,6 +129,7 @@ app/
     jobs.py        # declares stable background messages via job()
     tasks.py       # binds operational names to use cases via task()/task_group()
     tools.py       # binds machine-facing contracts to use cases
+    evaluations.py # declares typed AI evaluation cases, metrics, and evaluators
     use_cases/     # one plain async function per module
     tests/         # use-case tests, no HTTP required
   shared/          # app-wide errors and shared-kernel concepts (users, ...)
@@ -139,6 +142,7 @@ app/
     jobs.py        # binds job declarations to consumer use cases
     runtime.py     # resources shared by HTTP and operational entrypoints
     preflight.py   # read-only checks of the target deployment environment
+    evaluations.py # composes the application evaluation runner
     tasks.py       # composes the operational task runner
     tools.py       # composes tools with authenticated context wiring
     mcp.py         # optionally exposes application tools over MCP
@@ -169,6 +173,9 @@ example and template:
 - Tools bind stable machine-facing contracts to use cases; they never import
   infrastructure, HTTP contracts, or server composition. Safety annotations
   are descriptive hints, never authorization.
+- Evaluations bind typed cases to provider-neutral evaluators; they may import
+  schemas, ports, policies, and use cases, but never infrastructure, HTTP
+  contracts, or server composition. Evaluators return scores and usage only.
 - Shared code never depends on features.
 - Infrastructure implements ports; it never imports use cases, routes,
   contracts, or server composition.
@@ -259,19 +266,23 @@ The CLI is product surface. Generated code must pass Ruff, Ruff format,
 Pyright strict, pytest, and `tenchi doctor` untouched — CI-grade, as
 generated. Generators create files and print wiring instructions; they
 never edit existing modules. `routes`, `map`, `tools`, `openapi`, `check`,
-`verify`, `preflight`, `mcp`, and `dev` rely on the structural conventions
+`verify`, `preflight`, `eval`, `mcp`, and `dev` rely on the structural conventions
 (`app.server.routes:routes`, `app.server.routes:api_routes`,
 `app.server.jobs:jobs`, `app.server.tools:tools`,
 `app.server.preflight:checks`,
+`app.server.evaluations:runner`,
 `app.server.asgi:app`); keep flags available to
 override, and keep `tenchi new` output aligned with `examples/todos` minus
 capabilities the starter intentionally omits.
 `map` combines source declarations with composed routes, operational tasks,
-background jobs, and application tools and must stay deterministic,
+background jobs, application tools, and evaluations and must stay deterministic,
 source-backed, and versioned in JSON. Feature projections retain directly
 related cross-feature and shared nodes; kind projections never leave dangling
 edges. `map` loads registered background jobs from `app.server.jobs:jobs` and
 application tools from `app.server.tools:tools` by default.
+`map` loads registered evaluations from `app.server.evaluations:runner` by
+default and retains their source, kind, case count, metrics, timeout, and
+budgets without case inputs.
 `task list|run` loads `app.server.tasks:runner` by default. Tasks provide named,
 validated operator entrypoints for backfills, repairs, replays, and maintenance;
 they do not schedule, retry, queue, lock, or persist progress.
@@ -280,6 +291,14 @@ they do not schedule, retry, queue, lock, or persist progress.
 static names and failure codes, redacted results, and no application context or
 lifespan. They run concurrently and must use read-only credentials; mutations
 belong in migrations or explicitly authorized operational tasks.
+`eval list|run` loads `app.server.evaluations:runner` by default. Evaluation
+cases and outputs are application-owned; results expose only stable names,
+normalized scores, usage, status, durations, and failure codes. Runs use one
+lifespan, one scoped context per case, bounded concurrency, per-case timeouts,
+metric thresholds, isolated case inputs, and optional token/cost budgets.
+Budget outcomes distinguish measured exceedance from unverified usage, and
+token values remain within the interoperable JSON integer range. Evaluations
+remain separate from deterministic `check` and `verify`.
 `mcp` is a thin, stdio-only adapter over the same renderer-independent
 operations. Inspection and preview tools never write files, every path stays
 inside the captured app root, stdout belongs exclusively to JSON-RPC, and the
@@ -288,6 +307,10 @@ platform supports one when the client cancels.
 Task discovery is read-only. MCP task execution must remain explicitly opt-in,
 propagate cancellation through lifespan and context cleanup, and never expose
 task input in its result.
+Evaluation discovery is read-only and never exposes case inputs. MCP evaluation
+execution must remain explicitly opt-in, propagate cancellation through
+lifespan and context cleanup, and never expose prompts, model outputs, context
+values, or exception messages.
 Application-tool manifests have their own `TOOL_MANIFEST_VERSION` and retained
 versioned schema snapshots. Additive protocol changes may update the current
 snapshot; breaking or unknown changes require a version bump and a new snapshot.

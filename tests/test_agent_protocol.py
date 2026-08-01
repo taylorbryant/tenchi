@@ -58,6 +58,8 @@ MCP_RESULT_NAMES: dict[str, AgentResultName] = {
     "verify": "verify",
     "check": "check",
     "preflight": "preflight",
+    "evaluation_list": "evaluation_list",
+    "evaluation_run": "evaluation_run",
     "task_list": "task_list",
     "task_run": "task_run",
 }
@@ -82,7 +84,13 @@ class _ChangeSink:
 
 async def _render_agent_protocol() -> JsonObject:
     cli_results = agent_result_schemas()
-    server = build_mcp_server(McpServerOptions(EXAMPLE_ROOT, allow_task_runs=True))
+    server = build_mcp_server(
+        McpServerOptions(
+            EXAMPLE_ROOT,
+            allow_task_runs=True,
+            allow_evaluation_runs=True,
+        )
+    )
     mcp_tools: dict[str, JsonObject] = {}
     for tool in await server.list_tools():
         assert tool.outputSchema is not None, (

@@ -56,6 +56,9 @@ OpenAPI and application-tool snapshots, an agent guide, and CI. The
 - **AI tools reuse application behavior.** Typed tool declarations add
   deterministic schemas, declared errors, and safety metadata around ordinary
   use cases without choosing a model provider or agent loop.
+- **AI behavior has an explicit gate.** Typed evaluation cases, metric
+  thresholds, timeouts, and token or cost budgets turn application-owned model
+  behavior into a payload-safe release decision.
 
 ## One declaration, several guarantees
 
@@ -105,4 +108,6 @@ as OpenAPI 3.1, and compared against a previous release.
   callers through a validated, transport-neutral boundary.
 - [Application MCP](/tool-mcp) publishes those tools with authenticated
   discovery, explicit approval for destructive calls, and structured results.
+- [AI evaluations](/evaluations) gates application-owned model behavior without
+  choosing a provider, prompt system, judge, or dataset store.
 - [Comparisons](/comparisons) explains where Tenchi fits and where it does not.

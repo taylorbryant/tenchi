@@ -21,6 +21,7 @@ from ._cli_results import (
 )
 from .contracts import Contract
 from .doctor import run_doctor
+from .evaluations import Evaluation, EvaluationGroup
 from .jobs import Job, JobGroup, JobHandler
 from .routes import Route, RouteGroup
 from .tasks import Task, TaskGroup
@@ -33,6 +34,7 @@ type AppMapNodeKind = Literal[
     "job",
     "task",
     "tool",
+    "evaluation",
     "use-case",
     "policy",
     "port",
@@ -94,6 +96,7 @@ class AppMapSummaryPayload(TypedDict):
     jobs: int
     tasks: int
     tools: int
+    evaluations: int
     use_cases: int
     policies: int
     ports: int
@@ -122,6 +125,7 @@ app_map_node_kinds: tuple[AppMapNodeKind, ...] = (
     "job",
     "task",
     "tool",
+    "evaluation",
     "use-case",
     "policy",
     "port",
@@ -221,6 +225,7 @@ class AppMapSummary:
     jobs: int
     tasks: int
     tools: int
+    evaluations: int
     use_cases: int
     policies: int
     ports: int
@@ -239,6 +244,7 @@ class AppMapSummary:
             "jobs": self.jobs,
             "tasks": self.tasks,
             "tools": self.tools,
+            "evaluations": self.evaluations,
             "use_cases": self.use_cases,
             "policies": self.policies,
             "ports": self.ports,
@@ -337,6 +343,15 @@ class _ToolRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class _EvaluationRecord:
+    node_id: str
+    module: str
+    symbol: str
+    name: str | None
+    source: AppMapSource
+
+
+@dataclass(frozen=True, slots=True)
 class _ImportBinding:
     reference: _SymbolRef
     line: int
@@ -400,8 +415,9 @@ def map_app(
     tasks: TaskGroup | None = None,
     jobs: JobGroup | None = None,
     tools: ToolGroup | None = None,
+    evaluations: EvaluationGroup | None = None,
 ) -> AppMapResult:
-    """Combine source structure with registered routes, tasks, jobs, and tools."""
+    """Combine source structure with every registered application boundary."""
     resolved_root = root.resolve()
     builder = _GraphBuilder()
     modules = _read_modules(resolved_root, builder)
@@ -409,6 +425,7 @@ def map_app(
     task_records: list[_TaskRecord] = []
     job_records: list[_JobRecord] = []
     tool_records: list[_ToolRecord] = []
+    evaluation_records: list[_EvaluationRecord] = []
 
     _discover_features(resolved_root, builder)
     _discover_source_nodes(
@@ -418,6 +435,7 @@ def map_app(
         task_records,
         job_records,
         tool_records,
+        evaluation_records,
     )
     _discover_adapters(modules, builder)
     _register_wired_adapters(modules, builder)
@@ -433,6 +451,13 @@ def map_app(
         _add_runtime_jobs(jobs, builder, job_records, resolved_root)
     if tools is not None:
         _add_runtime_tools(tools, builder, tool_records, resolved_root)
+    if evaluations is not None:
+        _add_runtime_evaluations(
+            evaluations,
+            builder,
+            evaluation_records,
+            resolved_root,
+        )
 
     diagnostics = tuple(
         sorted(
@@ -556,7 +581,7 @@ def format_app_map(result: AppMapResult) -> str:
             f"{summary.features} features, {summary.contracts} contracts, "
             f"{summary.routes} routes, {summary.use_cases} use cases, "
             f"{summary.jobs} jobs, {summary.tasks} tasks, "
-            f"{summary.tools} tools, "
+            f"{summary.tools} tools, {summary.evaluations} evaluations, "
             f"{summary.ports} ports, {summary.adapters} adapters, "
             f"{len(result.edges)} relationships"
         ),
@@ -668,6 +693,7 @@ def _discover_source_nodes(
     task_records: list[_TaskRecord],
     job_records: list[_JobRecord],
     tool_records: list[_ToolRecord],
+    evaluation_records: list[_EvaluationRecord],
 ) -> None:
     for info in modules:
         if _is_test_path(info.relative):
@@ -689,6 +715,8 @@ def _discover_source_nodes(
             _discover_jobs(info, builder, job_records)
         if info.relative.endswith("/tools.py"):
             _discover_tools(info, builder, tool_records)
+        if info.relative.endswith("/evaluations.py"):
+            _discover_evaluations(info, builder, evaluation_records)
         if "/use_cases/" in info.relative:
             _discover_functions(info, builder, kind="use-case")
         if info.relative.endswith("/policy.py"):
@@ -920,6 +948,58 @@ def _discover_tools(
         )
         records.append(
             _ToolRecord(
+                node_id=node_id,
+                module=info.module,
+                symbol=symbol,
+                name=name,
+                source=source,
+            )
+        )
+
+
+def _discover_evaluations(
+    info: _ModuleInfo,
+    builder: _GraphBuilder,
+    records: list[_EvaluationRecord],
+) -> None:
+    for statement in info.tree.body:
+        symbol, call = _assigned_call(statement)
+        if symbol is None or call is None or _terminal_name(call.func) != "evaluation":
+            continue
+        name = _literal_expression(call.args[0], str) if call.args else None
+        description = _literal_keyword(call, "description", str)
+        node_id = (
+            f"evaluation:{name}"
+            if name is not None
+            else _symbol_id("evaluation", info.feature, info.module, symbol)
+        )
+        source = AppMapSource(
+            path=info.relative,
+            line=statement.lineno,
+            symbol=symbol,
+        )
+        builder.add_node(
+            AppMapNode(
+                id=node_id,
+                kind="evaluation",
+                name=name or symbol,
+                source=source,
+                status="declared",
+                feature=info.feature,
+                details=_details(
+                    export_name=symbol,
+                    description=description,
+                    kind=_literal_keyword(call, "kind", str),
+                    timeout=_literal_number_keyword(call, "timeout"),
+                    max_tokens=_literal_keyword(call, "max_tokens", int),
+                    max_cost_usd=_literal_number_keyword(call, "max_cost_usd"),
+                ),
+            ),
+            module=info.module,
+            symbol=symbol,
+        )
+        records.append(
+            _EvaluationRecord(
                 node_id=node_id,
                 module=info.module,
                 symbol=symbol,
@@ -1196,8 +1276,33 @@ def _definition_scope(tree: ast.Module, node: AppMapNode) -> ast.AST | None:
             return statement
         symbol, _ = _assigned_call(statement)
         if symbol == node.source.symbol:
+            if node.kind == "evaluation":
+                evaluator_scope = _evaluation_scope(tree, statement)
+                if evaluator_scope is not None:
+                    return evaluator_scope
             return statement
     return None
+
+
+def _evaluation_scope(
+    tree: ast.Module,
+    statement: ast.stmt,
+) -> ast.AsyncFunctionDef | None:
+    _, call = _assigned_call(statement)
+    if call is None:
+        return None
+    value = _keyword_value(call, "evaluator")
+    if not isinstance(value, ast.Name):
+        return None
+    return next(
+        (
+            candidate
+            for candidate in tree.body
+            if isinstance(candidate, ast.AsyncFunctionDef)
+            and candidate.name == value.id
+        ),
+        None,
+    )
 
 
 def _add_context_port_edges(
@@ -1663,6 +1768,69 @@ def _add_runtime_tools(
         )
 
 
+def _add_runtime_evaluations(
+    evaluations: EvaluationGroup,
+    builder: _GraphBuilder,
+    records: Sequence[_EvaluationRecord],
+    root: Path,
+) -> None:
+    for declared in evaluations:
+        identity_matches = [
+            record for record in records if _evaluation_record_value(record) is declared
+        ]
+        name_matches = [record for record in records if record.name == declared.name]
+        record = (
+            identity_matches[0]
+            if len(identity_matches) == 1
+            else name_matches[0]
+            if len(name_matches) == 1
+            else None
+        )
+        node_id = (
+            record.node_id if record is not None else f"evaluation:{declared.name}"
+        )
+        source = (
+            record.source
+            if record is not None
+            else _evaluation_fallback_source(declared, root)
+        )
+        feature = (
+            builder.nodes[record.node_id].feature
+            if record is not None and record.node_id in builder.nodes
+            else _feature_for_path(Path(source.path))
+        )
+        builder.add_node(
+            AppMapNode(
+                id=node_id,
+                kind="evaluation",
+                name=declared.name,
+                source=source,
+                status="registered",
+                feature=feature,
+                details=_details(
+                    export_name=record.symbol if record is not None else None,
+                    description=declared.description,
+                    kind=declared.kind,
+                    case_count=len(declared.cases),
+                    metrics=tuple(metric.name for metric in declared.metrics),
+                    timeout=declared.timeout,
+                    max_tokens=declared.max_tokens,
+                    max_cost_usd=declared.max_cost_usd,
+                ),
+            )
+        )
+        if feature is not None:
+            builder.add_edge(
+                AppMapEdge(
+                    kind="owns",
+                    source=_feature_id(feature),
+                    target=node_id,
+                    evidence=source,
+                    confidence="exact",
+                )
+            )
+
+
 def _matching_binding(
     route: Route,
     use_case: _SymbolRef | None,
@@ -1793,6 +1961,18 @@ def _tool_record_value(record: _ToolRecord) -> Tool[Any, Any] | None:
     return cast(Tool[Any, Any], candidate) if isinstance(candidate, Tool) else None
 
 
+def _evaluation_record_value(
+    record: _EvaluationRecord,
+) -> Evaluation[Any, Any] | None:
+    module = sys.modules.get(record.module)
+    candidate = getattr(module, record.symbol, None) if module is not None else None
+    return (
+        cast(Evaluation[Any, Any], candidate)
+        if isinstance(candidate, Evaluation)
+        else None
+    )
+
+
 def _route_fallback_source(route: Route, root: Path) -> AppMapSource:
     value = inspect.unwrap(route.use_case)
     try:
@@ -1877,6 +2057,29 @@ def _tool_fallback_source(
     )
 
 
+def _evaluation_fallback_source(
+    declared: Evaluation[Any, Any],
+    root: Path,
+) -> AppMapSource:
+    value = inspect.unwrap(declared.evaluator)
+    try:
+        path = inspect.getsourcefile(value)
+        _, line = inspect.getsourcelines(value)
+    except (OSError, TypeError):
+        return AppMapSource(path="<runtime>")
+    if path is None:
+        return AppMapSource(path="<runtime>", line=line)
+    try:
+        relative = Path(path).resolve().relative_to(root).as_posix()
+    except ValueError:
+        relative = path
+    return AppMapSource(
+        path=relative,
+        line=line,
+        symbol=getattr(value, "__name__", None),
+    )
+
+
 def _add_summary_count(kind: AppMapNodeKind, counts: dict[AppMapNodeKind, int]) -> None:
     counts[kind] = counts.get(kind, 0) + 1
 
@@ -1904,6 +2107,7 @@ def _summary(
         jobs=counts.get("job", 0),
         tasks=counts.get("task", 0),
         tools=counts.get("tool", 0),
+        evaluations=counts.get("evaluation", 0),
         use_cases=counts.get("use-case", 0),
         policies=counts.get("policy", 0),
         ports=counts.get("port", 0),
@@ -2013,6 +2217,17 @@ def _literal_keyword[ValueT: (str, int, bool)](
     if value is None:
         return None
     return _literal_expression(value, expected)
+
+
+def _literal_number_keyword(call: ast.Call, name: str) -> float | int | None:
+    value = _keyword_value(call, name)
+    if value is None:
+        return None
+    try:
+        literal = ast.literal_eval(value)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return None
+    return literal if type(literal) in (float, int) else None
 
 
 def _keyword_value(call: ast.Call, name: str) -> ast.expr | None:

@@ -28,6 +28,7 @@ def _summary(*, unresolved: int = 0) -> AppMapSummary:
         jobs=0,
         tasks=0,
         tools=0,
+        evaluations=0,
         use_cases=0,
         policies=0,
         ports=0,
@@ -71,6 +72,10 @@ def _run_with_map(
         del root, target
         return SimpleNamespace(tasks=object())
 
+    def fake_load_evaluation_runner(root: Path, target: str) -> SimpleNamespace:
+        del root, target
+        return SimpleNamespace(evaluations=object())
+
     def fake_load_job_group(root: Path, target: str) -> object:
         del root, target
         return object()
@@ -113,6 +118,11 @@ def _run_with_map(
     )
     monkeypatch.setattr(
         _verify_operations,
+        "load_evaluation_runner",
+        fake_load_evaluation_runner,
+    )
+    monkeypatch.setattr(
+        _verify_operations,
         "load_job_group",
         fake_load_job_group,
     )
@@ -135,6 +145,7 @@ def _run_with_map(
         tmp_path,
         base_ref="base",
         routes="app.server.routes:api_routes",
+        evaluations="app.server.evaluations:runner",
         tasks="app.server.tasks:runner",
         jobs="app.server.jobs:jobs",
         tools="app.server.tools:tools",

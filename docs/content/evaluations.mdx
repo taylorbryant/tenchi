@@ -1,0 +1,268 @@
+import { Callout } from "@/components/callout";
+
+# Gate AI behavior with evaluations
+
+Application evaluations turn model behavior into an explicit release decision.
+You declare typed cases, normalized metrics, minimum passing averages, and
+optional token and cost budgets. Tenchi validates the declarations, runs each
+case with your application lifecycle and context, and returns a payload-safe
+pass/fail report.
+
+Tenchi does not choose a model provider, prompt format, judge, agent loop, or
+dataset store. Put those choices behind application-owned ports so the same
+evaluation can compare providers or model versions.
+
+## Declare typed cases and metrics
+
+Keep an evaluation with the feature whose behavior it measures:
+
+```python
+# app/features/support/evaluations.py
+from typing import Protocol
+
+from pydantic import BaseModel
+from tenchi.evaluations import (
+    EvaluationMeasurement,
+    evaluation,
+    evaluation_case,
+    evaluation_group,
+    evaluation_metric,
+    evaluation_result,
+)
+
+from .ports import AnswerGenerator
+
+
+class AnswerCase(BaseModel, frozen=True):
+    question: str
+    required_fact: str
+
+
+class EvaluationContext(Protocol):
+    answers: AnswerGenerator
+
+
+async def evaluate_answer(
+    case: AnswerCase,
+    context: EvaluationContext,
+) -> EvaluationMeasurement:
+    answer = await context.answers.generate(question=case.question)
+    grounded = case.required_fact.casefold() in answer.text.casefold()
+    return evaluation_result(
+        scores={"groundedness": float(grounded)},
+        tokens=answer.tokens,
+        cost_usd=answer.cost_usd,
+    )
+
+
+answer_quality = evaluation(
+    "support.answer_quality",
+    case=AnswerCase,
+    cases=(
+        evaluation_case(
+            "support.answer_quality.refunds",
+            AnswerCase(
+                question="When can a customer request a refund?",
+                required_fact="30 days",
+            ),
+        ),
+    ),
+    metrics=(
+        evaluation_metric(
+            "groundedness",
+            threshold=0.9,
+            description="Required policy facts appear in the answer.",
+        ),
+    ),
+    evaluator=evaluate_answer,
+    kind="model",
+    description="Measure support-answer grounding.",
+    timeout=20,
+    max_tokens=20_000,
+    max_cost_usd=2.0,
+)
+
+evaluations = evaluation_group(answer_quality)
+```
+
+Case and evaluation names use dotted `snake_case`. Metric names use
+`snake_case`, and every score is a finite number from `0` to `1`.
+`evaluation()` checks the evaluator when its module imports: it must be an
+async function with exactly annotated `case` and `context` parameters, and it
+must return `EvaluationMeasurement`.
+
+The context annotation may be a feature-owned `Protocol`. This keeps the
+evaluation independent of server composition while allowing the concrete
+`AppContext` to satisfy the same shape at runtime.
+
+## Return scores, not generated payloads
+
+`evaluation_result()` accepts only declared scores and optional usage:
+
+```python
+return evaluation_result(
+    scores={
+        "groundedness": groundedness,
+        "citation_quality": citation_quality,
+    },
+    tokens=usage.input_tokens + usage.output_tokens,
+    cost_usd=usage.cost_usd,
+)
+```
+
+Do not put prompts, retrieved documents, model output, user data, or exception
+text in score names, case names, metric descriptions, or evaluation
+descriptions. Those declaration fields are visible through discovery. The case
+JSON Schema is visible too, including field titles, descriptions, defaults,
+and examples produced by Pydantic, so keep sensitive values out of schema
+metadata. Tenchi canonicalizes and validates this schema when the evaluation is
+declared, so schema metadata must also be portable, standards-compliant JSON.
+
+Run-specific reports contain:
+
+- evaluation and case names;
+- completed, failed, timed-out, and skipped statuses;
+- normalized scores and metric averages;
+- declared thresholds;
+- token and cost totals when reported;
+- stable failure codes and durations.
+
+Reports never contain case inputs, prompts, model outputs, context values, or
+exception messages.
+
+<Callout type="warning" title="Your provider and logs remain application-owned">
+  The CLI and coding-agent MCP server discard direct standard output and
+  standard error from evaluation code. They cannot redact handlers that send
+  data directly to files, telemetry, or a provider dashboard. Configure those
+  systems separately and never log prompts or model output unless your data
+  policy permits it.
+</Callout>
+
+## Compose the runner
+
+Combine feature groups at the server composition root:
+
+```python
+# app/server/evaluations.py
+from app.features.support.evaluations import evaluations as support_evaluations
+from app.server.runtime import DATABASE_URL, create_context, create_lifespan
+from tenchi.evaluations import create_evaluation_runner, evaluation_group
+
+evaluations = evaluation_group(support_evaluations)
+
+runner = create_evaluation_runner(
+    evaluations=evaluations,
+    context_factory=create_context,
+    lifespan=create_lifespan(DATABASE_URL),
+    concurrency=2,
+)
+```
+
+One lifespan surrounds the complete run. Each case receives a separate scoped
+context, so database transactions and other request-scoped resources still
+commit, roll back, and close normally. Cancellation propagates through the
+evaluator, context, and lifespan.
+
+Cases run in declaration order with bounded concurrency. Reports retain that
+order even when cases finish out of order. Evaluations themselves run
+sequentially so each suite has an independent budget.
+
+## Set thresholds, timeouts, and budgets
+
+An evaluation passes only when:
+
+- every case completes;
+- every metric's average meets its threshold; and
+- every declared usage budget is known and remains within its limit.
+
+The declaration timeout applies to each case. `tenchi eval run --timeout`
+may shorten that limit for a particular run but never extend it.
+
+When you declare `max_tokens` or `max_cost_usd`, every completed measurement
+must report the corresponding usage. Missing usage, a failed case, or a timed
+out case leaves the budget unverified and stops later batches. Cases that were
+already running may finish together, so a concurrent batch can exceed the
+declared budget. Use `concurrency=1` when the budget must stop after each
+individual case.
+
+Budget outcomes report `passed`, `exceeded`, or `unverified`. Later cases use
+`EVALUATION_BUDGET_EXCEEDED` only when measured usage crossed a limit and
+`EVALUATION_BUDGET_UNVERIFIED` when the runner could not establish usage.
+Cost totals are compared using exact decimal arithmetic, so a declared limit is
+not crossed merely because of binary floating-point summation.
+
+Token counts use JSON's interoperable integer range. Values returned through
+`tokens` must be between `0` and `MAX_EVALUATION_TOKENS`
+(`9_007_199_254_740_991`); `max_tokens` must be between `1` and that same
+limit. Tenchi rejects values outside this range before they can reach CLI or
+MCP JSON output.
+
+Budgets are gates, not provider-side spending limits. Configure provider
+quotas and request limits separately.
+
+## Run the gate
+
+Discover evaluations without running them:
+
+```shell
+uv run tenchi eval list
+uv run tenchi eval list --json
+```
+
+Run every registered evaluation or select one stable name:
+
+```shell
+uv run tenchi eval run
+uv run tenchi eval run support.answer_quality
+uv run tenchi eval run support.answer_quality \
+  --concurrency 2 \
+  --timeout 15 \
+  --json
+```
+
+The default target is `app.server.evaluations:runner`. Override it with
+`--evaluations module:attribute`.
+
+The command exits zero only when every selected evaluation passes. Keep it
+separate from `tenchi check` and `tenchi verify`: deterministic checks should
+stay fast and local, while model evaluations may be nondeterministic, depend on
+external services, and incur cost. Run evaluations in a deployment workflow
+that has the intended provider credentials and an explicit budget.
+
+## Let a coding agent inspect or run evaluations
+
+The coding-agent MCP server always exposes `evaluation_list`. It returns case
+names and schemas, metric thresholds, timeouts, and budgets without running a
+provider or exposing case inputs.
+
+`evaluation_run` is disabled by default because it can call external systems
+and spend money. Enable it only for a trusted MCP process:
+
+```shell
+uv run tenchi mcp --allow-evaluation-runs
+```
+
+MCP execution uses the same runner and result model as the CLI. Application
+MCP tools created with `create_tool_mcp_server()` are a separate boundary; they
+do not expose evaluation execution.
+
+## Choose cases that make failures actionable
+
+Use stable, reviewable cases for behaviors that matter to users:
+
+- required facts and prohibited claims;
+- tool-selection or routing decisions;
+- structured-output validity;
+- retrieval relevance;
+- refusal and authorization boundaries;
+- latency, token, and cost expectations.
+
+Start with deterministic scorers where an exact rule exists. Use model judges
+only for qualities that cannot be expressed reliably as code, and calibrate
+their thresholds against examples a person has reviewed. Keep provider
+requests idempotent or isolated when retries could incur duplicate cost.
+
+`tenchi map` includes evaluation nodes with source locations, registration
+state, suite kind, case count, metrics, timeout, and budgets. This gives coding
+agents and reviewers one architecture view of both AI-facing tools and the
+gates that protect their behavior.

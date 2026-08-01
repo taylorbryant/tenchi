@@ -18,16 +18,19 @@ Commands are intentionally few and reliable:
 - ``tenchi check`` runs the complete application validation loop.
 - ``tenchi verify`` adds architecture and Git-baseline compatibility evidence.
 - ``tenchi preflight`` observes the target deployment environment.
+- ``tenchi eval`` discovers and runs application-owned AI evaluations.
 - ``tenchi task`` discovers and runs validated operational tasks.
 - ``tenchi mcp`` serves the same structured operations to MCP-aware agents.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
 The ``routes``, ``tools``, ``map``, ``openapi``, ``check``, ``verify``,
-``preflight``, ``task``, ``mcp``, and ``dev`` commands rely on the structural
-convention that ``app/server/routes.py`` exposes ``routes`` and ``api_routes``,
+``preflight``, ``eval``, ``task``, ``mcp``, and ``dev`` commands rely on the
+structural convention that ``app/server/routes.py`` exposes ``routes`` and
+``api_routes``,
 ``app/server/tools.py`` exposes ``tools``,
 ``app/server/preflight.py`` exposes ``checks``, ``app/server/tasks.py`` exposes
-``runner``, ``app/server/jobs.py`` exposes ``jobs``, and
+``runner``, ``app/server/evaluations.py`` exposes ``runner``,
+``app/server/jobs.py`` exposes ``jobs``, and
 ``app/server/asgi.py`` exposes ``app``; targets can be overridden by flag.
 """
 
@@ -63,6 +66,12 @@ from ._cli_operations import (
     write_files,
 )
 from ._cli_results import CheckResult, MakeResult
+from ._evaluation_operations import (
+    discard_evaluation_output,
+    evaluation_list_result,
+    evaluation_run_result,
+    load_evaluation_runner,
+)
 from ._job_operations import load_job_group
 from ._openapi_operations import (
     OperationError,
@@ -110,6 +119,16 @@ def _positive_float(value: str) -> float:
     return parsed
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be an integer greater than zero")
+    return parsed
+
+
 def _app_map_kind_list(value: str) -> tuple[AppMapNodeKind, ...]:
     raw_kinds = tuple(dict.fromkeys(item.strip() for item in value.split(",")))
     invalid = [item for item in raw_kinds if item not in app_map_node_kinds]
@@ -126,6 +145,7 @@ _DEFAULT_ROUTES = "app.server.routes:routes"
 _DEFAULT_API_ROUTES = "app.server.routes:api_routes"
 _DEFAULT_APP = "app.server.asgi:app"
 _DEFAULT_PREFLIGHT = "app.server.preflight:checks"
+_DEFAULT_EVALUATIONS = "app.server.evaluations:runner"
 _DEFAULT_TASKS = "app.server.tasks:runner"
 _DEFAULT_JOBS = "app.server.jobs:jobs"
 _DEFAULT_TOOLS = "app.server.tools:tools"
@@ -162,6 +182,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "map":
         return _map_app(
             args.target,
+            evaluations_target=args.evaluations,
             tasks_target=args.tasks,
             jobs_target=args.jobs,
             tools_target=args.tools,
@@ -202,6 +223,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _verify(
             base_ref=args.base_ref,
             routes=args.routes,
+            evaluations=args.evaluations,
             tasks=args.tasks,
             jobs=args.jobs,
             tools=args.tools,
@@ -217,6 +239,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "preflight":
         return _preflight(
             args.target,
+            timeout=args.timeout,
+            as_json=args.json,
+        )
+    if args.command == "eval":
+        if args.eval_command == "list":
+            return _evaluation_list(args.target, as_json=args.json)
+        return _evaluation_run(
+            args.target,
+            args.name,
+            concurrency=args.concurrency,
             timeout=args.timeout,
             as_json=args.json,
         )
@@ -240,10 +272,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             description=args.description,
             security_json=args.security,
             preflight=args.preflight,
+            evaluations=args.evaluations,
             tasks=args.tasks,
             jobs=args.jobs,
             tools=args.tools,
             allow_task_runs=args.allow_task_runs,
+            allow_evaluation_runs=args.allow_evaluation_runs,
             tool_snapshot=args.tool_snapshot,
         )
     return _dev(args.app, args.host, args.port, reload=not args.no_reload)
@@ -360,6 +394,11 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="target",
         default=_DEFAULT_API_ROUTES,
         help="module:attribute of the API RouteGroup (default: %(default)s)",
+    )
+    map_parser.add_argument(
+        "--evaluations",
+        default=_DEFAULT_EVALUATIONS,
+        help="module:attribute of the EvaluationRunner (default: %(default)s)",
     )
     map_parser.add_argument(
         "--tasks",
@@ -556,6 +595,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="module:attribute of the API RouteGroup (default: %(default)s)",
     )
     verify_parser.add_argument(
+        "--evaluations",
+        default=_DEFAULT_EVALUATIONS,
+        help="module:attribute of the EvaluationRunner (default: %(default)s)",
+    )
+    verify_parser.add_argument(
         "--tasks",
         default=_DEFAULT_TASKS,
         help="module:attribute of the TaskRunner (default: %(default)s)",
@@ -646,6 +690,55 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit a versioned, redacted result",
     )
 
+    evaluation_parser = subparsers.add_parser(
+        "eval",
+        help="Discover and run application-owned AI evaluations",
+    )
+    evaluation_subparsers = evaluation_parser.add_subparsers(
+        dest="eval_command",
+        required=True,
+    )
+    evaluation_list_parser = evaluation_subparsers.add_parser(
+        "list",
+        help="List registered evaluations without exposing case inputs",
+    )
+    evaluation_run_parser = evaluation_subparsers.add_parser(
+        "run",
+        help="Run one named evaluation or the complete registered group",
+    )
+    evaluation_run_parser.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Stable dotted evaluation name; omit to run every evaluation",
+    )
+    evaluation_run_parser.add_argument(
+        "--concurrency",
+        default=None,
+        type=_positive_int,
+        metavar="COUNT",
+        help="Override the number of concurrently evaluated cases",
+    )
+    evaluation_run_parser.add_argument(
+        "--timeout",
+        default=None,
+        type=_positive_float,
+        metavar="SECONDS",
+        help="Cap each case's declared timeout",
+    )
+    for operation_parser in (evaluation_list_parser, evaluation_run_parser):
+        operation_parser.add_argument(
+            "--evaluations",
+            dest="target",
+            default=_DEFAULT_EVALUATIONS,
+            help=("module:attribute of the EvaluationRunner (default: %(default)s)"),
+        )
+        operation_parser.add_argument(
+            "--json",
+            action="store_true",
+            help="Emit a versioned, payload-safe result",
+        )
+
     task_parser = subparsers.add_parser(
         "task", help="Discover and run validated operational tasks"
     )
@@ -700,6 +793,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="module:attribute used by the preflight tool (default: %(default)s)",
     )
     mcp_parser.add_argument(
+        "--evaluations",
+        default=_DEFAULT_EVALUATIONS,
+        help="module:attribute used by evaluation tools (default: %(default)s)",
+    )
+    mcp_parser.add_argument(
         "--tasks",
         default=_DEFAULT_TASKS,
         help="module:attribute used by task tools (default: %(default)s)",
@@ -721,6 +819,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--allow-task-runs",
         action="store_true",
         help="Expose the state-changing task_run tool (disabled by default)",
+    )
+    mcp_parser.add_argument(
+        "--allow-evaluation-runs",
+        action="store_true",
+        help=("Expose the cost-bearing evaluation_run tool (disabled by default)"),
     )
     mcp_parser.add_argument(
         "--snapshot",
@@ -935,6 +1038,7 @@ def _verify(
     *,
     base_ref: str,
     routes: str,
+    evaluations: str,
     tasks: str,
     jobs: str,
     tools: str,
@@ -952,6 +1056,7 @@ def _verify(
             Path.cwd(),
             base_ref=base_ref,
             routes=routes,
+            evaluations=evaluations,
             tasks=tasks,
             jobs=jobs,
             tools=tools,
@@ -1059,6 +1164,100 @@ def _preflight(
     return 0 if result.ok else 1
 
 
+def _evaluation_list(target: str, *, as_json: bool) -> int:
+    try:
+        with discard_evaluation_output():
+            runner = load_evaluation_runner(Path.cwd(), target)
+            result = evaluation_list_result(Path.cwd(), target, runner)
+    except (OperationError, ConfigurationError) as exc:
+        _fail(f"tenchi eval list: {exc}")
+        return 1
+
+    if as_json:
+        _print_agent_json("evaluation_list", result.as_dict())
+        return 0
+    if not result.evaluations:
+        print("No evaluations are registered.")
+        return 0
+    width = max(len(item.name) for item in result.evaluations)
+    for item in result.evaluations:
+        metric_names = ", ".join(metric.name for metric in item.metrics)
+        description = f"  {item.description}" if item.description else ""
+        print(
+            f"{item.name:<{width}}  {item.kind}  "
+            f"{len(item.cases)} cases  metrics: {metric_names}{description}"
+        )
+    return 0
+
+
+def _evaluation_run(
+    target: str,
+    name: str | None,
+    *,
+    concurrency: int | None,
+    timeout: float | None,
+    as_json: bool,
+) -> int:
+    try:
+        with discard_evaluation_output():
+            runner = load_evaluation_runner(Path.cwd(), target)
+            result = asyncio.run(
+                evaluation_run_result(
+                    Path.cwd(),
+                    target,
+                    runner,
+                    name=name,
+                    concurrency=concurrency,
+                    timeout=timeout,
+                )
+            )
+    except (OperationError, ConfigurationError) as exc:
+        _fail(f"tenchi eval run: {exc}")
+        return 1
+
+    if as_json:
+        _print_agent_json("evaluation_run", result.as_dict())
+    elif result.error is not None:
+        _fail(f"tenchi eval run: [{result.error.code}] {result.error.message}")
+    else:
+        for item in result.evaluations:
+            status = "passed" if item.ok else "failed"
+            print(
+                f"[{status}] {item.name} ({len(item.cases)} cases in "
+                f"{item.duration_seconds:.2f}s)"
+            )
+            for metric in item.metrics:
+                average = (
+                    "unavailable" if metric.average is None else f"{metric.average:.3f}"
+                )
+                metric_status = "passed" if metric.passed else "failed"
+                print(
+                    f"  [{metric_status}] {metric.name}: {average} "
+                    f"(threshold {metric.threshold:.3f}, "
+                    f"{metric.samples} samples)"
+                )
+            for case in item.cases:
+                if case.status != "completed":
+                    print(
+                        f"  [{case.status}] {case.name} "
+                        f"[{case.failure_code or 'EVALUATION_FAILED'}]"
+                    )
+            if not item.budget.passed:
+                reason = (
+                    "exceeded"
+                    if item.budget.status == "exceeded"
+                    else "could not be verified"
+                )
+                print(f"  [failed] declared token or cost budget {reason}")
+        summary = "passed" if result.ok else "failed"
+        print()
+        print(
+            f"eval: {summary} ({len(result.evaluations)} evaluations in "
+            f"{result.duration_seconds:.2f}s)"
+        )
+    return 0 if result.ok else 1
+
+
 def _routes(target: str, *, as_json: bool = False) -> int:
     group = _load_route_group("tenchi routes", target)
     if group is None:
@@ -1076,6 +1275,7 @@ def _routes(target: str, *, as_json: bool = False) -> int:
 def _map_app(
     target: str,
     *,
+    evaluations_target: str,
     tasks_target: str,
     jobs_target: str,
     tools_target: str,
@@ -1087,6 +1287,7 @@ def _map_app(
     if group is None:
         return 1
     try:
+        evaluation_runner = load_evaluation_runner(Path.cwd(), evaluations_target)
         runner = load_task_runner(Path.cwd(), tasks_target)
         jobs = load_job_group(Path.cwd(), jobs_target)
         tools = load_tool_group(Path.cwd(), tools_target)
@@ -1094,7 +1295,14 @@ def _map_app(
         _fail(f"tenchi map: {exc}")
         return 1
 
-    result = map_app(Path.cwd(), group, runner.tasks, jobs, tools)
+    result = map_app(
+        Path.cwd(),
+        group,
+        runner.tasks,
+        jobs,
+        tools,
+        evaluation_runner.evaluations,
+    )
     if feature is not None:
         features = sorted(node.name for node in result.nodes if node.kind == "feature")
         if feature not in features:
@@ -1566,10 +1774,12 @@ def _mcp(
     routes: str,
     api_routes: str,
     preflight: str,
+    evaluations: str,
     tasks: str,
     jobs: str,
     tools: str,
     allow_task_runs: bool,
+    allow_evaluation_runs: bool,
     snapshot: str,
     tool_snapshot: str,
     title: str | None,
@@ -1595,10 +1805,12 @@ def _mcp(
                 routes=routes,
                 api_routes=api_routes,
                 preflight=preflight,
+                evaluations=evaluations,
                 tasks=tasks,
                 jobs=jobs,
                 tools=tools,
                 allow_task_runs=allow_task_runs,
+                allow_evaluation_runs=allow_evaluation_runs,
                 snapshot=snapshot,
                 tool_snapshot=tool_snapshot,
                 title=title,

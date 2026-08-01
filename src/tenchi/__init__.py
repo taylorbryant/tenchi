@@ -2,7 +2,8 @@
 
 Canonical imports use the submodules — ``tenchi.contracts``,
 ``tenchi.routes``, ``tenchi.jobs``, ``tenchi.errors``, ``tenchi.server``,
-``tenchi.client``, ``tenchi.retries``, ``tenchi.tools``
+``tenchi.client``, ``tenchi.retries``, ``tenchi.tools``,
+``tenchi.evaluations``
 — and the most common names are re-exported here for convenience.
 """
 
@@ -17,6 +18,32 @@ from .client import (
 )
 from .contracts import Contract, contract
 from .errors import AppError, ConfigurationError, ErrorDef, TenchiError
+from .evaluations import (
+    MAX_EVALUATION_TOKENS,
+    Evaluation,
+    EvaluationBindingError,
+    EvaluationBudgetOutcome,
+    EvaluationBudgetStatus,
+    EvaluationCase,
+    EvaluationCaseOutcome,
+    EvaluationCaseStatus,
+    EvaluationGroup,
+    EvaluationKind,
+    EvaluationMeasurement,
+    EvaluationMetric,
+    EvaluationMetricOutcome,
+    EvaluationNotFoundError,
+    EvaluationOutcome,
+    EvaluationReport,
+    EvaluationResultError,
+    EvaluationRunner,
+    create_evaluation_runner,
+    evaluation,
+    evaluation_case,
+    evaluation_group,
+    evaluation_metric,
+    evaluation_result,
+)
 from .execution import ExecutionError, UseCaseObserver, UseCaseOutcome, execute
 from .health import health_route
 from .idempotency import (
@@ -110,6 +137,7 @@ __version__ = "0.12.0"
 __all__ = [
     "IDEMPOTENCY_CONFLICT",
     "IDEMPOTENCY_IN_PROGRESS",
+    "MAX_EVALUATION_TOKENS",
     "RATE_LIMITED",
     "TOOL_MANIFEST_VERSION",
     "AppError",
@@ -122,6 +150,23 @@ __all__ = [
     "ConfigurationError",
     "Contract",
     "ErrorDef",
+    "Evaluation",
+    "EvaluationBindingError",
+    "EvaluationBudgetOutcome",
+    "EvaluationBudgetStatus",
+    "EvaluationCase",
+    "EvaluationCaseOutcome",
+    "EvaluationCaseStatus",
+    "EvaluationGroup",
+    "EvaluationKind",
+    "EvaluationMeasurement",
+    "EvaluationMetric",
+    "EvaluationMetricOutcome",
+    "EvaluationNotFoundError",
+    "EvaluationOutcome",
+    "EvaluationReport",
+    "EvaluationResultError",
+    "EvaluationRunner",
     "ExecutionError",
     "IdempotencyResultError",
     "IdempotencyStore",
@@ -182,10 +227,16 @@ __all__ = [
     "__version__",
     "contract",
     "create_app",
+    "create_evaluation_runner",
     "create_job_dispatcher",
     "create_task_runner",
     "create_tool_runner",
     "enforce_rate_limit",
+    "evaluation",
+    "evaluation_case",
+    "evaluation_group",
+    "evaluation_metric",
+    "evaluation_result",
     "execute",
     "fingerprint",
     "health_route",

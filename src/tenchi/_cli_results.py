@@ -8,14 +8,28 @@ letting a serializer silently turn implementation details into a public schema.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Annotated, Literal
 
+from pydantic import Field
 from typing_extensions import TypedDict
+
+from .evaluations import MAX_EVALUATION_TOKENS, EvaluationBudgetStatus
 
 type DiagnosticSeverity = Literal["error", "warning", "hint"]
 type GeneratedArtifact = Literal["feature", "use-case"]
 type CheckStepStatus = Literal["passed", "failed"]
 type PreflightCheckStatus = Literal["passed", "failed", "timed_out"]
+type EvaluationKind = Literal["deterministic", "model"]
+type EvaluationCaseStatus = Literal["completed", "failed", "timed_out", "skipped"]
+type EvaluationRunErrorKind = Literal["unknown_evaluation", "failed"]
+type EvaluationTokenCount = Annotated[
+    int,
+    Field(ge=0, le=MAX_EVALUATION_TOKENS),
+]
+type EvaluationTokenBudget = Annotated[
+    int,
+    Field(ge=1, le=MAX_EVALUATION_TOKENS),
+]
 type TaskRunErrorKind = Literal[
     "unknown_task",
     "invalid_input",
@@ -23,9 +37,9 @@ type TaskRunErrorKind = Literal[
     "invalid_result",
     "failed",
 ]
-type AgentProtocolVersion = Literal[4]
+type AgentProtocolVersion = Literal[5]
 
-AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 4
+AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 5
 
 
 class DiagnosticPayload(TypedDict):
@@ -107,6 +121,95 @@ class PreflightPayload(TypedDict):
     counts: PreflightCountsPayload
     duration_seconds: float
     checks: list[PreflightCheckPayload]
+
+
+class EvaluationMetricDeclarationPayload(TypedDict):
+    name: str
+    description: str | None
+    threshold: float
+
+
+class EvaluationEntryPayload(TypedDict):
+    name: str
+    description: str | None
+    kind: EvaluationKind
+    case_schema: dict[str, object]
+    cases: list[str]
+    metrics: list[EvaluationMetricDeclarationPayload]
+    timeout_seconds: float
+    max_tokens: EvaluationTokenBudget | None
+    max_cost_usd: float | None
+
+
+class EvaluationListPayload(TypedDict):
+    schema_version: AgentProtocolVersion
+    root: str
+    target: str
+    evaluations: list[EvaluationEntryPayload]
+
+
+class EvaluationCasePayload(TypedDict):
+    name: str
+    status: EvaluationCaseStatus
+    duration_seconds: float
+    scores: dict[str, float]
+    tokens: EvaluationTokenCount | None
+    cost_usd: float | None
+    failure_code: str | None
+
+
+class EvaluationMetricPayload(TypedDict):
+    name: str
+    average: float | None
+    threshold: float
+    passed: bool
+    samples: int
+
+
+class EvaluationBudgetPayload(TypedDict):
+    max_tokens: EvaluationTokenBudget | None
+    consumed_tokens: EvaluationTokenCount | None
+    max_cost_usd: float | None
+    consumed_cost_usd: float | None
+    status: EvaluationBudgetStatus
+    passed: bool
+
+
+class EvaluationOutcomePayload(TypedDict):
+    name: str
+    description: str | None
+    kind: EvaluationKind
+    ok: bool
+    duration_seconds: float
+    cases: list[EvaluationCasePayload]
+    metrics: list[EvaluationMetricPayload]
+    budget: EvaluationBudgetPayload
+
+
+class EvaluationCountsPayload(TypedDict):
+    completed: int
+    failed: int
+    timed_out: int
+    skipped: int
+    total: int
+
+
+class EvaluationRunErrorPayload(TypedDict):
+    kind: EvaluationRunErrorKind
+    code: str
+    message: str
+
+
+class EvaluationRunPayload(TypedDict):
+    schema_version: AgentProtocolVersion
+    root: str
+    target: str
+    name: str | None
+    ok: bool
+    counts: EvaluationCountsPayload
+    duration_seconds: float
+    evaluations: list[EvaluationOutcomePayload]
+    error: EvaluationRunErrorPayload | None
 
 
 class RouteResponsePayload(TypedDict):
@@ -347,6 +450,214 @@ class PreflightResult:
             },
             "duration_seconds": self.duration_seconds,
             "checks": [check.as_dict() for check in self.checks],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationMetricDeclarationResult:
+    """One metric exposed by evaluation discovery."""
+
+    name: str
+    description: str | None
+    threshold: float
+
+    def as_dict(self) -> EvaluationMetricDeclarationPayload:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "threshold": self.threshold,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationEntryResult:
+    """One discoverable evaluation suite without its case payloads."""
+
+    name: str
+    description: str | None
+    kind: EvaluationKind
+    case_schema: dict[str, object]
+    cases: tuple[str, ...]
+    metrics: tuple[EvaluationMetricDeclarationResult, ...]
+    timeout_seconds: float
+    max_tokens: EvaluationTokenBudget | None
+    max_cost_usd: float | None
+
+    def as_dict(self) -> EvaluationEntryPayload:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "kind": self.kind,
+            "case_schema": self.case_schema,
+            "cases": list(self.cases),
+            "metrics": [item.as_dict() for item in self.metrics],
+            "timeout_seconds": self.timeout_seconds,
+            "max_tokens": self.max_tokens,
+            "max_cost_usd": self.max_cost_usd,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationListResult:
+    """Versioned discovery for application-owned evaluations."""
+
+    root: str
+    target: str
+    evaluations: tuple[EvaluationEntryResult, ...]
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
+
+    def as_dict(self) -> EvaluationListPayload:
+        return {
+            "schema_version": self.schema_version,
+            "root": self.root,
+            "target": self.target,
+            "evaluations": [item.as_dict() for item in self.evaluations],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationCaseResult:
+    """One redacted case outcome in an evaluation receipt."""
+
+    name: str
+    status: EvaluationCaseStatus
+    duration_seconds: float
+    scores: tuple[tuple[str, float], ...]
+    tokens: EvaluationTokenCount | None
+    cost_usd: float | None
+    failure_code: str | None
+
+    def as_dict(self) -> EvaluationCasePayload:
+        return {
+            "name": self.name,
+            "status": self.status,
+            "duration_seconds": self.duration_seconds,
+            "scores": dict(self.scores),
+            "tokens": self.tokens,
+            "cost_usd": self.cost_usd,
+            "failure_code": self.failure_code,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationMetricResult:
+    """One aggregated metric in an evaluation receipt."""
+
+    name: str
+    average: float | None
+    threshold: float
+    passed: bool
+    samples: int
+
+    def as_dict(self) -> EvaluationMetricPayload:
+        return {
+            "name": self.name,
+            "average": self.average,
+            "threshold": self.threshold,
+            "passed": self.passed,
+            "samples": self.samples,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationBudgetResult:
+    """Declared and consumed usage in an evaluation receipt."""
+
+    max_tokens: EvaluationTokenBudget | None
+    consumed_tokens: EvaluationTokenCount | None
+    max_cost_usd: float | None
+    consumed_cost_usd: float | None
+    status: EvaluationBudgetStatus
+
+    @property
+    def passed(self) -> bool:
+        """Whether every declared budget was verified within its limit."""
+        return self.status == "passed"
+
+    def as_dict(self) -> EvaluationBudgetPayload:
+        return {
+            "max_tokens": self.max_tokens,
+            "consumed_tokens": self.consumed_tokens,
+            "max_cost_usd": self.max_cost_usd,
+            "consumed_cost_usd": self.consumed_cost_usd,
+            "status": self.status,
+            "passed": self.passed,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationOutcomeResult:
+    """Complete result for one named evaluation."""
+
+    name: str
+    description: str | None
+    kind: EvaluationKind
+    ok: bool
+    duration_seconds: float
+    cases: tuple[EvaluationCaseResult, ...]
+    metrics: tuple[EvaluationMetricResult, ...]
+    budget: EvaluationBudgetResult
+
+    def as_dict(self) -> EvaluationOutcomePayload:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "kind": self.kind,
+            "ok": self.ok,
+            "duration_seconds": self.duration_seconds,
+            "cases": [item.as_dict() for item in self.cases],
+            "metrics": [item.as_dict() for item in self.metrics],
+            "budget": self.budget.as_dict(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationRunErrorResult:
+    """Safe top-level failure from an evaluation run."""
+
+    kind: EvaluationRunErrorKind
+    code: str
+    message: str
+
+    def as_dict(self) -> EvaluationRunErrorPayload:
+        return {
+            "kind": self.kind,
+            "code": self.code,
+            "message": self.message,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationRunResult:
+    """Versioned, redacted receipt for an explicit evaluation run."""
+
+    root: str
+    target: str
+    name: str | None
+    ok: bool
+    duration_seconds: float
+    evaluations: tuple[EvaluationOutcomeResult, ...]
+    error: EvaluationRunErrorResult | None = None
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
+
+    def as_dict(self) -> EvaluationRunPayload:
+        cases = [item for evaluation in self.evaluations for item in evaluation.cases]
+        return {
+            "schema_version": self.schema_version,
+            "root": self.root,
+            "target": self.target,
+            "name": self.name,
+            "ok": self.ok,
+            "counts": {
+                "completed": sum(item.status == "completed" for item in cases),
+                "failed": sum(item.status == "failed" for item in cases),
+                "timed_out": sum(item.status == "timed_out" for item in cases),
+                "skipped": sum(item.status == "skipped" for item in cases),
+                "total": len(cases),
+            },
+            "duration_seconds": self.duration_seconds,
+            "evaluations": [item.as_dict() for item in self.evaluations],
+            "error": self.error.as_dict() if self.error is not None else None,
         }
 
 

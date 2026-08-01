@@ -51,10 +51,12 @@ def test_stdio_runner_preserves_every_captured_application_override(
         routes="custom.routes:routes",
         api_routes="custom.routes:api_routes",
         preflight="custom.preflight:checks",
+        evaluations="custom.evaluations:runner",
         tasks="custom.tasks:runner",
         jobs="custom.jobs:jobs",
         tools="custom.tools:tools",
         allow_task_runs=True,
+        allow_evaluation_runs=True,
         snapshot="api/openapi.json",
         tool_snapshot="api/tools.json",
         title="Custom",
@@ -103,6 +105,7 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
         "tools",
         "doctor",
         "preflight",
+        "evaluation_list",
         "task_list",
         "openapi_diff",
         "tools_diff",
@@ -127,7 +130,13 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
             assert tool.annotations.readOnlyHint is True
             assert tool.annotations.openWorldHint is False
 
-    enabled = build_mcp_server(McpServerOptions(EXAMPLE_ROOT, allow_task_runs=True))
+    enabled = build_mcp_server(
+        McpServerOptions(
+            EXAMPLE_ROOT,
+            allow_task_runs=True,
+            allow_evaluation_runs=True,
+        )
+    )
     enabled_tools = await enabled.list_tools()
     task_run = next(tool for tool in enabled_tools if tool.name == "task_run")
     assert task_run.annotations is not None
@@ -135,6 +144,14 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
     assert task_run.annotations.destructiveHint is True
     assert task_run.annotations.idempotentHint is False
     assert task_run.annotations.openWorldHint is True
+    evaluation_run = next(
+        tool for tool in enabled_tools if tool.name == "evaluation_run"
+    )
+    assert evaluation_run.annotations is not None
+    assert evaluation_run.annotations.readOnlyHint is False
+    assert evaluation_run.annotations.destructiveHint is True
+    assert evaluation_run.annotations.idempotentHint is False
+    assert evaluation_run.annotations.openWorldHint is True
 
 
 async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> None:
@@ -148,6 +165,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
         )
         doctor = await session.call_tool("doctor", {})
         preflight = await session.call_tool("preflight", {})
+        evaluations = await session.call_tool("evaluation_list", {})
         tasks = await session.call_tool("task_list", {})
         preview = await session.call_tool(
             "make_preview", {"artifact": "feature", "name": "notes"}
@@ -160,13 +178,13 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert routes.isError is False
     assert routes.structuredContent is not None
-    assert routes.structuredContent["schema_version"] == 4
+    assert routes.structuredContent["schema_version"] == 5
     assert routes.structuredContent["root"] == str(EXAMPLE_ROOT)
     assert any(item["path"] == "/todos" for item in routes.structuredContent["routes"])
 
     assert tools.isError is False
     assert tools.structuredContent is not None
-    assert tools.structuredContent["schema_version"] == 4
+    assert tools.structuredContent["schema_version"] == 5
     assert tools.structuredContent["manifest"]["schema_version"] == 1
     assert tools.structuredContent["manifest"]["tools"] == []
 
@@ -180,17 +198,22 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert doctor.isError is False
     assert doctor.structuredContent is not None
-    assert doctor.structuredContent["schema_version"] == 4
+    assert doctor.structuredContent["schema_version"] == 5
 
     assert preflight.isError is False
     assert preflight.structuredContent is not None
-    assert preflight.structuredContent["schema_version"] == 4
+    assert preflight.structuredContent["schema_version"] == 5
     assert preflight.structuredContent["ok"] is True
     assert preflight.structuredContent["checks"] == []
 
+    assert evaluations.isError is False
+    assert evaluations.structuredContent is not None
+    assert evaluations.structuredContent["schema_version"] == 5
+    assert evaluations.structuredContent["evaluations"] == []
+
     assert tasks.isError is False
     assert tasks.structuredContent is not None
-    assert tasks.structuredContent["schema_version"] == 4
+    assert tasks.structuredContent["schema_version"] == 5
     assert tasks.structuredContent["tasks"] == []
 
     assert preview.isError is False
@@ -205,12 +228,12 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert diff.isError is False
     assert diff.structuredContent is not None
-    assert diff.structuredContent["schema_version"] == 4
+    assert diff.structuredContent["schema_version"] == 5
     assert diff.structuredContent["compatible"] is True
 
     assert tool_diff.isError is False
     assert tool_diff.structuredContent is not None
-    assert tool_diff.structuredContent["schema_version"] == 4
+    assert tool_diff.structuredContent["schema_version"] == 5
     assert tool_diff.structuredContent["compatible"] is True
 
 
@@ -329,6 +352,90 @@ async def test_mcp_task_execution_is_opt_in_and_returns_structured_results(
     assert omitted.structuredContent["output"] == "default"
     assert explicit_null.structuredContent is not None
     assert explicit_null.structuredContent["output"] == "null"
+
+
+async def test_mcp_evaluation_execution_is_opt_in_and_redacted(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app").mkdir()
+    (tmp_path / "application_evaluations.py").write_text(
+        "from pydantic import BaseModel\n"
+        "from tenchi.evaluations import (\n"
+        "    EvaluationMeasurement,\n"
+        "    create_evaluation_runner,\n"
+        "    evaluation,\n"
+        "    evaluation_case,\n"
+        "    evaluation_group,\n"
+        "    evaluation_metric,\n"
+        "    evaluation_result,\n"
+        ")\n"
+        "class Case(BaseModel):\n"
+        "    prompt: str\n"
+        "async def score(case: Case, context: object) -> EvaluationMeasurement:\n"
+        "    del context\n"
+        "    print(case.prompt)\n"
+        "    return evaluation_result(\n"
+        "        scores={'quality': 1.0}, tokens=7, cost_usd=0.001\n"
+        "    )\n"
+        "suite = evaluation(\n"
+        "    'answers.quality',\n"
+        "    case=Case,\n"
+        "    cases=(evaluation_case(\n"
+        "        'answers.quality.simple', Case(prompt='private prompt')\n"
+        "    ),),\n"
+        "    metrics=(evaluation_metric('quality', threshold=0.9),),\n"
+        "    evaluator=score,\n"
+        "    kind='model',\n"
+        "    max_tokens=10,\n"
+        "    max_cost_usd=0.01,\n"
+        ")\n"
+        "runner = create_evaluation_runner(\n"
+        "    evaluations=evaluation_group(suite),\n"
+        "    context_factory=lambda: object(),\n"
+        ")\n",
+        encoding="utf-8",
+    )
+    options = McpServerOptions(
+        tmp_path,
+        evaluations="application_evaluations:runner",
+    )
+    disabled = build_mcp_server(options)
+    assert "evaluation_run" not in {tool.name for tool in await disabled.list_tools()}
+
+    enabled = build_mcp_server(
+        McpServerOptions(
+            tmp_path,
+            evaluations="application_evaluations:runner",
+            allow_evaluation_runs=True,
+        )
+    )
+    async with create_connected_server_and_client_session(enabled) as session:
+        listed = await session.call_tool("evaluation_list", {})
+        ran = await session.call_tool(
+            "evaluation_run",
+            {"name": "answers.quality"},
+        )
+        unknown = await session.call_tool(
+            "evaluation_run",
+            {"name": "answers.missing"},
+        )
+
+    assert listed.isError is False
+    assert listed.structuredContent is not None
+    assert listed.structuredContent["evaluations"][0]["cases"] == [
+        "answers.quality.simple"
+    ]
+    assert "private prompt" not in str(listed.structuredContent)
+
+    assert ran.isError is False
+    assert ran.structuredContent is not None
+    assert ran.structuredContent["ok"] is True
+    assert ran.structuredContent["counts"]["completed"] == 1
+    assert "private prompt" not in str(ran.structuredContent)
+
+    assert unknown.isError is False
+    assert unknown.structuredContent is not None
+    assert unknown.structuredContent["error"]["code"] == "EVALUATION_NOT_FOUND"
 
 
 async def test_mcp_returns_tool_errors_for_invalid_boundaries() -> None:
@@ -498,7 +605,7 @@ async def test_mcp_verify_returns_the_shared_receipt(
 
     assert result.isError is False
     assert result.structuredContent is not None
-    assert result.structuredContent["schema_version"] == 4
+    assert result.structuredContent["schema_version"] == 5
     assert result.structuredContent["tenchi_version"] == __version__
     assert result.structuredContent["ok"] is False
     assert result.structuredContent["baseline"] == {
@@ -631,6 +738,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
         "tools",
         "doctor",
         "preflight",
+        "evaluation_list",
         "task_list",
         "openapi_diff",
         "tools_diff",
@@ -642,7 +750,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
     assert initialized.serverInfo.version == __version__
     assert routes.isError is False
     assert routes.structuredContent is not None
-    assert routes.structuredContent["schema_version"] == 4
+    assert routes.structuredContent["schema_version"] == 5
     assert diff.isError is False
     assert diff.structuredContent is not None
     assert diff.structuredContent["counts"]["metadata"] == 1

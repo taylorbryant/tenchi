@@ -11,6 +11,8 @@ Doctor enforces the dependency direction that keeps Tenchi apps honest:
 - Tasks bind operational names to use cases but must not import infrastructure.
 - Tools bind machine-facing contracts to use cases but must not import
   infrastructure.
+- Evaluations bind typed cases to evaluators but must not import infrastructure
+  or server composition.
 - Jobs declare producer messages; handlers are bound at the composition root.
 - Shared code must not depend on features.
 - Infrastructure implements ports; it must not import use cases, routes,
@@ -51,6 +53,7 @@ _FEATURE_KINDS: dict[str, Category] = {
     "routes": "routes",
     "tasks": "tasks",
     "tools": "tools",
+    "evaluations": "evaluations",
     "jobs": "jobs",
     "use_cases": "use_cases",
     "policy": "policy",
@@ -114,6 +117,34 @@ _TOOL_REEXPORTS = frozenset(
         "ToolRunner",
     }
 )
+_EVALUATION_REEXPORTS = frozenset(
+    {
+        "create_evaluation_runner",
+        "evaluation",
+        "evaluation_case",
+        "evaluation_group",
+        "evaluation_metric",
+        "evaluation_result",
+        "Evaluation",
+        "EvaluationBindingError",
+        "EvaluationBudgetOutcome",
+        "EvaluationBudgetStatus",
+        "EvaluationCase",
+        "EvaluationCaseOutcome",
+        "EvaluationCaseStatus",
+        "EvaluationGroup",
+        "EvaluationKind",
+        "EvaluationMeasurement",
+        "EvaluationMetric",
+        "EvaluationMetricOutcome",
+        "EvaluationNotFoundError",
+        "EvaluationOutcome",
+        "EvaluationReport",
+        "EvaluationResultError",
+        "EvaluationRunner",
+        "MAX_EVALUATION_TOKENS",
+    }
+)
 
 # Forbidden import targets per source category, with the rule each enforces.
 _RULES: dict[Category, dict[Category, str]] = {
@@ -123,6 +154,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "context": "domain and schema code must not import the app context",
         "tasks": "domain and schema code must not import task declarations",
         "tools": "domain and schema code must not import tool declarations",
+        "evaluations": "domain and schema code must not import evaluations",
         "jobs": "domain and schema code must not import job declarations",
         **{k: f"domain and schema code {v}" for k, v in _HTTP_RULES.items()},
     },
@@ -132,6 +164,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "context": "ports must not import the app context",
         "tasks": "ports must not import task declarations",
         "tools": "ports must not import tool declarations",
+        "evaluations": "ports must not import evaluations",
         "jobs": "ports must not import job declarations",
         **{k: f"ports {v}" for k, v in _HTTP_RULES.items()},
     },
@@ -142,6 +175,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "use_cases": "contracts must not import use cases",
         "tasks": "contracts must not import tasks",
         "tools": "contracts must not import tools",
+        "evaluations": "contracts must not import evaluations",
         "jobs": "contracts must not import jobs",
         **{k: f"contracts {v}" for k, v in _HTTP_RULES.items()},
     },
@@ -155,6 +189,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "contracts": "policies must not import contracts",
         "tasks": "policies must not import tasks",
         "tools": "policies must not import tools",
+        "evaluations": "policies must not import evaluations",
         "jobs": "policies must not import jobs",
         **{k: f"policies {v}" for k, v in _HTTP_RULES.items()},
     },
@@ -167,6 +202,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "routes": "use cases must not import routes",
         "tasks": "use cases must not import task declarations",
         "tools": "use cases must not import tool declarations",
+        "evaluations": "use cases must not import evaluations",
         **{k: f"use cases {v}" for k, v in _HTTP_RULES.items()},
     },
     "routes": {
@@ -174,6 +210,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "server": "routes must not import server composition",
         "tasks": "routes must not import task declarations",
         "tools": "routes must not import tool declarations",
+        "evaluations": "routes must not import evaluations",
         "jobs": "routes must not import job declarations",
         **{k: f"routes {v}" for k, v in _HTTP_RULES.items()},
     },
@@ -184,6 +221,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "routes": "tasks must not import routes",
         "contracts": "tasks must not import contracts",
         "tools": "tasks must not import tool declarations",
+        "evaluations": "tasks must not import evaluations",
         "jobs": "tasks must not import job declarations",
         **{k: f"tasks {v}" for k, v in _HTTP_RULES.items()},
     },
@@ -196,6 +234,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "contracts": "job declarations must not import contracts",
         "tasks": "job declarations must not import tasks",
         "tools": "job declarations must not import tools",
+        "evaluations": "job declarations must not import evaluations",
         **{k: f"job declarations {v}" for k, v in _HTTP_RULES.items()},
     },
     "tools": {
@@ -206,7 +245,19 @@ _RULES: dict[Category, dict[Category, str]] = {
         "contracts": "tools must not import HTTP contracts",
         "tasks": "tools must not import task declarations",
         "jobs": "tools must not import job declarations",
+        "evaluations": "tools must not import evaluations",
         **{k: f"tools {v}" for k, v in _HTTP_RULES.items()},
+    },
+    "evaluations": {
+        "infra": "evaluations must not import concrete infrastructure",
+        "server": "evaluations must not import server composition",
+        "context": "evaluations must not import the app context",
+        "routes": "evaluations must not import routes",
+        "contracts": "evaluations must not import HTTP contracts",
+        "tasks": "evaluations must not import task declarations",
+        "tools": "evaluations must not import tool declarations",
+        "jobs": "evaluations must not import job declarations",
+        **{k: f"evaluations {v}" for k, v in _HTTP_RULES.items()},
     },
     "shared": {
         "infra": "shared code must not import infrastructure",
@@ -220,6 +271,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "policy": "shared code must not depend on features",
         "tasks": "shared code must not depend on features",
         "tools": "shared code must not depend on features",
+        "evaluations": "shared code must not depend on features",
         "jobs": "shared code must not depend on features",
         **{k: f"shared code {v}" for k, v in _HTTP_RULES.items()},
     },
@@ -231,6 +283,7 @@ _RULES: dict[Category, dict[Category, str]] = {
         "contracts": "infrastructure must not import contracts",
         "tasks": "infrastructure must not import tasks",
         "tools": "infrastructure must not import tools",
+        "evaluations": "infrastructure must not import evaluations",
         "jobs": "infrastructure must not import jobs",
     },
     "server": {},
@@ -304,7 +357,7 @@ def _placement_findings(
             message=(
                 "unrecognized feature module: features contain schemas.py, "
                 "ports.py, contracts.py, routes.py, tasks.py, policy.py, "
-                "tools.py, jobs.py, use_cases/, and tests/ only"
+                "tools.py, evaluations.py, jobs.py, use_cases/, and tests/ only"
             ),
             code="TENCHI_DOCTOR_UNRECOGNIZED_FEATURE_MODULE",
         )
@@ -496,6 +549,8 @@ def _classify_module(parts: tuple[str, ...]) -> Category | None:
             return "jobs"
         if parts[0] == "tenchi" and parts[1:2] == ("tools",):
             return "tools"
+        if parts[0] == "tenchi" and parts[1:2] == ("evaluations",):
+            return "evaluations"
         # Root re-exports reach the same runtime: `from tenchi import
         # execute` must not slip past what `from tenchi.execution import
         # execute` is denied.
@@ -507,6 +562,8 @@ def _classify_module(parts: tuple[str, ...]) -> Category | None:
             return "jobs"
         if parts[0] == "tenchi" and parts[1:2] and parts[1] in _TOOL_REEXPORTS:
             return "tools"
+        if parts[0] == "tenchi" and parts[1:2] and parts[1] in _EVALUATION_REEXPORTS:
+            return "evaluations"
         return None
     if parts[1:2] == ("infra",):
         return "infra"

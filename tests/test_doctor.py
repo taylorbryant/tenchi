@@ -240,6 +240,26 @@ def test_job_declarations_must_not_import_consumers(app_root: Path) -> None:
     )
 
 
+def test_evaluations_may_import_use_cases_but_not_infrastructure(
+    app_root: Path,
+) -> None:
+    evaluations = app_root / "app/features/todos/evaluations.py"
+    evaluations.write_text(
+        "from app.features.todos.use_cases.create_todo import create_todo\n"
+        "from app.infra.port_wiring import open_todo_repository\n"
+        "from tenchi.evaluations import evaluation_group\n\n"
+        "evaluations = evaluation_group()\n"
+    )
+
+    findings = run_doctor(app_root)
+
+    assert len(findings) == 1
+    assert findings[0].path == "app/features/todos/evaluations.py"
+    assert "evaluations must not import concrete infrastructure" in (
+        findings[0].message
+    )
+
+
 def test_unguarded_use_case_in_an_auth_using_app_is_flagged(
     app_root: Path,
 ) -> None:
@@ -368,7 +388,7 @@ def test_doctor_json_has_versioned_stable_diagnostics(
 ) -> None:
     assert main(["doctor", "--json"]) == 0
     clean = json.loads(capsys.readouterr().out)
-    assert clean["schema_version"] == 4
+    assert clean["schema_version"] == 5
     assert clean["ok"] is True
     assert clean["diagnostics"] == []
 
@@ -648,3 +668,24 @@ def test_root_reexport_of_declaration_names_is_allowed(app_root: Path) -> None:
     )
 
     assert run_doctor(app_root) == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["EvaluationBudgetStatus", "MAX_EVALUATION_TOKENS"],
+)
+def test_root_reexport_of_evaluation_names_is_flagged(
+    app_root: Path,
+    name: str,
+) -> None:
+    schemas = app_root / "app/features/todos/schemas.py"
+    schemas.write_text(
+        f"from tenchi import {name}  # noqa: F401\n" + schemas.read_text()
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        f"tenchi.{name}" in message and "must not import evaluations" in message
+        for message in messages(findings)
+    )

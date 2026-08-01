@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tenchi.cli import main
+from tenchi.evaluations import MAX_EVALUATION_TOKENS
 
 EXAMPLE_DIR = Path(__file__).parent.parent / "examples" / "todos"
 
@@ -72,6 +73,49 @@ def _write_tool_module(
     )
 
 
+def _write_evaluation_module(
+    root: Path,
+    *,
+    max_tokens: int = 10,
+    tokens: int | None = 3,
+) -> None:
+    usage = "" if tokens is None else f", tokens={tokens}"
+    (root / "evaluation_app.py").write_text(
+        "from pydantic import BaseModel\n"
+        "from tenchi.evaluations import (\n"
+        "    EvaluationMeasurement,\n"
+        "    create_evaluation_runner,\n"
+        "    evaluation,\n"
+        "    evaluation_case,\n"
+        "    evaluation_group,\n"
+        "    evaluation_metric,\n"
+        "    evaluation_result,\n"
+        ")\n"
+        "class Case(BaseModel):\n"
+        "    prompt: str\n"
+        "async def score(case: Case, context: object) -> EvaluationMeasurement:\n"
+        "    del context\n"
+        "    print(case.prompt)\n"
+        f"    return evaluation_result(scores={{'quality': 0.4}}{usage})\n"
+        "suite = evaluation(\n"
+        "    'answers.quality',\n"
+        "    case=Case,\n"
+        "    cases=(evaluation_case(\n"
+        "        'answers.quality.simple', Case(prompt='private prompt')\n"
+        "    ),),\n"
+        "    metrics=(evaluation_metric('quality', threshold=0.8),),\n"
+        "    evaluator=score,\n"
+        "    kind='model',\n"
+        f"    max_tokens={max_tokens},\n"
+        ")\n"
+        "runner = create_evaluation_runner(\n"
+        "    evaluations=evaluation_group(suite),\n"
+        "    context_factory=lambda: object(),\n"
+        ")\n",
+        encoding="utf-8",
+    )
+
+
 def test_new_scaffolds_a_working_app(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -91,6 +135,7 @@ def test_new_scaffolds_a_working_app(
     assert (root / "app/infra/sqlite_todo_repository.py").is_file()
     assert (root / "app/shared/errors.py").is_file()
     assert (root / "app/server/preflight.py").is_file()
+    assert (root / "app/server/evaluations.py").is_file()
     assert (root / "app/server/runtime.py").is_file()
     assert (root / "app/server/tasks.py").is_file()
     assert (root / "app/server/tools.py").is_file()
@@ -144,7 +189,7 @@ def test_new_scaffolds_a_working_app(
     mapped = _tenchi(root, "map", "--json")
     assert mapped.returncode == 0, mapped.stdout + mapped.stderr
     app_map = json.loads(mapped.stdout)
-    assert app_map["schema_version"] == 4
+    assert app_map["schema_version"] == 5
     assert app_map["summary"] == {
         "features": 1,
         "contracts": 2,
@@ -152,6 +197,7 @@ def test_new_scaffolds_a_working_app(
         "jobs": 0,
         "tasks": 0,
         "tools": 0,
+        "evaluations": 0,
         "use_cases": 2,
         "policies": 0,
         "ports": 1,
@@ -166,7 +212,7 @@ def test_new_scaffolds_a_working_app(
     preflight = _tenchi(root, "preflight", "--json")
     assert preflight.returncode == 0, preflight.stdout + preflight.stderr
     preflight_result = json.loads(preflight.stdout)
-    assert preflight_result["schema_version"] == 4
+    assert preflight_result["schema_version"] == 5
     assert preflight_result["ok"] is True
     assert preflight_result["counts"] == {
         "passed": 0,
@@ -174,6 +220,133 @@ def test_new_scaffolds_a_working_app(
         "timed_out": 0,
         "total": 0,
     }
+
+    evaluation_list = _tenchi(root, "eval", "list", "--json")
+    assert evaluation_list.returncode == 0, (
+        evaluation_list.stdout + evaluation_list.stderr
+    )
+    listed_evaluations = json.loads(evaluation_list.stdout)
+    assert listed_evaluations["schema_version"] == 5
+    assert listed_evaluations["evaluations"] == []
+
+    evaluation_run = _tenchi(root, "eval", "run", "--json")
+    assert evaluation_run.returncode == 0, evaluation_run.stdout + evaluation_run.stderr
+    evaluation_report = json.loads(evaluation_run.stdout)
+    assert evaluation_report["schema_version"] == 5
+    assert evaluation_report["ok"] is True
+    assert evaluation_report["counts"] == {
+        "completed": 0,
+        "failed": 0,
+        "timed_out": 0,
+        "skipped": 0,
+        "total": 0,
+    }
+
+
+def test_new_with_a_long_valid_name_passes_generated_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    name = "customer_support_evaluation_service"
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["new", name]) == 0
+    capsys.readouterr()
+
+    checked = _tenchi(tmp_path / name, "check")
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+
+
+def test_eval_cli_discovers_runs_and_redacts_application_payloads(
+    tmp_path: Path,
+) -> None:
+    _write_evaluation_module(tmp_path)
+    target = "evaluation_app:runner"
+
+    listed = _tenchi(
+        tmp_path,
+        "eval",
+        "list",
+        "--evaluations",
+        target,
+        "--json",
+    )
+    ran = _tenchi(
+        tmp_path,
+        "eval",
+        "run",
+        "answers.quality",
+        "--evaluations",
+        target,
+        "--json",
+    )
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    listed_result = json.loads(listed.stdout)
+    assert listed_result["evaluations"][0]["cases"] == ["answers.quality.simple"]
+    assert "private prompt" not in listed.stdout + listed.stderr
+
+    assert ran.returncode == 1, ran.stdout + ran.stderr
+    run_result = json.loads(ran.stdout)
+    assert run_result["ok"] is False
+    assert run_result["evaluations"][0]["metrics"][0]["average"] == 0.4
+    assert run_result["evaluations"][0]["metrics"][0]["passed"] is False
+    assert "private prompt" not in ran.stdout + ran.stderr
+
+
+def test_eval_cli_serializes_json_safe_token_limit(tmp_path: Path) -> None:
+    _write_evaluation_module(
+        tmp_path,
+        max_tokens=MAX_EVALUATION_TOKENS,
+        tokens=MAX_EVALUATION_TOKENS,
+    )
+    target = "evaluation_app:runner"
+
+    listed = _tenchi(
+        tmp_path,
+        "eval",
+        "list",
+        "--evaluations",
+        target,
+        "--json",
+    )
+    ran = _tenchi(
+        tmp_path,
+        "eval",
+        "run",
+        "--evaluations",
+        target,
+        "--json",
+    )
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    assert json.loads(listed.stdout)["evaluations"][0]["max_tokens"] == (
+        MAX_EVALUATION_TOKENS
+    )
+    assert ran.returncode == 1, ran.stdout + ran.stderr
+    run_result = json.loads(ran.stdout)
+    outcome = run_result["evaluations"][0]
+    assert outcome["cases"][0]["tokens"] == MAX_EVALUATION_TOKENS
+    assert outcome["budget"]["consumed_tokens"] == MAX_EVALUATION_TOKENS
+    assert outcome["budget"]["status"] == "passed"
+
+
+def test_eval_cli_distinguishes_an_unverified_budget(tmp_path: Path) -> None:
+    _write_evaluation_module(tmp_path, tokens=None)
+
+    ran = _tenchi(
+        tmp_path,
+        "eval",
+        "run",
+        "--evaluations",
+        "evaluation_app:runner",
+    )
+
+    assert ran.returncode == 1
+    assert "declared token or cost budget could not be verified" in ran.stdout
+    assert "declared token or cost budget exceeded" not in ran.stdout
 
 
 def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> None:
@@ -189,7 +362,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     agent_result = _tenchi(tmp_path, "tools", "--tools", target, "--json")
     assert agent_result.returncode == 0, agent_result.stderr
     listed_result = json.loads(agent_result.stdout)
-    assert listed_result["schema_version"] == 4
+    assert listed_result["schema_version"] == 5
     assert listed_result["root"] == str(tmp_path)
     assert listed_result["manifest"] == manifest
 
@@ -225,7 +398,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     )
     assert diff.returncode == 1
     report = json.loads(diff.stdout)
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
     assert report["status"] == "incompatible"
     assert report["counts"]["breaking"] == 1
     assert report["counts"]["metadata"] == 1
@@ -326,7 +499,7 @@ def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> Non
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 4
+    assert payload["schema_version"] == 5
     assert payload["target"] == target
     assert payload["ok"] is False
     assert payload["counts"] == {
@@ -392,7 +565,7 @@ def test_task_cli_lists_runs_and_reports_validation_as_versioned_json(
     listed = _tenchi(tmp_path, "task", "list", "--tasks", target, "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     listing = json.loads(listed.stdout)
-    assert listing["schema_version"] == 4
+    assert listing["schema_version"] == 5
     assert listing["target"] == target
     assert listing["tasks"][0]["name"] == "records.repair"
     assert listing["tasks"][0]["input_required"] is True
@@ -444,7 +617,7 @@ def test_generated_app_checks_pass(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
     assert report["ok"] is True
     assert report["counts"] == {"passed": 7, "failed": 0, "total": 7}
     assert [step["name"] for step in report["steps"]] == [
@@ -475,7 +648,7 @@ def test_verify_produces_one_receipt_against_an_immutable_baseline(
 
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads(result.stdout)
-    assert receipt["schema_version"] == 4
+    assert receipt["schema_version"] == 5
     assert receipt["tenchi_version"]
     assert receipt["ok"] is True
     assert receipt["baseline"] == {"ref": "HEAD", "commit": commit}
@@ -620,7 +793,7 @@ def test_openapi_diff_ref_reads_the_snapshot_from_git(
     )
     assert compatible_result.returncode == 0, compatible_result.stderr
     compatible = json.loads(compatible_result.stdout)
-    assert compatible["schema_version"] == 4
+    assert compatible["schema_version"] == 5
     assert compatible["root"] == str(root)
     assert compatible["baseline"] == "HEAD:openapi.json"
     assert compatible["compatible"] is True
@@ -797,13 +970,14 @@ def test_make_dry_run_and_json_share_a_versioned_result(
     assert main(["make", "feature", "notes", "--dry-run", "--json"]) == 0
     planned = json.loads(capsys.readouterr().out)
 
-    assert planned["schema_version"] == 4
+    assert planned["schema_version"] == 5
     assert planned["ok"] is True
     assert planned["dry_run"] is True
     assert planned["artifact"] == "feature"
     assert "app/features/notes/contracts.py" in planned["files"]
     assert "app/features/notes/tools.py" in planned["files"]
     assert any("app/server/tools.py" in step for step in planned["next_steps"])
+    assert any("app/server/evaluations.py" in step for step in planned["next_steps"])
     assert not (root / "app/features/notes").exists()
 
     assert main(["make", "feature", "notes", "--json"]) == 0
@@ -844,7 +1018,7 @@ def test_make_json_reports_errors_without_writing(
     assert main(["make", "feature", "notes", "--json"]) == 1
 
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == 4
+    assert result["schema_version"] == 5
     assert result["ok"] is False
     assert result["files"] == []
     assert "app/features/ not found" in result["error"]
@@ -1390,7 +1564,7 @@ def test_routes_json_emits_a_machine_readable_map(
     assert main(["routes", "--json"]) == 0
 
     result = cast(dict[str, Any], json.loads(capsys.readouterr().out))
-    assert result["schema_version"] == 4
+    assert result["schema_version"] == 5
     assert result["root"] == str(EXAMPLE_DIR)
     entries = cast(list[dict[str, Any]], result["routes"])
     assert entries

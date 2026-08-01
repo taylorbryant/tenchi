@@ -1,7 +1,7 @@
 [project]
 name = "tenchi"
 version = "0.12.0"
-description = "A contract-first, Python-native framework for typed JSON APIs and AI-facing application tools."
+description = "A contract-first Python framework for typed APIs, AI-facing tools, and evaluation gates."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -12,6 +12,7 @@ keywords = [
     "api",
     "asgi",
     "contracts",
+    "evaluations",
     "framework",
     "mcp",
     "pydantic",

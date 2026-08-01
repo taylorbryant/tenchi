@@ -48,14 +48,14 @@ uv run tenchi map
 uv run tenchi map --json
 uv run tenchi map --feature notes --json
 uv run tenchi map --feature notes \
-  --kind route,job,task,tool,use-case,policy,port --json
+  --kind route,job,task,tool,evaluation,use-case,policy,port --json
 ```
 
 Map combines the canonical source layout with composed API routes, operational
-tasks, background jobs, and application tools. It returns a deterministic,
+tasks, background jobs, application tools, and evaluations. It returns a deterministic,
 versioned graph covering features, contracts, routes, background jobs,
-operational tasks, application tools, use cases, policies, ports, adapters,
-context types, entrypoints, and tests.
+operational tasks, application tools, evaluations, use cases, policies, ports,
+adapters, context types, entrypoints, and tests.
 Edges describe ownership, route bindings, dependencies, authorization,
 implementations, and feature tests. Each edge carries project-relative source
 evidence and an `exact` or `inferred` confidence value.
@@ -67,7 +67,9 @@ kinds. The default route target is `app.server.routes:api_routes`; override it
 with `--routes module:attribute`. The default job target is
 `app.server.jobs:jobs`; override it with `--jobs module:attribute`. The default
 tool target is `app.server.tools:tools`; override it with
-`--tools module:attribute`.
+`--tools module:attribute`. The default evaluation target is
+`app.server.evaluations:runner`; override it with
+`--evaluations module:attribute`.
 
 The JSON result also embeds `tenchi doctor` diagnostics and unresolved source
 relationships. Agents should inspect both before editing and use stable node
@@ -178,6 +180,10 @@ metadata options override the generated application conventions. Verify never
 updates either snapshot. Because it runs the application's tests and validation
 commands, those commands retain their normal side effects and per-step timeout.
 
+Verify loads `app.server.evaluations:runner` for architecture evidence but does
+not run evaluations. Use `--evaluations module:attribute` when the application
+uses another composition target.
+
 ## Verify the deployment environment
 
 ```shell
@@ -195,6 +201,27 @@ messages. The command exits non-zero when any check fails or times out.
 Use `--preflight module:attribute` to override the declaration target. See
 [deployment preflight](/preflight) for declarations, dependency patterns,
 redaction, and rollout placement.
+
+## Run AI evaluations
+
+```shell
+uv run tenchi eval list
+uv run tenchi eval list --json
+uv run tenchi eval run
+uv run tenchi eval run support.answer_quality --json
+```
+
+`eval list` discovers `app.server.evaluations:runner` and returns case names
+and schemas, metrics, thresholds, timeouts, and token or cost budgets without
+case inputs. `eval run` opens the application lifespan, gives each case a
+scoped context, and exits non-zero when a case, threshold, or budget fails.
+
+Use `--concurrency` to override the number of cases in flight and `--timeout`
+to tighten each case's declared timeout. Use `--evaluations module:attribute`
+to override the runner target. Evaluations stay separate from `check` and
+`verify` because they may call external models, vary between runs, and incur
+cost. See [AI evaluations](/evaluations) for declarations, scoring, redaction,
+and deployment guidance.
 
 ## Run operational tasks
 
@@ -229,13 +256,16 @@ application's `ToolGroup`. MCP support is installed through the `tenchi[mcp]`
 extra. Generated
 applications include it as a development dependency and register the default
 command in `.mcp.json`.
-`--routes`, `--api-routes`, `--preflight`, `--tasks`, `--jobs`, `--tools`,
-`--snapshot`, and `--tool-snapshot` override the conventions captured by the
-server when it starts.
+`--routes`, `--api-routes`, `--preflight`, `--evaluations`, `--tasks`,
+`--jobs`, `--tools`, `--snapshot`, and `--tool-snapshot` override the
+conventions captured by the server when it starts.
 `--title`, `--version`,
 `--description`, and `--security` override discovered OpenAPI metadata for the
 diff and check tools. Pass `--allow-task-runs` only when the connected agent
 may perform operational writes; task discovery remains available without it.
+Pass `--allow-evaluation-runs` only when the connected agent may call providers
+and consume evaluation budgets; evaluation discovery remains available without
+it.
 The command uses stdio and waits for an MCP client; it does not start an HTTP
 listener.
 

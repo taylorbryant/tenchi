@@ -25,6 +25,7 @@ PUBLIC_MODULES = (
     "tenchi.compatibility",
     "tenchi.contracts",
     "tenchi.errors",
+    "tenchi.evaluations",
     "tenchi.execution",
     "tenchi.health",
     "tenchi.idempotency",

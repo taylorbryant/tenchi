@@ -9,6 +9,24 @@ versions may change the public API.
 
 ### Added
 
+- Provider-neutral AI evaluation gates. `evaluation()` declares typed cases,
+  normalized metric thresholds, per-case timeouts, and optional token/cost
+  budgets; `EvaluationRunner` applies application lifespan and scoped context
+  wiring with revalidated, isolated case inputs, bounded concurrency,
+  cancellation cleanup, exact decimal cost accounting, canonical validated case
+  schemas, and payload-safe outcomes that distinguish
+  exceeded budgets from unverified usage while omitting case inputs, prompts,
+  model outputs, context values, and exception messages. Token values are
+  limited to an interoperable JSON integer range. `tenchi eval list|run`
+  provides human and versioned JSON workflows, while the coding-agent MCP
+  server exposes read-only evaluation discovery and keeps execution behind
+  `--allow-evaluation-runs`. The scaffold, doctor, application map, generated
+  agent guide, and taskboard now include the evaluation composition point.
+  Agent protocol v5 adds evaluation results and map nodes while preserving all
+  earlier protocol snapshots. Existing applications add
+  `app/server/evaluations.py` with an empty `evaluation_group()` and
+  `EvaluationRunner` before using `tenchi map`, `tenchi verify`, or the
+  coding-agent application map.
 - Verifiable application-tool contracts. `tenchi tools` prints, writes, checks,
   and directionally compares canonical `tools.json` snapshots. Compatibility
   analysis treats removed tools, narrower inputs, wider outputs, newly exposed

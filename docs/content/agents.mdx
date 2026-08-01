@@ -43,6 +43,7 @@ complete application graph.
 | `.mcp.json` in every generated app | Project-local registration for Tenchi's MCP tools and instructions resource |
 | `tenchi map --json` | A versioned graph with stable node IDs, source locations, registration state, and relationship evidence |
 | `tenchi task list --json` | Validated operational task names and their input/output JSON Schemas |
+| `tenchi eval list --json` | Evaluation names, case names and schemas, thresholds, timeouts, and budgets without case inputs |
 | `tenchi make --dry-run --json` | A mutation preview with the files and follow-up wiring steps before anything is written |
 | `tenchi doctor --json` | Stable diagnostic codes and source locations for architectural violations |
 | `tenchi tools --json` | Registered machine-facing names, schemas, errors, and safety annotations |
@@ -76,17 +77,17 @@ uv run tenchi map --feature notes \
 ```
 
 The complete map combines source declarations with composed API routes,
-operational tasks, background jobs, and application tools. A feature projection
-retains directly connected shared and cross-feature nodes, giving an agent a
-bounded starting context without hiding dependencies that cross the feature
-directory.
+operational tasks, background jobs, application tools, and evaluations. A
+feature projection retains directly connected shared and cross-feature nodes,
+giving an agent a bounded starting context without hiding dependencies that
+cross the feature directory.
 
 Inspect these fields before editing:
 
 - `nodes` identify concepts and their source declarations. Runtime-bound kinds
-  such as contracts, routes, jobs, tasks, tools, use cases, and adapters become
-  `registered` when composition reaches them; source-only declarations remain
-  `declared`.
+  such as contracts, routes, jobs, tasks, tools, evaluations, use cases, and
+  adapters become `registered` when composition reaches them; source-only
+  declarations remain `declared`.
 - `edges` explain ownership, route bindings, dependencies, authorization,
   implementations, and feature tests. Evidence points to the source that
   supports each relationship.
@@ -221,6 +222,8 @@ release instead of the branch's current commit.
 | `tenchi check --json` | Overall status, counts, duration, and every validation step |
 | `tenchi verify --base-ref <ref> --json` | Resolved baseline commit, checks, strict architecture evidence, and OpenAPI and tool compatibility |
 | `tenchi preflight --json` | Deployment-environment status, counts, durations, and stable failure codes without dependency details |
+| `tenchi eval list --json` | Evaluation discovery without evaluated inputs or provider calls |
+| `tenchi eval run [name] --json` | Payload-safe scores, usage, thresholds, budgets, statuses, and failure codes for an explicitly authorized AI evaluation run |
 | `tenchi routes --json` | A versioned result containing the app root and composed HTTP route table |
 | `tenchi tools --json` | A versioned result containing the app root and registered tool manifest |
 | `tenchi openapi --diff openapi.json --diff-format json` | A machine-readable API compatibility report |
@@ -241,6 +244,12 @@ ones.
 The map also does not prove business correctness. An agent still needs to read
 the relevant contract, use case, policy, port, and tests, then rely on the full
 validation loop.
+
+Model evaluations are intentionally outside `check` and `verify`. Let an agent
+inspect them with `eval list`, but authorize `eval run` separately because it
+may send application-owned case data to external providers and incur cost. The
+coding-agent MCP server follows the same rule: `evaluation_list` is available
+by default, while `evaluation_run` requires `--allow-evaluation-runs`.
 
 <Callout title="Use MCP or the same CLI operations">
   Generated applications include `.mcp.json` for MCP-aware clients. Agents that
