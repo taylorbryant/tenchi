@@ -160,3 +160,17 @@ def test_tool_snapshot_is_current() -> None:
 Run `tenchi tools --diff` against the previous snapshot before replacing it.
 The exact test proves reproducibility; the historical diff proves
 compatibility. See [Application tools](/tools) for the complete workflow.
+
+Keep the payload-free evaluation policy reproducible in the same way:
+
+```python
+from tenchi.cli import main
+
+
+def test_evaluation_snapshot_is_current() -> None:
+    assert main(["eval", "snapshot", "--check", "evaluations.json"]) == 0
+```
+
+Run `tenchi eval snapshot --diff evaluations.json` before replacing this
+snapshot. It checks declared cases, metrics, thresholds, suite kinds, timeouts,
+and budgets without running evaluators or storing case inputs.

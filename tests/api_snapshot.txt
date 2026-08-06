@@ -8,6 +8,7 @@ ClientOutcome (re-export of tenchi.client.ClientOutcome)
 ClientResponse (re-export of tenchi.client.ClientResponse)
 ConfigurationError (re-export of tenchi.errors.ConfigurationError)
 Contract (re-export of tenchi.contracts.Contract)
+EVALUATION_MANIFEST_VERSION = 1
 ErrorDef (re-export of tenchi.errors.ErrorDef)
 Evaluation (re-export of tenchi.evaluations.Evaluation)
 EvaluationBindingError (re-export of tenchi.evaluations.EvaluationBindingError)
@@ -18,8 +19,11 @@ EvaluationCaseOutcome (re-export of tenchi.evaluations.EvaluationCaseOutcome)
 EvaluationCaseStatus = EvaluationCaseStatus
 EvaluationGroup (re-export of tenchi.evaluations.EvaluationGroup)
 EvaluationKind = EvaluationKind
+EvaluationManifest (re-export of tenchi.evaluations.EvaluationManifest)
+EvaluationManifestEntry (re-export of tenchi.evaluations.EvaluationManifestEntry)
 EvaluationMeasurement (re-export of tenchi.evaluations.EvaluationMeasurement)
 EvaluationMetric (re-export of tenchi.evaluations.EvaluationMetric)
+EvaluationMetricManifest (re-export of tenchi.evaluations.EvaluationMetricManifest)
 EvaluationMetricOutcome (re-export of tenchi.evaluations.EvaluationMetricOutcome)
 EvaluationNotFoundError (re-export of tenchi.evaluations.EvaluationNotFoundError)
 EvaluationOutcome (re-export of tenchi.evaluations.EvaluationOutcome)
@@ -98,6 +102,7 @@ enforce_rate_limit (re-export of tenchi.rate_limits.enforce_rate_limit)
 evaluation (re-export of tenchi.evaluations.evaluation)
 evaluation_case (re-export of tenchi.evaluations.evaluation_case)
 evaluation_group (re-export of tenchi.evaluations.evaluation_group)
+evaluation_manifest (re-export of tenchi.evaluations.evaluation_manifest)
 evaluation_metric (re-export of tenchi.evaluations.evaluation_metric)
 evaluation_result (re-export of tenchi.evaluations.evaluation_result)
 execute (re-export of tenchi.execution.execute)
@@ -179,9 +184,11 @@ class CompatibilityReport
     property compatible(self) -> 'bool'
     def count(self, severity: 'ChangeSeverity') -> 'int'
     property status(self) -> 'CompatibilityStatus'
+def analyze_evaluation_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
 def analyze_openapi_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
 def analyze_tool_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
 def render_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
+def render_evaluation_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
 def render_tool_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
 
 # tenchi.contracts
@@ -232,6 +239,7 @@ class TenchiError(Exception)
 def error_body(*, code: 'str', message: 'str', details: 'Any' = None, request_id: 'str | None' = None) -> 'dict[str, Any]'
 
 # tenchi.evaluations
+EVALUATION_MANIFEST_VERSION = 1
 class Evaluation(Generic)
     name: str
     case: TypeForm[CaseT]
@@ -273,6 +281,8 @@ class EvaluationGroup
     evaluations: tuple[Evaluation[Any, Any], ...]
     def __init__(self, evaluations: 'tuple[Evaluation[Any, Any], ...]') -> None
 EvaluationKind = EvaluationKind
+class EvaluationManifest(dict)
+class EvaluationManifestEntry(dict)
 class EvaluationMeasurement
     scores: tuple[tuple[str, float], ...]
     tokens: int | None = None
@@ -283,6 +293,7 @@ class EvaluationMetric
     threshold: float
     description: str | None = None
     def __init__(self, name: 'str', threshold: 'float', description: 'str | None' = None) -> None
+class EvaluationMetricManifest(dict)
 class EvaluationMetricOutcome
     name: str
     average: float | None
@@ -319,6 +330,7 @@ def create_evaluation_runner(*, evaluations: 'EvaluationGroup', context_factory:
 def evaluation(name: 'str', *, case: 'TypeForm[CaseT]', cases: 'Sequence[EvaluationCase[CaseT]]', metrics: 'Sequence[EvaluationMetric]', evaluator: 'Callable[[CaseT, ContextT], Awaitable[EvaluationMeasurement]]', kind: 'EvaluationKind' = 'deterministic', description: 'str | None' = None, timeout: 'float' = 30.0, max_tokens: 'int | None' = None, max_cost_usd: 'float | None' = None) -> 'Evaluation[CaseT, ContextT]'
 def evaluation_case(name: 'str', input: 'CaseT') -> 'EvaluationCase[CaseT]'
 def evaluation_group(*items: 'Evaluation[Any, Any] | EvaluationGroup | Sequence[Evaluation[Any, Any]]') -> 'EvaluationGroup'
+def evaluation_manifest(evaluations: 'EvaluationGroup') -> 'EvaluationManifest'
 def evaluation_metric(name: 'str', *, threshold: 'float', description: 'str | None' = None) -> 'EvaluationMetric'
 def evaluation_result(*, scores: 'Mapping[str, float]', tokens: 'int | None' = None, cost_usd: 'float | None' = None) -> 'EvaluationMeasurement'
 

@@ -33,6 +33,15 @@ class OperationError(RuntimeError):
     """A user-actionable failure from a renderer-independent operation."""
 
 
+@dataclass(frozen=True, slots=True)
+class GitSnapshot:
+    """Content and provenance for one snapshot read from an immutable commit."""
+
+    text: str
+    label: str
+    present: bool
+
+
 class OpenApiChangePayload(TypedDict):
     severity: ChangeSeverity
     location: str
@@ -232,9 +241,9 @@ def openapi_diff_result(
             ) from exc
         baseline_label = str(snapshot)
     else:
-        baseline_text, baseline_label = read_git_snapshot(
-            resolved_root, ref=ref, snapshot=snapshot
-        )
+        baseline = read_git_snapshot(resolved_root, ref=ref, snapshot=snapshot)
+        baseline_text = baseline.text
+        baseline_label = baseline.label
     return compare_openapi_baseline(
         resolved_root,
         baseline_text=baseline_text,
@@ -258,6 +267,10 @@ def compare_openapi_baseline(
             f"baseline {baseline_label!r} is not valid JSON "
             f"(line {exc.lineno}, column {exc.colno})"
         ) from exc
+    except ValueError as exc:
+        raise OperationError(
+            f"baseline {baseline_label!r} is not valid JSON ({exc})"
+        ) from exc
     try:
         report = analyze_openapi_compatibility(baseline, current)
     except ValueError as exc:
@@ -269,7 +282,13 @@ def compare_openapi_baseline(
     )
 
 
-def read_git_snapshot(root: Path, *, ref: str, snapshot: Path) -> tuple[str, str]:
+def read_git_snapshot(
+    root: Path,
+    *,
+    ref: str,
+    snapshot: Path,
+    missing_text: str | None = None,
+) -> GitSnapshot:
     """Read *snapshot* from *ref* in the Git repository containing *root*."""
     _validate_git_ref(ref)
     try:
@@ -303,6 +322,40 @@ def read_git_snapshot(root: Path, *, ref: str, snapshot: Path) -> tuple[str, str
     commit = resolve_git_commit(root, ref)
 
     baseline_label = f"{ref}:{relative_snapshot}"
+    if missing_text is not None:
+        try:
+            tree_result = subprocess.run(
+                [
+                    "git",
+                    "ls-tree",
+                    "--full-tree",
+                    "-z",
+                    commit,
+                    "--",
+                    relative_snapshot,
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+        except (OSError, UnicodeError) as exc:
+            raise OperationError(
+                f"could not inspect baseline {baseline_label!r}: {exc}"
+            ) from exc
+        if tree_result.returncode != 0:
+            reason = tree_result.stderr.strip() or "could not inspect snapshot"
+            raise OperationError(
+                f"could not inspect baseline {baseline_label!r}: {reason}"
+            )
+        if not tree_result.stdout:
+            return GitSnapshot(
+                text=missing_text,
+                label=baseline_label,
+                present=False,
+            )
+
     try:
         show_result = subprocess.run(
             ["git", "show", f"{commit}:{relative_snapshot}"],
@@ -319,7 +372,11 @@ def read_git_snapshot(root: Path, *, ref: str, snapshot: Path) -> tuple[str, str
     if show_result.returncode != 0:
         reason = show_result.stderr.strip() or "snapshot not found"
         raise OperationError(f"could not read baseline {baseline_label!r}: {reason}")
-    return show_result.stdout, baseline_label
+    return GitSnapshot(
+        text=show_result.stdout,
+        label=baseline_label,
+        present=True,
+    )
 
 
 def resolve_git_commit(root: Path, ref: str) -> str:

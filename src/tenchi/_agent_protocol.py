@@ -19,6 +19,7 @@ from ._cli_results import (
     TaskListPayload,
     TaskRunPayload,
 )
+from ._evaluation_operations import EvaluationDiffPayload
 from ._openapi_operations import OpenApiDiffPayload
 from ._tool_operations import ToolDiffPayload, ToolListPayload
 from ._verify_operations import VerificationPayload
@@ -29,6 +30,7 @@ type AgentResultName = Literal[
     "doctor",
     "evaluation_list",
     "evaluation_run",
+    "evaluation_diff",
     "openapi_diff",
     "make",
     "check",
@@ -52,6 +54,10 @@ AGENT_RESULT_ADAPTERS: dict[AgentResultName, TypeAdapter[object]] = {
     "evaluation_run": cast(
         TypeAdapter[object],
         TypeAdapter(EvaluationRunPayload),
+    ),
+    "evaluation_diff": cast(
+        TypeAdapter[object],
+        TypeAdapter(EvaluationDiffPayload),
     ),
     "openapi_diff": cast(TypeAdapter[object], TypeAdapter(OpenApiDiffPayload)),
     "make": cast(TypeAdapter[object], TypeAdapter(MakePayload)),

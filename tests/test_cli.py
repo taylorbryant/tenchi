@@ -141,10 +141,12 @@ def test_new_scaffolds_a_working_app(
     assert (root / "app/server/tools.py").is_file()
     assert (root / "openapi.json").is_file()
     assert (root / "tools.json").is_file()
+    assert (root / "evaluations.json").is_file()
     assert (root / "AGENTS.md").is_file()
     assert (root / ".mcp.json").is_file()
     assert (root / "tests/test_openapi_snapshot.py").is_file()
     assert (root / "tests/test_tool_snapshot.py").is_file()
+    assert (root / "tests/test_evaluation_snapshot.py").is_file()
     assert (root / ".github/workflows/ci.yml").is_file()
     assert "uv run tenchi check" in (root / "AGENTS.md").read_text()
     assert "https://tenchi.io/agents" in (root / "AGENTS.md").read_text()
@@ -189,7 +191,7 @@ def test_new_scaffolds_a_working_app(
     mapped = _tenchi(root, "map", "--json")
     assert mapped.returncode == 0, mapped.stdout + mapped.stderr
     app_map = json.loads(mapped.stdout)
-    assert app_map["schema_version"] == 5
+    assert app_map["schema_version"] == 6
     assert app_map["summary"] == {
         "features": 1,
         "contracts": 2,
@@ -204,7 +206,7 @@ def test_new_scaffolds_a_working_app(
         "adapters": 2,
         "contexts": 1,
         "entrypoints": 1,
-        "tests": 4,
+        "tests": 5,
         "diagnostics": 0,
         "unresolved": 0,
     }
@@ -212,7 +214,7 @@ def test_new_scaffolds_a_working_app(
     preflight = _tenchi(root, "preflight", "--json")
     assert preflight.returncode == 0, preflight.stdout + preflight.stderr
     preflight_result = json.loads(preflight.stdout)
-    assert preflight_result["schema_version"] == 5
+    assert preflight_result["schema_version"] == 6
     assert preflight_result["ok"] is True
     assert preflight_result["counts"] == {
         "passed": 0,
@@ -226,13 +228,13 @@ def test_new_scaffolds_a_working_app(
         evaluation_list.stdout + evaluation_list.stderr
     )
     listed_evaluations = json.loads(evaluation_list.stdout)
-    assert listed_evaluations["schema_version"] == 5
+    assert listed_evaluations["schema_version"] == 6
     assert listed_evaluations["evaluations"] == []
 
     evaluation_run = _tenchi(root, "eval", "run", "--json")
     assert evaluation_run.returncode == 0, evaluation_run.stdout + evaluation_run.stderr
     evaluation_report = json.loads(evaluation_run.stdout)
-    assert evaluation_report["schema_version"] == 5
+    assert evaluation_report["schema_version"] == 6
     assert evaluation_report["ok"] is True
     assert evaluation_report["counts"] == {
         "completed": 0,
@@ -349,6 +351,171 @@ def test_eval_cli_distinguishes_an_unverified_budget(tmp_path: Path) -> None:
     assert "declared token or cost budget exceeded" not in ran.stdout
 
 
+def test_eval_snapshot_cli_writes_checks_and_classifies_policy_changes(
+    tmp_path: Path,
+) -> None:
+    _write_evaluation_module(tmp_path)
+    target = "evaluation_app:runner"
+    snapshot = tmp_path / "evaluations.json"
+
+    printed = _tenchi(
+        tmp_path,
+        "eval",
+        "snapshot",
+        "--evaluations",
+        target,
+    )
+    written = _tenchi(
+        tmp_path,
+        "eval",
+        "snapshot",
+        "--evaluations",
+        target,
+        "--write",
+        "evaluations.json",
+    )
+    checked = _tenchi(
+        tmp_path,
+        "eval",
+        "snapshot",
+        "--evaluations",
+        target,
+        "--check",
+        "evaluations.json",
+    )
+
+    assert printed.returncode == 0, printed.stderr
+    manifest = json.loads(printed.stdout)
+    assert manifest["schema_version"] == 1
+    assert manifest["evaluations"][0]["cases"] == ["answers.quality.simple"]
+    assert "private prompt" not in printed.stdout + printed.stderr
+    assert written.returncode == 0, written.stderr
+    assert checked.returncode == 0, checked.stderr
+    assert json.loads(snapshot.read_text()) == manifest
+
+    module = tmp_path / "evaluation_app.py"
+    module.write_text(module.read_text().replace("threshold=0.8", "threshold=0.50"))
+    changed = _tenchi(
+        tmp_path,
+        "eval",
+        "snapshot",
+        "--evaluations",
+        target,
+        "--diff",
+        "evaluations.json",
+        "--diff-format",
+        "json",
+    )
+
+    assert changed.returncode == 1
+    report = json.loads(changed.stdout)
+    assert report["schema_version"] == 6
+    assert report["compatible"] is False
+    assert report["changes"][0]["message"].startswith("threshold decreased")
+    assert "private prompt" not in changed.stdout + changed.stderr
+
+    snapshot.write_text("1" * 5000, encoding="utf-8")
+    invalid = _tenchi(
+        tmp_path,
+        "eval",
+        "snapshot",
+        "--evaluations",
+        target,
+        "--diff",
+        "evaluations.json",
+    )
+
+    assert invalid.returncode == 1
+    assert "is not valid JSON" in invalid.stderr
+    assert "Traceback" not in invalid.stderr
+
+
+def test_eval_snapshot_diff_ref_requires_an_explicit_missing_baseline_override(
+    tmp_path: Path,
+) -> None:
+    _write_evaluation_module(tmp_path)
+    target = "evaluation_app:runner"
+    written = _tenchi(
+        tmp_path,
+        "eval",
+        "snapshot",
+        "--evaluations",
+        target,
+        "--write",
+        "evaluations.json",
+    )
+    assert written.returncode == 0, written.stdout + written.stderr
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+    _git(tmp_path, "add", "evaluation_app.py", "evaluations.json")
+    _git(tmp_path, "commit", "-qm", "application with the original policy path")
+
+    rejected = _tenchi(
+        tmp_path,
+        "eval",
+        "snapshot",
+        "--evaluations",
+        target,
+        "--diff-ref",
+        "HEAD",
+        "--snapshot",
+        "policy/evaluations.json",
+        "--diff-format",
+        "json",
+    )
+
+    assert rejected.returncode == 1
+    assert "could not read baseline" in rejected.stderr
+
+    allowed = _tenchi(
+        tmp_path,
+        "eval",
+        "snapshot",
+        "--evaluations",
+        target,
+        "--diff-ref",
+        "HEAD",
+        "--snapshot",
+        "policy/evaluations.json",
+        "--allow-missing-baseline",
+        "--diff-format",
+        "json",
+    )
+
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+    report = json.loads(allowed.stdout)
+    assert report["compatible"] is True
+    assert report["counts"]["additive"] == 1
+    assert report["counts"]["metadata"] == 1
+    assert report["baseline"].endswith(":policy/evaluations.json")
+    assert {
+        "severity": "metadata",
+        "location": "evaluation manifest baseline",
+        "message": (
+            "historical baseline absent; explicit first-adoption override used"
+        ),
+    } in report["changes"]
+
+
+def test_eval_snapshot_missing_baseline_override_requires_a_git_diff(
+    tmp_path: Path,
+) -> None:
+    _write_evaluation_module(tmp_path)
+
+    result = _tenchi(
+        tmp_path,
+        "eval",
+        "snapshot",
+        "--evaluations",
+        "evaluation_app:runner",
+        "--allow-missing-baseline",
+    )
+
+    assert result.returncode == 1
+    assert "--allow-missing-baseline requires --diff-ref" in result.stderr
+
+
 def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> None:
     _write_tool_module(tmp_path)
     target = "tool_app:tools"
@@ -362,7 +529,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     agent_result = _tenchi(tmp_path, "tools", "--tools", target, "--json")
     assert agent_result.returncode == 0, agent_result.stderr
     listed_result = json.loads(agent_result.stdout)
-    assert listed_result["schema_version"] == 5
+    assert listed_result["schema_version"] == 6
     assert listed_result["root"] == str(tmp_path)
     assert listed_result["manifest"] == manifest
 
@@ -398,7 +565,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     )
     assert diff.returncode == 1
     report = json.loads(diff.stdout)
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == 6
     assert report["status"] == "incompatible"
     assert report["counts"]["breaking"] == 1
     assert report["counts"]["metadata"] == 1
@@ -499,7 +666,7 @@ def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> Non
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 5
+    assert payload["schema_version"] == 6
     assert payload["target"] == target
     assert payload["ok"] is False
     assert payload["counts"] == {
@@ -565,7 +732,7 @@ def test_task_cli_lists_runs_and_reports_validation_as_versioned_json(
     listed = _tenchi(tmp_path, "task", "list", "--tasks", target, "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     listing = json.loads(listed.stdout)
-    assert listing["schema_version"] == 5
+    assert listing["schema_version"] == 6
     assert listing["target"] == target
     assert listing["tasks"][0]["name"] == "records.repair"
     assert listing["tasks"][0]["input_required"] is True
@@ -617,9 +784,9 @@ def test_generated_app_checks_pass(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == 6
     assert report["ok"] is True
-    assert report["counts"] == {"passed": 7, "failed": 0, "total": 7}
+    assert report["counts"] == {"passed": 8, "failed": 0, "total": 8}
     assert [step["name"] for step in report["steps"]] == [
         "ruff format",
         "ruff",
@@ -627,6 +794,7 @@ def test_generated_app_checks_pass(
         "pytest",
         "doctor",
         "openapi",
+        "evaluations",
         "tools",
     ]
 
@@ -637,6 +805,12 @@ def test_verify_produces_one_receipt_against_an_immutable_baseline(
     monkeypatch.chdir(tmp_path)
     assert main(["new", "my_app"]) == 0
     root = tmp_path / "my_app"
+    evaluations_module = root / "app/server/evaluations.py"
+    evaluations_module.write_text(
+        evaluations_module.read_text(encoding="utf-8")
+        + '\nprint("evaluation-import-secret")\n',
+        encoding="utf-8",
+    )
     _git(root, "init", "-q")
     _git(root, "config", "user.email", "test@example.com")
     _git(root, "config", "user.name", "Test")
@@ -648,7 +822,7 @@ def test_verify_produces_one_receipt_against_an_immutable_baseline(
 
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads(result.stdout)
-    assert receipt["schema_version"] == 5
+    assert receipt["schema_version"] == 6
     assert receipt["tenchi_version"]
     assert receipt["ok"] is True
     assert receipt["baseline"] == {"ref": "HEAD", "commit": commit}
@@ -660,7 +834,65 @@ def test_verify_produces_one_receipt_against_an_immutable_baseline(
     assert receipt["openapi"]["baseline"].startswith(f"{commit}:")
     assert receipt["tools"]["compatible"] is True
     assert receipt["tools"]["baseline"].startswith(f"{commit}:")
+    assert receipt["evaluations"]["compatible"] is True
+    assert receipt["evaluations"]["baseline"].startswith(f"{commit}:")
     assert receipt["errors"] == []
+    assert "evaluation-import-secret" not in result.stdout + result.stderr
+
+
+def test_verify_requires_an_explicit_first_adoption_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline at the original policy path")
+    policy = root / "policy"
+    policy.mkdir()
+    (policy / "evaluations.json").write_text(
+        (root / "evaluations.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    rejected = _tenchi(
+        root,
+        "verify",
+        "--base-ref",
+        "HEAD",
+        "--evaluation-snapshot",
+        "policy/evaluations.json",
+        "--json",
+    )
+
+    assert rejected.returncode == 1, rejected.stdout + rejected.stderr
+    rejected_receipt = json.loads(rejected.stdout)
+    assert rejected_receipt["evaluations"] is None
+    assert rejected_receipt["errors"][0]["stage"] == "evaluations"
+    assert "could not read baseline" in rejected_receipt["errors"][0]["message"]
+
+    allowed = _tenchi(
+        root,
+        "verify",
+        "--base-ref",
+        "HEAD",
+        "--evaluation-snapshot",
+        "policy/evaluations.json",
+        "--allow-missing-evaluation-baseline",
+        "--json",
+    )
+
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+    allowed_receipt = json.loads(allowed.stdout)
+    assert allowed_receipt["ok"] is True
+    assert allowed_receipt["evaluations"]["counts"]["metadata"] == 1
+    assert allowed_receipt["evaluations"]["changes"][-1]["location"] == (
+        "evaluation manifest baseline"
+    )
 
 
 def test_verify_catches_a_breaking_snapshot_change_after_the_snapshot_is_replaced(
@@ -693,6 +925,71 @@ def test_verify_catches_a_breaking_snapshot_change_after_the_snapshot_is_replace
     assert receipt["openapi"]["compatible"] is False
     assert receipt["openapi"]["counts"]["breaking"] >= 1
     assert receipt["tools"]["compatible"] is True
+    assert receipt["ok"] is False
+
+
+def test_verify_catches_a_weakened_evaluation_policy_after_snapshot_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    snapshot_path = root / "evaluations.json"
+    current_snapshot = snapshot_path.read_text(encoding="utf-8")
+    baseline = {
+        "schema_version": 1,
+        "evaluations": [
+            {
+                "name": "todos.answer_quality",
+                "description": "Protect answer quality.",
+                "kind": "model",
+                "case_schema": {
+                    "type": "object",
+                    "properties": {"prompt": {"type": "string"}},
+                    "required": ["prompt"],
+                },
+                "cases": ["todos.answer_quality.simple"],
+                "metrics": [
+                    {
+                        "name": "quality",
+                        "description": None,
+                        "threshold": 0.8,
+                    }
+                ],
+                "timeout_seconds": 30.0,
+                "max_tokens": 100,
+                "max_cost_usd": 0.01,
+            }
+        ],
+    }
+    snapshot_path.write_text(
+        json.dumps(baseline, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline with evaluation policy")
+    snapshot_path.write_text(current_snapshot, encoding="utf-8")
+
+    result = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["check"]["ok"] is True
+    assert receipt["architecture"]["ok"] is True
+    assert receipt["openapi"]["compatible"] is True
+    assert receipt["tools"]["compatible"] is True
+    assert receipt["evaluations"]["compatible"] is False
+    assert receipt["evaluations"]["counts"]["breaking"] == 1
+    assert receipt["evaluations"]["changes"] == [
+        {
+            "severity": "breaking",
+            "location": "evaluation 'todos.answer_quality'",
+            "message": "evaluation removed",
+        }
+    ]
     assert receipt["ok"] is False
 
 
@@ -749,7 +1046,7 @@ def test_check_discovers_an_openapi_description(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    openapi_step = report["steps"][-2]
+    openapi_step = report["steps"][-3]
     assert openapi_step["status"] == "passed"
     assert openapi_step["command"][8:10] == ["--description", "Generated API"]
 
@@ -793,7 +1090,7 @@ def test_openapi_diff_ref_reads_the_snapshot_from_git(
     )
     assert compatible_result.returncode == 0, compatible_result.stderr
     compatible = json.loads(compatible_result.stdout)
-    assert compatible["schema_version"] == 5
+    assert compatible["schema_version"] == 6
     assert compatible["root"] == str(root)
     assert compatible["baseline"] == "HEAD:openapi.json"
     assert compatible["compatible"] is True
@@ -970,7 +1267,7 @@ def test_make_dry_run_and_json_share_a_versioned_result(
     assert main(["make", "feature", "notes", "--dry-run", "--json"]) == 0
     planned = json.loads(capsys.readouterr().out)
 
-    assert planned["schema_version"] == 5
+    assert planned["schema_version"] == 6
     assert planned["ok"] is True
     assert planned["dry_run"] is True
     assert planned["artifact"] == "feature"
@@ -1018,7 +1315,7 @@ def test_make_json_reports_errors_without_writing(
     assert main(["make", "feature", "notes", "--json"]) == 1
 
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == 5
+    assert result["schema_version"] == 6
     assert result["ok"] is False
     assert result["files"] == []
     assert "app/features/ not found" in result["error"]
@@ -1564,7 +1861,7 @@ def test_routes_json_emits_a_machine_readable_map(
     assert main(["routes", "--json"]) == 0
 
     result = cast(dict[str, Any], json.loads(capsys.readouterr().out))
-    assert result["schema_version"] == 5
+    assert result["schema_version"] == 6
     assert result["root"] == str(EXAMPLE_DIR)
     entries = cast(list[dict[str, Any]], result["routes"])
     assert entries

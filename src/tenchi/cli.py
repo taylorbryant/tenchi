@@ -18,7 +18,7 @@ Commands are intentionally few and reliable:
 - ``tenchi check`` runs the complete application validation loop.
 - ``tenchi verify`` adds architecture and Git-baseline compatibility evidence.
 - ``tenchi preflight`` observes the target deployment environment.
-- ``tenchi eval`` discovers and runs application-owned AI evaluations.
+- ``tenchi eval`` snapshots, discovers, and runs application-owned AI evaluations.
 - ``tenchi task`` discovers and runs validated operational tasks.
 - ``tenchi mcp`` serves the same structured operations to MCP-aware agents.
 - ``tenchi dev`` serves the application with uvicorn and reload.
@@ -67,7 +67,10 @@ from ._cli_operations import (
 )
 from ._cli_results import CheckResult, MakeResult
 from ._evaluation_operations import (
+    EvaluationDiffResult,
+    compare_evaluation_baseline,
     discard_evaluation_output,
+    evaluation_diff_result,
     evaluation_list_result,
     evaluation_run_result,
     load_evaluation_runner,
@@ -93,15 +96,19 @@ from ._tool_operations import (
 from ._verify_operations import VerificationResult, verification_result
 from .compatibility import (
     render_compatibility_report,
+    render_evaluation_compatibility_report,
     render_tool_compatibility_report,
 )
 from .errors import ConfigurationError
+from .evaluations import EvaluationManifest, evaluation_manifest
 from .openapi import openapi_schema
 from .routes import RouteGroup
 from .scaffold import app_files
 from .snapshots import (
     describe_openapi_drift,
+    evaluation_snapshot_diff,
     openapi_snapshot_diff,
+    render_evaluation_snapshot,
     render_openapi_snapshot,
     render_tool_snapshot,
     tool_snapshot_diff,
@@ -213,6 +220,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             version=args.version,
             description=args.description,
             snapshot=args.snapshot,
+            evaluations=args.evaluations,
+            evaluation_snapshot=args.evaluation_snapshot,
             tools=args.tools,
             tool_snapshot=args.tool_snapshot,
             security_json=args.security,
@@ -231,7 +240,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             version=args.version,
             description=args.description,
             snapshot=args.snapshot,
+            evaluation_snapshot=args.evaluation_snapshot,
             tool_snapshot=args.tool_snapshot,
+            allow_missing_evaluation_baseline=(args.allow_missing_evaluation_baseline),
             security_json=args.security,
             timeout_seconds=args.timeout,
             as_json=args.json,
@@ -245,6 +256,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "eval":
         if args.eval_command == "list":
             return _evaluation_list(args.target, as_json=args.json)
+        if args.eval_command == "snapshot":
+            return _evaluation_snapshot(
+                args.target,
+                write=args.write,
+                check=args.check,
+                diff=args.diff,
+                diff_ref=args.diff_ref,
+                snapshot=args.snapshot,
+                diff_format=args.diff_format,
+                allow_missing_baseline=args.allow_missing_baseline,
+            )
         return _evaluation_run(
             args.target,
             args.name,
@@ -279,6 +301,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_task_runs=args.allow_task_runs,
             allow_evaluation_runs=args.allow_evaluation_runs,
             tool_snapshot=args.tool_snapshot,
+            evaluation_snapshot=args.evaluation_snapshot,
         )
     return _dev(args.app, args.host, args.port, reload=not args.no_reload)
 
@@ -514,7 +537,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     check_parser = subparsers.add_parser(
         "check",
-        help=("Run formatting, lint, types, tests, doctor, OpenAPI, and tool checks"),
+        help=(
+            "Run formatting, lint, types, tests, doctor, and boundary snapshot checks"
+        ),
     )
     check_parser.add_argument(
         "--routes",
@@ -555,6 +580,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--snapshot",
         default="openapi.json",
         help="OpenAPI snapshot to check (default: %(default)s)",
+    )
+    check_parser.add_argument(
+        "--evaluations",
+        default=_DEFAULT_EVALUATIONS,
+        help="module:attribute of the EvaluationRunner (default: %(default)s)",
+    )
+    check_parser.add_argument(
+        "--evaluation-snapshot",
+        default="evaluations.json",
+        help="Evaluation-policy snapshot to check (default: %(default)s)",
     )
     check_parser.add_argument(
         "--tools",
@@ -655,6 +690,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Project-relative application-tool snapshot (default: %(default)s)",
     )
     verify_parser.add_argument(
+        "--evaluation-snapshot",
+        default="evaluations.json",
+        help="Project-relative evaluation-policy snapshot (default: %(default)s)",
+    )
+    verify_parser.add_argument(
+        "--allow-missing-evaluation-baseline",
+        action="store_true",
+        help=(
+            "Explicitly allow a missing historical evaluation snapshot during "
+            "first adoption"
+        ),
+    )
+    verify_parser.add_argument(
         "--timeout",
         default=600.0,
         type=_positive_float,
@@ -706,6 +754,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "run",
         help="Run one named evaluation or the complete registered group",
     )
+    evaluation_snapshot_parser = evaluation_subparsers.add_parser(
+        "snapshot",
+        help="Print, write, check, or diff the evaluation-policy manifest",
+    )
     evaluation_run_parser.add_argument(
         "name",
         nargs="?",
@@ -738,6 +790,54 @@ def _build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="Emit a versioned, payload-safe result",
         )
+    evaluation_snapshot_parser.add_argument(
+        "--evaluations",
+        dest="target",
+        default=_DEFAULT_EVALUATIONS,
+        help="module:attribute of the EvaluationRunner (default: %(default)s)",
+    )
+    evaluation_snapshot_mode = evaluation_snapshot_parser.add_mutually_exclusive_group()
+    evaluation_snapshot_mode.add_argument(
+        "--write",
+        default=None,
+        metavar="PATH",
+        help="Write the canonical evaluation-policy snapshot",
+    )
+    evaluation_snapshot_mode.add_argument(
+        "--check",
+        default=None,
+        metavar="PATH",
+        help="Fail if this snapshot differs from the generated manifest",
+    )
+    evaluation_snapshot_mode.add_argument(
+        "--diff",
+        default=None,
+        metavar="BASELINE",
+        help="Classify policy changes; fail on breaking or unknown changes",
+    )
+    evaluation_snapshot_mode.add_argument(
+        "--diff-ref",
+        default=None,
+        metavar="REF",
+        help="Classify policy changes from the snapshot committed at a Git ref",
+    )
+    evaluation_snapshot_parser.add_argument(
+        "--snapshot",
+        default=None,
+        metavar="PATH",
+        help="Snapshot path for --diff-ref (default: evaluations.json)",
+    )
+    evaluation_snapshot_parser.add_argument(
+        "--diff-format",
+        choices=("text", "json"),
+        default="text",
+        help="Compatibility report format (default: %(default)s)",
+    )
+    evaluation_snapshot_parser.add_argument(
+        "--allow-missing-baseline",
+        action="store_true",
+        help=("Explicitly allow a missing --diff-ref snapshot during first adoption"),
+    )
 
     task_parser = subparsers.add_parser(
         "task", help="Discover and run validated operational tasks"
@@ -834,6 +934,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--tool-snapshot",
         default="tools.json",
         help="Default project-relative tool baseline (default: %(default)s)",
+    )
+    mcp_parser.add_argument(
+        "--evaluation-snapshot",
+        default="evaluations.json",
+        help="Default project-relative evaluation baseline (default: %(default)s)",
     )
     mcp_parser.add_argument(
         "--title",
@@ -967,11 +1072,13 @@ def _doctor(*, as_json: bool) -> int:
 def _check(
     *,
     routes: str,
+    evaluations: str,
     tools: str,
     title: str | None,
     version: str | None,
     description: str | None,
     snapshot: str,
+    evaluation_snapshot: str,
     tool_snapshot: str,
     security_json: str | None,
     timeout_seconds: float,
@@ -993,6 +1100,8 @@ def _check(
         version=version,
         description=description,
         snapshot=snapshot,
+        evaluations=evaluations,
+        evaluation_snapshot=evaluation_snapshot,
         tools=tools,
         tool_snapshot=tool_snapshot,
         security_json=security_json,
@@ -1046,7 +1155,9 @@ def _verify(
     version: str | None,
     description: str | None,
     snapshot: str,
+    evaluation_snapshot: str,
     tool_snapshot: str,
+    allow_missing_evaluation_baseline: bool,
     security_json: str | None,
     timeout_seconds: float,
     as_json: bool,
@@ -1064,7 +1175,9 @@ def _verify(
             version=version,
             description=description,
             snapshot=snapshot,
+            evaluation_snapshot=evaluation_snapshot,
             tool_snapshot=tool_snapshot,
+            allow_missing_evaluation_baseline=allow_missing_evaluation_baseline,
             security_json=security_json,
             timeout_seconds=timeout_seconds,
         )
@@ -1113,6 +1226,14 @@ def _render_verification_result(result: VerificationResult) -> None:
             f"[{status}] application-tool compatibility ({result.tools.report.status})"
         )
         for change in result.tools.report.changes:
+            print(f"  [{change.severity}] {change.location}: {change.message}")
+    if result.evaluations is not None:
+        status = "passed" if result.evaluations.report.compatible else "failed"
+        print(
+            f"[{status}] evaluation-policy compatibility "
+            f"({result.evaluations.report.status})"
+        )
+        for change in result.evaluations.report.changes:
             print(f"  [{change.severity}] {change.location}: {change.message}")
     for error in result.errors:
         print(f"[failed] {error.stage}: {error.message}")
@@ -1188,6 +1309,153 @@ def _evaluation_list(target: str, *, as_json: bool) -> int:
             f"{len(item.cases)} cases  metrics: {metric_names}{description}"
         )
     return 0
+
+
+def _evaluation_snapshot(
+    target: str,
+    *,
+    write: str | None,
+    check: str | None,
+    diff: str | None,
+    diff_ref: str | None,
+    snapshot: str | None,
+    diff_format: str,
+    allow_missing_baseline: bool,
+) -> int:
+    if diff is None and diff_ref is None and diff_format != "text":
+        _fail("tenchi eval snapshot: --diff-format requires --diff or --diff-ref")
+        return 1
+    if snapshot is not None and diff_ref is None:
+        _fail("tenchi eval snapshot: --snapshot requires --diff-ref")
+        return 1
+    if allow_missing_baseline and diff_ref is None:
+        _fail("tenchi eval snapshot: --allow-missing-baseline requires --diff-ref")
+        return 1
+
+    try:
+        with discard_evaluation_output():
+            runner = load_evaluation_runner(Path.cwd(), target)
+            manifest = evaluation_manifest(runner.evaluations)
+    except (OperationError, ConfigurationError) as exc:
+        _fail(f"tenchi eval snapshot: {exc}")
+        return 1
+
+    rendered = render_evaluation_snapshot(manifest)
+    if write is not None:
+        try:
+            Path(write).write_text(rendered, encoding="utf-8")
+        except OSError as exc:
+            _fail(f"tenchi eval snapshot: could not write snapshot {write!r}: {exc}")
+            return 1
+        print(f"Wrote {write}")
+        return 0
+    if check is not None:
+        return _check_evaluation_snapshot(Path(check), rendered, manifest)
+    if diff is not None:
+        return _diff_evaluation_snapshot(
+            Path(diff),
+            manifest,
+            output_format=diff_format,
+        )
+    if diff_ref is not None:
+        try:
+            result = evaluation_diff_result(
+                Path.cwd(),
+                evaluations=target,
+                snapshot=Path(snapshot or "evaluations.json"),
+                ref=diff_ref,
+                allow_missing_baseline=allow_missing_baseline,
+            )
+        except OperationError as exc:
+            _fail(f"tenchi eval snapshot: {exc}")
+            return 1
+        return _render_evaluation_diff(result, output_format=diff_format)
+    sys.stdout.write(rendered)
+    return 0
+
+
+def _check_evaluation_snapshot(
+    path: Path,
+    rendered: str,
+    current: EvaluationManifest,
+) -> int:
+    try:
+        expected = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi eval snapshot: could not read snapshot {str(path)!r}: {exc}")
+        _fail(
+            f"Rerun the same command with --write {path} instead of --check "
+            "to create it."
+        )
+        return 1
+    if expected == rendered:
+        print(f"Evaluation snapshot matches {path}")
+        return 0
+
+    _fail(f"tenchi eval snapshot: snapshot differs: {path}")
+    try:
+        result = compare_evaluation_baseline(
+            Path.cwd(),
+            baseline_text=expected,
+            baseline_label=str(path),
+            current=current,
+        )
+    except OperationError as exc:
+        _fail(f"  - {exc}")
+    else:
+        for change in result.report.changes:
+            _fail(f"  - [{change.severity}] {change.location}: {change.message}")
+    diff = evaluation_snapshot_diff(expected, rendered, snapshot_path=str(path))
+    if diff:
+        print(file=sys.stderr)
+        print(diff, file=sys.stderr, end="" if diff.endswith("\n") else "\n")
+    print(file=sys.stderr)
+    _fail(
+        f"Run the same command with --write {path} instead of --check "
+        "to accept this change."
+    )
+    return 1
+
+
+def _diff_evaluation_snapshot(
+    path: Path,
+    current: EvaluationManifest,
+    *,
+    output_format: str,
+) -> int:
+    try:
+        baseline_text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi eval snapshot: could not read baseline {str(path)!r}: {exc}")
+        return 1
+    try:
+        result = compare_evaluation_baseline(
+            Path.cwd(),
+            baseline_text=baseline_text,
+            baseline_label=str(path),
+            current=current,
+        )
+    except OperationError as exc:
+        _fail(f"tenchi eval snapshot: {exc}")
+        return 1
+    return _render_evaluation_diff(result, output_format=output_format)
+
+
+def _render_evaluation_diff(
+    result: EvaluationDiffResult,
+    *,
+    output_format: str,
+) -> int:
+    if output_format == "json":
+        _print_agent_json("evaluation_diff", result.as_dict())
+    else:
+        sys.stdout.write(
+            render_evaluation_compatibility_report(
+                result.report,
+                baseline_path=result.baseline,
+            )
+        )
+    return 0 if result.report.compatible else 1
 
 
 def _evaluation_run(
@@ -1535,11 +1803,13 @@ def _diff_tool_ref(
     output_format: str,
 ) -> int:
     try:
-        baseline_text, baseline_label = read_git_snapshot(
+        baseline = read_git_snapshot(
             Path.cwd(),
             ref=ref,
             snapshot=snapshot,
         )
+        baseline_text = baseline.text
+        baseline_label = baseline.label
     except OperationError as exc:
         _fail(f"tenchi tools: {exc}")
         return 1
@@ -1727,9 +1997,9 @@ def _diff_openapi_ref(
     output_format: str,
 ) -> int:
     try:
-        baseline_text, baseline_label = read_git_snapshot(
-            Path.cwd(), ref=ref, snapshot=snapshot
-        )
+        baseline = read_git_snapshot(Path.cwd(), ref=ref, snapshot=snapshot)
+        baseline_text = baseline.text
+        baseline_label = baseline.label
     except OperationError as exc:
         _fail(f"tenchi openapi: {exc}")
         return 1
@@ -1782,6 +2052,7 @@ def _mcp(
     allow_evaluation_runs: bool,
     snapshot: str,
     tool_snapshot: str,
+    evaluation_snapshot: str,
     title: str | None,
     version: str | None,
     description: str | None,
@@ -1813,6 +2084,7 @@ def _mcp(
                 allow_evaluation_runs=allow_evaluation_runs,
                 snapshot=snapshot,
                 tool_snapshot=tool_snapshot,
+                evaluation_snapshot=evaluation_snapshot,
                 title=title,
                 version=version,
                 description=description,

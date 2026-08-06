@@ -47,7 +47,9 @@ from ._cli_results import (
     TaskRunPayload,
 )
 from ._evaluation_operations import (
+    EvaluationDiffPayload,
     discard_evaluation_output,
+    evaluation_diff_result,
     evaluation_list_result,
     evaluation_run_result,
     load_evaluation_runner,
@@ -131,6 +133,7 @@ class McpServerOptions:
     allow_evaluation_runs: bool = False
     snapshot: str = "openapi.json"
     tool_snapshot: str = "tools.json"
+    evaluation_snapshot: str = "evaluations.json"
     title: str | None = None
     version: str | None = None
     description: str | None = None
@@ -146,6 +149,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         )
     project_path(root, options.snapshot)
     project_path(root, options.tool_snapshot)
+    project_path(root, options.evaluation_snapshot)
     operation_lock = asyncio.Lock()
     progress_tasks: set[asyncio.Task[None]] = set()
     module_names = tuple(
@@ -175,8 +179,10 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             "only against the intended environment, discover evaluations before "
             "running an explicitly authorized evaluation, and compare OpenAPI before "
             "accepting a changed snapshot. Compare application tools before "
-            "accepting a changed tool snapshot. Finish with verify against a "
-            "historical Git ref. Tenchi MCP inspection and preview tools do not "
+            "accepting a changed tool snapshot. Compare evaluation policy before "
+            "accepting a changed evaluation snapshot. Finish with verify against "
+            "a historical Git ref. "
+            "Tenchi MCP inspection and preview tools do not "
             "write application files; check and verify run project-owned "
             "validation commands."
         ),
@@ -546,6 +552,36 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         return await call(operation)
 
     @server.tool(
+        name="evaluation_diff",
+        description=(
+            "Compare the payload-free evaluation policy with a project snapshot "
+            "or the same snapshot at a Git ref. Weakened gates and unknown "
+            "changes are incompatible. Missing Git snapshots require an explicit "
+            "first-adoption override; evaluators are never run."
+        ),
+        annotations=_READ_ONLY,
+    )
+    async def evaluation_diff(  # pyright: ignore[reportUnusedFunction]
+        snapshot: str | None = None,
+        ref: str | None = None,
+        allow_missing_baseline: bool = False,
+    ) -> EvaluationDiffPayload:
+        selected = options.evaluation_snapshot if snapshot is None else snapshot
+
+        def operation() -> EvaluationDiffPayload:
+            project_path(root, selected)
+            with discard_evaluation_output():
+                return evaluation_diff_result(
+                    root,
+                    evaluations=options.evaluations,
+                    snapshot=Path(selected),
+                    ref=ref,
+                    allow_missing_baseline=allow_missing_baseline,
+                ).as_dict()
+
+        return await call(operation)
+
+    @server.tool(
         name="make_preview",
         description=(
             "Preview a Tenchi feature or use-case generator. The result performs "
@@ -576,8 +612,10 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         name="verify",
         description=(
             "Produce one versioned completion receipt by running the project "
-            "checks, strict application-map validation, and OpenAPI and "
-            "application-tool compatibility against an explicit Git ref. "
+            "checks, strict application-map validation, and OpenAPI, "
+            "application-tool, and evaluation-policy compatibility against an "
+            "explicit Git ref. A missing evaluation snapshot requires an explicit "
+            "first-adoption override. "
             "Project-owned commands run with their normal side effects; output "
             "is bounded and cancellation stops the active process."
         ),
@@ -587,6 +625,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         ctx: Context[ServerSession, None],
         base_ref: str,
         timeout_seconds: Annotated[float, Field(gt=0, le=3600)] = 600.0,
+        allow_missing_evaluation_baseline: bool = False,
     ) -> VerificationPayload:
         def operation(
             cancelled: Callable[[], bool],
@@ -594,6 +633,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         ) -> VerificationPayload:
             project_path(root, options.snapshot)
             project_path(root, options.tool_snapshot)
+            project_path(root, options.evaluation_snapshot)
             return _isolated_call(
                 root,
                 module_names,
@@ -610,6 +650,10 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
                     description=options.description,
                     snapshot=options.snapshot,
                     tool_snapshot=options.tool_snapshot,
+                    evaluation_snapshot=options.evaluation_snapshot,
+                    allow_missing_evaluation_baseline=(
+                        allow_missing_evaluation_baseline
+                    ),
                     security_json=options.security_json,
                     timeout_seconds=timeout_seconds,
                     cancelled=cancelled,
@@ -622,8 +666,9 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
     @server.tool(
         name="check",
         description=(
-            "Run Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI "
-            "and application-tool snapshot checks. Project-owned commands run "
+            "Run Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI, "
+            "application-tool, and evaluation-policy snapshot checks. "
+            "Project-owned commands run "
             "with their normal side effects; output is bounded and cancellation "
             "stops the active process."
         ),
@@ -639,6 +684,10 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         ) -> CheckPayload:
             snapshot_path = project_path(root, options.snapshot)
             tool_snapshot_path = project_path(root, options.tool_snapshot)
+            evaluation_snapshot_path = project_path(
+                root,
+                options.evaluation_snapshot,
+            )
             title, version, description, security_json = openapi_defaults(
                 root,
                 routes=options.api_routes,
@@ -655,6 +704,8 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
                     version=version,
                     description=description,
                     snapshot=str(snapshot_path),
+                    evaluations=options.evaluations,
+                    evaluation_snapshot=str(evaluation_snapshot_path),
                     tools=options.tools,
                     tool_snapshot=str(tool_snapshot_path),
                     security_json=security_json,
@@ -710,6 +761,7 @@ def run_mcp_server(options: McpServerOptions) -> None:
             allow_evaluation_runs=options.allow_evaluation_runs,
             snapshot=options.snapshot,
             tool_snapshot=options.tool_snapshot,
+            evaluation_snapshot=options.evaluation_snapshot,
             title=options.title,
             version=options.version,
             description=options.description,
@@ -745,9 +797,12 @@ def _fallback_agent_instructions() -> str:
 6. Use `evaluation_list` before any separately authorized evaluation run.
 7. Run `openapi_diff` before accepting a changed OpenAPI snapshot.
 8. Run `tools_diff` before accepting a changed application-tool snapshot.
-9. Run `verify` against the merge base, previous push, or previous release and
+9. Run `evaluation_diff` before accepting a changed evaluation-policy snapshot.
+   Missing historical snapshots require explicit human authorization for the
+   one first-adoption comparison.
+10. Run `verify` against the merge base, previous push, or previous release and
    report its receipt.
-10. Use `task_list` before any separately authorized operational task run.
+11. Use `task_list` before any separately authorized operational task run.
 
 Full guidance: https://tenchi.io/agents
 """

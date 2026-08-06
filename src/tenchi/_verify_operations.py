@@ -28,7 +28,13 @@ from ._cli_results import (
     DiagnosticPayload,
     DiagnosticResult,
 )
-from ._evaluation_operations import load_evaluation_runner
+from ._evaluation_operations import (
+    EvaluationDiffPayload,
+    EvaluationDiffResult,
+    discard_evaluation_output,
+    evaluation_diff_result,
+    load_evaluation_runner,
+)
 from ._job_operations import load_job_group
 from ._openapi_operations import (
     OpenApiDiffPayload,
@@ -47,7 +53,13 @@ from ._tool_operations import (
     tool_diff_result,
 )
 
-type VerificationStage = Literal["baseline", "architecture", "openapi", "tools"]
+type VerificationStage = Literal[
+    "baseline",
+    "architecture",
+    "openapi",
+    "tools",
+    "evaluations",
+]
 
 
 class VerificationBaselinePayload(TypedDict):
@@ -78,6 +90,7 @@ class VerificationPayload(TypedDict):
     architecture: VerificationArchitecturePayload | None
     openapi: OpenApiDiffPayload | None
     tools: ToolDiffPayload | None
+    evaluations: EvaluationDiffPayload | None
     errors: list[VerificationErrorPayload]
 
 
@@ -125,6 +138,7 @@ class VerificationResult:
     architecture: VerificationArchitectureResult | None
     openapi: OpenApiDiffResult | None
     tools: ToolDiffResult | None
+    evaluations: EvaluationDiffResult | None
     errors: tuple[VerificationErrorResult, ...]
     schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
     tenchi_version: str = __version__
@@ -141,6 +155,8 @@ class VerificationResult:
             and self.openapi.report.compatible
             and self.tools is not None
             and self.tools.report.compatible
+            and self.evaluations is not None
+            and self.evaluations.report.compatible
         )
 
     def as_dict(self) -> VerificationPayload:
@@ -160,6 +176,9 @@ class VerificationResult:
             ),
             "openapi": self.openapi.as_dict() if self.openapi is not None else None,
             "tools": self.tools.as_dict() if self.tools is not None else None,
+            "evaluations": (
+                self.evaluations.as_dict() if self.evaluations is not None else None
+            ),
             "errors": [error.as_dict() for error in self.errors],
         }
 
@@ -178,12 +197,14 @@ def verification_result(
     description: str | None,
     snapshot: str,
     tool_snapshot: str,
+    evaluation_snapshot: str,
     security_json: str | None,
     timeout_seconds: float,
+    allow_missing_evaluation_baseline: bool = False,
     cancelled: Callable[[], bool] | None = None,
     step_completed: Callable[[int, int, CheckStepResult], None] | None = None,
 ) -> VerificationResult:
-    """Run local checks and compare both public boundaries with one Git commit."""
+    """Run local checks and compare every snapshotted boundary with one commit."""
     started = perf_counter()
     resolved_root = root.resolve()
     errors: list[VerificationErrorResult] = []
@@ -191,10 +212,15 @@ def verification_result(
     architecture: VerificationArchitectureResult | None = None
     openapi: OpenApiDiffResult | None = None
     tool_report: ToolDiffResult | None = None
+    evaluation_report: EvaluationDiffResult | None = None
 
     try:
         snapshot_path = project_path(resolved_root, snapshot)
         tool_snapshot_path = project_path(resolved_root, tool_snapshot)
+        evaluation_snapshot_path = project_path(
+            resolved_root,
+            evaluation_snapshot,
+        )
         baseline_commit = resolve_git_commit(resolved_root, base_ref)
     except OperationError as exc:
         return VerificationResult(
@@ -206,6 +232,7 @@ def verification_result(
             architecture=None,
             openapi=None,
             tools=None,
+            evaluations=None,
             errors=(VerificationErrorResult("baseline", str(exc)),),
         )
 
@@ -227,6 +254,8 @@ def verification_result(
         version=resolved_version,
         description=resolved_description,
         snapshot=str(snapshot_path),
+        evaluations=evaluations,
+        evaluation_snapshot=str(evaluation_snapshot_path),
         tools=tools,
         tool_snapshot=str(tool_snapshot_path),
         security_json=resolved_security,
@@ -238,7 +267,8 @@ def verification_result(
     _raise_if_cancelled(cancelled)
     try:
         route_group = load_route_group(resolved_root, routes)
-        evaluation_runner = load_evaluation_runner(resolved_root, evaluations)
+        with discard_evaluation_output():
+            evaluation_runner = load_evaluation_runner(resolved_root, evaluations)
         task_runner = load_task_runner(resolved_root, tasks)
         job_group = load_job_group(resolved_root, jobs)
         tool_group = load_tool_group(resolved_root, tools)
@@ -284,6 +314,18 @@ def verification_result(
     except OperationError as exc:
         errors.append(VerificationErrorResult("tools", str(exc)))
 
+    _raise_if_cancelled(cancelled)
+    try:
+        evaluation_report = evaluation_diff_result(
+            resolved_root,
+            evaluations=evaluations,
+            snapshot=evaluation_snapshot_path,
+            ref=baseline_commit,
+            allow_missing_baseline=allow_missing_evaluation_baseline,
+        )
+    except OperationError as exc:
+        errors.append(VerificationErrorResult("evaluations", str(exc)))
+
     return VerificationResult(
         root=str(resolved_root),
         baseline_ref=base_ref,
@@ -293,6 +335,7 @@ def verification_result(
         architecture=architecture,
         openapi=openapi,
         tools=tool_report,
+        evaluations=evaluation_report,
         errors=tuple(errors),
     )
 

@@ -106,7 +106,7 @@ expected application failures.
 | `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `UseCaseOutcome`, `UseCaseObserver` |
 | `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `MemoryIdempotencyStore`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
 | `tenchi.jobs` | `Job`, `JobMessage`, `JobHandler`, `JobGroup`, `JobDispatcher`, `JobBindingError`, `JobNotFoundError`, `JobResultError`, `job()`, `job_message()`, `job_handler()`, `job_group()`, `create_job_dispatcher()` |
-| `tenchi.evaluations` | `Evaluation`, `EvaluationCase`, `EvaluationMetric`, `EvaluationMeasurement`, `EvaluationGroup`, `EvaluationRunner`, `EvaluationCaseOutcome`, `EvaluationMetricOutcome`, `EvaluationBudgetOutcome`, `EvaluationBudgetStatus`, `EvaluationOutcome`, `EvaluationReport`, `EvaluationBindingError`, `EvaluationNotFoundError`, `EvaluationResultError`, `MAX_EVALUATION_TOKENS`, `evaluation()`, `evaluation_case()`, `evaluation_metric()`, `evaluation_result()`, `evaluation_group()`, `create_evaluation_runner()` |
+| `tenchi.evaluations` | `EVALUATION_MANIFEST_VERSION`, `EvaluationManifest`, `EvaluationManifestEntry`, `EvaluationMetricManifest`, `Evaluation`, `EvaluationCase`, `EvaluationMetric`, `EvaluationMeasurement`, `EvaluationGroup`, `EvaluationRunner`, `EvaluationCaseOutcome`, `EvaluationMetricOutcome`, `EvaluationBudgetOutcome`, `EvaluationBudgetStatus`, `EvaluationOutcome`, `EvaluationReport`, `EvaluationBindingError`, `EvaluationNotFoundError`, `EvaluationResultError`, `MAX_EVALUATION_TOKENS`, `evaluation()`, `evaluation_case()`, `evaluation_metric()`, `evaluation_result()`, `evaluation_group()`, `evaluation_manifest()`, `create_evaluation_runner()` |
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.rate_limits` | `RateLimitStore`, `RateLimitPermit`, `RateLimitExceeded`, `RateLimitDecision`, `RateLimitStoreError`, `MemoryRateLimitStore`, `RATE_LIMITED`, `enforce_rate_limit()` |
 | `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `task()`, `task_group()`, `create_task_runner()` |
@@ -149,13 +149,13 @@ does not create an SDK, exporter, background worker, or shutdown lifecycle.
 | Module | Public names |
 | --- | --- |
 | `tenchi.openapi` | `openapi_schema()`, `openapi_route()`, `swagger_ui_route()` |
-| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `analyze_tool_compatibility()`, and their report renderers |
+| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `analyze_tool_compatibility()`, `analyze_evaluation_compatibility()`, and their report renderers |
 | `tenchi.pagination` | `Page`, `PageQuery`, `page()` |
 | `tenchi.health` | `HealthCheck`, `HealthReport`, `health_route()` |
 
 Use the [`tenchi` CLI](/cli) for scaffolding, application inspection,
 architecture diagnostics, project checks, verification receipts, and OpenAPI
-and application-tool snapshots. Modules such as `tenchi.cli`,
+application-tool, and evaluation-policy snapshots. Modules such as `tenchi.cli`,
 `tenchi.doctor`, `tenchi.scaffold`, and `tenchi.snapshots` implement that
 command surface; they are not supported application imports.
 

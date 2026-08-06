@@ -54,6 +54,7 @@ MCP_RESULT_NAMES: dict[str, AgentResultName] = {
     "doctor": "doctor",
     "openapi_diff": "openapi_diff",
     "tools_diff": "tool_diff",
+    "evaluation_diff": "evaluation_diff",
     "make_preview": "make",
     "verify": "verify",
     "check": "check",

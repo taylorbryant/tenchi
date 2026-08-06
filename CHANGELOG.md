@@ -9,6 +9,22 @@ versions may change the public API.
 
 ### Added
 
+- Versioned, payload-free evaluation-policy snapshots. `tenchi eval snapshot`
+  prints, writes, checks, and directionally compares `evaluations.json` without
+  running evaluators or retaining case inputs. Compatibility fails for removed
+  evaluations, cases, or metrics; reordered cases; lower thresholds; larger or
+  removed budgets; larger timeouts; deterministic-to-model changes; and unknown
+  policy changes. Historical snapshots fail closed when the selected path is
+  absent; first adoption requires an explicit override, and structured results
+  record that override as an `evaluation manifest baseline` metadata change.
+  `tenchi check` now verifies exact policy drift, while `tenchi verify` compares
+  the policy with the same immutable Git baseline as OpenAPI and application
+  tools. The coding-agent MCP server exposes the read-only `evaluation_diff`
+  operation, and agent protocol v6 records its result plus the expanded
+  verification receipt while retaining earlier snapshots. Existing
+  applications create the first baseline with `tenchi eval snapshot --write
+  evaluations.json`, run `tenchi check`, and explicitly authorize the one
+  missing historical baseline on their first `--diff-ref` or `verify` call.
 - Provider-neutral AI evaluation gates. `evaluation()` declares typed cases,
   normalized metric thresholds, per-case timeouts, and optional token/cost
   budgets; `EvaluationRunner` applies application lifespan and scoped context
@@ -45,11 +61,12 @@ versions may change the public API.
 - Unified completion receipts for agent-written changes. `tenchi verify
   --base-ref <ref>` resolves one immutable Git commit, runs the complete local
   check, rejects application-map diagnostics and unresolved relationships, and
-  compares both OpenAPI and application-tool contracts with their historical
-  snapshots. The CLI and coding-agent MCP server return the same versioned
-  result, preserve partial evidence when a stage cannot run, and propagate
-  cancellation to the active validation process. Generated pull-request CI
-  uses the receipt as its single source, architecture, and compatibility gate.
+  compares OpenAPI, application-tool, and evaluation-policy contracts with
+  their historical snapshots. The CLI and coding-agent MCP server return the
+  same versioned result, preserve partial evidence when a stage cannot run,
+  and propagate cancellation to the active validation process. Generated
+  pull-request CI uses the receipt as its single source, architecture, and
+  compatibility gate.
 
 ## [0.11.0] - 2026-07-29
 

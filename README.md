@@ -380,6 +380,10 @@ tenchi verify --base-ref origin/main --json
 tenchi preflight
 tenchi preflight --json
 tenchi eval list
+tenchi eval snapshot --diff evaluations.json
+tenchi eval snapshot --diff-ref origin/main --snapshot evaluations.json
+tenchi eval snapshot --check evaluations.json
+tenchi eval snapshot --write evaluations.json
 tenchi eval run support.answer_quality --json
 tenchi task list
 tenchi task run projects.repair_members --input '{"dry_run": true}'
@@ -419,9 +423,9 @@ comma-separated node projection, and `--json` for the versioned result.
 `tenchi verify --base-ref <ref>` produces one completion receipt for the
 finished tree. It resolves the historical ref to an immutable commit, runs
 `tenchi check`, requires an application map without diagnostics or unresolved
-relationships, and compares both OpenAPI and application-tool boundaries with
-their snapshots at that commit. It never updates snapshots and exits non-zero
-when any evidence fails.
+relationships, and compares the OpenAPI, application-tool, and evaluation-policy
+boundaries with their snapshots at that commit. It never updates snapshots and
+exits non-zero when any evidence fails.
 
 `tenchi task list` reports the runner's task names and JSON Schemas. `tenchi
 task run` validates input, owns one application lifespan and scoped context,
@@ -438,18 +442,24 @@ codes, statuses, and durations. See the [deployment preflight
 guide](https://tenchi.io/preflight).
 
 `tenchi eval list` discovers registered suites without exposing case inputs or
-running providers. `tenchi eval run` applies thresholds, timeouts, and declared
-usage budgets, returning a payload-safe result and a non-zero exit status when
-the gate fails. Evaluation runs remain separate from `check` and `verify`
-because they may be nondeterministic, contact external systems, and incur
-cost.
+running providers. `tenchi eval snapshot` writes and compares a payload-free
+policy manifest containing names, case schemas, case execution order, metrics,
+thresholds, timeouts, and budgets. Lowered thresholds, removed or reordered
+cases, removed metrics, larger budgets or timeouts, and deterministic-to-model
+changes fail compatibility. A missing historical snapshot fails unless first
+adoption is explicitly authorized with `--allow-missing-baseline`. The manifest
+intentionally excludes case inputs and does not run evaluators.
+`tenchi eval run` applies the snapshotted policy to real cases and returns a
+payload-safe result. Evaluation execution remains separate from `check` and
+`verify` because it may be nondeterministic, contact external systems, and
+incur cost; those commands verify only the declared policy.
 
 Generator `--dry-run` output lists every file without writing it. `make`,
-`map`, `tools`, `eval`, `doctor`, `check`, and `verify` accept `--json` and
-return versioned results for agents and automation. `tenchi check` runs Ruff
-formatting and linting, Pyright, pytest, doctor, and the OpenAPI and
-application-tool snapshot checks even when an earlier step fails; failed
-output is bounded and each step reports its duration.
+`map`, `tools`, `eval list|run`, `doctor`, `check`, and `verify` accept `--json`
+and return versioned results for agents and automation. `tenchi check` runs Ruff
+formatting and linting, Pyright, pytest, doctor, and the OpenAPI,
+application-tool, and evaluation-policy snapshot checks even when an earlier
+step fails; failed output is bounded and each step reports its duration.
 Tenchi snapshots the JSON Schema for these results and the MCP tool surface;
 breaking protocol changes require a new `schema_version`.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
@@ -457,8 +467,9 @@ inspect, preview, edit, validate, and compatibility loop.
 
 The `tenchi mcp` CLI serves the same versioned map, route, application-tool,
 preflight, evaluation-discovery, task-discovery, doctor, generator-preview,
-OpenAPI-diff, tool-diff, check, and verification results over stdio. Evaluation
-execution is absent unless the server starts with `--allow-evaluation-runs`;
+OpenAPI-diff, tool-diff, evaluation-policy-diff, check, and verification results
+over stdio. Evaluation execution is absent unless the server starts with
+`--allow-evaluation-runs`;
 task execution is absent unless it starts with `--allow-task-runs`.
 Preflight remains available as a read-only tool but deliberately contacts the
 environment captured by the server process. Inspection and preview tools do

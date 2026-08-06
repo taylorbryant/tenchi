@@ -3,21 +3,28 @@
 # pyright: strict, reportUnnecessaryTypeIgnoreComment=true
 
 import asyncio
+import json
+import os
+import subprocess
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 
 import pytest
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
+from tenchi._schema_compatibility import ChangeSeverity, compare_schema
 from tenchi.errors import ConfigurationError
 from tenchi.evaluations import (
+    EVALUATION_MANIFEST_VERSION,
     MAX_EVALUATION_TOKENS,
     Evaluation,
     EvaluationBindingError,
     EvaluationCase,
     EvaluationGroup,
+    EvaluationManifest,
     EvaluationMeasurement,
     EvaluationNotFoundError,
     EvaluationResultError,
@@ -26,9 +33,17 @@ from tenchi.evaluations import (
     evaluation,
     evaluation_case,
     evaluation_group,
+    evaluation_manifest,
     evaluation_metric,
     evaluation_result,
 )
+
+EVALUATION_MANIFEST_SNAPSHOT_PATH = Path(__file__).with_name(
+    f"evaluation_manifest_protocol_v{EVALUATION_MANIFEST_VERSION}_snapshot.json"
+)
+UPDATE_EVALUATION_MANIFEST_SNAPSHOT = "TENCHI_UPDATE_EVALUATION_MANIFEST_SNAPSHOT"
+EVALUATION_MANIFEST_BASE_REF = "TENCHI_AGENT_PROTOCOL_BASE_REF"
+REPOSITORY_ROOT = Path(__file__).parent.parent
 
 
 class AnswerCase(BaseModel):
@@ -114,6 +129,60 @@ def test_evaluation_declaration_validates_cases_and_public_metadata() -> None:
     assert isinstance(declared.cases[0].input, AnswerCase)
     assert declared._case_schema["type"] == "object"  # pyright: ignore[reportPrivateUsage]
     assert "hello" not in repr(declared)
+
+
+def test_evaluation_manifest_is_canonical_payload_free_and_ordered() -> None:
+    declared = answer_evaluation(
+        evaluation_case(
+            "answers.quality.zulu",
+            AnswerCase(prompt="secret-zulu", expected="prefix:secret-zulu"),
+        ),
+        evaluation_case(
+            "answers.quality.alpha",
+            AnswerCase(prompt="secret-alpha", expected="prefix:secret-alpha"),
+        ),
+        max_tokens=100,
+        max_cost_usd=1,
+    )
+
+    manifest = evaluation_manifest(evaluation_group(declared))
+    serialized = json.dumps(manifest, sort_keys=True)
+
+    assert manifest["schema_version"] == EVALUATION_MANIFEST_VERSION
+    assert manifest["evaluations"][0]["cases"] == [
+        "answers.quality.zulu",
+        "answers.quality.alpha",
+    ]
+    assert manifest["evaluations"][0]["metrics"][0]["threshold"] == 0.8
+    assert manifest["evaluations"][0]["max_tokens"] == 100
+    assert "secret-alpha" not in serialized
+    assert "secret-zulu" not in serialized
+
+
+def test_evaluation_manifest_schema_advertises_runtime_constraints() -> None:
+    schema = TypeAdapter(EvaluationManifest).json_schema(mode="serialization")
+    entry = cast(dict[str, object], schema["$defs"]["EvaluationManifestEntry"])
+    entry_properties = cast(dict[str, object], entry["properties"])
+    metric = cast(dict[str, object], schema["$defs"]["EvaluationMetricManifest"])
+    metric_properties = cast(dict[str, object], metric["properties"])
+
+    assert entry_properties["name"] == {
+        "pattern": r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$",
+        "title": "Name",
+        "type": "string",
+    }
+    assert cast(dict[str, object], entry_properties["cases"])["minItems"] == 1
+    assert cast(dict[str, object], entry_properties["metrics"])["minItems"] == 1
+    assert (
+        cast(dict[str, object], entry_properties["timeout_seconds"])["exclusiveMinimum"]
+        == 0
+    )
+    max_tokens = cast(dict[str, object], entry_properties["max_tokens"])
+    token_schema = cast(list[dict[str, object]], max_tokens["anyOf"])[0]
+    assert token_schema["minimum"] == 1
+    assert token_schema["maximum"] == MAX_EVALUATION_TOKENS
+    assert cast(dict[str, object], metric_properties["threshold"])["minimum"] == 0
+    assert cast(dict[str, object], metric_properties["threshold"])["maximum"] == 1
 
 
 def test_case_schema_returns_an_independent_copy() -> None:
@@ -896,3 +965,212 @@ async def test_empty_evaluation_group_is_a_successful_explicit_noop() -> None:
 
     assert report.ok
     assert report.evaluations == ()
+
+
+@dataclass(frozen=True, slots=True)
+class _ManifestProtocolChange:
+    severity: ChangeSeverity
+    location: str
+    message: str
+
+
+class _ManifestChangeSink:
+    def __init__(self) -> None:
+        self.changes: list[_ManifestProtocolChange] = []
+
+    def add(self, severity: ChangeSeverity, location: str, message: str) -> None:
+        self.changes.append(_ManifestProtocolChange(severity, location, message))
+
+
+def _render_evaluation_manifest_protocol() -> dict[str, object]:
+    adapter = TypeAdapter(EvaluationManifest)
+    adapter.validate_python(
+        {
+            "schema_version": EVALUATION_MANIFEST_VERSION,
+            "evaluations": [],
+        },
+        strict=True,
+    )
+    return {
+        "schema_version": EVALUATION_MANIFEST_VERSION,
+        "manifest_schema": adapter.json_schema(mode="serialization"),
+    }
+
+
+def _manifest_object(value: object) -> dict[str, object]:
+    assert isinstance(value, dict)
+    mapping = cast(dict[object, object], value)
+    assert all(isinstance(key, str) for key in mapping)
+    return cast(dict[str, object], mapping)
+
+
+def _load_evaluation_manifest_protocol() -> dict[str, object]:
+    return _manifest_object(
+        json.loads(EVALUATION_MANIFEST_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    )
+
+
+def _evaluation_manifest_incompatibilities(
+    baseline: dict[str, object],
+    current: dict[str, object],
+) -> list[_ManifestProtocolChange]:
+    baseline_schema = _manifest_object(baseline["manifest_schema"])
+    current_schema = _manifest_object(current["manifest_schema"])
+    sink = _ManifestChangeSink()
+    compare_schema(
+        {key: value for key, value in baseline_schema.items() if key != "$defs"},
+        {key: value for key, value in current_schema.items() if key != "$defs"},
+        direction="output",
+        baseline=baseline_schema,
+        current=current_schema,
+        location="evaluation manifest",
+        changes=sink,
+    )
+    return [
+        change for change in sink.changes if change.severity in ("breaking", "unknown")
+    ]
+
+
+def _evaluation_manifest_snapshot_version(path: Path) -> int | None:
+    prefix = "evaluation_manifest_protocol_v"
+    suffix = "_snapshot.json"
+    if not path.name.startswith(prefix) or not path.name.endswith(suffix):
+        return None
+    raw_version = path.name[len(prefix) : -len(suffix)]
+    return int(raw_version) if raw_version.isdigit() else None
+
+
+def _evaluation_manifest_snapshot_paths() -> dict[int, Path]:
+    snapshots: dict[int, Path] = {}
+    for path in Path(__file__).parent.glob(
+        "evaluation_manifest_protocol_v*_snapshot.json"
+    ):
+        version = _evaluation_manifest_snapshot_version(path)
+        assert version is not None, f"Invalid evaluation manifest snapshot: {path.name}"
+        assert version not in snapshots
+        snapshots[version] = path
+    return snapshots
+
+
+def _git_evaluation_manifest_snapshot_texts(base_ref: str) -> dict[int, str]:
+    listed = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", base_ref, "--", "tests"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert listed.returncode == 0, (
+        f"Could not inspect evaluation manifest snapshots at {base_ref!r}: "
+        f"{listed.stderr.strip()}"
+    )
+    snapshots: dict[int, str] = {}
+    for relative in listed.stdout.splitlines():
+        path = Path(relative)
+        version = _evaluation_manifest_snapshot_version(path)
+        if path.parent != Path("tests") or version is None:
+            continue
+        shown = subprocess.run(
+            ["git", "show", f"{base_ref}:{relative}"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert shown.returncode == 0, (
+            f"Could not read {relative} at {base_ref!r}: {shown.stderr.strip()}"
+        )
+        snapshots[version] = shown.stdout
+    return snapshots
+
+
+def test_evaluation_manifest_protocol_matches_its_versioned_snapshot() -> None:
+    current = _render_evaluation_manifest_protocol()
+    if os.environ.get(UPDATE_EVALUATION_MANIFEST_SNAPSHOT):
+        if EVALUATION_MANIFEST_SNAPSHOT_PATH.exists():
+            incompatible = _evaluation_manifest_incompatibilities(
+                _load_evaluation_manifest_protocol(),
+                current,
+            )
+            assert not incompatible, (
+                "Breaking or unknown evaluation-manifest changes require bumping "
+                f"EVALUATION_MANIFEST_VERSION: {incompatible}"
+            )
+        EVALUATION_MANIFEST_SNAPSHOT_PATH.write_text(
+            json.dumps(current, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    assert EVALUATION_MANIFEST_SNAPSHOT_PATH.exists(), (
+        f"No evaluation manifest v{EVALUATION_MANIFEST_VERSION} snapshot found. "
+        f"Generate one with {UPDATE_EVALUATION_MANIFEST_SNAPSHOT}=1 uv run pytest "
+        "tests/test_evaluations.py"
+    )
+    baseline = _load_evaluation_manifest_protocol()
+    incompatible = _evaluation_manifest_incompatibilities(baseline, current)
+    assert not incompatible, (
+        "Breaking or unknown evaluation-manifest changes require bumping "
+        f"EVALUATION_MANIFEST_VERSION: {incompatible}"
+    )
+    assert current == baseline, (
+        "The evaluation manifest changed without updating its canonical snapshot. "
+        f"Regenerate additive changes with {UPDATE_EVALUATION_MANIFEST_SNAPSHOT}=1 "
+        "uv run pytest tests/test_evaluations.py."
+    )
+
+
+def test_evaluation_manifest_snapshot_history_is_complete() -> None:
+    assert set(_evaluation_manifest_snapshot_paths()) == set(
+        range(1, EVALUATION_MANIFEST_VERSION + 1)
+    )
+
+
+def test_evaluation_manifest_protocol_matches_its_git_baseline() -> None:
+    base_ref = os.environ.get(EVALUATION_MANIFEST_BASE_REF)
+    if base_ref is None:
+        return
+
+    baseline_snapshots = _git_evaluation_manifest_snapshot_texts(base_ref)
+    if not baseline_snapshots:
+        assert EVALUATION_MANIFEST_VERSION == 1
+        return
+
+    previous_version = max(baseline_snapshots)
+    assert set(baseline_snapshots) == set(range(1, previous_version + 1))
+    assert EVALUATION_MANIFEST_VERSION in (previous_version, previous_version + 1)
+
+    local_snapshots = _evaluation_manifest_snapshot_paths()
+    for version, baseline_text in baseline_snapshots.items():
+        if version >= EVALUATION_MANIFEST_VERSION:
+            continue
+        assert version in local_snapshots
+        assert local_snapshots[version].read_text(encoding="utf-8") == baseline_text, (
+            f"Historical evaluation manifest v{version} must remain "
+            "byte-for-byte stable"
+        )
+
+    if previous_version != EVALUATION_MANIFEST_VERSION:
+        return
+    baseline = _manifest_object(
+        json.loads(baseline_snapshots[EVALUATION_MANIFEST_VERSION])
+    )
+    incompatible = _evaluation_manifest_incompatibilities(
+        baseline,
+        _render_evaluation_manifest_protocol(),
+    )
+    assert not incompatible, (
+        "Breaking or unknown evaluation-manifest changes require bumping "
+        f"EVALUATION_MANIFEST_VERSION: {incompatible}"
+    )
+
+
+def test_same_evaluation_manifest_version_rejects_breaking_changes() -> None:
+    baseline = _render_evaluation_manifest_protocol()
+    current = _manifest_object(json.loads(json.dumps(baseline)))
+    schema = _manifest_object(current["manifest_schema"])
+    properties = _manifest_object(schema["properties"])
+    properties.pop("evaluations")
+
+    incompatible = _evaluation_manifest_incompatibilities(baseline, current)
+
+    assert any(change.severity == "breaking" for change in incompatible)

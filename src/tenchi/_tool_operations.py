@@ -162,11 +162,13 @@ def tool_diff_result(
             ) from exc
         baseline_label = str(snapshot)
     else:
-        baseline_text, baseline_label = read_git_snapshot(
+        baseline = read_git_snapshot(
             resolved_root,
             ref=ref,
             snapshot=snapshot,
         )
+        baseline_text = baseline.text
+        baseline_label = baseline.label
     return compare_tool_baseline(
         resolved_root,
         baseline_text=baseline_text,
@@ -189,6 +191,10 @@ def compare_tool_baseline(
         raise OperationError(
             f"baseline {baseline_label!r} is not valid JSON "
             f"(line {exc.lineno}, column {exc.colno})"
+        ) from exc
+    except ValueError as exc:
+        raise OperationError(
+            f"baseline {baseline_label!r} is not valid JSON ({exc})"
         ) from exc
     try:
         report = analyze_tool_compatibility(baseline, current)

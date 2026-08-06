@@ -36,7 +36,7 @@ single route. Its important files are:
 | `app/server/tasks.py` | Operational task composition |
 | `app/server/tools.py` | Registered machine-facing tool composition |
 | `app/server/asgi.py` | Composition root and ASGI application |
-| `openapi.json` and `tools.json` | Version-controlled HTTP and tool contracts |
+| `openapi.json`, `tools.json`, and `evaluations.json` | Version-controlled HTTP, tool, and evaluation-policy contracts |
 | `AGENTS.md` | Placement rules and the complete agent validation loop |
 | `.mcp.json` | Project-local registration for MCP-aware coding agents |
 | `.github/workflows/ci.yml` | Checks and historical boundary compatibility gates |
@@ -56,10 +56,10 @@ uv run tenchi check
 ```
 
 The command runs Ruff formatting and linting, Pyright, pytest, doctor, and the
-OpenAPI and application-tool snapshot checks. It runs every step even after a
-failure so one pass reports the complete repair list. Generated code passes
-untouched. Use-case tests run without an HTTP server; integration tests
-exercise the composed ASGI application.
+OpenAPI, application-tool, and evaluation-policy snapshot checks. It runs every
+step even after a failure so one pass reports the complete repair list.
+Generated code passes untouched. Use-case tests run without an HTTP server;
+integration tests exercise the composed ASGI application.
 
 ## Start the server
 

@@ -1,0 +1,50 @@
+{
+  "evaluations": [
+    {
+      "case_schema": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "expected_first": {
+            "title": "Expected First",
+            "type": "string"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "candidates",
+          "expected_first"
+        ],
+        "title": "ProjectRankingCase",
+        "type": "object"
+      },
+      "cases": [
+        "projects.search_ranking.mobile",
+        "projects.search_ranking.api"
+      ],
+      "description": "Guard the deterministic ranking baseline used before model trials.",
+      "kind": "deterministic",
+      "max_cost_usd": null,
+      "max_tokens": null,
+      "metrics": [
+        {
+          "description": "The expected project is ranked first.",
+          "name": "top_result",
+          "threshold": 1.0
+        }
+      ],
+      "name": "projects.search_ranking",
+      "timeout_seconds": 30.0
+    }
+  ],
+  "schema_version": 1
+}

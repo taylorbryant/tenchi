@@ -4,9 +4,9 @@ import { Callout } from "@/components/callout";
 
 Tenchi's MCP server gives a coding agent structured access to the application
 map, route table, registered application-tool contract, architecture
-diagnostics, generator previews, OpenAPI and tool compatibility, deployment
-preflight, evaluation discovery, operational-task discovery, and the complete
-validation loop.
+diagnostics, generator previews, OpenAPI, tool, and evaluation-policy
+compatibility, deployment preflight, evaluation discovery, operational-task
+discovery, and the complete validation loop.
 Inspection and preview tools do not edit application files; `check` runs the
 project's own validation commands and can have their usual side effects.
 
@@ -54,9 +54,9 @@ resource supplies a short fallback workflow and a link to the full coding-agent
 guide.
 
 The server captures one application root when it starts. Every tool operates
-inside that root, and OpenAPI and application-tool snapshot paths cannot escape
-it. Inspection tools reload the application's source for each call, so a server
-that stays open sees edits made during the agent session.
+inside that root, and OpenAPI, application-tool, and evaluation-policy snapshot
+paths cannot escape it. Inspection tools reload the application's source for
+each call, so a server that stays open sees edits made during the agent session.
 
 ## Use the tools
 
@@ -72,8 +72,9 @@ that stays open sees edits made during the agent session.
 | `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true` |
 | `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
 | `tools_diff` | A directional compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
-| `verify` | One completion receipt containing checks, strict architecture evidence, and both compatibility reports against a required Git ref |
-| `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI and tool snapshot checks |
+| `evaluation_diff` | A payload-free compatibility report against `evaluations.json`, another project snapshot, or that snapshot at a Git ref; missing Git snapshots fail unless first adoption is explicit, and evaluators never run |
+| `verify` | One completion receipt containing checks, strict architecture evidence, and all three compatibility reports against a required Git ref |
+| `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI, tool, and evaluation-policy snapshot checks |
 
 `task_run` is absent by default. Start the server with
 `--allow-task-runs` to expose it:
@@ -106,11 +107,11 @@ credentials. See [deployment preflight](/preflight) for the application-side
 contract and redaction boundary.
 
 Every tool returns structured content with a `schema_version`. A doctor
-finding, failed check, generator conflict, or incompatible API or tool contract
-is a valid result with `ok: false` or `compatible: false`; malformed arguments
-and unreadable or unsafe paths are MCP errors. Tenchi snapshots every tool's
-input and output schema in CI; breaking or unknown changes require a new
-protocol version.
+finding, failed check, generator conflict, or incompatible API, tool, or
+evaluation policy is a valid result with `ok: false` or `compatible: false`;
+malformed arguments and unreadable or unsafe paths are MCP errors. Tenchi
+snapshots every tool's input and output schema in CI; breaking or unknown
+changes require a new protocol version.
 
 <Callout type="warning" title="Check and verify run project-owned commands">
   `check` and `verify` execute the application's tests and validation commands.
@@ -131,7 +132,8 @@ For a feature change, give the agent this sequence:
 5. Call `check` and resolve every failed step.
 6. Call `openapi_diff` before accepting a changed OpenAPI snapshot.
 7. Call `tools_diff` before accepting a changed application-tool snapshot.
-8. Call `verify` with the pull request base, previous push, or previous release
+8. Call `evaluation_diff` before accepting a changed evaluation-policy snapshot.
+9. Call `verify` with the pull request base, previous push, or previous release
    and retain its completion receipt.
 
 The agent must still make route and infrastructure wiring explicit in the
@@ -155,13 +157,21 @@ uv run tenchi mcp \
   --tools my_app.server.tools:tools \
   --snapshot api/openapi.json \
   --tool-snapshot api/tools.json \
+  --evaluation-snapshot api/evaluations.json \
   --title "My API" \
   --version 1.0.0
 ```
 
 `routes` uses `--routes`. The map, OpenAPI diff, `check`, and `verify` tools use
 `--api-routes`; `preflight` uses `--preflight`; the task tools use `--tasks`.
-The evaluation tools use `--evaluations`.
+The evaluation tools use `--evaluations`; `evaluation_diff`, `check`, and
+`verify` use `--evaluation-snapshot`.
+Both `evaluation_diff` and `verify` reject a missing historical evaluation
+snapshot by default. A human may set `allow_missing_baseline` on
+`evaluation_diff`, or `allow_missing_evaluation_baseline` on `verify`, for the
+one first-adoption comparison. The returned policy result then records an
+`evaluation manifest baseline` metadata change; do not authorize this for a
+renamed or mistyped path.
 The map loads registered background jobs through `--jobs` and registered
 application tools through `--tools`. Tool discovery and compatibility also use
 `--tools`; `tools_diff`, `check`, and `verify` use `--tool-snapshot`.

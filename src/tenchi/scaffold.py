@@ -56,6 +56,9 @@ uv run tenchi routes    # list bound routes
 uv run tenchi map       # inspect the complete application graph
 uv run tenchi preflight # verify the selected deployment environment
 uv run tenchi eval list # discover AI evaluation gates without running them
+uv run tenchi eval snapshot --diff evaluations.json
+uv run tenchi eval snapshot --check evaluations.json
+uv run tenchi eval snapshot --write evaluations.json
 uv run tenchi task list # discover operational tasks
 uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
 uv run tenchi tools --diff tools.json
@@ -75,9 +78,11 @@ CI, the generated workflow uses `--diff-ref` to compare against the pull
 request's base commit rather than the snapshot committed in the same change.
 Use the same diff-before-write workflow for `tools.json`; it protects the
 machine-facing names, schemas, errors, and safety annotations exposed by the
-application. After accepting any snapshot updates, `tenchi verify --base-ref
-<ref>` reruns the checks and records architecture plus both compatibility
-reports against one immutable commit.
+application. Use that workflow for `evaluations.json` too; it protects the
+payload-free cases, metrics, thresholds, timeouts, budgets, and suite kinds
+without running evaluators. After accepting any snapshot updates, run `tenchi
+verify --base-ref <ref>` to rerun the checks and record architecture plus all
+compatibility reports against one immutable commit.
 
 The API persists to `__APP_NAME__.db` by default. Override the location with
 `__APP_ENV_PREFIX___DATABASE`. With the development server running, browse
@@ -119,20 +124,20 @@ Framework agent workflow: https://tenchi.io/agents
    boundary as unfinished work.
 
 Use `--json` with `tenchi map`, `tenchi routes`, `tenchi tools`, `tenchi
-preflight`, `tenchi eval`, `tenchi task`, `tenchi doctor`, `tenchi check`,
-`tenchi verify`, and `tenchi make ...` when structured output is more useful
-than terminal text.
+preflight`, `tenchi eval list|run`, `tenchi task`, `tenchi doctor`, `tenchi
+check`, `tenchi verify`, and `tenchi make ...` when structured output is more
+useful than terminal text.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
 `app_map`, `routes`, `tools`, `preflight`, `evaluation_list`, `task_list`,
-`doctor`, `openapi_diff`, `tools_diff`, `make_preview`, `check`, and `verify`
-tools return the same versioned results. Inspection and preview tools never write
-application files; `check` and `verify` run the project's normal validation
-commands. Run `preflight` only against the intended environment. Task execution
-is not exposed unless an operator deliberately starts the server with
-`--allow-task-runs`. Evaluation execution is not exposed unless an operator
-deliberately starts the server with `--allow-evaluation-runs`. The agent still
-makes ordinary, reviewable source edits.
+`doctor`, `openapi_diff`, `tools_diff`, `evaluation_diff`, `make_preview`,
+`check`, and `verify` tools return the same versioned results. Inspection and
+preview tools never write application files; `check` and `verify` run the
+project's normal validation commands. Run `preflight` only against the intended
+environment. Task execution is not exposed unless an operator starts the
+server with `--allow-task-runs`. Evaluation execution is not exposed unless an
+operator deliberately starts the server with `--allow-evaluation-runs`. The
+agent still makes ordinary, reviewable source edits.
 
 ## Placement and dependency direction
 
@@ -200,6 +205,13 @@ explicitly because it may call providers and incur cost.
   `--write`; preserve those metadata flags when writing it.
 - Run `tenchi tools --diff tools.json` before replacing the application-tool
   snapshot with `tenchi tools --write tools.json`.
+- Run `tenchi eval snapshot --diff evaluations.json` before replacing the
+  evaluation-policy snapshot with `tenchi eval snapshot --write
+  evaluations.json`.
+- Treat a missing historical evaluation snapshot as an error. Only during
+  first adoption, explicitly pass `--allow-missing-baseline` to `eval snapshot`
+  or `--allow-missing-evaluation-baseline` to `verify`, and confirm the result
+  records an `evaluation manifest baseline` metadata change.
 - After accepting snapshot changes, run `tenchi verify --base-ref <ref>` with a
   historical ref and retain its complete pass/fail receipt.
 - Do not hand-edit generated files into a different application structure to
@@ -705,6 +717,14 @@ def test_tool_snapshot_is_current() -> None:
     assert main(["tools", "--check", "tools.json"]) == 0
 """
 
+_EVALUATIONS_TEST = """\
+from tenchi.cli import main
+
+
+def test_evaluation_snapshot_is_current() -> None:
+    assert main(["eval", "snapshot", "--check", "evaluations.json"]) == 0
+"""
+
 _CI_WORKFLOW = """\
 name: CI
 
@@ -740,6 +760,13 @@ _TOOLS_SNAPSHOT = """\
 {
   "schema_version": 1,
   "tools": []
+}
+"""
+
+_EVALUATIONS_SNAPSHOT = """\
+{
+  "evaluations": [],
+  "schema_version": 1
 }
 """
 
@@ -926,6 +953,7 @@ _FILES: dict[str, str] = {
     ".github/workflows/ci.yml": _CI_WORKFLOW,
     "openapi.json": _OPENAPI_SNAPSHOT,
     "tools.json": _TOOLS_SNAPSHOT,
+    "evaluations.json": _EVALUATIONS_SNAPSHOT,
     "app/__init__.py": "",
     "app/features/__init__.py": "",
     "app/features/todos/__init__.py": "",
@@ -961,6 +989,7 @@ _FILES: dict[str, str] = {
     "app/shared/errors.py": _SHARED_ERRORS,
     "tests/test_http.py": _HTTP_TEST,
     "tests/test_openapi_snapshot.py": _OPENAPI_TEST,
+    "tests/test_evaluation_snapshot.py": _EVALUATIONS_TEST,
     "tests/test_tool_snapshot.py": _TOOLS_TEST,
 }
 

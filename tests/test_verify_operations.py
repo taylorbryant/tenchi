@@ -11,6 +11,7 @@ from tenchi._app_map import (
     AppMapUnresolvedReference,
 )
 from tenchi._cli_results import CheckResult
+from tenchi._evaluation_operations import EvaluationDiffResult
 from tenchi._openapi_operations import (
     OpenApiDiffResult,
     OperationError,
@@ -49,6 +50,7 @@ def _run_with_map(
     (tmp_path / "app").mkdir()
     (tmp_path / "openapi.json").write_text("{}")
     (tmp_path / "tools.json").write_text("{}")
+    (tmp_path / "evaluations.json").write_text("{}")
     commit = "a" * 40
 
     def fake_resolve_git_commit(root: Path, ref: str) -> str:
@@ -93,6 +95,16 @@ def _run_with_map(
         return ToolDiffResult(
             root=str(root),
             baseline=f"{commit}:tools.json",
+            report=CompatibilityReport(()),
+        )
+
+    def fake_evaluation_diff_result(
+        root: Path, **kwargs: object
+    ) -> EvaluationDiffResult:
+        del kwargs
+        return EvaluationDiffResult(
+            root=str(root),
+            baseline=f"{commit}:evaluations.json",
             report=CompatibilityReport(()),
         )
 
@@ -141,6 +153,11 @@ def _run_with_map(
         "tool_diff_result",
         fake_tool_diff_result,
     )
+    monkeypatch.setattr(
+        _verify_operations,
+        "evaluation_diff_result",
+        fake_evaluation_diff_result,
+    )
     return _verify_operations.verification_result(
         tmp_path,
         base_ref="base",
@@ -154,6 +171,7 @@ def _run_with_map(
         description=None,
         snapshot="openapi.json",
         tool_snapshot="tools.json",
+        evaluation_snapshot="evaluations.json",
         security_json=None,
         timeout_seconds=10,
     )
@@ -189,6 +207,7 @@ def test_verification_preserves_other_evidence_when_one_stage_cannot_run(
     assert result.architecture is not None and result.architecture.ok
     assert result.openapi is None
     assert result.tools is not None and result.tools.report.compatible
+    assert result.evaluations is not None and result.evaluations.report.compatible
     assert result.errors == (
         _verify_operations.VerificationErrorResult(
             stage="openapi",

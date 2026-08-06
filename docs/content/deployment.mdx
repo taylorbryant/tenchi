@@ -127,9 +127,17 @@ uv run tenchi openapi --routes app.server.routes:api_routes \
   --title my_app --diff-ref "$BASE_SHA" --snapshot openapi.json
 uv run tenchi tools \
   --diff-ref "$BASE_SHA" --snapshot tools.json
+uv run tenchi eval snapshot \
+  --diff-ref "$BASE_SHA" --snapshot evaluations.json
 ```
 
-`tenchi check` includes the exact OpenAPI and application-tool snapshot checks.
+A missing historical evaluation snapshot fails by default. For the one-time
+first adoption, add `--allow-missing-baseline`, confirm the JSON result records
+an `evaluation manifest baseline` metadata change, and remove the override
+after the baseline lands.
+
+`tenchi check` includes the exact OpenAPI, application-tool, and
+evaluation-policy snapshot checks.
 The separate historical compatibility commands remain necessary because they
 compare the working contracts with baselines from before the deployment
 change.
@@ -158,8 +166,9 @@ Then release in this order:
 manager permissions, run migrations, or prove that an external worker is
 healthy. Keep migrations as their own release step, then use
 [`tenchi preflight`](/preflight) for read-only, timeout-bounded dependency
-checks where the target environment is available. AI evaluations remain
-separate because they may be nondeterministic and incur provider cost.
+checks where the target environment is available. AI evaluation execution
+remains separate because it may be nondeterministic and incur provider cost;
+the payload-free policy is still checked locally.
 
 Plan rollback before rollout. Application rollback must remain compatible with
 the migrated schema and any work records already written by the new

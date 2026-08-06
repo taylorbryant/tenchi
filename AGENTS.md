@@ -65,11 +65,12 @@ framework code, the CLI, docs, or the example apps.
     function; `openapi_route` serves it and `swagger_ui_route` serves an
     optional interactive UI through Tenchi's own machinery).
   - `compatibility.py` — conservative compatibility analysis for
-    Tenchi-generated OpenAPI documents and application-tool manifests.
+    Tenchi-generated OpenAPI documents, application-tool manifests, and
+    evaluation-policy manifests.
   - `_schema_compatibility.py` — directional JSON Schema comparison used by
     the compatibility analyzer.
-  - `snapshots.py` — canonical OpenAPI and application-tool snapshot rendering
-    and readable drift diagnostics used by the CLI.
+  - `snapshots.py` — canonical OpenAPI, application-tool, and evaluation-policy
+    snapshot rendering and readable drift diagnostics used by the CLI.
   - `doctor.py` — dependency-direction and structure checks.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
   - `_agent_protocol.py` — the authoritative result-name adapters used for
@@ -297,8 +298,19 @@ normalized scores, usage, status, durations, and failure codes. Runs use one
 lifespan, one scoped context per case, bounded concurrency, per-case timeouts,
 metric thresholds, isolated case inputs, and optional token/cost budgets.
 Budget outcomes distinguish measured exceedance from unverified usage, and
-token values remain within the interoperable JSON integer range. Evaluations
-remain separate from deterministic `check` and `verify`.
+token values remain within the interoperable JSON integer range. Evaluation
+execution remains separate from deterministic `check` and `verify`.
+`eval snapshot` uses the same target to print, write, check, and directionally
+compare the versioned, payload-free `evaluations.json` policy. It never runs
+evaluators. The manifest retains case names in execution order plus schemas,
+metrics, thresholds, kind, timeout, and budgets but never case inputs. Removed
+policy elements and weakened gates are incompatible; reordered cases, changed
+case schemas, and unsupported fields fail closed for review. A missing
+historical snapshot fails by default; first adoption requires the explicit
+missing-baseline option and records an `evaluation manifest baseline` metadata
+change. `check` performs
+exact drift checking and `verify` compares the policy with the historical Git
+baseline.
 `mcp` is a thin, stdio-only adapter over the same renderer-independent
 operations. Inspection and preview tools never write files, every path stays
 inside the captured app root, stdout belongs exclusively to JSON-RPC, and the
@@ -337,9 +349,11 @@ Comparing against the snapshot committed in the same change is only an equality
 check and belongs to `openapi --check`.
 `verify --base-ref <ref>` resolves the ref once, runs `check`, requires an
 application map with no diagnostics or unresolved relationships, and compares
-both OpenAPI and application-tool snapshots with that immutable commit. It
-never writes snapshots. The CLI and coding-agent MCP tool return the same
-versioned receipt and propagate cancellation to the active check subprocess.
+OpenAPI, application-tool, and evaluation-policy snapshots with that immutable
+commit. It never writes snapshots. A missing evaluation snapshot requires the
+explicit `--allow-missing-evaluation-baseline` first-adoption override. The CLI
+and coding-agent MCP tool return the same versioned receipt and propagate
+cancellation to the active check subprocess.
 
 ## Testing conventions
 
@@ -404,3 +418,9 @@ first snapshot for a new `TOOL_MCP_PROTOCOL_VERSION` with
 `TENCHI_UPDATE_TOOL_MCP_SNAPSHOT=1 uv run pytest tests/test_tool_mcp.py`.
 Existing snapshots are immutable; any changed application MCP wire shape
 requires a version bump and a new snapshot.
+
+Evaluation-manifest schema changes fail `tests/test_evaluations.py`. For an
+additive change, regenerate with `TENCHI_UPDATE_EVALUATION_MANIFEST_SNAPSHOT=1
+uv run pytest tests/test_evaluations.py` and review the canonical JSON Schema
+diff. Breaking or unknown changes require bumping `EVALUATION_MANIFEST_VERSION`
+and creating a new snapshot; retain earlier versions.

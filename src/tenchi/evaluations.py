@@ -40,11 +40,11 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from math import isfinite
 from time import perf_counter
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from jsonschema import Draft202012Validator
-from pydantic import TypeAdapter
-from typing_extensions import TypeForm
+from pydantic import ConfigDict, Field, TypeAdapter, with_config
+from typing_extensions import TypedDict, TypeForm
 
 from .errors import ConfigurationError, TenchiError
 from .execution import open_context
@@ -53,6 +53,7 @@ type EvaluationKind = Literal["deterministic", "model"]
 type EvaluationCaseStatus = Literal["completed", "failed", "timed_out", "skipped"]
 type EvaluationBudgetStatus = Literal["passed", "exceeded", "unverified"]
 
+EVALUATION_MANIFEST_VERSION = 1
 MAX_EVALUATION_TOKENS = 9_007_199_254_740_991
 
 _EVALUATION_NAME = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
@@ -64,6 +65,50 @@ _FAILURE_BUDGET_EXCEEDED = "EVALUATION_BUDGET_EXCEEDED"
 _FAILURE_BUDGET_UNVERIFIED = "EVALUATION_BUDGET_UNVERIFIED"
 
 logger = logging.getLogger("tenchi.evaluations")
+
+
+@with_config(ConfigDict(extra="forbid"))
+class EvaluationMetricManifest(TypedDict):
+    """One metric policy in a portable evaluation manifest."""
+
+    name: Annotated[str, Field(pattern=_METRIC_NAME.pattern)]
+    description: Annotated[str, Field(min_length=1)] | None
+    threshold: Annotated[
+        float,
+        Field(ge=0, le=1, allow_inf_nan=False),
+    ]
+
+
+@with_config(ConfigDict(extra="forbid"))
+class EvaluationManifestEntry(TypedDict):
+    """One payload-free evaluation policy in a portable manifest."""
+
+    name: Annotated[str, Field(pattern=_EVALUATION_NAME.pattern)]
+    description: Annotated[str, Field(min_length=1)] | None
+    kind: EvaluationKind
+    case_schema: dict[str, object]
+    cases: Annotated[
+        list[Annotated[str, Field(pattern=_EVALUATION_NAME.pattern)]],
+        Field(min_length=1),
+    ]
+    metrics: Annotated[list[EvaluationMetricManifest], Field(min_length=1)]
+    timeout_seconds: Annotated[float, Field(gt=0, allow_inf_nan=False)]
+    max_tokens: (
+        Annotated[
+            int,
+            Field(ge=1, le=MAX_EVALUATION_TOKENS),
+        ]
+        | None
+    )
+    max_cost_usd: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None
+
+
+@with_config(ConfigDict(extra="forbid"))
+class EvaluationManifest(TypedDict):
+    """Versioned deterministic policy document for an evaluation group."""
+
+    schema_version: Literal[1]
+    evaluations: list[EvaluationManifestEntry]
 
 
 class EvaluationBindingError(ConfigurationError, TypeError):
@@ -389,6 +434,55 @@ def evaluation_group(
     for index, item in enumerate(items):
         _append_evaluations(flattened, item, index=index)
     return EvaluationGroup(evaluations=tuple(flattened))
+
+
+def evaluation_manifest(evaluations: EvaluationGroup) -> EvaluationManifest:
+    """Return a canonical payload-free manifest of evaluation policies."""
+    if not isinstance(cast(object, evaluations), EvaluationGroup):
+        raise ConfigurationError(
+            "evaluation_manifest: evaluations must be an EvaluationGroup"
+        )
+    entries: list[EvaluationManifestEntry] = []
+    for declared in sorted(evaluations, key=lambda item: item.name):
+        entries.append(
+            {
+                "name": declared.name,
+                "description": declared.description,
+                "kind": declared.kind,
+                "case_schema": declared.case_schema,
+                "cases": [item.name for item in declared.cases],
+                "metrics": [
+                    {
+                        "name": metric.name,
+                        "description": metric.description,
+                        "threshold": metric.threshold,
+                    }
+                    for metric in sorted(
+                        declared.metrics,
+                        key=lambda item: item.name,
+                    )
+                ],
+                "timeout_seconds": declared.timeout,
+                "max_tokens": declared.max_tokens,
+                "max_cost_usd": declared.max_cost_usd,
+            }
+        )
+    payload: EvaluationManifest = {
+        "schema_version": EVALUATION_MANIFEST_VERSION,
+        "evaluations": entries,
+    }
+    return cast(
+        EvaluationManifest,
+        json.loads(
+            json.dumps(
+                payload,
+                allow_nan=False,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1334,6 +1428,7 @@ def _type_name(value: object) -> str:
 
 
 __all__ = [
+    "EVALUATION_MANIFEST_VERSION",
     "MAX_EVALUATION_TOKENS",
     "Evaluation",
     "EvaluationBindingError",
@@ -1344,8 +1439,11 @@ __all__ = [
     "EvaluationCaseStatus",
     "EvaluationGroup",
     "EvaluationKind",
+    "EvaluationManifest",
+    "EvaluationManifestEntry",
     "EvaluationMeasurement",
     "EvaluationMetric",
+    "EvaluationMetricManifest",
     "EvaluationMetricOutcome",
     "EvaluationNotFoundError",
     "EvaluationOutcome",
@@ -1356,6 +1454,7 @@ __all__ = [
     "evaluation",
     "evaluation_case",
     "evaluation_group",
+    "evaluation_manifest",
     "evaluation_metric",
     "evaluation_result",
 ]

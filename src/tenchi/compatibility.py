@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from math import isfinite
 from typing import Literal, cast
 
 from jsonschema import Draft202012Validator
@@ -21,6 +22,7 @@ from ._schema_compatibility import (
     JsonObject,
     compare_schema,
 )
+from .evaluations import MAX_EVALUATION_TOKENS
 
 type CompatibilityStatus = Literal["compatible", "incompatible", "review required"]
 type OperationKey = tuple[str, str]
@@ -28,9 +30,11 @@ type OperationKey = tuple[str, str]
 __all__ = [
     "CompatibilityChange",
     "CompatibilityReport",
+    "analyze_evaluation_compatibility",
     "analyze_openapi_compatibility",
     "analyze_tool_compatibility",
     "render_compatibility_report",
+    "render_evaluation_compatibility_report",
     "render_tool_compatibility_report",
 ]
 
@@ -41,6 +45,7 @@ _SEVERITIES: tuple[ChangeSeverity, ...] = (
     "unknown",
 )
 _TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
+_METRIC_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 _HTTP_METHODS = frozenset(
     {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
 )
@@ -767,6 +772,259 @@ def analyze_tool_compatibility(
     return _ToolAnalyzer(before, after).run()
 
 
+class _EvaluationAnalyzer:
+    def __init__(self, baseline: JsonObject, current: JsonObject) -> None:
+        self.baseline = baseline
+        self.current = current
+        self.changes = _Collector()
+
+    def run(self) -> CompatibilityReport:
+        if self.baseline["schema_version"] != self.current["schema_version"]:
+            self.changes.add(
+                "unknown",
+                "evaluation manifest",
+                "manifest schema version changed",
+            )
+            return CompatibilityReport(tuple(self.changes.values))
+
+        before_items = _evaluations_by_name(self.baseline)
+        after_items = _evaluations_by_name(self.current)
+        before_names = set(before_items)
+        after_names = set(after_items)
+        for name in sorted(after_names - before_names):
+            self.changes.add("additive", f"evaluation {name!r}", "evaluation added")
+        for name in sorted(before_names - after_names):
+            self.changes.add("breaking", f"evaluation {name!r}", "evaluation removed")
+        for name in sorted(before_names & after_names):
+            self._compare_evaluation(
+                before_items[name],
+                after_items[name],
+                location=f"evaluation {name!r}",
+            )
+
+        known = {"schema_version", "evaluations"}
+        if any(
+            _field_changed(self.baseline, self.current, key)
+            for key in (set(self.baseline) | set(self.current)) - known
+        ):
+            self.changes.add(
+                "unknown",
+                "evaluation manifest",
+                "unsupported manifest fields changed",
+            )
+        return CompatibilityReport(tuple(self.changes.values))
+
+    def _compare_evaluation(
+        self,
+        before: JsonObject,
+        after: JsonObject,
+        *,
+        location: str,
+    ) -> None:
+        if _field_changed(before, after, "description"):
+            self.changes.add("metadata", location, "description changed")
+
+        before_kind = before["kind"]
+        after_kind = after["kind"]
+        if before_kind != after_kind:
+            severity: ChangeSeverity = (
+                "breaking" if after_kind == "model" else "additive"
+            )
+            self.changes.add(
+                severity,
+                location,
+                f"kind changed from {before_kind!r} to {after_kind!r}",
+            )
+
+        self._compare_names(
+            cast(Sequence[str], before["cases"]),
+            cast(Sequence[str], after["cases"]),
+            location=location,
+            subject="case",
+        )
+        if before["case_schema"] != after["case_schema"]:
+            self.changes.add(
+                "unknown",
+                f"{location} case schema",
+                "case schema changed",
+            )
+        self._compare_metrics(
+            _evaluation_metrics(before),
+            _evaluation_metrics(after),
+            location=location,
+        )
+        self._compare_limit(
+            cast(float, before["timeout_seconds"]),
+            cast(float, after["timeout_seconds"]),
+            location=f"{location} timeout",
+            subject="timeout",
+            stricter_when="lower",
+        )
+        self._compare_optional_limit(
+            cast(int | None, before["max_tokens"]),
+            cast(int | None, after["max_tokens"]),
+            location=f"{location} token budget",
+            subject="token budget",
+        )
+        self._compare_optional_limit(
+            cast(float | None, before["max_cost_usd"]),
+            cast(float | None, after["max_cost_usd"]),
+            location=f"{location} cost budget",
+            subject="cost budget",
+        )
+
+        known = {
+            "name",
+            "description",
+            "kind",
+            "case_schema",
+            "cases",
+            "metrics",
+            "timeout_seconds",
+            "max_tokens",
+            "max_cost_usd",
+        }
+        if any(
+            _field_changed(before, after, key)
+            for key in (set(before) | set(after)) - known
+        ):
+            self.changes.add("unknown", location, "unsupported fields changed")
+
+    def _compare_names(
+        self,
+        before: Sequence[str],
+        after: Sequence[str],
+        *,
+        location: str,
+        subject: str,
+    ) -> None:
+        before_names = set(before)
+        after_names = set(after)
+        for name in sorted(after_names - before_names):
+            self.changes.add(
+                "additive",
+                f"{location} {subject} {name!r}",
+                f"{subject} added",
+            )
+        for name in sorted(before_names - after_names):
+            self.changes.add(
+                "breaking",
+                f"{location} {subject} {name!r}",
+                f"{subject} removed",
+            )
+        before_shared = [name for name in before if name in after_names]
+        after_shared = [name for name in after if name in before_names]
+        if before_shared != after_shared:
+            self.changes.add(
+                "unknown",
+                f"{location} {subject} execution order",
+                f"{subject} execution order changed",
+            )
+
+    def _compare_metrics(
+        self,
+        before: dict[str, JsonObject],
+        after: dict[str, JsonObject],
+        *,
+        location: str,
+    ) -> None:
+        before_names = set(before)
+        after_names = set(after)
+        for name in sorted(after_names - before_names):
+            self.changes.add(
+                "additive",
+                f"{location} metric {name!r}",
+                "metric added",
+            )
+        for name in sorted(before_names - after_names):
+            self.changes.add(
+                "breaking",
+                f"{location} metric {name!r}",
+                "metric removed",
+            )
+        for name in sorted(before_names & after_names):
+            metric_location = f"{location} metric {name!r}"
+            before_metric = before[name]
+            after_metric = after[name]
+            if _field_changed(before_metric, after_metric, "description"):
+                self.changes.add(
+                    "metadata",
+                    metric_location,
+                    "description changed",
+                )
+            self._compare_limit(
+                cast(float, before_metric["threshold"]),
+                cast(float, after_metric["threshold"]),
+                location=f"{metric_location} threshold",
+                subject="threshold",
+                stricter_when="higher",
+            )
+            known = {"name", "description", "threshold"}
+            if any(
+                _field_changed(before_metric, after_metric, key)
+                for key in (set(before_metric) | set(after_metric)) - known
+            ):
+                self.changes.add(
+                    "unknown",
+                    metric_location,
+                    "unsupported fields changed",
+                )
+
+    def _compare_limit(
+        self,
+        before: int | float,
+        after: int | float,
+        *,
+        location: str,
+        subject: str,
+        stricter_when: Literal["higher", "lower"],
+    ) -> None:
+        if before == after:
+            return
+        stricter = after > before if stricter_when == "higher" else after < before
+        severity: ChangeSeverity = "additive" if stricter else "breaking"
+        self.changes.add(
+            severity,
+            location,
+            f"{subject} {'increased' if after > before else 'decreased'} "
+            f"from {before} to {after}",
+        )
+
+    def _compare_optional_limit(
+        self,
+        before: int | float | None,
+        after: int | float | None,
+        *,
+        location: str,
+        subject: str,
+    ) -> None:
+        if before == after:
+            return
+        if before is None:
+            self.changes.add("additive", location, f"{subject} added")
+            return
+        if after is None:
+            self.changes.add("breaking", location, f"{subject} removed")
+            return
+        self._compare_limit(
+            before,
+            after,
+            location=location,
+            subject=subject,
+            stricter_when="lower",
+        )
+
+
+def analyze_evaluation_compatibility(
+    baseline: object,
+    current: object,
+) -> CompatibilityReport:
+    """Classify changes between payload-free evaluation policy manifests."""
+    before = _evaluation_manifest_document(baseline, label="baseline")
+    after = _evaluation_manifest_document(current, label="current")
+    return _EvaluationAnalyzer(before, after).run()
+
+
 def render_compatibility_report(
     report: CompatibilityReport, *, baseline_path: str
 ) -> str:
@@ -804,6 +1062,30 @@ def render_tool_compatibility_report(
     ]
     if not report.changes:
         lines.append("No tool changes found.")
+        return "\n".join(lines) + "\n"
+    for severity in _SEVERITIES:
+        group = [change for change in report.changes if change.severity == severity]
+        if group:
+            lines.extend(("", severity.upper()))
+            lines.extend(f"  - {change.location}: {change.message}" for change in group)
+    return "\n".join(lines) + "\n"
+
+
+def render_evaluation_compatibility_report(
+    report: CompatibilityReport,
+    *,
+    baseline_path: str,
+) -> str:
+    """Render a concise human-readable evaluation-policy report."""
+    counts = ", ".join(
+        f"{report.count(severity)} {severity}" for severity in _SEVERITIES
+    )
+    lines = [
+        f"Evaluation compatibility against {baseline_path}: {report.status}",
+        counts,
+    ]
+    if not report.changes:
+        lines.append("No evaluation policy changes found.")
         return "\n".join(lines) + "\n"
     for severity in _SEVERITIES:
         group = [change for change in report.changes if change.severity == severity]
@@ -929,6 +1211,237 @@ def _validate_tool_errors(tool: JsonObject, *, label: str, name: str) -> None:
                 f"{label} tool manifest tool {name!r} repeats error {code!r}"
             )
         codes.add(code)
+
+
+def _evaluation_manifest_document(value: object, *, label: str) -> JsonObject:
+    document = _object(value)
+    if not document:
+        raise ValueError(f"{label} must be an evaluation manifest object")
+    version = document.get("schema_version")
+    if not isinstance(version, int) or isinstance(version, bool) or version <= 0:
+        raise ValueError(
+            f"{label} evaluation manifest must contain a positive schema_version"
+        )
+    raw_evaluations = document.get("evaluations")
+    if not isinstance(raw_evaluations, Sequence) or isinstance(
+        raw_evaluations, str | bytes
+    ):
+        raise ValueError(
+            f"{label} evaluation manifest must contain an evaluations array"
+        )
+
+    names: set[str] = set()
+    for index, value in enumerate(cast(Sequence[object], raw_evaluations)):
+        declared = _object(value)
+        required = {
+            "name",
+            "description",
+            "kind",
+            "case_schema",
+            "cases",
+            "metrics",
+            "timeout_seconds",
+            "max_tokens",
+            "max_cost_usd",
+        }
+        missing = required - set(declared)
+        if missing:
+            fields = ", ".join(sorted(missing))
+            raise ValueError(
+                f"{label} evaluation manifest evaluations[{index}] is missing "
+                f"required fields: {fields}"
+            )
+        name = declared.get("name")
+        if not isinstance(name, str) or _TOOL_NAME.fullmatch(name) is None:
+            raise ValueError(
+                f"{label} evaluation manifest evaluations[{index}].name must "
+                "use dotted snake_case"
+            )
+        if name in names:
+            raise ValueError(f"{label} evaluation manifest repeats evaluation {name!r}")
+        names.add(name)
+        description = declared.get("description")
+        if description is not None and (
+            not isinstance(description, str) or not description.strip()
+        ):
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} description "
+                "must be null or a non-empty string"
+            )
+        if declared.get("kind") not in ("deterministic", "model"):
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} kind must be "
+                "'deterministic' or 'model'"
+            )
+        case_schema = declared.get("case_schema")
+        if not isinstance(case_schema, Mapping):
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} case_schema "
+                "must be an object"
+            )
+        try:
+            Draft202012Validator.check_schema(_object(cast(object, case_schema)))
+        except SchemaError as exc:
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} case_schema "
+                f"is not valid JSON Schema: {exc}"
+            ) from exc
+        _validate_evaluation_names(
+            declared.get("cases"),
+            label=label,
+            evaluation=name,
+        )
+        _validate_evaluation_metrics(declared, label=label, name=name)
+        _validate_positive_number(
+            declared.get("timeout_seconds"),
+            label=(f"{label} evaluation manifest evaluation {name!r} timeout_seconds"),
+        )
+        max_tokens = declared.get("max_tokens")
+        if max_tokens is not None and (
+            not isinstance(max_tokens, int)
+            or isinstance(max_tokens, bool)
+            or max_tokens <= 0
+            or max_tokens > MAX_EVALUATION_TOKENS
+        ):
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} max_tokens "
+                f"must be null or an integer from 1 to {MAX_EVALUATION_TOKENS}"
+            )
+        max_cost_usd = declared.get("max_cost_usd")
+        if max_cost_usd is not None:
+            _validate_positive_number(
+                max_cost_usd,
+                label=(f"{label} evaluation manifest evaluation {name!r} max_cost_usd"),
+            )
+    return document
+
+
+def _validate_evaluation_names(
+    value: object,
+    *,
+    label: str,
+    evaluation: str,
+) -> None:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise ValueError(
+            f"{label} evaluation manifest evaluation {evaluation!r} cases must "
+            "be an array"
+        )
+    cases = cast(Sequence[object], value)
+    if not cases:
+        raise ValueError(
+            f"{label} evaluation manifest evaluation {evaluation!r} must contain "
+            "at least one case"
+        )
+    names: set[str] = set()
+    for index, name in enumerate(cases):
+        if not isinstance(name, str) or _TOOL_NAME.fullmatch(name) is None:
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {evaluation!r} "
+                f"cases[{index}] must use dotted snake_case"
+            )
+        if name in names:
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {evaluation!r} repeats "
+                f"case {name!r}"
+            )
+        names.add(name)
+
+
+def _validate_evaluation_metrics(
+    declared: JsonObject,
+    *,
+    label: str,
+    name: str,
+) -> None:
+    value = declared.get("metrics")
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise ValueError(
+            f"{label} evaluation manifest evaluation {name!r} metrics must be an array"
+        )
+    metrics = cast(Sequence[object], value)
+    if not metrics:
+        raise ValueError(
+            f"{label} evaluation manifest evaluation {name!r} must contain "
+            "at least one metric"
+        )
+    names: set[str] = set()
+    for index, value in enumerate(metrics):
+        metric = _object(value)
+        missing = {"name", "description", "threshold"} - set(metric)
+        if missing:
+            fields = ", ".join(sorted(missing))
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} "
+                f"metrics[{index}] is missing required fields: {fields}"
+            )
+        metric_name = metric.get("name")
+        if (
+            not isinstance(metric_name, str)
+            or _METRIC_NAME.fullmatch(metric_name) is None
+        ):
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} "
+                f"metrics[{index}].name must use snake_case"
+            )
+        if metric_name in names:
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} repeats "
+                f"metric {metric_name!r}"
+            )
+        names.add(metric_name)
+        description = metric.get("description")
+        if description is not None and (
+            not isinstance(description, str) or not description.strip()
+        ):
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} metric "
+                f"{metric_name!r} description must be null or a non-empty string"
+            )
+        threshold = metric.get("threshold")
+        if (
+            not isinstance(threshold, int | float)
+            or isinstance(threshold, bool)
+            or not _is_finite_number(threshold)
+            or not 0 <= threshold <= 1
+        ):
+            raise ValueError(
+                f"{label} evaluation manifest evaluation {name!r} metric "
+                f"{metric_name!r} threshold must be a finite number from 0 to 1"
+            )
+
+
+def _validate_positive_number(value: object, *, label: str) -> None:
+    if (
+        not isinstance(value, int | float)
+        or isinstance(value, bool)
+        or not _is_finite_number(value)
+        or value <= 0
+    ):
+        raise ValueError(f"{label} must be a finite number greater than zero")
+
+
+def _is_finite_number(value: int | float) -> bool:
+    try:
+        return isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _evaluations_by_name(document: JsonObject) -> dict[str, JsonObject]:
+    return {
+        cast(str, declared["name"]): declared
+        for value in cast(Sequence[object], document["evaluations"])
+        if (declared := _object(value))
+    }
+
+
+def _evaluation_metrics(declared: JsonObject) -> dict[str, JsonObject]:
+    return {
+        cast(str, metric["name"]): metric
+        for value in cast(Sequence[object], declared["metrics"])
+        if (metric := _object(value))
+    }
 
 
 def _tools_by_name(document: JsonObject) -> dict[str, JsonObject]:

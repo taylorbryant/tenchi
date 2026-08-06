@@ -1,0 +1,163 @@
+{
+  "manifest_schema": {
+    "$defs": {
+      "EvaluationKind": {
+        "enum": [
+          "deterministic",
+          "model"
+        ],
+        "type": "string"
+      },
+      "EvaluationManifestEntry": {
+        "additionalProperties": false,
+        "description": "One payload-free evaluation policy in a portable manifest.",
+        "properties": {
+          "case_schema": {
+            "additionalProperties": true,
+            "title": "Case Schema",
+            "type": "object"
+          },
+          "cases": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Cases",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "kind": {
+            "$ref": "#/$defs/EvaluationKind"
+          },
+          "max_cost_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Usd"
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/$defs/EvaluationMetricManifest"
+            },
+            "minItems": 1,
+            "title": "Metrics",
+            "type": "array"
+          },
+          "name": {
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "exclusiveMinimum": 0,
+            "title": "Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "kind",
+          "case_schema",
+          "cases",
+          "metrics",
+          "timeout_seconds",
+          "max_tokens",
+          "max_cost_usd"
+        ],
+        "title": "EvaluationManifestEntry",
+        "type": "object"
+      },
+      "EvaluationMetricManifest": {
+        "additionalProperties": false,
+        "description": "One metric policy in a portable evaluation manifest.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "threshold": {
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Threshold",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "threshold"
+        ],
+        "title": "EvaluationMetricManifest",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "Versioned deterministic policy document for an evaluation group.",
+    "properties": {
+      "evaluations": {
+        "items": {
+          "$ref": "#/$defs/EvaluationManifestEntry"
+        },
+        "title": "Evaluations",
+        "type": "array"
+      },
+      "schema_version": {
+        "const": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "schema_version",
+      "evaluations"
+    ],
+    "title": "EvaluationManifest",
+    "type": "object"
+  },
+  "schema_version": 1
+}

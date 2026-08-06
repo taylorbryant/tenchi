@@ -30,14 +30,22 @@ jobs:
       - name: Verify todos source, architecture, and compatibility
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: >-
-          uv run --directory examples/todos tenchi verify
-          --base-ref "${BASE_SHA}"
+        run: |
+          evaluation_args=()
+          if ! git cat-file -e "${BASE_SHA}:examples/todos/evaluations.json" 2>/dev/null; then
+            evaluation_args+=(--allow-missing-evaluation-baseline)
+          fi
+          uv run --directory examples/todos tenchi verify \
+            --base-ref "${BASE_SHA}" "${evaluation_args[@]}"
       # The taskboard example is a standalone project consuming tenchi as
       # a path dependency; it gets its own environment and checks.
       - name: Verify taskboard source, architecture, and compatibility
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: >-
-          uv run --directory examples/taskboard tenchi verify
-          --base-ref "${BASE_SHA}"
+        run: |
+          evaluation_args=()
+          if ! git cat-file -e "${BASE_SHA}:examples/taskboard/evaluations.json" 2>/dev/null; then
+            evaluation_args+=(--allow-missing-evaluation-baseline)
+          fi
+          uv run --directory examples/taskboard tenchi verify \
+            --base-ref "${BASE_SHA}" "${evaluation_args[@]}"

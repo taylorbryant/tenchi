@@ -200,6 +200,55 @@ MCP JSON output.
 Budgets are gates, not provider-side spending limits. Configure provider
 quotas and request limits separately.
 
+## Protect the gate itself
+
+Commit a payload-free evaluation-policy snapshot so a source change cannot
+silently weaken the release gate:
+
+```shell
+uv run tenchi eval snapshot --write evaluations.json
+uv run tenchi eval snapshot --check evaluations.json
+```
+
+The snapshot includes evaluation names, case names in execution order, the case
+JSON Schema, metric names and thresholds, suite kind, per-case timeout, and
+token or cost budgets. It never includes case inputs and creating it never
+invokes an evaluator. `tenchi check` performs the exact snapshot check.
+
+Review policy changes before replacing the snapshot:
+
+```shell
+uv run tenchi eval snapshot --diff evaluations.json
+uv run tenchi eval snapshot \
+  --diff-ref origin/main \
+  --snapshot evaluations.json \
+  --diff-format json
+```
+
+The compatibility report treats a stronger threshold, smaller timeout or
+budget, and a newly added case or metric as additive. It fails for removed
+evaluations, cases, or metrics; lower thresholds; larger or removed budgets;
+larger timeouts; and changes from deterministic scoring to model scoring. Case
+reordering, case schema changes, and unrecognized policy fields require review.
+
+A missing snapshot at `--diff-ref` fails closed. During first adoption only,
+authorize the absence explicitly and inspect the reported provenance:
+
+```shell
+uv run tenchi eval snapshot \
+  --diff-ref origin/main \
+  --snapshot evaluations.json \
+  --allow-missing-baseline \
+  --diff-format json
+```
+
+The result records an `evaluation manifest baseline` metadata change. Do not
+use this override for a renamed or mistyped snapshot path.
+
+Case names are the stable identity in this manifest. Changing a case's input
+while keeping its name does not change the payload-free snapshot. Review case
+data in source control and rename the case when the scenario's meaning changes.
+
 ## Run the gate
 
 Discover evaluations without running them:
@@ -223,17 +272,20 @@ uv run tenchi eval run support.answer_quality \
 The default target is `app.server.evaluations:runner`. Override it with
 `--evaluations module:attribute`.
 
-The command exits zero only when every selected evaluation passes. Keep it
-separate from `tenchi check` and `tenchi verify`: deterministic checks should
-stay fast and local, while model evaluations may be nondeterministic, depend on
-external services, and incur cost. Run evaluations in a deployment workflow
-that has the intended provider credentials and an explicit budget.
+The command exits zero only when every selected evaluation passes. Evaluation
+execution stays separate from `tenchi check` and `tenchi verify`: those commands
+verify the declared policy without contacting providers, while `eval run` may
+be nondeterministic, depend on external services, and incur cost. Run it in a
+deployment workflow that has the intended provider credentials and an explicit
+budget.
 
 ## Let a coding agent inspect or run evaluations
 
-The coding-agent MCP server always exposes `evaluation_list`. It returns case
+The coding-agent MCP server always exposes `evaluation_list` and
+`evaluation_diff`. Discovery returns case
 names and schemas, metric thresholds, timeouts, and budgets without running a
-provider or exposing case inputs.
+provider or exposing case inputs. The diff tool compares the same payload-free
+manifest used by the CLI and never runs an evaluator.
 
 `evaluation_run` is disabled by default because it can call external systems
 and spend money. Enable it only for a trusted MCP process:

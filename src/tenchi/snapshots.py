@@ -25,6 +25,11 @@ def render_tool_snapshot(manifest: Mapping[str, object]) -> str:
     return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
 
 
+def render_evaluation_snapshot(manifest: Mapping[str, object]) -> str:
+    """Render an evaluation-policy manifest in its canonical snapshot format."""
+    return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+
+
 def describe_openapi_drift(expected: object, actual: object) -> list[str]:
     """Describe meaningful OpenAPI changes in stable, review-friendly terms."""
     changes: list[str] = []
@@ -124,6 +129,23 @@ def tool_snapshot_diff(expected: str, actual: str, *, snapshot_path: str) -> str
             actual.splitlines(keepends=True),
             fromfile=snapshot_path,
             tofile="generated tools",
+        )
+    )
+
+
+def evaluation_snapshot_diff(
+    expected: str,
+    actual: str,
+    *,
+    snapshot_path: str,
+) -> str:
+    """Return a unified diff between stored and generated evaluation policies."""
+    return "".join(
+        unified_diff(
+            expected.splitlines(keepends=True),
+            actual.splitlines(keepends=True),
+            fromfile=snapshot_path,
+            tofile="generated evaluations",
         )
     )
 

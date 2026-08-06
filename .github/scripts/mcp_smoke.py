@@ -29,6 +29,7 @@ async def main() -> None:
         routes = await session.call_tool("routes", {})
         application_tools = await session.call_tool("tools", {})
         tools_diff = await session.call_tool("tools_diff", {})
+        evaluation_diff = await session.call_tool("evaluation_diff", {})
         preflight = await session.call_tool("preflight", {})
         evaluations = await session.call_tool("evaluation_list", {})
         tasks = await session.call_tool("task_list", {})
@@ -43,6 +44,7 @@ async def main() -> None:
         "task_list",
         "openapi_diff",
         "tools_diff",
+        "evaluation_diff",
         "make_preview",
         "verify",
         "check",
@@ -70,6 +72,10 @@ async def main() -> None:
         raise RuntimeError("tools_diff MCP smoke call failed")
     if tools_diff.structuredContent.get("compatible") is not True:
         raise RuntimeError("generated app tool snapshot is incompatible")
+    if evaluation_diff.isError or evaluation_diff.structuredContent is None:
+        raise RuntimeError("evaluation_diff MCP smoke call failed")
+    if evaluation_diff.structuredContent.get("compatible") is not True:
+        raise RuntimeError("generated app evaluation snapshot is incompatible")
     if tasks.isError or tasks.structuredContent is None:
         raise RuntimeError("task_list MCP smoke call failed")
     if tasks.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:

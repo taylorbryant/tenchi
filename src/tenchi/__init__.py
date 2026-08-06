@@ -19,6 +19,7 @@ from .client import (
 from .contracts import Contract, contract
 from .errors import AppError, ConfigurationError, ErrorDef, TenchiError
 from .evaluations import (
+    EVALUATION_MANIFEST_VERSION,
     MAX_EVALUATION_TOKENS,
     Evaluation,
     EvaluationBindingError,
@@ -29,8 +30,11 @@ from .evaluations import (
     EvaluationCaseStatus,
     EvaluationGroup,
     EvaluationKind,
+    EvaluationManifest,
+    EvaluationManifestEntry,
     EvaluationMeasurement,
     EvaluationMetric,
+    EvaluationMetricManifest,
     EvaluationMetricOutcome,
     EvaluationNotFoundError,
     EvaluationOutcome,
@@ -41,6 +45,7 @@ from .evaluations import (
     evaluation,
     evaluation_case,
     evaluation_group,
+    evaluation_manifest,
     evaluation_metric,
     evaluation_result,
 )
@@ -135,6 +140,7 @@ from .webhooks import (
 __version__ = "0.12.0"
 
 __all__ = [
+    "EVALUATION_MANIFEST_VERSION",
     "IDEMPOTENCY_CONFLICT",
     "IDEMPOTENCY_IN_PROGRESS",
     "MAX_EVALUATION_TOKENS",
@@ -159,8 +165,11 @@ __all__ = [
     "EvaluationCaseStatus",
     "EvaluationGroup",
     "EvaluationKind",
+    "EvaluationManifest",
+    "EvaluationManifestEntry",
     "EvaluationMeasurement",
     "EvaluationMetric",
+    "EvaluationMetricManifest",
     "EvaluationMetricOutcome",
     "EvaluationNotFoundError",
     "EvaluationOutcome",
@@ -235,6 +244,7 @@ __all__ = [
     "evaluation",
     "evaluation_case",
     "evaluation_group",
+    "evaluation_manifest",
     "evaluation_metric",
     "evaluation_result",
     "execute",

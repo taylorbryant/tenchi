@@ -11,8 +11,8 @@ uvx tenchi new my_app
 
 Names use `snake_case`. The generated project includes a todos feature,
 SQLite persistence with request-scoped transactions, a memory test adapter,
-strict checks, integration tests, Swagger UI, OpenAPI and application-tool
-snapshots, a concise `AGENTS.md`, project-local
+strict checks, integration tests, Swagger UI, OpenAPI, application-tool, and
+evaluation-policy snapshots, a concise `AGENTS.md`, project-local
 MCP configuration, and GitHub Actions CI.
 
 ## Generate application slices
@@ -143,10 +143,10 @@ uv run tenchi check --json
 ```
 
 Check runs Ruff format, Ruff lint, Pyright, pytest, doctor, and the exact
-OpenAPI and application-tool snapshot checks. Every step runs even when an
-earlier one fails. Human output shows a compact status list; JSON includes
-stable step names, commands, exit codes, durations, and bounded failure output.
-Use `--timeout` to change the per-step limit.
+OpenAPI, application-tool, and evaluation-policy snapshot checks. Every step
+runs even when an earlier one fails. Human output shows a compact status list;
+JSON includes stable step names, commands, exit codes, durations, and bounded
+failure output. Use `--timeout` to change the per-step limit.
 
 OpenAPI defaults come from literal top-level `OPENAPI_TITLE`, `OPENAPI_VERSION`,
 optional `OPENAPI_DESCRIPTION`, and optional `OPENAPI_SECURITY` declarations in
@@ -154,6 +154,9 @@ the module selected by `--routes`; command flags override them. The route target
 defaults to `app.server.routes:api_routes`, and the snapshot defaults to
 `openapi.json`. The tool target defaults to `app.server.tools:tools`, and its
 snapshot defaults to `tools.json`.
+The evaluation target defaults to `app.server.evaluations:runner`, and its
+snapshot defaults to `evaluations.json`. Override them with `--evaluations` and
+`--evaluation-snapshot`.
 
 ## Verify a completed change
 
@@ -164,10 +167,11 @@ uv run tenchi verify --base-ref origin/main --json
 
 Verify produces one receipt for the finished source tree. It runs `tenchi
 check`, rejects application-map diagnostics and unresolved relationships, and
-compares the generated OpenAPI document and application-tool manifest with the
-snapshots at the selected Git ref. The receipt records the immutable commit
-resolved from `--base-ref`, so both compatibility reports use the same
-historical state even if the named ref moves later.
+compares the generated OpenAPI document, application-tool manifest, and
+evaluation-policy manifest with the snapshots at the selected Git ref. The
+receipt records the immutable commit resolved from `--base-ref`, so all three
+compatibility reports use the same historical state even if the named ref moves
+later.
 
 Use the pull request base, previous push, or previous release as the base ref.
 The option is required: using the current branch snapshot could hide a breaking
@@ -175,14 +179,21 @@ change when code and its updated snapshot are committed together. The command
 exits non-zero for a failed check, incomplete architecture evidence, a breaking
 or unknown boundary change, or a baseline that cannot be read.
 
-`--snapshot`, `--tool-snapshot`, and the route, task, job, tool, and OpenAPI
-metadata options override the generated application conventions. Verify never
-updates either snapshot. Because it runs the application's tests and validation
-commands, those commands retain their normal side effects and per-step timeout.
+If the selected ref genuinely predates the application's first
+`evaluations.json`, pass `--allow-missing-evaluation-baseline` once and confirm
+the evaluation result includes an `evaluation manifest baseline` metadata
+change. Missing evaluation snapshots otherwise fail closed, so a renamed or
+mistyped path cannot silently replace the historical policy.
 
-Verify loads `app.server.evaluations:runner` for architecture evidence but does
-not run evaluations. Use `--evaluations module:attribute` when the application
-uses another composition target.
+`--snapshot`, `--tool-snapshot`, `--evaluation-snapshot`, and the route, task,
+job, tool, evaluation, and OpenAPI metadata options override the generated
+application conventions. Verify never updates snapshots. Because it runs the
+application's tests and validation commands, those commands retain their normal
+side effects and per-step timeout.
+
+Verify loads `app.server.evaluations:runner` for architecture evidence and the
+payload-free policy comparison but does not run evaluators. Use `--evaluations
+module:attribute` when the application uses another composition target.
 
 ## Verify the deployment environment
 
@@ -207,21 +218,33 @@ redaction, and rollout placement.
 ```shell
 uv run tenchi eval list
 uv run tenchi eval list --json
+uv run tenchi eval snapshot --diff evaluations.json
+uv run tenchi eval snapshot --diff-ref origin/main \
+  --snapshot evaluations.json
+uv run tenchi eval snapshot --check evaluations.json
+uv run tenchi eval snapshot --write evaluations.json
 uv run tenchi eval run
 uv run tenchi eval run support.answer_quality --json
 ```
 
 `eval list` discovers `app.server.evaluations:runner` and returns case names
 and schemas, metrics, thresholds, timeouts, and token or cost budgets without
-case inputs. `eval run` opens the application lifespan, gives each case a
+case inputs. `eval snapshot` prints, writes, checks, or directionally compares
+the payload-free policy without invoking evaluators. Breaking and unknown
+changes return a non-zero status; `--diff-format json` returns the versioned
+`evaluation_diff` result. A missing Git snapshot fails by default. During first
+adoption only, pass `--allow-missing-baseline` and require the resulting
+`evaluation manifest baseline` metadata change; do not use it for a renamed or
+mistyped path. `eval run` opens the application lifespan, gives each case a
 scoped context, and exits non-zero when a case, threshold, or budget fails.
 
 Use `--concurrency` to override the number of cases in flight and `--timeout`
 to tighten each case's declared timeout. Use `--evaluations module:attribute`
-to override the runner target. Evaluations stay separate from `check` and
-`verify` because they may call external models, vary between runs, and incur
-cost. See [AI evaluations](/evaluations) for declarations, scoring, redaction,
-and deployment guidance.
+to override the runner target. Evaluation execution stays separate from
+`check` and `verify` because it may call external models, vary between runs,
+and incur cost. Those commands verify only the declared policy. See [AI
+evaluations](/evaluations) for declarations, scoring, redaction, and deployment
+guidance.
 
 ## Run operational tasks
 

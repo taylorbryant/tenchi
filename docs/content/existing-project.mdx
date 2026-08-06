@@ -298,8 +298,8 @@ project's configuration.
 
 ## Create the baseline and verify the app
 
-Write the first canonical OpenAPI and application-tool snapshots, then run the
-complete project gate:
+Write the first canonical OpenAPI, application-tool, and evaluation-policy
+snapshots, then run the complete project gate:
 
 ```shell
 uv run tenchi openapi \
@@ -309,12 +309,28 @@ uv run tenchi openapi \
   --description "Greeting API" \
   --write openapi.json
 uv run tenchi tools --write tools.json
+uv run tenchi eval snapshot --write evaluations.json
 uv run tenchi check
 uv run tenchi map
 uv run tenchi preflight
 uv run tenchi eval list
 uv run tenchi task list
 ```
+
+When the historical ref predates `evaluations.json`, authorize that first
+comparison explicitly:
+
+```shell
+uv run tenchi eval snapshot --diff-ref origin/main \
+  --snapshot evaluations.json --allow-missing-baseline
+uv run tenchi verify --base-ref origin/main \
+  --allow-missing-evaluation-baseline
+```
+
+The result records an `evaluation manifest baseline` metadata change and
+compares with an empty policy, so the first registered evaluations appear as
+additive. Later missing baselines fail by default; do not retain the override
+or use it for a moved snapshot.
 
 Start the development server after the checks pass:
 
