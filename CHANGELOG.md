@@ -7,18 +7,7 @@ versions may change the public API.
 
 ## [Unreleased]
 
-### Changed
-
-- MCP support now uses the stable 2.x line of the official Python SDK. The
-  coding-agent server and application-tool adapter accept modern 2026-07-28
-  clients as well as legacy handshake clients. Application HTTP authentication
-  now reads a detached, read-only, repr-redacted `McpRequest.headers` mapping
-  instead of the v1-only raw Starlette `transport_request`, so the same
-  callback works across both protocol generations.
-- Application MCP protocol v2 adds the root object type required by legacy MCP
-  output-schema validation while retaining the immutable v1 snapshot. Result
-  envelopes now carry `schema_version: 2`; the transport-neutral application
-  tool manifest remains at version 1.
+## [0.12.0] - 2026-08-06
 
 ### Added
 
@@ -80,6 +69,19 @@ versions may change the public API.
   and propagate cancellation to the active validation process. Generated
   pull-request CI uses the receipt as its single source, architecture, and
   compatibility gate.
+
+### Changed
+
+- MCP support now uses the stable 2.x line of the official Python SDK. The
+  coding-agent server and application-tool adapter accept modern 2026-07-28
+  clients as well as legacy handshake clients. Application HTTP authentication
+  now reads a detached, read-only, repr-redacted `McpRequest.headers` mapping
+  instead of the v1-only raw Starlette `transport_request`, so the same
+  callback works across both protocol generations.
+- Application MCP protocol v2 adds the root object type required by legacy MCP
+  output-schema validation while retaining the immutable v1 snapshot. Result
+  envelopes now carry `schema_version: 2`; the transport-neutral application
+  tool manifest remains at version 1.
 
 ## [0.11.0] - 2026-07-29
 
