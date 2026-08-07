@@ -6,7 +6,8 @@ import asyncio
 import sys
 from pathlib import Path
 
-from mcp import ClientSession, StdioServerParameters
+from mcp import StdioServerParameters
+from mcp.client import Client
 from mcp.client.stdio import stdio_client
 
 from tenchi import __version__
@@ -20,19 +21,16 @@ async def main() -> None:
         args=["run", "tenchi", "mcp", "--root", str(root)],
         cwd=root,
     )
-    async with (
-        stdio_client(parameters) as (read_stream, write_stream),
-        ClientSession(read_stream, write_stream) as session,
-    ):
-        initialized = await session.initialize()
-        tools = await session.list_tools()
-        routes = await session.call_tool("routes", {})
-        application_tools = await session.call_tool("tools", {})
-        tools_diff = await session.call_tool("tools_diff", {})
-        evaluation_diff = await session.call_tool("evaluation_diff", {})
-        preflight = await session.call_tool("preflight", {})
-        evaluations = await session.call_tool("evaluation_list", {})
-        tasks = await session.call_tool("task_list", {})
+    async with Client(stdio_client(parameters)) as client:
+        server_info = client.server_info
+        tools = await client.list_tools()
+        routes = await client.call_tool("routes", {})
+        application_tools = await client.call_tool("tools", {})
+        tools_diff = await client.call_tool("tools_diff", {})
+        evaluation_diff = await client.call_tool("evaluation_diff", {})
+        preflight = await client.call_tool("preflight", {})
+        evaluations = await client.call_tool("evaluation_list", {})
+        tasks = await client.call_tool("task_list", {})
     names = {tool.name for tool in tools.tools}
     expected = {
         "app_map",
@@ -51,48 +49,48 @@ async def main() -> None:
     }
     if names != expected:
         raise RuntimeError(f"unexpected MCP tools: {sorted(names)}")
-    if initialized.serverInfo.name != "Tenchi":
+    if server_info is None or server_info.name != "Tenchi":
         raise RuntimeError("MCP server reported the wrong name")
-    if initialized.serverInfo.version != __version__:
+    if server_info.version != __version__:
         raise RuntimeError("MCP server reported the wrong Tenchi version")
-    if routes.isError or routes.structuredContent is None:
+    if routes.is_error or routes.structured_content is None:
         raise RuntimeError("routes MCP smoke call failed")
-    if routes.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:
+    if routes.structured_content.get("schema_version") != AGENT_PROTOCOL_VERSION:
         raise RuntimeError("routes MCP result is not versioned")
-    if application_tools.isError or application_tools.structuredContent is None:
+    if application_tools.is_error or application_tools.structured_content is None:
         raise RuntimeError("tools MCP smoke call failed")
     if (
-        application_tools.structuredContent.get("schema_version")
+        application_tools.structured_content.get("schema_version")
         != AGENT_PROTOCOL_VERSION
     ):
         raise RuntimeError("tools MCP result is not versioned")
-    if application_tools.structuredContent.get("manifest", {}).get("tools") != []:
+    if application_tools.structured_content.get("manifest", {}).get("tools") != []:
         raise RuntimeError("generated app unexpectedly registered application tools")
-    if tools_diff.isError or tools_diff.structuredContent is None:
+    if tools_diff.is_error or tools_diff.structured_content is None:
         raise RuntimeError("tools_diff MCP smoke call failed")
-    if tools_diff.structuredContent.get("compatible") is not True:
+    if tools_diff.structured_content.get("compatible") is not True:
         raise RuntimeError("generated app tool snapshot is incompatible")
-    if evaluation_diff.isError or evaluation_diff.structuredContent is None:
+    if evaluation_diff.is_error or evaluation_diff.structured_content is None:
         raise RuntimeError("evaluation_diff MCP smoke call failed")
-    if evaluation_diff.structuredContent.get("compatible") is not True:
+    if evaluation_diff.structured_content.get("compatible") is not True:
         raise RuntimeError("generated app evaluation snapshot is incompatible")
-    if tasks.isError or tasks.structuredContent is None:
+    if tasks.is_error or tasks.structured_content is None:
         raise RuntimeError("task_list MCP smoke call failed")
-    if tasks.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:
+    if tasks.structured_content.get("schema_version") != AGENT_PROTOCOL_VERSION:
         raise RuntimeError("task_list MCP result is not versioned")
-    if tasks.structuredContent.get("tasks") != []:
+    if tasks.structured_content.get("tasks") != []:
         raise RuntimeError("generated app unexpectedly registered operational tasks")
-    if preflight.isError or preflight.structuredContent is None:
+    if preflight.is_error or preflight.structured_content is None:
         raise RuntimeError("preflight MCP smoke call failed")
-    if preflight.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:
+    if preflight.structured_content.get("schema_version") != AGENT_PROTOCOL_VERSION:
         raise RuntimeError("preflight MCP result is not versioned")
-    if preflight.structuredContent.get("checks") != []:
+    if preflight.structured_content.get("checks") != []:
         raise RuntimeError("generated app unexpectedly registered preflight checks")
-    if evaluations.isError or evaluations.structuredContent is None:
+    if evaluations.is_error or evaluations.structured_content is None:
         raise RuntimeError("evaluation_list MCP smoke call failed")
-    if evaluations.structuredContent.get("schema_version") != AGENT_PROTOCOL_VERSION:
+    if evaluations.structured_content.get("schema_version") != AGENT_PROTOCOL_VERSION:
         raise RuntimeError("evaluation_list MCP result is not versioned")
-    if evaluations.structuredContent.get("evaluations") != []:
+    if evaluations.structured_content.get("evaluations") != []:
         raise RuntimeError("generated app unexpectedly registered evaluations")
 
 

@@ -10,11 +10,10 @@ from contextlib import redirect_stdout, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
-from typing import Annotated
+from typing import Annotated, Any
 
-from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.exceptions import ResourceError, ToolError
-from mcp.server.session import ServerSession
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp.types import Annotations, ToolAnnotations
 from pydantic import Field
 
@@ -82,30 +81,30 @@ from ._tool_operations import (
 )
 from ._verify_operations import VerificationPayload, verification_result
 
-_READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+_READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 _CHECK_ANNOTATIONS = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=True,
-    idempotentHint=False,
-    openWorldHint=True,
+    read_only_hint=False,
+    destructive_hint=True,
+    idempotent_hint=False,
+    open_world_hint=True,
 )
 _PREFLIGHT_ANNOTATIONS = ToolAnnotations(
-    readOnlyHint=True,
-    destructiveHint=False,
-    idempotentHint=True,
-    openWorldHint=True,
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=True,
 )
 _TASK_RUN_ANNOTATIONS = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=True,
-    idempotentHint=False,
-    openWorldHint=True,
+    read_only_hint=False,
+    destructive_hint=True,
+    idempotent_hint=False,
+    open_world_hint=True,
 )
 _EVALUATION_RUN_ANNOTATIONS = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=True,
-    idempotentHint=False,
-    openWorldHint=True,
+    read_only_hint=False,
+    destructive_hint=True,
+    idempotent_hint=False,
+    open_world_hint=True,
 )
 type _CheckProgress = Callable[[int, int, CheckStepResult], None]
 
@@ -140,7 +139,7 @@ class McpServerOptions:
     security_json: str | None = None
 
 
-def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
+def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
     """Build a Tenchi MCP server suitable for in-memory or stdio use."""
     root = options.root.resolve()
     if not (root / "app").is_dir():
@@ -170,7 +169,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         if not task.cancelled():
             task.exception()
 
-    server: FastMCP[None] = FastMCP(
+    server: MCPServer[dict[str, Any]] = MCPServer(
         "Tenchi",
         instructions=(
             "Inspect the project instructions first, map the affected feature, "
@@ -187,8 +186,8 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
             "validation commands."
         ),
         website_url="https://tenchi.io/mcp",
+        version=__version__,
     )
-    server._mcp_server.version = __version__  # pyright: ignore[reportPrivateUsage]
 
     async def call[T](operation: Callable[[], T]) -> T:
         async with operation_lock:
@@ -203,7 +202,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
                 raise ToolError(str(exc)) from exc
 
     async def validation_call[T](
-        ctx: Context[ServerSession, None],
+        ctx: Context[dict[str, Any]],
         operation: Callable[[Callable[[], bool], _CheckProgress], T],
         *,
         name: str,
@@ -622,7 +621,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         annotations=_CHECK_ANNOTATIONS,
     )
     async def verify(  # pyright: ignore[reportUnusedFunction]
-        ctx: Context[ServerSession, None],
+        ctx: Context[dict[str, Any]],
         base_ref: str,
         timeout_seconds: Annotated[float, Field(gt=0, le=3600)] = 600.0,
         allow_missing_evaluation_baseline: bool = False,
@@ -675,7 +674,7 @@ def build_mcp_server(options: McpServerOptions) -> FastMCP[None]:
         annotations=_CHECK_ANNOTATIONS,
     )
     async def check(  # pyright: ignore[reportUnusedFunction]
-        ctx: Context[ServerSession, None],
+        ctx: Context[dict[str, Any]],
         timeout_seconds: Annotated[float, Field(gt=0, le=3600)] = 600.0,
     ) -> CheckPayload:
         def operation(

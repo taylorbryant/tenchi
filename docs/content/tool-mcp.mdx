@@ -21,15 +21,26 @@ Add the optional dependency to the environment that will run the server:
 uv add "tenchi[mcp]"
 ```
 
+Tenchi uses the stable 2.x line of the official MCP Python SDK.
+
 Keep it as a development dependency only when you use the coding-agent server
 and do not expose application tools at runtime.
 
 ## Authenticate and create the server
 
 Authentication is application-owned. The callback receives the MCP request id
-and, for HTTP transports, the underlying Starlette `Request`. Resolve identity
-from that request, then build a runner whose context carries the authenticated
+and, for HTTP transports, a detached, read-only copy of the request headers
+with lowercase names. `McpRequest` representations omit that mapping, so
+logging the request object does not disclose credentials. Resolve identity
+from those headers, then build a runner whose context carries the authenticated
 principal:
+
+<Callout type="warning" title="Upgrading from MCP SDK v1">
+  Replace `request.transport_request.headers` with `request.headers` and handle
+  `None` for stdio or direct in-process calls. Application MCP results now use
+  `schema_version: 2`; the transport-neutral `tools.json` manifest remains at
+  version 1.
+</Callout>
 
 ```python
 # app/server/mcp.py
@@ -40,11 +51,11 @@ from tenchi.mcp import McpRequest, create_tool_mcp_server
 
 
 async def authenticate(request: McpRequest) -> User:
-    transport = request.transport_request
-    if transport is None:
+    headers = request.headers
+    if headers is None:
         raise PermissionError("This server requires HTTP authentication.")
 
-    scheme, _, token = transport.headers.get("authorization", "").partition(" ")
+    scheme, _, token = headers.get("authorization", "").partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise PermissionError("A bearer token is required.")
 
@@ -74,7 +85,14 @@ uv run uvicorn app.server.mcp:app
 The default Streamable HTTP endpoint is `/mcp`. Tenchi uses the MCP SDK's
 stateless HTTP mode, so calls do not depend on sticky routing to an in-memory
 MCP session. Application resources still follow the lifespan and context
-wiring in each caller's `ToolRunner`.
+wiring in each caller's `ToolRunner`. Tenchi rejects `stateless_http=False`
+because authentication and visibility are evaluated independently for every
+request.
+
+When your process configures an OpenTelemetry provider, MCP v2 also emits
+protocol-level telemetry. That complements Tenchi's payload-safe HTTP,
+use-case, and tool outcomes; it does not replace application authorization or
+Tenchi outcome observers.
 
 The MCP SDK's default DNS-rebinding policy accepts loopback hosts for local
 development. Configure the public host—and any browser origins you
@@ -214,7 +232,7 @@ Every call returns a versioned structured result:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "ok": true,
   "result": {
     "id": "project_123",
@@ -227,7 +245,7 @@ Expected failures use the same envelope:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "ok": false,
   "error": {
     "kind": "application_error",
@@ -285,23 +303,23 @@ Test through an in-memory MCP session so discovery, schemas, approval, and
 execution use the real protocol adapter:
 
 ```python
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.client import Client
 
 
-async with create_connected_server_and_client_session(mcp) as session:
-    listed = await session.list_tools()
-    result = await session.call_tool(
+async with Client(mcp) as client:
+    listed = await client.list_tools()
+    result = await client.call_tool(
         "projects.search",
         {"query": "launch"},
     )
 
 assert [item.name for item in listed.tools] == ["projects.search"]
-assert result.structuredContent == {
-    "schema_version": 1,
+assert result.structured_content == {
+    "schema_version": 2,
     "ok": True,
     "result": [{"id": "project_123", "name": "Launch"}],
 }
 ```
 
 The in-memory transport still runs authentication and visibility callbacks. A
-real HTTP transport additionally supplies `McpRequest.transport_request`.
+real HTTP transport additionally supplies `McpRequest.headers`.

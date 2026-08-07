@@ -324,7 +324,8 @@ adapter; `TOOL_MANIFEST_VERSION` identifies that versioned protocol. See the
 Install `tenchi[mcp]` and use `create_tool_mcp_server()` to publish the same
 group over MCP. The adapter authenticates discovery and invocation, can filter
 visible tools per principal, denies destructive tools without an explicit
-approval decision, and returns versioned structured results:
+approval decision, and returns versioned structured results through the stable
+2.x line of the official MCP Python SDK:
 
 ```python
 from tenchi.mcp import create_tool_mcp_server

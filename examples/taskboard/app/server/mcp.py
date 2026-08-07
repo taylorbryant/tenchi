@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from app.shared.users import User
 from tenchi.mcp import McpRequest, create_tool_mcp_server
@@ -22,7 +22,7 @@ def create_user_mcp_server(
     database_path: str,
     user: User,
     approve: ToolApproval | None = None,
-) -> FastMCP[None]:
+) -> MCPServer[dict[str, Any]]:
     """Expose only tools whose runner carries the authenticated ``user``."""
 
     def authenticate(request: McpRequest) -> User:

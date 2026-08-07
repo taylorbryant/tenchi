@@ -14,13 +14,12 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-from mcp import ClientSession
+from httpx2 import ASGITransport, AsyncClient
+from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import McpError
-from mcp.shared.memory import create_connected_server_and_client_session
-from mcp.types import TextContent
+from mcp.shared.exceptions import MCPError
+from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, Field, PlainSerializer, field_validator
 from pydantic_core import core_schema
 
@@ -310,6 +309,26 @@ def static_principal_binding_regression() -> None:
     )
 
 
+def test_mcp_request_detaches_normalizes_and_freezes_headers() -> None:
+    source = {
+        "Authorization": "Bearer test-token",
+        "Cookie": "session=private",
+    }
+    request = McpRequest(request_id=1, headers=source)
+    source["Authorization"] = "changed"
+
+    assert request.headers == {
+        "authorization": "Bearer test-token",
+        "cookie": "session=private",
+    }
+    assert repr(request) == "McpRequest(request_id=1)"
+    assert "test-token" not in repr(request)
+    assert "session=private" not in repr(request)
+    assert request.headers is not None
+    with pytest.raises(TypeError):
+        cast(dict[str, str], request.headers)["authorization"] = "changed"
+
+
 async def test_mcp_discovers_manifest_schemas_annotations_and_authenticated_tools() -> (
     None
 ):
@@ -333,12 +352,12 @@ async def test_mcp_discovers_manifest_schemas_annotations_and_authenticated_tool
         name="Taskboard",
     )
 
-    async with create_connected_server_and_client_session(server) as session:
+    async with Client(server) as session:
         listed = await session.list_tools()
 
     assert server.name == "Taskboard"
     assert requests[0].request_id is not None
-    assert requests[0].transport_request is None
+    assert requests[0].headers is None
     assert [definition.name for definition in listed.tools] == [
         "numbers.double",
         "projects.search",
@@ -348,31 +367,31 @@ async def test_mcp_discovers_manifest_schemas_annotations_and_authenticated_tool
 
     by_name = {definition.name: definition for definition in listed.tools}
     ping_definition = by_name["system.ping"]
-    assert ping_definition.inputSchema == {
+    assert ping_definition.input_schema == {
         "additionalProperties": False,
         "properties": {},
         "type": "object",
     }
     assert ping_definition.annotations is not None
-    assert ping_definition.annotations.readOnlyHint is True
-    assert ping_definition.annotations.destructiveHint is False
-    assert ping_definition.annotations.idempotentHint is True
-    assert ping_definition.annotations.openWorldHint is False
+    assert ping_definition.annotations.read_only_hint is True
+    assert ping_definition.annotations.destructive_hint is False
+    assert ping_definition.annotations.idempotent_hint is True
+    assert ping_definition.annotations.open_world_hint is False
 
     scalar = by_name["numbers.double"]
-    assert scalar.inputSchema["required"] == ["input"]
-    assert scalar.inputSchema["properties"]["input"]["$ref"].endswith(
+    assert scalar.input_schema["required"] == ["input"]
+    assert scalar.input_schema["properties"]["input"]["$ref"].endswith(
         "/tool_input_value"
     )
 
     search_definition = by_name["projects.search"]
-    assert search_definition.inputSchema["properties"]["query"]["minLength"] == 1
-    assert search_definition.outputSchema is not None
-    assert search_definition.outputSchema["oneOf"][0]["properties"]["result"] == {
+    assert search_definition.input_schema["properties"]["query"]["minLength"] == 1
+    assert search_definition.output_schema is not None
+    assert search_definition.output_schema["oneOf"][0]["properties"]["result"] == {
         "$ref": "#/$defs/tool_result_value"
     }
-    assert "tool_result_definition_Match" in search_definition.outputSchema["$defs"]
-    error_variants = search_definition.outputSchema["$defs"]["tool_error"]["oneOf"]
+    assert "tool_result_definition_Match" in search_definition.output_schema["$defs"]
+    error_variants = search_definition.output_schema["$defs"]["tool_error"]["oneOf"]
     application_error = next(
         variant
         for variant in error_variants
@@ -381,18 +400,15 @@ async def test_mcp_discovers_manifest_schemas_annotations_and_authenticated_tool
     assert application_error["properties"]["code"]["enum"] == ["VISIBLE"]
 
 
-async def test_mcp_http_authentication_receives_the_transport_request() -> None:
+async def test_mcp_http_authentication_receives_request_headers() -> None:
     tools = application_tools()
     events: list[str] = []
     requests: list[McpRequest] = []
 
     def authenticate(request: McpRequest) -> Principal:
         requests.append(request)
-        transport = request.transport_request
-        if (
-            transport is None
-            or transport.headers.get("authorization") != "Bearer test-token"
-        ):
+        headers = request.headers
+        if headers is None or headers.get("authorization") != "Bearer test-token":
             raise PermissionError("unauthenticated")
         return Principal("http-user")
 
@@ -416,26 +432,25 @@ async def test_mcp_http_authentication_receives_the_transport_request() -> None:
             base_url="https://mcp.example.com",
             headers={"authorization": "Bearer test-token"},
         ) as client,
-        streamable_http_client(
-            "https://mcp.example.com/mcp",
-            http_client=client,
-        ) as (read_stream, write_stream, _),
-        ClientSession(read_stream, write_stream) as session,
+        Client(
+            streamable_http_client(
+                "https://mcp.example.com/mcp",
+                http_client=client,
+            )
+        ) as session,
     ):
-        await session.initialize()
         listed = await session.list_tools()
         result = await session.call_tool("system.ping", {})
 
     assert listed.tools
-    assert result.structuredContent == {
+    assert result.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": "pong",
     }
     assert len(requests) == 2
     assert all(request.request_id is not None for request in requests)
-    assert all(request.transport_request is not None for request in requests)
-    assert server.settings.stateless_http is True
+    assert all(request.headers is not None for request in requests)
     assert events == ["ping:http-user"]
 
 
@@ -451,7 +466,7 @@ async def test_mcp_invokes_object_scalar_and_no_input_tools() -> None:
         runner_factory=lambda caller: runner_for(tools, caller, events),
     )
 
-    async with create_connected_server_and_client_session(server) as session:
+    async with Client(server) as session:
         ping_result = await session.call_tool("system.ping", {})
         doubled = await session.call_tool("numbers.double", {"input": 4})
         searched = await session.call_tool(
@@ -460,23 +475,23 @@ async def test_mcp_invokes_object_scalar_and_no_input_tools() -> None:
         )
         serialized_once = await session.call_tool("system.serialize_once", {})
 
-    assert ping_result.isError is False
-    assert ping_result.structuredContent == {
+    assert ping_result.is_error is False
+    assert ping_result.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": "pong",
     }
-    assert doubled.structuredContent == {
+    assert doubled.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": 8,
     }
-    assert searched.structuredContent == {
+    assert searched.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": {"matches": [{"value": "tenchi"}]},
     }
-    assert serialized_once.structuredContent == {
+    assert serialized_once.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": 7,
@@ -488,6 +503,28 @@ async def test_mcp_invokes_object_scalar_and_no_input_tools() -> None:
         "search:tenchi",
         "serialize",
     ]
+
+
+async def test_mcp_supports_legacy_protocol_clients() -> None:
+    tools = application_tools()
+    events: list[str] = []
+    server = create_tool_mcp_server(
+        tools=tools,
+        authenticate=lambda request: Principal("legacy-user"),
+        runner_factory=lambda principal: runner_for(tools, principal, events),
+    )
+
+    async with Client(server, mode="legacy") as client:
+        listed = await client.list_tools()
+        result = await client.call_tool("system.ping", {})
+
+    assert any(tool.name == "system.ping" for tool in listed.tools)
+    assert result.structured_content == {
+        "schema_version": TOOL_MCP_PROTOCOL_VERSION,
+        "ok": True,
+        "result": "pong",
+    }
+    assert events == ["ping:legacy-user"]
 
 
 async def test_mcp_detaches_serialized_results_before_context_cleanup() -> None:
@@ -520,7 +557,8 @@ async def test_mcp_detaches_serialized_results_before_context_cleanup() -> None:
 
     result = await server.call_tool("system.serialize_shared", {})
 
-    assert result == {
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": {"value": 7},
@@ -546,7 +584,7 @@ async def test_mcp_rewrites_only_actual_schema_references() -> None:
         runner_factory=lambda principal: runner_for(tools, principal, events),
     )
 
-    async with create_connected_server_and_client_session(server) as session:
+    async with Client(server) as session:
         listed = await session.list_tools()
         result = await session.call_tool(
             "system.echo_reference_like_literal",
@@ -554,14 +592,14 @@ async def test_mcp_rewrites_only_actual_schema_references() -> None:
         )
 
     definition = listed.tools[0]
-    assert definition.inputSchema["$defs"]["tool_input_value"]["const"] == (
+    assert definition.input_schema["$defs"]["tool_input_value"]["const"] == (
         "#/$defs/not_a_reference"
     )
-    assert definition.outputSchema is not None
-    assert definition.outputSchema["$defs"]["tool_result_value"]["const"] == (
+    assert definition.output_schema is not None
+    assert definition.output_schema["$defs"]["tool_result_value"]["const"] == (
         "#/$defs/not_a_reference"
     )
-    assert result.structuredContent == {
+    assert result.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": "#/$defs/not_a_reference",
@@ -586,7 +624,7 @@ async def test_mcp_remaps_dynamic_definition_references() -> None:
         runner_factory=lambda principal: runner_for(tools, principal, events),
     )
 
-    async with create_connected_server_and_client_session(server) as session:
+    async with Client(server) as session:
         listed = await session.list_tools()
         accepted = await session.call_tool(
             "system.accept_dynamic_reference",
@@ -597,18 +635,18 @@ async def test_mcp_remaps_dynamic_definition_references() -> None:
             {"input": "rejected"},
         )
 
-    schema = listed.tools[0].inputSchema
+    schema = listed.tools[0].input_schema
     assert schema["$defs"]["tool_input_value"]["$dynamicRef"] == (
         "#/$defs/tool_input_definition_allowed"
     )
     assert "tool_input_definition_allowed" in schema["$defs"]
-    assert accepted.structuredContent == {
+    assert accepted.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": "allowed",
     }
-    assert rejected.structuredContent is not None
-    assert rejected.structuredContent["error"]["kind"] == "invalid_input"
+    assert rejected.structured_content is not None
+    assert rejected.structured_content["error"]["kind"] == "invalid_input"
     assert events == ["dynamic:allowed"]
 
 
@@ -629,19 +667,19 @@ async def test_mcp_keeps_recursive_object_inputs_direct() -> None:
         runner_factory=lambda principal: runner_for(tools, principal, events),
     )
 
-    async with create_connected_server_and_client_session(server) as session:
+    async with Client(server) as session:
         listed = await session.list_tools()
         result = await session.call_tool(
             "trees.inspect",
             {"name": "root", "children": [{"name": "leaf"}]},
         )
 
-    schema = listed.tools[0].inputSchema
+    schema = listed.tools[0].input_schema
     assert schema["type"] == "object"
     assert schema["$ref"] == "#/$defs/TreeInput"
     assert "tool_input_value" not in schema["$defs"]
     assert schema["$defs"]["TreeInput"]["required"] == ["name"]
-    assert result.structuredContent == {
+    assert result.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": "root",
@@ -658,14 +696,14 @@ async def test_mcp_rechecks_visibility_and_hides_unknown_tools() -> None:
         allow_tool=lambda principal, declaration: declaration.name == "system.ping",
     )
 
-    async with create_connected_server_and_client_session(server) as session:
+    async with Client(server) as session:
         hidden = await session.call_tool(
             "projects.search",
             {"query": "secret"},
         )
 
-    assert hidden.isError is True
-    assert hidden.structuredContent is None
+    assert hidden.is_error is True
+    assert hidden.structured_content is None
     assert isinstance(hidden.content[0], TextContent)
     assert hidden.content[0].text == "unknown tool 'projects.search'"
 
@@ -680,14 +718,14 @@ async def test_mcp_denies_destructive_tools_without_per_call_approval() -> None:
         runner_factory=lambda caller: runner_for(tools, caller, events),
     )
 
-    async with create_connected_server_and_client_session(unapproved) as session:
+    async with Client(unapproved) as session:
         required = await session.call_tool(
             "projects.delete",
             {"item_id": "project-1"},
         )
 
-    assert required.isError is False
-    assert required.structuredContent == {
+    assert required.is_error is False
+    assert required.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": False,
         "error": {
@@ -713,14 +751,14 @@ async def test_mcp_denies_destructive_tools_without_per_call_approval() -> None:
         runner_factory=lambda caller: runner_for(tools, caller, events),
         approve=approve,
     )
-    async with create_connected_server_and_client_session(denied) as session:
+    async with Client(denied) as session:
         result = await session.call_tool(
             "projects.delete",
             {"item_id": "project-1"},
         )
 
-    assert result.structuredContent is not None
-    assert result.structuredContent["error"]["kind"] == "approval_denied"
+    assert result.structured_content is not None
+    assert result.structured_content["error"]["kind"] == "approval_denied"
     assert approvals == [("alice", "projects.delete", {"item_id": "project-1"})]
     assert events == []
 
@@ -749,13 +787,13 @@ async def test_mcp_runs_an_approved_destructive_tool() -> None:
         approve=approve,
     )
 
-    async with create_connected_server_and_client_session(server) as session:
+    async with Client(server) as session:
         result = await session.call_tool(
             "projects.delete",
             {"item_id": " PROJECT-1 "},
         )
 
-    assert result.structuredContent == {
+    assert result.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": True,
         "result": None,
@@ -814,7 +852,7 @@ async def test_mcp_returns_safe_structured_failures() -> None:
         runner_factory=lambda principal: runner_for(tools, principal, events),
     )
 
-    async with create_connected_server_and_client_session(server) as session:
+    async with Client(server) as session:
         invalid = await session.call_tool("projects.reject", {"query": ""})
         declared = await session.call_tool("projects.reject", {"query": "x"})
         nonfinite = await session.call_tool(
@@ -827,41 +865,41 @@ async def test_mcp_returns_safe_structured_failures() -> None:
             {"query": "x"},
         )
 
-    assert invalid.structuredContent is not None
-    assert invalid.structuredContent["error"] == {
+    assert invalid.structured_content is not None
+    assert invalid.structured_content["error"] == {
         "kind": "invalid_input",
         "message": "Input does not match the tool schema.",
     }
-    assert declared.structuredContent is not None
-    assert declared.structuredContent["error"] == {
+    assert declared.structured_content is not None
+    assert declared.structured_content["error"] == {
         "kind": "application_error",
         "code": "VISIBLE",
         "message": "Visible rejection",
         "details": {"field": "query"},
     }
-    assert nonfinite.structuredContent is not None
-    assert nonfinite.structuredContent["error"] == {
+    assert nonfinite.structured_content is not None
+    assert nonfinite.structured_content["error"] == {
         "kind": "application_error",
         "code": "VISIBLE",
         "message": "Visible rejection",
     }
-    assert unexpected.structuredContent is not None
-    assert unexpected.structuredContent["error"] == {
+    assert unexpected.structured_content is not None
+    assert unexpected.structured_content["error"] == {
         "kind": "failed",
         "message": "The tool invocation failed.",
     }
-    assert invalid_result.structuredContent is not None
-    assert invalid_result.structuredContent["error"] == {
+    assert invalid_result.structured_content is not None
+    assert invalid_result.structured_content["error"] == {
         "kind": "invalid_result",
         "message": "The tool returned an invalid result.",
     }
     combined = str(
         [
-            invalid.structuredContent,
-            declared.structuredContent,
-            nonfinite.structuredContent,
-            unexpected.structuredContent,
-            invalid_result.structuredContent,
+            invalid.structured_content,
+            declared.structured_content,
+            nonfinite.structured_content,
+            unexpected.structured_content,
+            invalid_result.structured_content,
         ]
     )
     assert "database-password" not in combined
@@ -879,10 +917,8 @@ async def test_mcp_masks_authentication_and_runner_configuration_failures() -> N
         authenticate=fail_authentication,
         runner_factory=lambda principal: runner_for(tools, principal, []),
     )
-    async with create_connected_server_and_client_session(
-        authentication_failure
-    ) as session:
-        with pytest.raises(McpError, match="authentication failed") as failed:
+    async with Client(authentication_failure) as session:
+        with pytest.raises(MCPError, match="authentication failed") as failed:
             await session.list_tools()
 
     assert "token-secret" not in str(failed.value)
@@ -900,10 +936,8 @@ async def test_mcp_masks_authentication_and_runner_configuration_failures() -> N
         runner_factory=lambda principal: runner_for(tools, principal, []),
         allow_tool=fail_visibility,
     )
-    async with create_connected_server_and_client_session(
-        visibility_failure
-    ) as session:
-        with pytest.raises(McpError, match="tool visibility check failed") as failed:
+    async with Client(visibility_failure) as session:
+        with pytest.raises(MCPError, match="tool visibility check failed") as failed:
             await session.list_tools()
 
     assert "visibility-secret" not in str(failed.value)
@@ -922,13 +956,13 @@ async def test_mcp_masks_authentication_and_runner_configuration_failures() -> N
         runner_factory=lambda principal: runner_for(tools, principal, []),
         approve=fail_approval,
     )
-    async with create_connected_server_and_client_session(approval_failure) as session:
+    async with Client(approval_failure) as session:
         approval = await session.call_tool(
             "projects.delete",
             {"item_id": "project-1"},
         )
 
-    assert approval.isError is True
+    assert approval.is_error is True
     assert isinstance(approval.content[0], TextContent)
     assert approval.content[0].text == "tool approval failed"
     assert "approval-secret" not in approval.content[0].text
@@ -939,10 +973,10 @@ async def test_mcp_masks_authentication_and_runner_configuration_failures() -> N
         authenticate=lambda request: Principal("alice"),
         runner_factory=lambda principal: runner_for(other_tools, principal, []),
     )
-    async with create_connected_server_and_client_session(bad_runner) as session:
+    async with Client(bad_runner) as session:
         misconfigured = await session.call_tool("system.ping", {})
 
-    assert misconfigured.isError is True
+    assert misconfigured.is_error is True
     assert isinstance(misconfigured.content[0], TextContent)
     assert misconfigured.content[0].text == "tool runner is misconfigured"
 
@@ -963,15 +997,13 @@ async def test_mcp_masks_authentication_and_runner_configuration_failures() -> N
         runner_factory=lambda principal: runner_for(other_tools, principal, []),
         approve=consume_approval,
     )
-    async with create_connected_server_and_client_session(
-        bad_destructive_runner
-    ) as session:
+    async with Client(bad_destructive_runner) as session:
         misconfigured = await session.call_tool(
             "projects.delete",
             {"item_id": "project-1"},
         )
 
-    assert misconfigured.isError is True
+    assert misconfigured.is_error is True
     assert isinstance(misconfigured.content[0], TextContent)
     assert misconfigured.content[0].text == "tool runner is misconfigured"
     assert approvals == []
@@ -1050,6 +1082,14 @@ def test_mcp_validates_composition_options() -> None:
             runner_factory=lambda principal: runner_for(tools, principal, []),
             transport_security=cast(Any, object()),
         )
+
+    server = create_tool_mcp_server(
+        tools=tools,
+        authenticate=lambda request: Principal("alice"),
+        runner_factory=lambda principal: runner_for(tools, principal, []),
+    )
+    with pytest.raises(ConfigurationError, match="requires stateless_http=True"):
+        server.streamable_http_app(stateless_http=False)
 
 
 async def _render_tool_mcp_protocol() -> dict[str, object]:

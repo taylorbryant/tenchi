@@ -425,10 +425,10 @@ def job_message(declaration: 'Job[RequestT, ResultT]', request: 'RequestT') -> '
 # tenchi.mcp
 class McpRequest
     request_id: str | int | None
-    transport_request: Request | None
-    def __init__(self, request_id: 'str | int | None', transport_request: 'Request | None') -> None
-TOOL_MCP_PROTOCOL_VERSION = 1
-def create_tool_mcp_server(*, tools: 'ToolGroup', authenticate: 'Callable[[McpRequest], PrincipalT | Awaitable[PrincipalT]]', runner_factory: 'Callable[[PrincipalT], ToolRunner | Awaitable[ToolRunner]]', allow_tool: 'Callable[[PrincipalT, Tool[Any, Any]], bool | Awaitable[bool]] | None' = None, approve: 'Callable[[PrincipalT, Tool[Any, Any], object], bool | Awaitable[bool]] | None' = None, name: 'str' = 'Tenchi application', instructions: 'str | None' = None, website_url: 'str | None' = None, transport_security: 'TransportSecuritySettings | None' = None) -> 'FastMCP[None]'
+    headers: Mapping[str, str] | None
+    def __init__(self, request_id: 'str | int | None', headers: 'Mapping[str, str] | None') -> None
+TOOL_MCP_PROTOCOL_VERSION = 2
+def create_tool_mcp_server(*, tools: 'ToolGroup', authenticate: 'Callable[[McpRequest], PrincipalT | Awaitable[PrincipalT]]', runner_factory: 'Callable[[PrincipalT], ToolRunner | Awaitable[ToolRunner]]', allow_tool: 'Callable[[PrincipalT, Tool[Any, Any]], bool | Awaitable[bool]] | None' = None, approve: 'Callable[[PrincipalT, Tool[Any, Any], object], bool | Awaitable[bool]] | None' = None, name: 'str' = 'Tenchi application', instructions: 'str | None' = None, website_url: 'str | None' = None, transport_security: 'TransportSecuritySettings | None' = None) -> 'MCPServer[dict[str, Any]]'
 
 # tenchi.openapi
 def openapi_route(routes: 'RouteGroup', *, title: 'str', version: 'str', description: 'str | None' = None, security: 'Mapping[str, Mapping[str, Any]] | None' = None, path: 'str' = '/openapi.json', tags: 'Sequence[str]' = ('docs',), public: 'bool' = True) -> 'Route'

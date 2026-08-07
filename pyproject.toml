@@ -40,13 +40,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.28,<2"]
+mcp = ["mcp>=2,<3"]
 otel = ["opentelemetry-api>=1.44,<2"]
 
 [dependency-groups]
 dev = [
     "aiosqlite>=0.20",
-    "mcp>=1.28,<2",
+    "httpx2>=2.5,<3",
+    "mcp>=2,<3",
     "openapi-spec-validator>=0.7",
     "opentelemetry-sdk>=1.44,<2",
     "pyright>=1.1.390",

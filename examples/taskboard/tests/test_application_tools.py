@@ -4,7 +4,7 @@ from pathlib import Path
 
 import aiosqlite
 import pytest
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.client import Client
 
 from app.features.projects.schemas import Project
 from app.features.tasks.schemas import MoveTaskInput, TaskStatus
@@ -175,7 +175,7 @@ async def test_application_mcp_reuses_authenticated_tool_wiring(
         database_path=database_path,
         user=ALICE,
     )
-    async with create_connected_server_and_client_session(unapproved) as session:
+    async with Client(unapproved) as session:
         listed = await session.list_tools()
         projects = await session.call_tool("projects.search", {})
         denied = await session.call_tool(
@@ -192,17 +192,17 @@ async def test_application_mcp_reuses_authenticated_tool_wiring(
         "projects.search",
         "tasks.move",
     ]
-    assert projects.structuredContent is not None
-    assert projects.structuredContent["result"][0]["name"] == "Launch"
-    assert denied.structuredContent is not None
-    assert denied.structuredContent["error"]["kind"] == "approval_required"
+    assert projects.structured_content is not None
+    assert projects.structured_content["result"][0]["name"] == "Launch"
+    assert denied.structured_content is not None
+    assert denied.structured_content["error"]["kind"] == "approval_required"
 
     approved = create_user_mcp_server(
         database_path=database_path,
         user=ALICE,
         approve=lambda principal, declaration, input_value: True,
     )
-    async with create_connected_server_and_client_session(approved) as session:
+    async with Client(approved) as session:
         moved = await session.call_tool(
             "tasks.move",
             {
@@ -213,7 +213,7 @@ async def test_application_mcp_reuses_authenticated_tool_wiring(
             },
         )
 
-    assert moved.structuredContent is not None
-    assert moved.structuredContent["ok"] is True
-    assert moved.structuredContent["result"]["status"] == "doing"
-    assert moved.structuredContent["result"]["version"] == 2
+    assert moved.structured_content is not None
+    assert moved.structured_content["ok"] is True
+    assert moved.structured_content["result"]["status"] == "doing"
+    assert moved.structured_content["result"]["version"] == 2

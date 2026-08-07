@@ -94,12 +94,12 @@ async def _render_agent_protocol() -> JsonObject:
     )
     mcp_tools: dict[str, JsonObject] = {}
     for tool in await server.list_tools():
-        assert tool.outputSchema is not None, (
+        assert tool.output_schema is not None, (
             f"MCP tool {tool.name!r} must declare structured output"
         )
         mcp_tools[tool.name] = {
-            "input": cast(JsonObject, tool.inputSchema),
-            "output": cast(JsonObject, tool.outputSchema),
+            "input": cast(JsonObject, tool.input_schema),
+            "output": cast(JsonObject, tool.output_schema),
         }
     return {
         "schema_version": AGENT_PROTOCOL_VERSION,

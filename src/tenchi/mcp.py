@@ -16,9 +16,11 @@ from __future__ import annotations
 import inspect
 import json
 from asyncio import CancelledError
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping
+from contextvars import ContextVar
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Literal, cast
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -26,13 +28,24 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from jsonschema.protocols import Validator
 from pydantic import ValidationError
 from pydantic_core import to_jsonable_python
-from starlette.requests import Request
+from starlette.applications import Starlette
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 try:
-    from mcp.server.fastmcp import FastMCP
-    from mcp.server.fastmcp.exceptions import ToolError
+    from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
+    from mcp.server.mcpserver import Context as McpContext
+    from mcp.server.mcpserver import MCPServer
+    from mcp.server.mcpserver.exceptions import ToolError
+    from mcp.server.streamable_http import EventStore
     from mcp.server.transport_security import TransportSecuritySettings
-    from mcp.types import ContentBlock, ToolAnnotations
+    from mcp.shared.exceptions import MCPError
+    from mcp.types import (
+        INTERNAL_ERROR,
+        CallToolResult,
+        InputRequiredResult,
+        TextContent,
+        ToolAnnotations,
+    )
     from mcp.types import Tool as McpTool
 except ImportError as exc:
     if exc.name == "mcp" or (exc.name is not None and exc.name.startswith("mcp.")):
@@ -56,7 +69,7 @@ from .tools import (
     tool_manifest,
 )
 
-TOOL_MCP_PROTOCOL_VERSION = 1
+TOOL_MCP_PROTOCOL_VERSION = 2
 
 type _McpFailureKind = Literal[
     "invalid_input",
@@ -81,13 +94,24 @@ _ERROR_KINDS: tuple[_McpFailureKind, ...] = (
 class McpRequest:
     """Transport context supplied to application authentication.
 
-    ``transport_request`` is the MCP SDK's request object for HTTP transports
-    and ``None`` for stdio or direct in-process calls. Applications may inspect
-    it to authenticate a caller, but tool input never supplies identity.
+    ``headers`` is a detached, read-only copy of the request headers for HTTP
+    transports, with lowercase names, and ``None`` for stdio or direct
+    in-process calls. Applications may inspect it to authenticate a caller,
+    but tool input never supplies identity.
     """
 
     request_id: str | int | None
-    transport_request: Request | None
+    headers: Mapping[str, str] | None = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if self.headers is not None:
+            object.__setattr__(
+                self,
+                "headers",
+                MappingProxyType(
+                    {key.lower(): value for key, value in self.headers.items()}
+                ),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +122,39 @@ class _McpEntry:
     direct_input: bool
 
 
-class _ToolMcpServer[PrincipalT](FastMCP[None]):
+class _HttpRequestScope:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        request: ContextVar[McpRequest | None],
+    ) -> None:
+        self._app = app
+        self._request = request
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        headers = MappingProxyType(
+            {
+                key.decode("latin-1").lower(): value.decode("latin-1")
+                for key, value in scope.get("headers", ())
+            }
+        )
+        token = self._request.set(McpRequest(request_id=None, headers=headers))
+        try:
+            await self._app(scope, receive, send)
+        finally:
+            self._request.reset(token)
+
+
+class _ToolMcpServer[PrincipalT](MCPServer[dict[str, Any]]):
     def __init__(
         self,
         *,
@@ -136,28 +192,125 @@ class _ToolMcpServer[PrincipalT](FastMCP[None]):
         self._allow_tool = allow_tool
         self._approve = approve
         self._entries = _mcp_entries(tools)
+        self._transport_security = transport_security
+        self._request_scope: ContextVar[McpRequest | None] = ContextVar(
+            "tenchi_mcp_request",
+            default=None,
+        )
         super().__init__(
             name,
             instructions=instructions,
             website_url=website_url,
-            stateless_http=True,
-            transport_security=transport_security,
+            version=__version__,
+            middleware=(self._capture_request,),
         )
-        self._mcp_server.version = __version__  # pyright: ignore[reportPrivateUsage]
+
+    async def _capture_request(
+        self,
+        ctx: ServerRequestContext[Any, Any],
+        call_next: CallNext,
+    ) -> HandlerResult:
+        current = self._request_scope.get()
+        request = ctx.request
+        raw_request_id = ctx.request_id
+        headers: Mapping[str, str] | None = None
+        if request is not None and hasattr(request, "headers"):
+            headers = MappingProxyType(dict(request.headers))
+        elif current is not None:
+            headers = current.headers
+        captured = McpRequest(
+            request_id=(
+                raw_request_id if isinstance(raw_request_id, str | int) else None
+            ),
+            headers=headers,
+        )
+        token = self._request_scope.set(captured)
+        try:
+            return await call_next(ctx)
+        finally:
+            self._request_scope.reset(token)
+
+    def streamable_http_app(
+        self,
+        *,
+        streamable_http_path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = True,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        max_request_body_size: int = 4 * 1024 * 1024,
+        transport_security: TransportSecuritySettings | None = None,
+        host: str = "127.0.0.1",
+    ) -> Starlette:
+        if not stateless_http:
+            raise ConfigurationError(
+                "Tenchi application MCP requires stateless_http=True so each "
+                "request is authenticated independently"
+            )
+        app = super().streamable_http_app(
+            streamable_http_path=streamable_http_path,
+            json_response=json_response,
+            stateless_http=stateless_http,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            max_request_body_size=max_request_body_size,
+            transport_security=(
+                self._transport_security
+                if transport_security is None
+                else transport_security
+            ),
+            host=host,
+        )
+        app.add_middleware(_HttpRequestScope, request=self._request_scope)
+        return app
+
+    async def run_streamable_http_async(
+        self,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 8000,
+        streamable_http_path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = True,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        max_request_body_size: int = 4 * 1024 * 1024,
+        transport_security: TransportSecuritySettings | None = None,
+    ) -> None:
+        await super().run_streamable_http_async(
+            host=host,
+            port=port,
+            streamable_http_path=streamable_http_path,
+            json_response=json_response,
+            stateless_http=stateless_http,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            max_request_body_size=max_request_body_size,
+            transport_security=(
+                self._transport_security
+                if transport_security is None
+                else transport_security
+            ),
+        )
 
     async def list_tools(self) -> list[McpTool]:
-        principal = await self._principal()
-        visible: list[McpTool] = []
-        for entry in self._entries.values():
-            if await self._is_allowed(principal, entry.binding.tool):
-                visible.append(entry.definition)
-        return visible
+        try:
+            principal = await self._principal()
+            visible: list[McpTool] = []
+            for entry in self._entries.values():
+                if await self._is_allowed(principal, entry.binding.tool):
+                    visible.append(entry.definition)
+            return visible
+        except ToolError as exc:
+            raise MCPError(code=INTERNAL_ERROR, message=str(exc)) from exc
 
     async def call_tool(
         self,
         name: str,
         arguments: dict[str, Any],
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
+        context: McpContext[dict[str, Any], Any] | None = None,
+    ) -> CallToolResult | InputRequiredResult:
+        del context
         principal = await self._principal()
         entry = self._entries.get(name)
         if entry is None or not await self._is_allowed(
@@ -169,9 +322,11 @@ class _ToolMcpServer[PrincipalT](FastMCP[None]):
         try:
             entry.input_validator.validate(arguments)
         except JsonSchemaValidationError:
-            return _failure(
-                "invalid_input",
-                "Input does not match the tool schema.",
+            return _result(
+                _failure(
+                    "invalid_input",
+                    "Input does not match the tool schema.",
+                )
             )
 
         declaration = entry.binding.tool
@@ -187,22 +342,28 @@ class _ToolMcpServer[PrincipalT](FastMCP[None]):
         except KeyboardInterrupt:
             raise
         except ValidationError:
-            return _failure(
-                "invalid_input",
-                "Input does not match the tool schema.",
+            return _result(
+                _failure(
+                    "invalid_input",
+                    "Input does not match the tool schema.",
+                )
             )
         except Exception:
-            return _failure(
-                "failed",
-                "The tool invocation failed.",
+            return _result(
+                _failure(
+                    "failed",
+                    "The tool invocation failed.",
+                )
             )
 
         approval_input: object = {}
         if declaration.destructive:
             if self._approve is None:
-                return _failure(
-                    "approval_required",
-                    "This destructive tool requires explicit approval.",
+                return _result(
+                    _failure(
+                        "approval_required",
+                        "This destructive tool requires explicit approval.",
+                    )
                 )
             try:
                 approval_input = _approval_input(declaration, kwargs)
@@ -211,9 +372,11 @@ class _ToolMcpServer[PrincipalT](FastMCP[None]):
             except KeyboardInterrupt:
                 raise
             except Exception:
-                return _failure(
-                    "failed",
-                    "The tool invocation failed.",
+                return _result(
+                    _failure(
+                        "failed",
+                        "The tool invocation failed.",
+                    )
                 )
 
         runner = await self._runner(principal)
@@ -224,9 +387,11 @@ class _ToolMcpServer[PrincipalT](FastMCP[None]):
                 deepcopy(approval_input),
             )
             if not approved:
-                return _failure(
-                    "approval_denied",
-                    "The destructive tool call was not approved.",
+                return _result(
+                    _failure(
+                        "approval_denied",
+                        "The destructive tool call was not approved.",
+                    )
                 )
 
         try:
@@ -239,50 +404,55 @@ class _ToolMcpServer[PrincipalT](FastMCP[None]):
         except KeyboardInterrupt:
             raise
         except ValidationError:
-            return _failure(
-                "invalid_input",
-                "Input does not match the tool schema.",
+            return _result(
+                _failure(
+                    "invalid_input",
+                    "Input does not match the tool schema.",
+                )
             )
         except AppError as exc:
-            return _failure(
-                "application_error",
-                exc.message,
-                code=exc.code,
-                details=_jsonable_details(exc.details),
+            return _result(
+                _failure(
+                    "application_error",
+                    exc.message,
+                    code=exc.code,
+                    details=_jsonable_details(exc.details),
+                )
             )
         except ToolResultError:
-            return _failure(
-                "invalid_result",
-                "The tool returned an invalid result.",
+            return _result(
+                _failure(
+                    "invalid_result",
+                    "The tool returned an invalid result.",
+                )
             )
         except ToolInvocationError:
-            return _failure(
-                "failed",
-                "The tool invocation failed.",
+            return _result(
+                _failure(
+                    "failed",
+                    "The tool invocation failed.",
+                )
             )
         except Exception:
-            return _failure(
-                "failed",
-                "The tool invocation failed.",
+            return _result(
+                _failure(
+                    "failed",
+                    "The tool invocation failed.",
+                )
             )
 
-        return {
-            "schema_version": TOOL_MCP_PROTOCOL_VERSION,
-            "ok": True,
-            "result": serialized,
-        }
+        return _result(
+            {
+                "schema_version": TOOL_MCP_PROTOCOL_VERSION,
+                "ok": True,
+                "result": serialized,
+            }
+        )
 
     def _request(self) -> McpRequest:
-        try:
-            context = self._mcp_server.request_context  # pyright: ignore[reportPrivateUsage]
-        except LookupError:
-            return McpRequest(request_id=None, transport_request=None)
-        transport_request = context.request
-        return McpRequest(
-            request_id=context.request_id,
-            transport_request=(
-                transport_request if isinstance(transport_request, Request) else None
-            ),
+        return self._request_scope.get() or McpRequest(
+            request_id=None,
+            headers=None,
         )
 
     async def _principal(self) -> PrincipalT:
@@ -384,7 +554,7 @@ def create_tool_mcp_server[PrincipalT](
     instructions: str | None = None,
     website_url: str | None = None,
     transport_security: TransportSecuritySettings | None = None,
-) -> FastMCP[None]:
+) -> MCPServer[dict[str, Any]]:
     """Expose application tools through an authenticated MCP server.
 
     Authentication runs for both discovery and invocation. ``allow_tool`` may
@@ -486,13 +656,13 @@ def _mcp_entries(tools: ToolGroup) -> dict[str, _McpEntry]:
             definition=McpTool(
                 name=declaration.name,
                 description=declaration.description,
-                inputSchema=input_schema,
-                outputSchema=output_schema,
+                input_schema=input_schema,
+                output_schema=output_schema,
                 annotations=ToolAnnotations(
-                    readOnlyHint=declaration.read_only,
-                    destructiveHint=declaration.destructive,
-                    idempotentHint=declaration.idempotent,
-                    openWorldHint=declaration.open_world,
+                    read_only_hint=declaration.read_only,
+                    destructive_hint=declaration.destructive,
+                    idempotent_hint=declaration.idempotent,
+                    open_world_hint=declaration.open_world,
                 ),
             ),
             input_validator=Draft202012Validator(
@@ -599,6 +769,7 @@ def _mcp_output_schema(
     }
     return {
         "$defs": definitions,
+        "type": "object",
         "oneOf": [
             {
                 "type": "object",
@@ -723,6 +894,18 @@ def _failure(
         "ok": False,
         "error": error,
     }
+
+
+def _result(payload: dict[str, Any]) -> CallToolResult:
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+            )
+        ],
+        structured_content=payload,
+    )
 
 
 async def _resolve(value: Any) -> Any:
