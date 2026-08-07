@@ -153,8 +153,6 @@ status, duration, UTC completion time, and stable application error code. Queue
 latency, attempt number, message id, and dead-letter state remain worker
 telemetry because the dispatcher never owns them.
 
-The taskboard example demonstrates a SQLite transactional outbox, typed
-producer message, registered dispatcher, rollback before dead-lettering, and
-retry ownership in the worker. Continue with [Retries and background
-work](/reliability) for the complete transaction and failure-classification
-pattern.
+Continue with [Retries and background work](/reliability) to connect typed
+producer messages and registered dispatchers to a transactional outbox,
+rollback rules, dead-lettering, and worker-owned retries.

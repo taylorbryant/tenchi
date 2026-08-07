@@ -244,10 +244,9 @@ key inside retry machinery or per attempt; a new key describes new work and
 permits the operation to run again. See the [typed client](/client#retry-a-logical-call)
 for declared-error retries, `Retry-After`, deadlines, and attempt outcomes.
 
-The taskboard example contains a transactional SQLite store and uses the
-built-in memory store in tests. The SQLite store shares the request-scoped
-connection with task creation, so concurrent requests either create once or
-replay the committed result. Run
-[`verify_idempotency_store()`](/testing#verify-store-adapters) against your
-production adapter before relying on it, then separately test rollback with
-the application writes it protects.
+A durable adapter must share the command's transaction when the idempotency
+record protects database writes. That lets concurrent requests either commit
+the work once or replay its committed result. Run
+[`verify_idempotency_store()`](/testing#verify-store-adapters) against the
+adapter before relying on it, then separately test rollback with the
+application writes it protects.

@@ -296,10 +296,10 @@ pythonVersion = "3.12"
 Keep any existing test and source paths when merging these tables into the
 project's configuration.
 
-## Create the baseline and verify the app
+## Create the baseline and validate the app
 
 Write the first canonical OpenAPI, application-tool, and evaluation-policy
-snapshots, then run the complete project gate:
+snapshots, then run the local project gates:
 
 ```shell
 uv run tenchi openapi \
@@ -317,8 +317,24 @@ uv run tenchi eval list
 uv run tenchi task list
 ```
 
-When the historical ref predates `evaluations.json`, authorize that first
-comparison explicitly:
+These first snapshots establish the application's compatibility baselines.
+Commit them before using `tenchi verify`: a ref that predates `openapi.json`
+or `tools.json` cannot support a historical compatibility claim, so `verify`
+correctly fails when either baseline is absent. On the next change, compare all
+three boundaries with the committed baseline:
+
+```shell
+uv run tenchi verify --base-ref origin/main
+```
+
+Use `tenchi check` as the CI gate on the adoption change. After the baseline
+commit reaches the target branch, run `tenchi verify` with the pull-request
+base ref for later changes so CI checks both exact snapshot drift and
+historical compatibility.
+
+If an existing Tenchi application already has historical `openapi.json` and
+`tools.json` files but the selected ref predates only `evaluations.json`,
+authorize that evaluation-policy adoption once:
 
 ```shell
 uv run tenchi eval snapshot --diff-ref origin/main \
@@ -327,10 +343,9 @@ uv run tenchi verify --base-ref origin/main \
   --allow-missing-evaluation-baseline
 ```
 
-The result records an `evaluation manifest baseline` metadata change and
-compares with an empty policy, so the first registered evaluations appear as
-additive. Later missing baselines fail by default; do not retain the override
-or use it for a moved snapshot.
+The evaluation result records an `evaluation manifest baseline` metadata
+change and compares with an empty policy. Remove both overrides after the
+baseline lands; a later missing or moved snapshot must fail closed.
 
 Start the development server after the checks pass:
 

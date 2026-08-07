@@ -61,9 +61,9 @@ subresource integrity metadata. Override `swagger_js_url=`,
 
 ```shell
 uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --write openapi.json
+  --title Todos --version 0.1.0 --write openapi.json
 uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --check openapi.json
+  --title Todos --version 0.1.0 --check openapi.json
 ```
 
 `--write` produces deterministic, key-sorted JSON. `--check` is an exact
@@ -73,7 +73,7 @@ equality check suitable for a repository test.
 
 ```shell
 uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --diff openapi-baseline.json
+  --title Todos --version 0.1.0 --diff openapi-baseline.json
 ```
 
 The analyzer classifies changes as:
@@ -97,9 +97,10 @@ Breaking and unknown changes return a failing exit status. Use
 
 ```shell
 uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --diff-ref "$BASE_SHA" --snapshot openapi.json
+  --title Todos --version 0.1.0 \
+  --diff-ref "$BASE_SHA" --snapshot openapi.json
 uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --check openapi.json
+  --title Todos --version 0.1.0 --check openapi.json
 ```
 
 `--diff-ref` resolves the snapshot inside the current Git repository and reads

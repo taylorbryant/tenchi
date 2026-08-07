@@ -45,6 +45,7 @@ principal:
 ```python
 # app/server/mcp.py
 from app.infra.tokens import token_directory
+from app.server.runtime import DATABASE_PATH
 from app.server.tools import create_user_tool_runner, tools
 from app.shared.users import User
 from tenchi.mcp import McpRequest, create_tool_mcp_server
@@ -68,7 +69,10 @@ async def authenticate(request: McpRequest) -> User:
 mcp = create_tool_mcp_server(
     tools=tools,
     authenticate=authenticate,
-    runner_factory=lambda user: create_user_tool_runner(user=user),
+    runner_factory=lambda user: create_user_tool_runner(
+        database_path=DATABASE_PATH,
+        user=user,
+    ),
     name="Acme backend",
     instructions="Search records freely. Request approval before changing them.",
 )
@@ -104,7 +108,10 @@ from mcp.server.transport_security import TransportSecuritySettings
 mcp = create_tool_mcp_server(
     tools=tools,
     authenticate=authenticate,
-    runner_factory=lambda user: create_user_tool_runner(user=user),
+    runner_factory=lambda user: create_user_tool_runner(
+        database_path=DATABASE_PATH,
+        user=user,
+    ),
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=["mcp.example.com"],
@@ -269,13 +276,17 @@ For a local process launched on behalf of one trusted user, the authentication
 callback can return a fixed principal:
 
 ```python
+from app.server.runtime import DATABASE_PATH
 from tenchi.mcp import create_tool_mcp_server
 
 
 mcp = create_tool_mcp_server(
     tools=tools,
     authenticate=lambda request: local_operator,
-    runner_factory=lambda user: create_user_tool_runner(user=user),
+    runner_factory=lambda user: create_user_tool_runner(
+        database_path=DATABASE_PATH,
+        user=user,
+    ),
 )
 
 if __name__ == "__main__":
@@ -299,18 +310,31 @@ annotations this MCP server publishes. Use `--diff-ref` in pull requests so the
 baseline comes from before the branch. The application MCP result envelope has
 its own protocol version; Tenchi tests that wire shape separately.
 
-Test through an in-memory MCP session so discovery, schemas, approval, and
-execution use the real protocol adapter:
+For an integration test, create a server with a fixed test principal instead
+of the HTTP authentication callback. After seeding one project visible to
+`test_user` in `test_database_path`, run discovery and execution through an
+in-memory MCP session:
 
 ```python
 from mcp.client import Client
+from tenchi.mcp import create_tool_mcp_server
 
 
-async with Client(mcp) as client:
+test_mcp = create_tool_mcp_server(
+    tools=tools,
+    authenticate=lambda request: test_user,
+    runner_factory=lambda user: create_user_tool_runner(
+        database_path=test_database_path,
+        user=user,
+    ),
+)
+
+
+async with Client(test_mcp) as client:
     listed = await client.list_tools()
     result = await client.call_tool(
         "projects.search",
-        {"query": "launch"},
+        {},
     )
 
 assert [item.name for item in listed.tools] == ["projects.search"]

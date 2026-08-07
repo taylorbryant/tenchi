@@ -104,21 +104,28 @@ snapshot. Use `--diff-format json` for the versioned compatibility result. See
 ## Manage OpenAPI
 
 ```shell
-uv run tenchi openapi --routes app.server.routes:api_routes --title my_app
 uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --diff openapi.json
+  --title my_app --version 0.1.0
 uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --diff-ref origin/main --snapshot openapi.json
+  --title my_app --version 0.1.0 --diff openapi.json
 uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --check openapi.json
+  --title my_app --version 0.1.0 \
+  --diff-ref origin/main --snapshot openapi.json
 uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --write openapi.json
+  --title my_app --version 0.1.0 --check openapi.json
+uv run tenchi openapi --routes app.server.routes:api_routes \
+  --title my_app --version 0.1.0 --write openapi.json
 ```
 
 Common metadata options are `--title`, `--version`, `--description`, and
 `--security`. `--diff-ref` reads `--snapshot` (default `openapi.json`) from a
 Git commit instead of the working tree. See [OpenAPI and
 compatibility](/openapi) for the safe baseline workflow.
+
+The standalone `openapi` command does not discover metadata declarations from
+the route module. Use the same target and metadata flags for print, diff,
+check, and write operations. `tenchi check` and `tenchi verify` do discover
+literal `OPENAPI_*` declarations.
 
 When `--diff-format json` is selected, the versioned result includes the
 application root, baseline label, compatibility status, severity counts, and
@@ -179,11 +186,12 @@ change when code and its updated snapshot are committed together. The command
 exits non-zero for a failed check, incomplete architecture evidence, a breaking
 or unknown boundary change, or a baseline that cannot be read.
 
-If the selected ref genuinely predates the application's first
-`evaluations.json`, pass `--allow-missing-evaluation-baseline` once and confirm
-the evaluation result includes an `evaluation manifest baseline` metadata
-change. Missing evaluation snapshots otherwise fail closed, so a renamed or
-mistyped path cannot silently replace the historical policy.
+If the selected ref already contains the OpenAPI and tool snapshots but
+genuinely predates the application's first `evaluations.json`, pass
+`--allow-missing-evaluation-baseline` once and confirm the evaluation result
+includes an `evaluation manifest baseline` metadata change. Missing evaluation
+snapshots otherwise fail closed, so a renamed or mistyped path cannot silently
+replace the historical policy.
 
 `--snapshot`, `--tool-snapshot`, `--evaluation-snapshot`, and the route, task,
 job, tool, evaluation, and OpenAPI metadata options override the generated

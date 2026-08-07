@@ -7,6 +7,7 @@ from textwrap import indent
 
 DOCS = Path(__file__).parents[1] / "docs"
 CONTENT = DOCS / "content"
+API_SNAPSHOT = Path(__file__).with_name("api_snapshot.txt")
 
 
 def _pages() -> list[Path]:
@@ -15,6 +16,25 @@ def _pages() -> list[Path]:
 
 def _python_blocks(source: str) -> list[str]:
     return re.findall(r"^```python\n(.*?)^```$", source, re.MULTILINE | re.DOTALL)
+
+
+def _api_snapshot_names() -> dict[str, set[str]]:
+    modules: dict[str, set[str]] = {}
+    current: set[str] | None = None
+    for line in API_SNAPSHOT.read_text().splitlines():
+        if line.startswith("# "):
+            current = modules.setdefault(line.removeprefix("# "), set())
+            continue
+        if current is None or not line or line[0].isspace():
+            continue
+        match = re.match(
+            r"^(?:class|def) ([A-Za-z_][A-Za-z0-9_]*)|"
+            r"^([A-Za-z_][A-Za-z0-9_]*) (?:=|\()",
+            line,
+        )
+        if match is not None:
+            current.add(match.group(1) or match.group(2))
+    return modules
 
 
 def test_docs_are_a_static_next_application() -> None:
@@ -112,3 +132,42 @@ def test_docs_python_imports_reference_real_tenchi_modules() -> None:
 
     assert modules
     assert [module for module in sorted(modules) if find_spec(module) is None] == []
+
+
+def test_module_reference_covers_the_public_api_snapshot() -> None:
+    reference = (CONTENT / "reference.mdx").read_text()
+    root_block = next(
+        block for block in _python_blocks(reference) if "from tenchi import (" in block
+    )
+    root_tree = ast.parse(root_block)
+    root_names = {
+        alias.name
+        for node in ast.walk(root_tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "tenchi"
+        for alias in node.names
+    }
+    snapshot = _api_snapshot_names()
+
+    expected_root_names = snapshot["tenchi"] | {"__version__"}
+    assert root_names == expected_root_names, (
+        f"package-root reference mismatch; missing "
+        f"{sorted(expected_root_names - root_names)}, extra "
+        f"{sorted(root_names - expected_root_names)}"
+    )
+    for module, public_names in snapshot.items():
+        if module == "tenchi":
+            continue
+        row = re.search(
+            rf"^\| `{re.escape(module)}` \| (?P<names>.+?) \|(?: .+? \|)?$",
+            reference,
+            re.MULTILINE,
+        )
+        assert row is not None, f"{module} is missing from the module reference"
+        documented_names = set(
+            re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`", row["names"])
+        )
+        assert documented_names == public_names, (
+            f"{module} reference mismatch; missing "
+            f"{sorted(public_names - documented_names)}, extra "
+            f"{sorted(documented_names - public_names)}"
+        )

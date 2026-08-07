@@ -169,9 +169,10 @@ The evaluation tools use `--evaluations`; `evaluation_diff`, `check`, and
 Both `evaluation_diff` and `verify` reject a missing historical evaluation
 snapshot by default. A human may set `allow_missing_baseline` on
 `evaluation_diff`, or `allow_missing_evaluation_baseline` on `verify`, for the
-one first-adoption comparison. The returned policy result then records an
-`evaluation manifest baseline` metadata change; do not authorize this for a
-renamed or mistyped path.
+one first-adoption comparison. The `verify` override applies only when the
+selected ref already contains the OpenAPI and tool snapshots. The returned
+policy result records an `evaluation manifest baseline` metadata change; do
+not authorize this for a renamed or mistyped path.
 The map loads registered background jobs through `--jobs` and registered
 application tools through `--tools`. Tool discovery and compatibility also use
 `--tools`; `tools_diff`, `check`, and `verify` use `--tool-snapshot`.

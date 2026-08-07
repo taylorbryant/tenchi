@@ -25,8 +25,10 @@ versions may change the public API.
   operation, and agent protocol v6 records its result plus the expanded
   verification receipt while retaining earlier snapshots. Existing
   applications create the first baseline with `tenchi eval snapshot --write
-  evaluations.json`, run `tenchi check`, and explicitly authorize the one
-  missing historical baseline on their first `--diff-ref` or `verify` call.
+  evaluations.json` and run `tenchi check`. When the selected historical ref
+  already contains the OpenAPI and tool snapshots but predates only the
+  evaluation snapshot, they explicitly authorize that one missing baseline on
+  the first `--diff-ref` or `verify` call.
 - Provider-neutral AI evaluation gates. `evaluation()` declares typed cases,
   normalized metric thresholds, per-case timeouts, and optional token/cost
   budgets; `EvaluationRunner` applies application lifespan and scoped context

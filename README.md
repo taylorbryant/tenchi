@@ -330,12 +330,16 @@ approval decision, and returns versioned structured results through the stable
 2.x line of the official MCP Python SDK:
 
 ```python
+from app.server.runtime import DATABASE_PATH
 from tenchi.mcp import create_tool_mcp_server
 
 mcp = create_tool_mcp_server(
     tools=tools,
     authenticate=authenticate_mcp_request,
-    runner_factory=create_user_tool_runner,
+    runner_factory=lambda user: create_user_tool_runner(
+        database_path=DATABASE_PATH,
+        user=user,
+    ),
 )
 ```
 
@@ -350,12 +354,11 @@ returning only scores, usage, status, durations, and stable failure codes.
 Budget status distinguishes measured limit overruns from usage that could not
 be verified. See the [AI evaluations guide](https://tenchi.io/evaluations).
 
-See [`examples/todos`](examples/todos) for the small teaching app and
-[`examples/taskboard`](examples/taskboard) for a larger application with
-authentication, authorization, SQLite transactions, optimistic concurrency
-through `ETag` / `If-Match`, idempotent task creation, multiple successful
-outcomes, request observation, deadlines, background work, and authenticated
-application tools plus an application evaluation gate.
+See [`examples/todos`](examples/todos) for a complete application with
+authentication, SQLite persistence, direct use-case tests, typed-client tests,
+and OpenAPI compatibility checks. Use the
+[production handbook](https://tenchi.io/production) for transactions, retries,
+background work, observability, and deployment guidance.
 
 ## CLI
 
@@ -372,11 +375,11 @@ tenchi tools --diff tools.json
 tenchi tools --diff-ref origin/main --snapshot tools.json
 tenchi tools --check tools.json
 tenchi tools --write tools.json
-tenchi openapi
-tenchi openapi --diff openapi.json
-tenchi openapi --diff-ref origin/main --snapshot openapi.json
-tenchi openapi --check openapi.json
-tenchi openapi --write openapi.json
+tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0
+tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0 --diff openapi.json
+tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0 --diff-ref origin/main --snapshot openapi.json
+tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0 --check openapi.json
+tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0 --write openapi.json
 tenchi doctor --json
 tenchi check
 tenchi verify --base-ref origin/main --json
@@ -402,10 +405,11 @@ machine-readable output. `--diff-ref` reads the snapshot at a Git commit, which
 keeps a pull-request gate historical even when the branch updates its snapshot.
 `openapi --check` remains the exact drift check for tests and CI. Pass the same
 `--routes`, `--title`, `--version`, `--description`, and `--security` options in
-every command when your document uses them. Run `--diff` before replacing the
-baseline with `--write`. `--output` and `-o` remain aliases for `--write`. For
-programmatic checks, import `analyze_openapi_compatibility` from
-`tenchi.compatibility`.
+every standalone `openapi` command; it does not discover route-module metadata.
+`tenchi check` and `tenchi verify` do discover literal `OPENAPI_*`
+declarations. Run `--diff` before replacing the baseline with `--write`.
+`--output` and `-o` remain aliases for `--write`. For programmatic checks,
+import `analyze_openapi_compatibility` from `tenchi.compatibility`.
 
 `tools --write` stores the registered application-tool manifest as canonical
 JSON. Before replacing it, run `tools --diff` or `tools --diff-ref` to classify

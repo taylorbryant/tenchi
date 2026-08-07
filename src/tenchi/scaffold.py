@@ -65,11 +65,11 @@ uv run tenchi tools --diff tools.json
 uv run tenchi tools --check tools.json
 uv run tenchi tools --write tools.json
 uv run tenchi openapi --routes app.server.routes:api_routes \\
-  --title __APP_NAME__ --diff openapi.json
+  --title __APP_NAME__ --version 0.1.0 --diff openapi.json
 uv run tenchi openapi --routes app.server.routes:api_routes \\
-  --title __APP_NAME__ --check openapi.json
+  --title __APP_NAME__ --version 0.1.0 --check openapi.json
 uv run tenchi openapi --routes app.server.routes:api_routes \\
-  --title __APP_NAME__ --write openapi.json
+  --title __APP_NAME__ --version 0.1.0 --write openapi.json
 uv run tenchi doctor    # check dependency direction and structure
 ```
 
@@ -210,8 +210,9 @@ explicitly because it may call providers and incur cost.
   evaluations.json`.
 - Treat a missing historical evaluation snapshot as an error. Only during
   first adoption, explicitly pass `--allow-missing-baseline` to `eval snapshot`
-  or `--allow-missing-evaluation-baseline` to `verify`, and confirm the result
-  records an `evaluation manifest baseline` metadata change.
+  and confirm the result records an `evaluation manifest baseline` metadata
+  change. Use `--allow-missing-evaluation-baseline` with `verify` only when the
+  selected ref already contains the OpenAPI and tool snapshots.
 - After accepting snapshot changes, run `tenchi verify --base-ref <ref>` with a
   historical ref and retain its complete pass/fail receipt.
 - Do not hand-edit generated files into a different application structure to

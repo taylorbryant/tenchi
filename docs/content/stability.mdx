@@ -32,12 +32,26 @@ release is source-compatible.
 2. Upgrade Tenchi in a branch and refresh the lockfile.
 3. Run `tenchi check` to verify formatting, lint, types, tests, architecture,
    and the current OpenAPI, application-tool, and evaluation-policy snapshots.
-4. Run `tenchi openapi --diff` against the pre-upgrade snapshot.
-5. Run `tenchi tools --diff` against the pre-upgrade snapshot.
-6. Run `tenchi eval snapshot --diff` against the pre-upgrade snapshot.
+4. Compare OpenAPI with the same route target and metadata used to create the
+   snapshot:
+
+   ```shell
+   uv run tenchi openapi \
+     --routes app.server.routes:api_routes \
+     --title my_app \
+     --version 0.1.0 \
+     --diff openapi.json
+   ```
+
+   Also pass the snapshot's `--description` and `--security` values when the
+   application configures them.
+5. Run `tenchi tools --diff tools.json` against the pre-upgrade snapshot.
+6. Run `tenchi eval snapshot --diff evaluations.json` against the pre-upgrade
+   snapshot.
 7. Review application wiring and generated-code convention changes.
 8. Update snapshots only after accepting all compatibility reports.
-9. Run `tenchi verify --base-ref <pre-upgrade-ref>` to produce one final
+9. Rerun `tenchi check` with the accepted snapshots.
+10. Run `tenchi verify --base-ref <pre-upgrade-ref>` to produce one final
    receipt against the pre-upgrade commit.
 
 Pin a compatible minor range or an exact version according to the application's

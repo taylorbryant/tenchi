@@ -107,6 +107,7 @@ current OpenAPI and compare it to the committed baseline:
 uv run tenchi openapi \
   --routes app.server.routes:api_routes \
   --title my_app \
+  --version 0.1.0 \
   --diff openapi.json
 ```
 
@@ -127,6 +128,7 @@ reviewing it, update the snapshot:
 uv run tenchi openapi \
   --routes app.server.routes:api_routes \
   --title my_app \
+  --version 0.1.0 \
   --write openapi.json
 uv run tenchi check
 ```

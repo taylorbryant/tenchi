@@ -6,12 +6,16 @@ selected package-root re-exports for compact application code.
 
 ## Package-root imports
 
-`tenchi` re-exports the declarations most applications use:
+`tenchi` re-exports these convenience names. `__version__` reports the
+installed package version:
 
 ```python
 from tenchi import (
+    EVALUATION_MANIFEST_VERSION,
     IDEMPOTENCY_CONFLICT,
     IDEMPOTENCY_IN_PROGRESS,
+    MAX_EVALUATION_TOKENS,
+    RATE_LIMITED,
     TOOL_MANIFEST_VERSION,
     AppError,
     Client,
@@ -19,29 +23,88 @@ from tenchi import (
     ClientAttemptOutcome,
     ClientObserver,
     ClientOutcome,
+    ClientResponse,
+    ConfigurationError,
+    Contract,
     ErrorDef,
     Evaluation,
+    EvaluationBindingError,
+    EvaluationBudgetOutcome,
+    EvaluationBudgetStatus,
+    EvaluationCase,
+    EvaluationCaseOutcome,
+    EvaluationCaseStatus,
+    EvaluationGroup,
+    EvaluationKind,
+    EvaluationManifest,
+    EvaluationManifestEntry,
+    EvaluationMeasurement,
+    EvaluationMetric,
+    EvaluationMetricManifest,
+    EvaluationMetricOutcome,
+    EvaluationNotFoundError,
+    EvaluationOutcome,
+    EvaluationReport,
+    EvaluationResultError,
     EvaluationRunner,
+    ExecutionError,
     IdempotencyResultError,
     IdempotencyStore,
     IdempotencyStoreError,
     Job,
+    JobBindingError,
     JobDispatcher,
+    JobGroup,
+    JobHandler,
     JobMessage,
+    JobNotFoundError,
+    JobResultError,
+    MemoryIdempotencyStore,
+    MemoryRateLimitStore,
+    OutcomeObserver,
     Page,
     PageQuery,
+    PreflightBindingError,
+    PreflightCheck,
     PreflightGroup,
-    RATE_LIMITED,
-    MemoryRateLimitStore,
+    PreflightOutcome,
+    PreflightReport,
+    PreflightStatus,
+    PresentedResponse,
+    RateLimitExceeded,
+    RateLimitPermit,
     RateLimitStore,
+    RateLimitStoreError,
+    RequestInfo,
+    RequestOutcome,
+    ResponseDef,
     RetryPolicy,
     RetryTimeoutError,
+    Route,
+    RouteGroup,
+    Task,
+    TaskBindingError,
+    TaskGroup,
+    TaskNotFoundError,
+    TaskResultError,
+    TaskRunner,
+    TenchiError,
     Tool,
+    ToolBinding,
+    ToolBindingError,
+    ToolGroup,
+    ToolInvocationError,
+    ToolNotFoundError,
+    ToolResultError,
     ToolRunner,
+    UnexpectedResponseError,
     UseCaseObserver,
     UseCaseOutcome,
     Webhook,
+    WebhookBindingError,
     WebhookRequest,
+    WebhookVerifier,
+    __version__,
     contract,
     create_app,
     create_evaluation_runner,
@@ -53,6 +116,7 @@ from tenchi import (
     evaluation,
     evaluation_case,
     evaluation_group,
+    evaluation_manifest,
     evaluation_metric,
     evaluation_result,
     fingerprint,
@@ -62,6 +126,7 @@ from tenchi import (
     job_handler,
     job_message,
     openapi_route,
+    openapi_schema,
     page,
     preflight_check,
     preflight_group,
@@ -71,6 +136,7 @@ from tenchi import (
     route,
     route_group,
     run_idempotently,
+    run_preflight,
     swagger_ui_route,
     task,
     task_group,
@@ -106,11 +172,11 @@ expected application failures.
 | `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `UseCaseOutcome`, `UseCaseObserver` |
 | `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `MemoryIdempotencyStore`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
 | `tenchi.jobs` | `Job`, `JobMessage`, `JobHandler`, `JobGroup`, `JobDispatcher`, `JobBindingError`, `JobNotFoundError`, `JobResultError`, `job()`, `job_message()`, `job_handler()`, `job_group()`, `create_job_dispatcher()` |
-| `tenchi.evaluations` | `EVALUATION_MANIFEST_VERSION`, `EvaluationManifest`, `EvaluationManifestEntry`, `EvaluationMetricManifest`, `Evaluation`, `EvaluationCase`, `EvaluationMetric`, `EvaluationMeasurement`, `EvaluationGroup`, `EvaluationRunner`, `EvaluationCaseOutcome`, `EvaluationMetricOutcome`, `EvaluationBudgetOutcome`, `EvaluationBudgetStatus`, `EvaluationOutcome`, `EvaluationReport`, `EvaluationBindingError`, `EvaluationNotFoundError`, `EvaluationResultError`, `MAX_EVALUATION_TOKENS`, `evaluation()`, `evaluation_case()`, `evaluation_metric()`, `evaluation_result()`, `evaluation_group()`, `evaluation_manifest()`, `create_evaluation_runner()` |
+| `tenchi.evaluations` | `EVALUATION_MANIFEST_VERSION`, `EvaluationManifest`, `EvaluationManifestEntry`, `EvaluationMetricManifest`, `Evaluation`, `EvaluationCase`, `EvaluationMetric`, `EvaluationMeasurement`, `EvaluationGroup`, `EvaluationRunner`, `EvaluationCaseOutcome`, `EvaluationCaseStatus`, `EvaluationMetricOutcome`, `EvaluationBudgetOutcome`, `EvaluationBudgetStatus`, `EvaluationKind`, `EvaluationOutcome`, `EvaluationReport`, `EvaluationBindingError`, `EvaluationNotFoundError`, `EvaluationResultError`, `MAX_EVALUATION_TOKENS`, `evaluation()`, `evaluation_case()`, `evaluation_metric()`, `evaluation_result()`, `evaluation_group()`, `evaluation_manifest()`, `create_evaluation_runner()` |
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.rate_limits` | `RateLimitStore`, `RateLimitPermit`, `RateLimitExceeded`, `RateLimitDecision`, `RateLimitStoreError`, `MemoryRateLimitStore`, `RATE_LIMITED`, `enforce_rate_limit()` |
-| `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `task()`, `task_group()`, `create_task_runner()` |
-| `tenchi.tools` | `TOOL_MANIFEST_VERSION`, `Tool`, `ToolBinding`, `ToolGroup`, `ToolRunner`, `ToolBindingError`, `ToolNotFoundError`, `ToolResultError`, `ToolInvocationError`, `tool()`, `tool_handler()`, `tool_group()`, `create_tool_runner()`, `tool_manifest()` |
+| `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `TaskBindingError`, `TaskNotFoundError`, `TaskResultError`, `task()`, `task_group()`, `create_task_runner()` |
+| `tenchi.tools` | `TOOL_MANIFEST_VERSION`, `Tool`, `ToolBinding`, `ToolGroup`, `ToolRunner`, `ToolManifest`, `ToolManifestEntry`, `ToolAnnotationManifest`, `ToolErrorManifest`, `ToolBindingError`, `ToolNotFoundError`, `ToolResultError`, `ToolInvocationError`, `tool()`, `tool_handler()`, `tool_group()`, `create_tool_runner()`, `tool_manifest()` |
 | `tenchi.webhooks` | `Webhook`, `WebhookRequest`, `WebhookVerifier`, `WebhookBindingError`, `webhook()` |
 | `tenchi.client` | `Client`, `ClientResponse`, `ClientOutcome`, `ClientObserver`, `ClientAttemptOutcome`, `ClientAttemptObserver`, `UnexpectedResponseError` |
 | `tenchi.retries` | `RetryPolicy`, `RetryTimeoutError`, `retry_policy()` |
@@ -149,7 +215,7 @@ does not create an SDK, exporter, background worker, or shutdown lifecycle.
 | Module | Public names |
 | --- | --- |
 | `tenchi.openapi` | `openapi_schema()`, `openapi_route()`, `swagger_ui_route()` |
-| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `analyze_tool_compatibility()`, `analyze_evaluation_compatibility()`, and their report renderers |
+| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `analyze_tool_compatibility()`, `analyze_evaluation_compatibility()`, `render_compatibility_report()`, `render_tool_compatibility_report()`, `render_evaluation_compatibility_report()` |
 | `tenchi.pagination` | `Page`, `PageQuery`, `page()` |
 | `tenchi.health` | `HealthCheck`, `HealthReport`, `health_route()` |
 

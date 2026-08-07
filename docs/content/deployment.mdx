@@ -118,29 +118,25 @@ and redaction conventions.
 
 ## Release sequence
 
-Run the local application gate and compare the API with the version currently
-deployed:
+Run the local application gate and compare every snapshotted boundary with one
+immutable commit from the version currently deployed:
 
 ```shell
-uv run tenchi check
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --diff-ref "$BASE_SHA" --snapshot openapi.json
-uv run tenchi tools \
-  --diff-ref "$BASE_SHA" --snapshot tools.json
-uv run tenchi eval snapshot \
-  --diff-ref "$BASE_SHA" --snapshot evaluations.json
+uv run tenchi verify --base-ref "$BASE_SHA"
 ```
 
-A missing historical evaluation snapshot fails by default. For the one-time
-first adoption, add `--allow-missing-baseline`, confirm the JSON result records
-an `evaluation manifest baseline` metadata change, and remove the override
-after the baseline lands.
+`verify` discovers the literal OpenAPI title, version, description, and
+security configuration from `app.server.routes:api_routes`. It runs the same
+deterministic checks, rejects incomplete application-map evidence, and compares
+OpenAPI, application tools, and evaluation policy with the resolved commit.
+Use its metadata flags only when the application does not keep those values as
+literal route-module declarations.
 
-`tenchi check` includes the exact OpenAPI, application-tool, and
-evaluation-policy snapshot checks.
-The separate historical compatibility commands remain necessary because they
-compare the working contracts with baselines from before the deployment
-change.
+A missing historical evaluation snapshot fails by default. If that commit
+already contains the OpenAPI and tool baselines but predates only
+`evaluations.json`, add `--allow-missing-evaluation-baseline` once, confirm the
+result records an `evaluation manifest baseline` metadata change, and remove
+the override after the baseline lands.
 
 Then release in this order:
 

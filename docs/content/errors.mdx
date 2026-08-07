@@ -43,25 +43,39 @@ List any application-owned response headers on the definition, then provide
 their values when raising the error:
 
 ```python
-from tenchi.rate_limits import RATE_LIMITED, enforce_rate_limit
+from tenchi.errors import AppError, ErrorDef
+
+
+write_temporarily_unavailable = ErrorDef(
+    code="WRITE_TEMPORARILY_UNAVAILABLE",
+    status=503,
+    message="Todo writes are temporarily unavailable",
+    headers=("Retry-After",),
+)
+
+
+create_todo_contract = contract(
+    method="POST",
+    path="/todos",
+    request=CreateTodo,
+    response=Todo,
+    errors=(write_temporarily_unavailable,),
+)
 
 
 async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
-    user = require_user(context.user)
-    await enforce_rate_limit(
-        context.rate_limits,
-        namespace="todos.create",
-        scope=user.id,
-        limit=10,
-        window_seconds=60,
-    )
+    if not await context.todos.accepting_writes():
+        raise AppError(
+            write_temporarily_unavailable,
+            headers={"Retry-After": "30"},
+        )
     return await context.todos.create(title=request.title)
 ```
 
 Tenchi rejects undeclared or unsafe header values, documents declared headers
-in OpenAPI, and validates them in the typed client. Declare `RATE_LIMITED` on
-the contract or a containing route group like any other application error. See
-[Limit application operations](/rate-limits) for the store and scoping model.
+in OpenAPI, and validates them in the typed client. The built-in `RATE_LIMITED`
+error uses the same mechanism for its `Retry-After` value. See [Limit
+application operations](/rate-limits) for the store and scoping model.
 
 ## The honesty rule
 
