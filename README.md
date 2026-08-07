@@ -249,9 +249,11 @@ put_todo_contract = contract(
     timeout=5.0,
 )
 
+
 def present_put(result: PutTodoResult) -> PresentedResponse:
     outcome = created if result.created else existing
     return present(outcome, result.todo)
+
 
 route(put_todo_contract, put_todo, present=present_put)
 ```

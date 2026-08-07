@@ -54,9 +54,9 @@ type AppMapEdgeKind = Literal[
 ]
 type AppMapConfidence = Literal["exact", "inferred"]
 type AppMapDetailValue = (
-    str | int | float | bool | None | tuple[str, ...] | tuple[int, ...]
+    str | int | float | bool | tuple[str, ...] | tuple[int, ...] | None
 )
-type AppMapDetailPayloadValue = str | int | float | bool | None | list[str] | list[int]
+type AppMapDetailPayloadValue = str | int | float | bool | list[str] | list[int] | None
 
 
 class AppMapSourcePayload(TypedDict):
