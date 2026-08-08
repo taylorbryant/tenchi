@@ -1,0 +1,1 @@
+"""Fieldnotes composition root."""

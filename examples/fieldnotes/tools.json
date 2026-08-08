@@ -1,0 +1,344 @@
+{
+  "schema_version": 1,
+  "tools": [
+    {
+      "annotations": {
+        "destructive": false,
+        "idempotent": true,
+        "open_world": true,
+        "read_only": true
+      },
+      "description": "Answer a question from visible indexed passages with citations.",
+      "errors": [
+        {
+          "code": "ANSWER_GENERATION_FAILED",
+          "message": "The answer provider returned an invalid result"
+        },
+        {
+          "code": "ANSWER_GENERATION_TIMED_OUT",
+          "message": "The answer provider did not respond before the deadline"
+        },
+        {
+          "code": "UNAUTHORIZED",
+          "message": "Unauthorized"
+        }
+      ],
+      "input_schema": {
+        "properties": {
+          "limit": {
+            "default": 5,
+            "maximum": 20,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "AskQuestion",
+        "type": "object"
+      },
+      "name": "knowledge.answer",
+      "output_schema": {
+        "$defs": {
+          "Citation": {
+            "properties": {
+              "passage_id": {
+                "title": "Passage Id",
+                "type": "string"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "format": "uri",
+                    "maxLength": 2083,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              }
+            },
+            "required": [
+              "passage_id",
+              "source_id",
+              "title"
+            ],
+            "title": "Citation",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/$defs/Citation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "has_citations": {
+            "title": "Has Citations",
+            "type": "boolean"
+          },
+          "text": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tokens"
+          }
+        },
+        "required": [
+          "text",
+          "citations",
+          "has_citations"
+        ],
+        "title": "Answer",
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructive": false,
+        "idempotent": true,
+        "open_world": false,
+        "read_only": true
+      },
+      "description": "Search passages visible to the authenticated user.",
+      "errors": [
+        {
+          "code": "UNAUTHORIZED",
+          "message": "Unauthorized"
+        }
+      ],
+      "input_schema": {
+        "properties": {
+          "limit": {
+            "default": 5,
+            "maximum": 20,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SearchKnowledge",
+        "type": "object"
+      },
+      "name": "knowledge.search",
+      "output_schema": {
+        "$defs": {
+          "PassageMatch": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "position": {
+                "title": "Position",
+                "type": "integer"
+              },
+              "score": {
+                "maximum": 1,
+                "minimum": 0,
+                "title": "Score",
+                "type": "number"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "format": "uri",
+                    "maxLength": 2083,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              }
+            },
+            "required": [
+              "id",
+              "source_id",
+              "title",
+              "text",
+              "position",
+              "score"
+            ],
+            "title": "PassageMatch",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "matches": {
+            "items": {
+              "$ref": "#/$defs/PassageMatch"
+            },
+            "title": "Matches",
+            "type": "array"
+          }
+        },
+        "required": [
+          "matches"
+        ],
+        "title": "SearchResults",
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructive": true,
+        "idempotent": false,
+        "open_world": false,
+        "read_only": false
+      },
+      "description": "Save material for background indexing.",
+      "errors": [
+        {
+          "code": "UNAUTHORIZED",
+          "message": "Unauthorized"
+        }
+      ],
+      "input_schema": {
+        "properties": {
+          "content": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "maxLength": 2083,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ],
+        "title": "SaveSource",
+        "type": "object"
+      },
+      "name": "sources.save",
+      "output_schema": {
+        "$defs": {
+          "SourceStatus": {
+            "enum": [
+              "pending",
+              "indexed"
+            ],
+            "title": "SourceStatus",
+            "type": "string"
+          }
+        },
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/SourceStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "maxLength": 2083,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status"
+        ],
+        "title": "Source",
+        "type": "object"
+      }
+    }
+  ]
+}

@@ -1,0 +1,195 @@
+import { Callout } from "@/components/callout";
+
+# Build a cited research backend
+
+Fieldnotes is a complete Tenchi application for saving research, indexing it
+outside the request, searching owner-visible passages, and answering questions
+with exact citations. It runs locally without model credentials and shows where
+to connect a provider when you want generated synthesis.
+
+The application lives in [`examples/fieldnotes`](https://github.com/taylorbryant/tenchi/tree/main/examples/fieldnotes).
+
+## Run Fieldnotes
+
+From the Tenchi repository:
+
+```shell
+cd examples/fieldnotes
+uv sync
+uv run tenchi check
+uv run tenchi dev
+```
+
+The development API listens on `http://127.0.0.1:8000`, stores data in
+`fieldnotes.db`, and recognizes two demonstration bearer tokens:
+`alice-token` and `bob-token`.
+
+<Callout type="warning" title="Demo identity is local-only">
+  The static tokens make the example immediately runnable. Replace
+  `StaticTokenDirectory` and the token map with your identity provider before
+  exposing the application beyond local development.
+</Callout>
+
+Start the indexing worker in another terminal:
+
+```shell
+cd examples/fieldnotes
+uv run python -m app.server.worker
+```
+
+Saving a source returns `202` after committing both the source and a validated
+`knowledge.index_source` outbox message. The worker splits the content into
+passages, replaces any previous index entries, and marks the source indexed.
+
+## Save and query material
+
+Save text with an optional source URL:
+
+```shell
+curl http://127.0.0.1:8000/sources \
+  -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "MCP security",
+    "url": "https://example.com/mcp",
+    "content": "Explicit approval protects destructive MCP tools."
+  }'
+```
+
+Search after the worker has indexed the source:
+
+```shell
+curl http://127.0.0.1:8000/search \
+  -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"destructive approval","limit":5}'
+```
+
+Ask a question with citations:
+
+```shell
+curl http://127.0.0.1:8000/answers \
+  -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"What protects destructive tools?"}'
+```
+
+The answer includes a `has_citations` flag and citations containing the saved
+source and exact passage ids. The flag reports whether citations are present;
+it does not claim that generated text has passed a semantic grounding check.
+With the included deterministic provider, a question with no matching evidence
+returns a bounded insufficient-evidence answer with no citations. Authenticated
+owner scope is applied to source listing, retrieval, and answering, so Bob
+cannot discover Alice's material.
+
+<Callout type="note" title="URLs are attribution, not a network fetch">
+  The starter accepts content plus an optional URL. It does not fetch arbitrary
+  URLs. Add a separately secured fetch adapter and allowlist appropriate for
+  your deployment before accepting remote locations from callers.
+</Callout>
+
+## Use the application tools
+
+Fieldnotes exposes the same use cases as three application tools:
+
+| Tool | Behavior |
+| --- | --- |
+| `knowledge.search` | Read-only, closed-world passage search |
+| `knowledge.answer` | Read-only answer generation that may contact a configured provider |
+| `sources.save` | Destructive source creation followed by background indexing |
+
+Run the bearer-authenticated application MCP endpoint on a separate local port:
+
+```shell
+uv run uvicorn app.server.mcp:app --port 8001
+```
+
+Point an MCP client at `http://127.0.0.1:8001/mcp` and send
+`Authorization: Bearer alice-token`. `create_fieldnotes_mcp_server()` resolves
+that header for every discovery and invocation request, then creates a tool
+runner carrying the authenticated user. Requests without a valid bearer token
+fail authentication.
+
+The included MCP application has no approval callback, so `sources.save`
+returns `approval_required`. Supply an application-owned callback when creating
+the server to approve an exact destructive call before its runner opens a
+lifespan or transaction. The [application MCP guide](/tool-mcp) covers durable
+approval and deployment transport security.
+
+The project-local `.mcp.json` serves Tenchi's separate coding-agent MCP server;
+it does not publish the Fieldnotes application tools.
+
+## Connect a model provider
+
+The `AnswerGenerator` protocol receives the question and already authorized,
+owner-visible passages. It returns text, cited passage ids, and optional token
+and cost usage. Implement that protocol in `app/infra/` using the model SDK you
+choose, then select the adapter in `open_request_ports()`.
+
+The answer use case gives the provider 25 seconds across HTTP, direct tool, and
+MCP calls. Configure the SDK's own request timeout below that application
+deadline so it can close network resources and preserve the original provider
+diagnostic in approved telemetry.
+
+The answer use case rejects duplicate citations and ids that were not supplied
+to the provider. Keep provider credentials, prompts, raw model output, and
+provider exceptions inside application-owned infrastructure and approved
+telemetry systems.
+
+The included `DeterministicAnswerGenerator` returns the highest-ranked passage
+verbatim. It keeps the API, tools, and evaluation workflow usable without a
+provider account.
+
+After connecting a model, update `knowledge.answer_evidence` to declare
+`kind="model"`. Keep a deliberate per-case `timeout` and `max_tokens`, add
+`max_cost_usd`, and return both token and cost usage from the adapter. A missing
+usage value makes its corresponding budget unverified rather than silently
+passing.
+
+Review the policy transition, run the model evaluation, and only then replace
+the snapshot:
+
+```shell
+uv run tenchi eval snapshot --diff evaluations.json
+uv run tenchi eval run knowledge.answer_evidence
+uv run tenchi eval snapshot --write evaluations.json
+uv run tenchi check
+```
+
+The first command fails closed because changing from deterministic to model
+scoring requires review. That failure is expected until you accept the new
+policy snapshot; an evaluation failure is not.
+
+## Run quality and deployment gates
+
+Run the deterministic retrieval and answer-evidence suites:
+
+```shell
+uv run tenchi eval list
+uv run tenchi eval run
+```
+
+The evaluation policy requires the expected passage to rank first, required
+evidence to remain in the answer, and every citation to name supplied evidence.
+`evaluations.json` protects those cases, metrics, thresholds, and the token
+budget from silent weakening.
+
+Queue a reindex dry run or a real backfill through the validated operational
+task:
+
+```shell
+uv run tenchi task run knowledge.reindex_sources \
+  --input '{"dry_run":true}'
+```
+
+Before deployment, initialize the database through the application lifespan,
+then run:
+
+```shell
+uv run tenchi preflight
+uv run tenchi check
+```
+
+Preflight opens SQLite read-only and verifies the source, passage, and outbox
+tables. `check` verifies formatting, types, tests, architecture, and exact
+OpenAPI, tool, and evaluation-policy snapshots.

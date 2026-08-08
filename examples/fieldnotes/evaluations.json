@@ -1,0 +1,173 @@
+{
+  "evaluations": [
+    {
+      "case_schema": {
+        "$defs": {
+          "Passage": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "position": {
+                "title": "Position",
+                "type": "integer"
+              },
+              "source_id": {
+                "title": "Source Id",
+                "type": "string"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "format": "uri",
+                    "maxLength": 2083,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              }
+            },
+            "required": [
+              "id",
+              "source_id",
+              "title",
+              "text",
+              "position"
+            ],
+            "title": "Passage",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "passages": {
+            "items": {
+              "$ref": "#/$defs/Passage"
+            },
+            "title": "Passages",
+            "type": "array"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "required_text": {
+            "title": "Required Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "passages",
+          "required_text"
+        ],
+        "title": "AnswerCase",
+        "type": "object"
+      },
+      "cases": [
+        "knowledge.answer_evidence.citations"
+      ],
+      "description": "Guard required evidence and citation integrity.",
+      "kind": "deterministic",
+      "max_cost_usd": null,
+      "max_tokens": 1000,
+      "metrics": [
+        {
+          "description": "Every citation names supplied evidence.",
+          "name": "citation_valid",
+          "threshold": 1.0
+        },
+        {
+          "description": "The answer retains the required evidence.",
+          "name": "evidence_retained",
+          "threshold": 1.0
+        }
+      ],
+      "name": "knowledge.answer_evidence",
+      "timeout_seconds": 30.0
+    },
+    {
+      "case_schema": {
+        "$defs": {
+          "RankingCandidate": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "text"
+            ],
+            "title": "RankingCandidate",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/$defs/RankingCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "expected_first": {
+            "title": "Expected First",
+            "type": "string"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "candidates",
+          "expected_first"
+        ],
+        "title": "RankingCase",
+        "type": "object"
+      },
+      "cases": [
+        "knowledge.retrieval_ranking.mcp"
+      ],
+      "description": "Guard deterministic passage retrieval.",
+      "kind": "deterministic",
+      "max_cost_usd": null,
+      "max_tokens": null,
+      "metrics": [
+        {
+          "description": "The expected evidence is ranked first.",
+          "name": "top_result",
+          "threshold": 1.0
+        }
+      ],
+      "name": "knowledge.retrieval_ranking",
+      "timeout_seconds": 30.0
+    }
+  ],
+  "schema_version": 1
+}

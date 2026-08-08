@@ -15,6 +15,7 @@ import Errors from "@/content/errors.mdx";
 import Evaluations from "@/content/evaluations.mdx";
 import Execution from "@/content/execution.mdx";
 import ExistingProject from "@/content/existing-project.mdx";
+import Fieldnotes from "@/content/fieldnotes.mdx";
 import GettingStarted from "@/content/getting-started.mdx";
 import Idempotency from "@/content/idempotency.mdx";
 import Overview from "@/content/index.mdx";
@@ -45,6 +46,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/concepts": Concepts,
   "/architecture": Architecture,
   "/comparisons": Comparisons,
+  "/fieldnotes": Fieldnotes,
   "/contracts": Contracts,
   "/application": Application,
   "/server": Server,

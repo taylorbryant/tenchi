@@ -7,6 +7,17 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- The Fieldnotes reference backend demonstrates a complete cited-AI
+  application with authenticated, owner-scoped source ingestion; transactional
+  outbox indexing; deterministic passage retrieval; cited answers through HTTP,
+  application tools, and MCP; an operational reindex task; deployment
+  preflight; OpenTelemetry-ready outcomes; bounded provider calls; and
+  protected retrieval, evidence, and citation evaluation policies. Application
+  MCP authenticates every request from bearer headers. Its default answer
+  adapter runs locally and in CI without provider credentials.
+
 ## [0.12.0] - 2026-08-06
 
 ### Added

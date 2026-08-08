@@ -92,6 +92,11 @@ framework code, the CLI, docs, or the example apps.
   consuming tenchi as a path dependency. It exercises capabilities
   together under realistic pressure. If a framework capability regresses,
   something here should break.
+- `examples/fieldnotes/` — the cited-AI reference backend, also a standalone
+  uv project. It exercises owner-scoped ingestion, durable background indexing,
+  application tools and MCP, cited answers behind a provider port, operational
+  reindexing, preflight, and evaluation gates without requiring model
+  credentials in CI.
 - `CHANGELOG.md` — Keep a Changelog format; maintain an `[Unreleased]`
   section during a development cycle.
 - `.github/workflows/ci.yml` — checks for the root project and separate
@@ -392,6 +397,9 @@ uv run pytest
 uv run --directory examples/taskboard pytest
 uv run --directory examples/taskboard pyright
 uv run --directory examples/taskboard tenchi doctor
+uv run --directory examples/fieldnotes pytest
+uv run --directory examples/fieldnotes pyright
+uv run --directory examples/fieldnotes tenchi doctor
 ```
 
 For changes to the CLI or scaffold, also generate a fresh app plus a

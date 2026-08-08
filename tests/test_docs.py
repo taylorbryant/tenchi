@@ -55,6 +55,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "getting-started",
         "idempotency",
         "existing-project",
+        "fieldnotes",
         "concepts",
         "architecture",
         "comparisons",

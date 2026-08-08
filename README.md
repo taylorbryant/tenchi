@@ -360,6 +360,14 @@ and OpenAPI compatibility checks. Use the
 [production handbook](https://tenchi.io/production) for transactions, retries,
 background work, observability, and deployment guidance.
 
+See [`examples/fieldnotes`](examples/fieldnotes) for a cited AI reference
+backend. It saves owner-scoped research, indexes passages through a durable
+background job, exposes search and cited answers through HTTP and authenticated
+application tools, and gates retrieval, required evidence, and citation
+integrity with deterministic evaluations. The default answer provider needs no
+credentials; replace its feature-owned protocol adapter when connecting a
+model SDK.
+
 ## CLI
 
 ```sh

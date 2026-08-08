@@ -52,6 +52,14 @@ export const docsSections = [
           "Compare Tenchi with FastAPI, Starlette, Litestar, and Django Ninja, including when another framework is the better choice.",
         priority: 0.9,
       },
+      {
+        path: "/fieldnotes",
+        title: "Cited AI reference backend",
+        navLabel: "Fieldnotes example",
+        description:
+          "Run and adapt Fieldnotes, a cited research backend with background indexing, authenticated application tools, evidence, and evaluation gates.",
+        priority: 0.9,
+      },
     ],
   },
   {

@@ -49,3 +49,19 @@ jobs:
           fi
           uv run --directory examples/taskboard tenchi verify \
             --base-ref "${BASE_SHA}" "${evaluation_args[@]}"
+      - name: Verify Fieldnotes source, architecture, and compatibility
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/openapi.json" 2>/dev/null || \
+             ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/tools.json" 2>/dev/null; then
+            uv run --directory examples/fieldnotes tenchi check
+            exit 0
+          fi
+
+          evaluation_args=()
+          if ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/evaluations.json" 2>/dev/null; then
+            evaluation_args+=(--allow-missing-evaluation-baseline)
+          fi
+          uv run --directory examples/fieldnotes tenchi verify \
+            --base-ref "${BASE_SHA}" "${evaluation_args[@]}"
