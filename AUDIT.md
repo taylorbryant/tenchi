@@ -31,9 +31,11 @@ adversarial passes also cover path-parameter shapes, concrete HTTP
 parameter round trips and inherited defaults, unstable idempotency serializers,
 process-group descendants that ignore graceful termination, and bounded
 numeric and HTTP-date `Retry-After` hints. Application MCP failure results now
-also set the standard MCP `isError` signal. The other medium- and low-severity
-findings remain future work; the detailed sections below preserve the evidence
-captured at the audited revision.
+also set the standard MCP `isError` signal. Generated OpenAPI now enumerates
+exact error codes and their application/framework source and documents the
+framework-owned internal 500 on every operation. The other medium- and
+low-severity findings remain future work; the detailed sections below preserve
+the evidence captured at the audited revision.
 
 ## Verdict in one paragraph
 
@@ -212,6 +214,11 @@ a permanently red test. Root cause is H8/M-class finding below: bare
   actually produces** (`openapi.py:461-516`): the honesty rule maps every
   undeclared error to 500, and `security=` adds requirements but no 401/403
   responses.
+
+  Resolved after this audit: every operation now documents the framework-owned
+  internal 500. Authentication statuses remain application-owned and appear
+  when the hook's errors are declared on the protected contract or route group;
+  security-scheme metadata does not invent them.
 - **Error taxonomy is not machine-readable in OpenAPI**: one generic
   `ErrorResponse` component with unconstrained `code`; codes live in
   free-text descriptions. The MCP adapter proves the better design
@@ -220,6 +227,9 @@ a permanently red test. Root cause is H8/M-class finding below: bare
   (`client.py:993-998`) — a header documented nowhere in the generated
   document, so a client generated from the OpenAPI doc cannot reproduce
   Tenchi's error semantics.
+
+  Resolved after this audit: each error status now narrows `code` to its exact
+  values and documents the required `x-tenchi-error-source` header.
 - **Transient infrastructure errors are unretryable by policy**: `retry_on`
   accepts only declared app error codes; a load balancer's 503 or any
   framework-sourced 5xx is `UnexpectedResponseError`, never retried

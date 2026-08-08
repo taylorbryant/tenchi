@@ -22,6 +22,8 @@ from ._schema_compatibility import (
     JsonObject,
     compare_schema,
 )
+from .errors import ERROR_SOURCE_HEADER as _ERROR_SOURCE_HEADER
+from .errors import internal_server_error as _internal_server_error
 from .evaluations import MAX_EVALUATION_TOKENS
 
 type CompatibilityStatus = Literal["compatible", "incompatible", "review required"]
@@ -395,9 +397,21 @@ class _Analyzer:
         before_statuses = set(before)
         after_statuses = set(after)
         for status in sorted(after_statuses - before_statuses):
-            self.changes.add(
-                "breaking", f"{location} response {status}", "response status added"
-            )
+            response_location = f"{location} response {status}"
+            if status == "500" and _documents_framework_internal_error(
+                self.current,
+                _object(after[status]),
+            ):
+                # Tenchi has always mapped unexpected and undeclared failures
+                # to this response. Adding it to generated OpenAPI corrects
+                # documentation rather than widening runtime behavior.
+                self.changes.add(
+                    "metadata",
+                    response_location,
+                    "framework error response documented",
+                )
+            else:
+                self.changes.add("breaking", response_location, "response status added")
         for status in sorted(before_statuses - after_statuses):
             self.changes.add(
                 "breaking", f"{location} response {status}", "response status removed"
@@ -418,18 +432,36 @@ class _Analyzer:
         location: str,
         error: bool,
     ) -> None:
+        has_exact_error_codes = error and (
+            _tenchi_error_codes(self.baseline, before) is not None
+            and _tenchi_error_codes(self.current, after) is not None
+        )
         if _field_changed(before, after, "description"):
             self.changes.add(
-                "breaking" if error else "metadata",
+                "metadata" if not error or has_exact_error_codes else "breaking",
                 location,
-                "error contract changed" if error else "response description changed",
+                (
+                    "error description changed"
+                    if has_exact_error_codes
+                    else (
+                        "error contract changed"
+                        if error
+                        else "response description changed"
+                    )
+                ),
             )
-        self._compare_content(
-            before.get("content"),
-            after.get("content"),
-            direction="output",
+        compared_exact_error = error and self._compare_tenchi_error_content(
+            before,
+            after,
             location=location,
         )
+        if not compared_exact_error:
+            self._compare_content(
+                before.get("content"),
+                after.get("content"),
+                direction="output",
+                location=location,
+            )
         self._compare_headers(
             before.get("headers"), after.get("headers"), location=location
         )
@@ -440,6 +472,41 @@ class _Analyzer:
             location=location,
             message="unsupported response fields changed",
         )
+
+    def _compare_tenchi_error_content(
+        self,
+        before: JsonObject,
+        after: JsonObject,
+        *,
+        location: str,
+    ) -> bool:
+        before_codes = _tenchi_error_codes(self.baseline, before)
+        after_codes = _tenchi_error_codes(self.current, after)
+        before_legacy = _is_legacy_tenchi_error(self.baseline, before)
+        after_legacy = _is_legacy_tenchi_error(self.current, after)
+
+        if before_legacy and after_codes is not None:
+            self.changes.add("additive", location, "error codes documented")
+            return True
+        if before_codes is not None and after_legacy:
+            self.changes.add("breaking", location, "error codes became unconstrained")
+            return True
+        if before_codes is None or after_codes is None:
+            return False
+
+        for code in sorted(after_codes - before_codes):
+            self.changes.add(
+                "breaking",
+                f"{location} error {code!r}",
+                "error code added",
+            )
+        for code in sorted(before_codes - after_codes):
+            self.changes.add(
+                "additive",
+                f"{location} error {code!r}",
+                "error code removed",
+            )
+        return True
 
     def _compare_headers(
         self, before_value: object, after_value: object, *, location: str
@@ -1523,6 +1590,150 @@ def _operation_label(method: str, path: str) -> str:
 def _operation_sort_key(key: OperationKey) -> tuple[str, str]:
     method, path = key
     return path, method
+
+
+def _documents_framework_internal_error(
+    document: JsonObject,
+    response: JsonObject,
+) -> bool:
+    headers = _object(response.get("headers"))
+    if set(response) != {"description", "content", "headers"}:
+        return False
+    if not isinstance(response.get("description"), str):
+        return False
+    if len(headers) != 1 or not any(
+        name.casefold() == _ERROR_SOURCE_HEADER.casefold() for name in headers
+    ):
+        return False
+    codes = _tenchi_error_codes(document, response)
+    sources = _tenchi_error_sources(response)
+    return codes == frozenset({_internal_server_error.code}) and sources == frozenset(
+        {"framework"}
+    )
+
+
+def _tenchi_error_codes(
+    document: JsonObject,
+    response: JsonObject,
+) -> frozenset[str] | None:
+    schema = _application_json_schema(response)
+    if schema is None:
+        return None
+    all_of = schema.get("allOf")
+    if not isinstance(all_of, Sequence) or isinstance(all_of, str | bytes):
+        return None
+    parts = cast(Sequence[object], all_of)
+    if len(parts) != 2:
+        return None
+    envelope = _resolved_schema(document, parts[0])
+    restriction = _object(parts[1])
+    if set(schema) != {"allOf"} or not _is_tenchi_error_envelope(envelope):
+        return None
+    if set(restriction) != {"type", "properties"}:
+        return None
+    properties = _object(restriction.get("properties"))
+    if restriction.get("type") != "object" or set(properties) != {"code"}:
+        return None
+    code = _object(properties.get("code"))
+    if set(code) != {"type", "enum"} or code.get("type") != "string":
+        return None
+    raw_codes = code.get("enum")
+    if not isinstance(raw_codes, Sequence) or isinstance(raw_codes, str | bytes):
+        return None
+    codes = cast(Sequence[object], raw_codes)
+    if not codes or any(not isinstance(value, str) for value in codes):
+        return None
+    result = frozenset(cast(str, value) for value in codes)
+    return result if len(result) == len(codes) else None
+
+
+def _tenchi_error_sources(response: JsonObject) -> frozenset[str] | None:
+    headers = _object(response.get("headers"))
+    matches = [
+        _object(value)
+        for name, value in headers.items()
+        if name.casefold() == _ERROR_SOURCE_HEADER.casefold()
+    ]
+    if len(matches) != 1:
+        return None
+    source = matches[0]
+    if set(source) != {"description", "required", "schema"}:
+        return None
+    if not isinstance(source.get("description"), str):
+        return None
+    if source.get("required") is not True:
+        return None
+    schema = _object(source.get("schema"))
+    if set(schema) != {"type", "enum"} or schema.get("type") != "string":
+        return None
+    raw_sources = schema.get("enum")
+    if not isinstance(raw_sources, Sequence) or isinstance(raw_sources, str | bytes):
+        return None
+    sources = cast(Sequence[object], raw_sources)
+    if not sources or any(value not in {"app", "framework"} for value in sources):
+        return None
+    result = frozenset(cast(str, value) for value in sources)
+    return result if len(result) == len(sources) else None
+
+
+def _is_legacy_tenchi_error(document: JsonObject, response: JsonObject) -> bool:
+    schema = _application_json_schema(response)
+    return schema is not None and _is_tenchi_error_envelope(
+        _resolved_schema(document, schema)
+    )
+
+
+def _application_json_schema(response: JsonObject) -> JsonObject | None:
+    content = _object(response.get("content"))
+    if set(content) != {"application/json"}:
+        return None
+    media = _object(content.get("application/json"))
+    if set(media) != {"schema"}:
+        return None
+    schema = media.get("schema")
+    return _object(cast(object, schema)) if isinstance(schema, Mapping) else None
+
+
+def _resolved_schema(document: JsonObject, value: object) -> JsonObject:
+    schema = _object(value)
+    reference = schema.get("$ref")
+    prefix = "#/components/schemas/"
+    if not isinstance(reference, str) or not reference.startswith(prefix):
+        return schema
+    # OpenAPI 3.1 permits siblings next to $ref. They are real constraints,
+    # so this narrow recognizer must not discard them while deciding that a
+    # response has Tenchi's exact generated shape.
+    if set(schema) != {"$ref"}:
+        return {}
+    components = _object(document.get("components"))
+    schemas = _object(components.get("schemas"))
+    return _object(schemas.get(reference.removeprefix(prefix)))
+
+
+def _is_tenchi_error_envelope(schema: JsonObject) -> bool:
+    properties = _object(schema.get("properties"))
+    code = _object(properties.get("code"))
+    message = _object(properties.get("message"))
+    details = _object(properties.get("details"))
+    request_id = _object(properties.get("request_id"))
+    required = schema.get("required")
+    if not isinstance(required, Sequence) or isinstance(required, str | bytes):
+        return False
+    required_values = cast(Sequence[object], required)
+    if any(not isinstance(value, str) for value in required_values):
+        return False
+    required_names = set(cast(Sequence[str], required_values))
+    return (
+        set(schema) == {"type", "title", "properties", "required"}
+        and schema.get("type") == "object"
+        and set(properties) == {"code", "message", "details", "request_id"}
+        and code == {"type": "string"}
+        and message == {"type": "string"}
+        and details == {}
+        and request_id == {"type": "string"}
+        and len(required_names) == len(required_values)
+        and required_names == {"code", "message"}
+    )
 
 
 def _is_error_status(status: str) -> bool:

@@ -130,7 +130,9 @@ The main pieces are:
   charsets fail when the contract is built.
 - `typing.Protocol` ports and explicit dependency wiring instead of a DI
   container.
-- Declared application errors with a stable JSON envelope.
+- Declared application errors with a stable JSON envelope. OpenAPI enumerates
+  the exact codes and application/framework source for every error status and
+  documents the framework-owned 500 available on every operation.
 - A named exception hierarchy that distinguishes configuration mistakes from
   runtime application and transport failures.
 - A contract-driven async client with explicit bounded retries, per-attempt

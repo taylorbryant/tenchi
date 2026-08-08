@@ -263,8 +263,9 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
             fixed set of fields that validate and serialize under the same
             names, and each field must serialize to one scalar value. Dynamic
             extra fields and framework-owned header names are rejected.
-        status: Singular successful status code. Defaults to 200. Response
-            definitions carry their own statuses when ``responses=`` is used.
+        status: Singular successful status code between 200 and 399. Defaults
+            to 200. Response definitions carry their own statuses when
+            ``responses=`` is used.
             Statuses 204, 205, and 304 require ``response=None``.
         errors: Application errors this route is expected to return. Expected
             errors are mapped to their HTTP status; undeclared ``AppError``
@@ -356,8 +357,10 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
     if not path.startswith("/"):
         raise ConfigurationError(f"contract path must start with '/', got {path!r}")
     _validate_path_template(path)
-    if not 100 <= status <= 599:
-        raise ConfigurationError(f"contract(path={path!r}): invalid status {status}")
+    if not 200 <= status <= 399:
+        raise ConfigurationError(
+            f"contract(path={path!r}): status must be between 200 and 399, got {status}"
+        )
     if not request_media_type.strip() or not response_media_type.strip():
         raise ConfigurationError(
             f"contract(path={path!r}): media types must be non-empty"

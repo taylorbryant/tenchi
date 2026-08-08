@@ -339,8 +339,47 @@ def test_declared_errors_become_responses() -> None:
         "ITEM_MISSING: Item missing; ITEM_GONE: Item gone"
     )
     assert responses["404"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/ErrorResponse"
+        "allOf": [
+            {"$ref": "#/components/schemas/ErrorResponse"},
+            {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "enum": ["ITEM_MISSING", "ITEM_GONE"],
+                    }
+                },
+            },
+        ]
     }
+    assert responses["404"]["headers"]["x-tenchi-error-source"] == {
+        "description": "Error source.",
+        "required": True,
+        "schema": {"type": "string", "enum": ["app"]},
+    }
+
+
+def test_framework_errors_are_explicit_and_machine_readable() -> None:
+    document = make_document()
+
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            internal = operation["responses"]["500"]
+            assert internal["content"]["application/json"]["schema"]["allOf"][1][
+                "properties"
+            ]["code"]["enum"] == ["INTERNAL_SERVER_ERROR"]
+            assert internal["headers"]["x-tenchi-error-source"]["schema"]["enum"] == [
+                "framework"
+            ]
+
+    validation = document["paths"]["/items"]["post"]["responses"]["422"]
+    assert validation["content"]["application/json"]["schema"]["allOf"][1][
+        "properties"
+    ]["code"]["enum"] == ["VALIDATION_ERROR"]
+    assert validation["headers"]["x-tenchi-error-source"]["schema"]["enum"] == [
+        "framework"
+    ]
+    validate(document)
 
 
 def test_starlette_path_converters_are_normalized_for_openapi() -> None:
@@ -665,7 +704,14 @@ def test_declared_error_headers_are_documented() -> None:
     )
     response = document["paths"]["/limited"]["get"]["responses"]["429"]
 
-    assert response["headers"] == {"Retry-After": {"schema": {"type": "string"}}}
+    assert response["headers"] == {
+        "x-tenchi-error-source": {
+            "description": "Error source.",
+            "required": True,
+            "schema": {"type": "string", "enum": ["app"]},
+        },
+        "Retry-After": {"schema": {"type": "string"}},
+    }
 
 
 def test_declared_error_headers_are_deduplicated_case_insensitively() -> None:
@@ -693,7 +739,12 @@ def test_declared_error_headers_are_deduplicated_case_insensitively() -> None:
     )
 
     assert document["paths"]["/limited"]["get"]["responses"]["429"]["headers"] == {
-        "Retry-After": {"schema": {"type": "string"}}
+        "x-tenchi-error-source": {
+            "description": "Error source.",
+            "required": True,
+            "schema": {"type": "string", "enum": ["app"]},
+        },
+        "Retry-After": {"schema": {"type": "string"}},
     }
 
 
@@ -749,8 +800,9 @@ def test_user_error_response_component_does_not_replace_framework_envelope() -> 
 
     assert success_schema["items"] == {"$ref": "#/components/schemas/ErrorResponse"}
     assert set(components["ErrorResponse"]["properties"]) == {"value"}
-    assert error_schema["$ref"] != "#/components/schemas/ErrorResponse"
-    framework_component = error_schema["$ref"].rsplit("/", 1)[-1]
+    envelope_reference = error_schema["allOf"][0]["$ref"]
+    assert envelope_reference != "#/components/schemas/ErrorResponse"
+    framework_component = envelope_reference.rsplit("/", 1)[-1]
     assert set(components[framework_component]["properties"]) == {
         "code",
         "message",
@@ -796,7 +848,7 @@ def test_framework_error_component_allocation_is_route_order_independent() -> No
 
     assert set(components["ErrorResponse"]["properties"]) == {"first"}
     assert set(components["ErrorResponse_2"]["properties"]) == {"second"}
-    assert error_schema["$ref"] not in {
+    assert error_schema["allOf"][0]["$ref"] not in {
         "#/components/schemas/ErrorResponse",
         "#/components/schemas/ErrorResponse_2",
     }
@@ -821,9 +873,45 @@ def test_declared_422_merges_with_framework_validation_error() -> None:
     description = document["paths"]["/strict"]["post"]["responses"]["422"][
         "description"
     ]
+    response = document["paths"]["/strict"]["post"]["responses"]["422"]
 
     assert "UNPROCESSABLE" in description
     assert "VALIDATION_ERROR" in description
+    assert response["content"]["application/json"]["schema"]["allOf"][1]["properties"][
+        "code"
+    ]["enum"] == ["UNPROCESSABLE", "VALIDATION_ERROR"]
+    assert response["headers"]["x-tenchi-error-source"]["schema"]["enum"] == [
+        "app",
+        "framework",
+    ]
+
+
+def test_error_code_enum_deduplicates_app_and_framework_codes() -> None:
+    overlapping = ErrorDef(
+        code="VALIDATION_ERROR",
+        status=422,
+        message="Application validation failed",
+    )
+    declared = contract(
+        method="POST",
+        path="/overlap",
+        request=Item,
+        response=Item,
+        errors=(overlapping,),
+    )
+
+    document = openapi_schema(
+        route_group(route(declared, create_item)), title="Test", version="1.0.0"
+    )
+    response = document["paths"]["/overlap"]["post"]["responses"]["422"]
+
+    assert response["content"]["application/json"]["schema"]["allOf"][1]["properties"][
+        "code"
+    ]["enum"] == ["VALIDATION_ERROR"]
+    assert response["headers"]["x-tenchi-error-source"]["schema"]["enum"] == [
+        "app",
+        "framework",
+    ]
 
 
 def test_duplicate_routes_are_rejected() -> None:

@@ -20,6 +20,13 @@ versions may change the public API.
 
 ### Changed
 
+- Generated OpenAPI error responses now enumerate the exact codes available at
+  each status and require the `x-tenchi-error-source: app | framework` header.
+  Every operation documents the framework-owned `INTERNAL_SERVER_ERROR` 500;
+  authentication failures remain application-declared rather than inferred
+  from security schemes. Compatibility treats exact code documentation as an
+  output restriction, newly documents the existing framework 500 as metadata,
+  and rejects newly added error codes as breaking.
 - Bare `tenchi openapi` commands now use `app.server.routes:api_routes` and
   discover literal `OPENAPI_TITLE`, `OPENAPI_VERSION`,
   `OPENAPI_DESCRIPTION`, and `OPENAPI_SECURITY` declarations, matching
@@ -59,6 +66,10 @@ versions may change the public API.
   syntax and past HTTP dates are ignored.
 - Singular contracts reject response bodies for HTTP 204, 205, and 304 at
   declaration time.
+- Singular contracts reject informational and error statuses as successful
+  outcomes, matching the existing 200–399 requirement for `response()`
+  definitions and preventing a framework 500 from colliding with a declared
+  success response in OpenAPI.
 - Idempotency fingerprints reject lossy `Any` serialization, including
   non-finite floats that Pydantic would otherwise collapse to JSON `null`, and
   compare untouched validated values so custom serializers and allowed model

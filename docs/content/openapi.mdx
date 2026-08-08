@@ -29,6 +29,31 @@ Pass only the application route group you want documented. Public contracts
 are exempted from global security through the same `contract.public` metadata
 used by authentication hooks.
 
+## Discover error behavior
+
+Every error response includes the stable Tenchi envelope and narrows `code` to
+the exact values that status may return. It also documents the required
+`x-tenchi-error-source` header as `app`, `framework`, or both. A generated
+client or agent can therefore distinguish declared application outcomes from
+framework failures without parsing response descriptions.
+
+Every operation documents `500` with the framework-owned
+`INTERNAL_SERVER_ERROR` code. Tenchi uses that response for unexpected
+exceptions and undeclared application errors.
+
+Security schemes describe how to authenticate; they cannot determine which
+authentication errors an application uses. Declare authentication failures on
+the protected route group so their statuses and codes appear on each affected
+operation:
+
+```python
+private_routes = route_group(
+    project_routes,
+    task_routes,
+    errors=(unauthorized,),
+)
+```
+
 ## Serve OpenAPI
 
 ```python

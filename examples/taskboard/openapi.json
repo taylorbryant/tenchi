@@ -129,11 +129,75 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "List projects owned by the current user",
@@ -217,41 +281,186 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "413": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TOO_LARGE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "REQUEST_TOO_LARGE: Request body too large"
+            "description": "REQUEST_TOO_LARGE: Request body too large",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "415": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNSUPPORTED_MEDIA_TYPE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract"
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Create a project owned by the current user",
@@ -317,31 +526,149 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "PROJECT_NOT_FOUND"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "PROJECT_NOT_FOUND: Project not found"
+            "description": "PROJECT_NOT_FOUND: Project not found",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Get one of the current user's projects",
@@ -465,61 +792,260 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "FORBIDDEN"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "FORBIDDEN: You do not have access to this resource"
+            "description": "FORBIDDEN: You do not have access to this resource",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "PROJECT_NOT_FOUND"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "PROJECT_NOT_FOUND: Project not found"
+            "description": "PROJECT_NOT_FOUND: Project not found",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "413": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TOO_LARGE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "REQUEST_TOO_LARGE: Request body too large"
+            "description": "REQUEST_TOO_LARGE: Request body too large",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "415": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNSUPPORTED_MEDIA_TYPE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract"
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Add a member to one of the current user's projects",
@@ -632,21 +1158,112 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "List tasks the current user can view, filtered and paginated",
@@ -760,37 +1377,134 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "FORBIDDEN"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "FORBIDDEN: You do not have access to this resource"
+            "description": "FORBIDDEN: You do not have access to this resource",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "PROJECT_NOT_FOUND"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "PROJECT_NOT_FOUND: Project not found"
+            "description": "PROJECT_NOT_FOUND: Project not found",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "IDEMPOTENCY_CONFLICT",
+                            "IDEMPOTENCY_IN_PROGRESS"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -800,6 +1514,16 @@
                 "schema": {
                   "type": "string"
                 }
+              },
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
               }
             }
           },
@@ -807,41 +1531,186 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TOO_LARGE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "REQUEST_TOO_LARGE: Request body too large"
+            "description": "REQUEST_TOO_LARGE: Request body too large",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "415": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNSUPPORTED_MEDIA_TYPE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract"
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "504": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TIMEOUT"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "REQUEST_TIMEOUT: Request deadline exceeded"
+            "description": "REQUEST_TIMEOUT: Request deadline exceeded",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Create a task in one of the current user's projects",
@@ -920,31 +1789,149 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "TASK_NOT_FOUND"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "TASK_NOT_FOUND: Task not found"
+            "description": "TASK_NOT_FOUND: Task not found",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Get one of the current user's tasks",
@@ -1078,81 +2065,334 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "FORBIDDEN"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "FORBIDDEN: You do not have access to this resource"
+            "description": "FORBIDDEN: You do not have access to this resource",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "TASK_NOT_FOUND"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "TASK_NOT_FOUND: Task not found"
+            "description": "TASK_NOT_FOUND: Task not found",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "PRECONDITION_FAILED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "PRECONDITION_FAILED: The resource has changed since it was read"
+            "description": "PRECONDITION_FAILED: The resource has changed since it was read",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "413": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TOO_LARGE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "REQUEST_TOO_LARGE: Request body too large"
+            "description": "REQUEST_TOO_LARGE: Request body too large",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "415": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNSUPPORTED_MEDIA_TYPE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract"
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "428": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "PRECONDITION_REQUIRED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "PRECONDITION_REQUIRED: An If-Match header is required"
+            "description": "PRECONDITION_REQUIRED: An If-Match header is required",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Partially update one of the current user's tasks",
@@ -1211,17 +2451,61 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INVALID_WEBHOOK",
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "INVALID_WEBHOOK: Webhook verification failed; UNAUTHORIZED: Unauthorized"
+            "description": "INVALID_WEBHOOK: Webhook verification failed; UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "IDEMPOTENCY_CONFLICT",
+                            "IDEMPOTENCY_IN_PROGRESS"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -1231,6 +2515,16 @@
                 "schema": {
                   "type": "string"
                 }
+              },
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
               }
             }
           },
@@ -1238,41 +2532,186 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TOO_LARGE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "REQUEST_TOO_LARGE: Request body too large"
+            "description": "REQUEST_TOO_LARGE: Request body too large",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "415": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNSUPPORTED_MEDIA_TYPE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract"
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "504": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TIMEOUT"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "REQUEST_TIMEOUT: Request deadline exceeded"
+            "description": "REQUEST_TIMEOUT: Request deadline exceeded",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [],

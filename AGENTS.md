@@ -241,7 +241,10 @@ API shape:
   defaults to `False`; documentation tags and paths never decide access.
   `health_route()` and `openapi_route()` are public by default and accept
   `public=False` when an application needs to protect them. OpenAPI derives
-  global-security exemptions from the same contract metadata.
+  global-security exemptions from the same contract metadata. Generated error
+  responses enumerate their exact codes and application/framework source;
+  every operation documents the framework-owned internal 500. Authentication
+  statuses remain application-owned and appear only when declared.
 - Signed inbound contracts declare `webhook=True`; `create_app()` must bind
   each one through `webhook(contract, verifier)`. Verifiers use the exact
   size-bounded bytes, raise declared `AppError` values on expected rejection,

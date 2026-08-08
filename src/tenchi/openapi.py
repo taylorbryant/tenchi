@@ -28,6 +28,7 @@ from .contracts import (
     _response_header_fields,  # pyright: ignore[reportPrivateUsage]
     contract,
 )
+from .errors import ERROR_SOURCE_HEADER as _ERROR_SOURCE_HEADER
 from .errors import ConfigurationError, ErrorDef
 from .responses import ResponseDef
 from .routes import (
@@ -477,8 +478,16 @@ def _responses(
         responses[str(declared.status)] = _successful_response(declared, components)
 
     errors_by_status: dict[int, list[ErrorDef]] = {}
+    sources_by_status: dict[int, set[str]] = {}
     for definition in declared.errors:
         errors_by_status.setdefault(definition.status, []).append(definition)
+        sources_by_status.setdefault(definition.status, set()).add("app")
+
+    def add_framework_error(definition: ErrorDef) -> None:
+        definitions = errors_by_status.setdefault(definition.status, [])
+        if definition not in definitions:
+            definitions.append(definition)
+        sources_by_status.setdefault(definition.status, set()).add("framework")
 
     has_validated_input = (
         declared.request is not None
@@ -489,30 +498,27 @@ def _responses(
     if has_validated_input:
         # The framework can return VALIDATION_ERROR regardless of what the
         # contract declares at 422, so merge rather than suppress.
-        at_422 = errors_by_status.setdefault(tenchi_errors.validation_error.status, [])
-        if tenchi_errors.validation_error not in at_422:
-            at_422.append(tenchi_errors.validation_error)
+        add_framework_error(tenchi_errors.validation_error)
 
     if declared.request is not None:
         # Request bodies are size-capped by default, so the framework's
         # 413 is part of the operation's honest surface.
-        at_413 = errors_by_status.setdefault(tenchi_errors.request_too_large.status, [])
-        if tenchi_errors.request_too_large not in at_413:
-            at_413.append(tenchi_errors.request_too_large)
-
-        at_415 = errors_by_status.setdefault(
-            tenchi_errors.unsupported_media_type.status, []
-        )
-        if tenchi_errors.unsupported_media_type not in at_415:
-            at_415.append(tenchi_errors.unsupported_media_type)
+        add_framework_error(tenchi_errors.request_too_large)
+        add_framework_error(tenchi_errors.unsupported_media_type)
 
     if declared.timeout is not None:
-        at_504 = errors_by_status.setdefault(tenchi_errors.request_timeout.status, [])
-        if tenchi_errors.request_timeout not in at_504:
-            at_504.append(tenchi_errors.request_timeout)
+        add_framework_error(tenchi_errors.request_timeout)
+
+    # Unexpected exceptions and undeclared application errors use this stable
+    # framework envelope on every route.
+    add_framework_error(tenchi_errors.internal_server_error)
 
     for status, definitions in errors_by_status.items():
-        responses[str(status)] = _error_response(definitions, error_schemas)
+        responses[str(status)] = _error_response(
+            definitions,
+            sources=sources_by_status[status],
+            error_schemas=error_schemas,
+        )
 
     return responses
 
@@ -596,10 +602,28 @@ def _successful_response_headers(
 
 
 def _error_response(
-    definitions: list[ErrorDef], error_schemas: list[dict[str, Any]]
+    definitions: list[ErrorDef],
+    *,
+    sources: set[str],
+    error_schemas: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    schema: dict[str, Any] = {}
-    error_schemas.append(schema)
+    codes = list(dict.fromkeys(definition.code for definition in definitions))
+    envelope_reference: dict[str, Any] = {}
+    error_schemas.append(envelope_reference)
+    schema: dict[str, Any] = {
+        "allOf": [
+            envelope_reference,
+            {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "enum": codes,
+                    }
+                },
+            },
+        ]
+    }
     description = "; ".join(
         f"{definition.code}: {definition.message}" for definition in definitions
     )
@@ -607,14 +631,24 @@ def _error_response(
         "description": description,
         "content": {"application/json": {"schema": schema}},
     }
+    headers: dict[str, Any] = {
+        _ERROR_SOURCE_HEADER: {
+            "description": "Error source.",
+            "required": True,
+            "schema": {
+                "type": "string",
+                "enum": sorted(sources),
+            },
+        }
+    }
     header_names: dict[str, str] = {}
     for definition in definitions:
         for name in definition.headers:
             header_names.setdefault(name.casefold(), name)
-    if header_names:
-        response["headers"] = {
-            name: {"schema": {"type": "string"}} for name in header_names.values()
-        }
+    headers.update(
+        {name: {"schema": {"type": "string"}} for name in header_names.values()}
+    )
+    response["headers"] = headers
     return response
 
 

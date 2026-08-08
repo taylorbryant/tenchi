@@ -65,9 +65,10 @@ def test_contract_rejects_malformed_path_parameter_syntax(path: str) -> None:
         contract(method="GET", path=path)
 
 
-def test_contract_rejects_invalid_status() -> None:
-    with pytest.raises(ValueError, match="invalid status"):
-        contract(method="GET", path="/items", status=42)
+@pytest.mark.parametrize("status", [42, 199, 400, 599])
+def test_contract_rejects_non_success_status(status: int) -> None:
+    with pytest.raises(ValueError, match="status must be between 200 and 399"):
+        contract(method="GET", path="/items", status=status)
 
 
 @pytest.mark.parametrize("status", [204, 205, 304])

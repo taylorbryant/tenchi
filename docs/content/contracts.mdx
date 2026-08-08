@@ -140,6 +140,7 @@ See [Receive signed webhooks](/webhooks).
   cleanup, and returns a framework-owned `504`.
 - `errors=` declares the application failures callers are allowed to observe.
 - `responses=` declares status-dependent successful outcomes.
+- Singular successful statuses must be between 200 and 399.
 - Singular `204`, `205`, and `304` outcomes must omit `response=` because
   those statuses cannot carry a response body.
 

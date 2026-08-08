@@ -105,6 +105,13 @@ Every error response carries `x-tenchi-error-source: app | framework`.
 Framework failures use stable codes for validation, media types, body limits,
 timeouts, missing routes, and internal contract violations.
 
+OpenAPI narrows `code` to the exact values available at each response status
+and documents the error-source header. Every operation includes the
+framework-owned `500` response used for unexpected or undeclared failures.
+Authentication errors appear when you declare them on the protected contract
+or route group; configuring an OpenAPI security scheme does not invent an
+application-specific 401 or 403.
+
 ## Client symmetry
 
 The typed client raises declared `AppError` values. An undocumented status,

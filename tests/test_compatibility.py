@@ -88,6 +88,49 @@ def messages(report: CompatibilityReport) -> list[str]:
     return [change.message for change in report.changes]
 
 
+def add_tenchi_error_response(
+    value: dict[str, Any],
+    *,
+    status: str,
+    codes: list[str],
+    sources: list[str],
+) -> None:
+    value["components"]["schemas"]["ErrorResponse"] = {
+        "title": "ErrorResponse",
+        "type": "object",
+        "properties": {
+            "code": {"type": "string"},
+            "message": {"type": "string"},
+            "details": {},
+            "request_id": {"type": "string"},
+        },
+        "required": ["code", "message"],
+    }
+    value["paths"]["/items"]["post"]["responses"][status] = {
+        "description": "; ".join(codes),
+        "content": {
+            "application/json": {
+                "schema": {
+                    "allOf": [
+                        {"$ref": "#/components/schemas/ErrorResponse"},
+                        {
+                            "type": "object",
+                            "properties": {"code": {"type": "string", "enum": codes}},
+                        },
+                    ]
+                }
+            }
+        },
+        "headers": {
+            "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": True,
+                "schema": {"type": "string", "enum": sources},
+            }
+        },
+    }
+
+
 def test_identical_documents_are_compatible() -> None:
     baseline = document()
 
@@ -532,6 +575,254 @@ def test_new_response_status_is_breaking() -> None:
 
     assert "response status added" in messages(report)
     assert "breaking" in severities(report)
+
+
+def test_newly_documented_framework_500_is_metadata() -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    add_tenchi_error_response(
+        current,
+        status="500",
+        codes=["INTERNAL_SERVER_ERROR"],
+        sources=["framework"],
+    )
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.compatible is True
+    assert severities(report) == ["metadata"]
+    assert messages(report) == ["framework error response documented"]
+
+
+def test_arbitrary_new_500_remains_breaking() -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    current["paths"]["/items"]["post"]["responses"]["500"] = {
+        "description": "Internal error"
+    }
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.compatible is False
+    assert severities(report) == ["breaking"]
+    assert messages(report) == ["response status added"]
+
+
+@pytest.mark.parametrize(
+    ("codes", "sources"),
+    [
+        (["INTERNAL_SERVER_ERROR", "APP_FAILURE"], ["app", "framework"]),
+        (["INTERNAL_SERVER_ERROR"], ["app", "framework"]),
+    ],
+)
+def test_new_500_with_application_behavior_remains_breaking(
+    codes: list[str], sources: list[str]
+) -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    add_tenchi_error_response(
+        current,
+        status="500",
+        codes=codes,
+        sources=sources,
+    )
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.compatible is False
+    assert severities(report) == ["breaking"]
+    assert messages(report) == ["response status added"]
+
+
+@pytest.mark.parametrize("header_name", ["Retry-After", "X-Tenchi-Error-Source"])
+def test_new_500_with_noncanonical_headers_remains_breaking(
+    header_name: str,
+) -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    add_tenchi_error_response(
+        current,
+        status="500",
+        codes=["INTERNAL_SERVER_ERROR"],
+        sources=["framework"],
+    )
+    current["paths"]["/items"]["post"]["responses"]["500"]["headers"][header_name] = {
+        "schema": {"type": "string"}
+    }
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.compatible is False
+    assert severities(report) == ["breaking"]
+    assert messages(report) == ["response status added"]
+
+
+def test_new_500_with_malformed_error_envelope_remains_breaking() -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    add_tenchi_error_response(
+        current,
+        status="500",
+        codes=["INTERNAL_SERVER_ERROR"],
+        sources=["framework"],
+    )
+    current["components"]["schemas"]["ErrorResponse"]["required"].append("code")
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.compatible is False
+    assert severities(report) == ["breaking"]
+    assert messages(report) == ["response status added"]
+
+
+def test_new_500_with_unsupported_source_header_fields_remains_breaking() -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    add_tenchi_error_response(
+        current,
+        status="500",
+        codes=["INTERNAL_SERVER_ERROR"],
+        sources=["framework"],
+    )
+    current["paths"]["/items"]["post"]["responses"]["500"]["headers"][
+        "x-tenchi-error-source"
+    ]["explode"] = True
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.compatible is False
+    assert severities(report) == ["breaking"]
+    assert messages(report) == ["response status added"]
+
+
+def test_generic_error_schema_can_be_replaced_by_exact_codes() -> None:
+    baseline = document()
+    baseline["components"]["schemas"]["ErrorResponse"] = {
+        "title": "ErrorResponse",
+        "type": "object",
+        "properties": {
+            "code": {"type": "string"},
+            "message": {"type": "string"},
+            "details": {},
+            "request_id": {"type": "string"},
+        },
+        "required": ["code", "message"],
+    }
+    baseline["paths"]["/items"]["post"]["responses"]["409"] = {
+        "description": "ITEM_CONFLICT",
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+            }
+        },
+    }
+    current = deepcopy(baseline)
+    add_tenchi_error_response(
+        current,
+        status="409",
+        codes=["ITEM_CONFLICT"],
+        sources=["app"],
+    )
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.compatible is True
+    assert "error codes documented" in messages(report)
+    assert "response header added" in messages(report)
+
+
+def test_exact_error_code_changes_are_directional() -> None:
+    baseline = document()
+    add_tenchi_error_response(
+        baseline,
+        status="409",
+        codes=["ITEM_CONFLICT"],
+        sources=["app"],
+    )
+    current = deepcopy(baseline)
+    add_tenchi_error_response(
+        current,
+        status="409",
+        codes=["ITEM_CONFLICT", "ITEM_LOCKED"],
+        sources=["app"],
+    )
+
+    added = analyze_openapi_compatibility(baseline, current)
+    removed = analyze_openapi_compatibility(current, baseline)
+
+    assert "breaking" in severities(added)
+    assert "error code added" in messages(added)
+    assert "additive" in severities(removed)
+    assert "error code removed" in messages(removed)
+
+
+def test_exact_error_source_changes_are_directional() -> None:
+    baseline = document()
+    add_tenchi_error_response(
+        baseline,
+        status="409",
+        codes=["ITEM_CONFLICT"],
+        sources=["app"],
+    )
+    current = deepcopy(baseline)
+    current["paths"]["/items"]["post"]["responses"]["409"]["headers"][
+        "x-tenchi-error-source"
+    ]["schema"]["enum"].append("framework")
+
+    added = analyze_openapi_compatibility(baseline, current)
+    removed = analyze_openapi_compatibility(current, baseline)
+
+    assert added.compatible is False
+    assert "breaking" in severities(added)
+    assert "enum values changed" in messages(added)
+    assert removed.compatible is True
+    assert "additive" in severities(removed)
+
+
+def test_unknown_exact_error_constraints_fail_closed() -> None:
+    baseline = document()
+    add_tenchi_error_response(
+        baseline,
+        status="409",
+        codes=["ITEM_CONFLICT"],
+        sources=["app"],
+    )
+    current = deepcopy(baseline)
+    restriction = current["paths"]["/items"]["post"]["responses"]["409"]["content"][
+        "application/json"
+    ]["schema"]["allOf"][1]
+    restriction["properties"]["message"] = {"type": "string"}
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.compatible is False
+    assert "unknown" in severities(report)
+
+
+@pytest.mark.parametrize("baseline_exact", [False, True])
+def test_error_envelope_ref_siblings_fail_closed(baseline_exact: bool) -> None:
+    baseline = document()
+    add_tenchi_error_response(
+        baseline,
+        status="409",
+        codes=["ITEM_CONFLICT"],
+        sources=["app"],
+    )
+    if not baseline_exact:
+        baseline["paths"]["/items"]["post"]["responses"]["409"]["content"][
+            "application/json"
+        ]["schema"] = {"$ref": "#/components/schemas/ErrorResponse"}
+    current = deepcopy(baseline)
+    schema = current["paths"]["/items"]["post"]["responses"]["409"]["content"][
+        "application/json"
+    ]["schema"]
+    target = schema["allOf"][0] if baseline_exact else schema
+    target["not"] = {}
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.compatible is False
+    assert "unknown" in severities(report)
 
 
 def test_metadata_is_safe_and_unsupported_changes_require_review() -> None:

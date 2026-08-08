@@ -93,21 +93,112 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "List todos",
@@ -182,41 +273,186 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "413": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TOO_LARGE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "REQUEST_TOO_LARGE: Request body too large"
+            "description": "REQUEST_TOO_LARGE: Request body too large",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "415": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNSUPPORTED_MEDIA_TYPE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract"
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Create a todo",
@@ -274,31 +510,149 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "UNAUTHORIZED: Unauthorized"
+            "description": "UNAUTHORIZED: Unauthorized",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "TODO_NOT_FOUND"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "TODO_NOT_FOUND: Todo not found"
+            "description": "TODO_NOT_FOUND: Todo not found",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "summary": "Get a todo by id",

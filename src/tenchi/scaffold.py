@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+
 """File templates for ``tenchi new``.
 
 The scaffold is the prescribed starter subset: one todos feature with
@@ -168,6 +170,10 @@ agent still makes ordinary, reviewable source edits.
 Authentication belongs in boundary hooks. Authorization belongs in use cases
 and pure policy functions. Declare every expected `AppError` on its contract or
 route group; undeclared application errors intentionally become framework 500s.
+OpenAPI enumerates the exact codes and application/framework source for each
+error status and documents the framework-owned internal 500 on every operation.
+Security configuration does not invent authentication failures, so declare
+those errors on every protected contract or route group.
 Contracts marked `webhook=True` require an exact-body verifier binding in
 `create_app(webhooks=...)`; the verifier may attach service identity, which the
 use case still asserts.
@@ -818,6 +824,43 @@ _OPENAPI_SNAPSHOT = """\
               }
             },
             "description": "Successful response"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -888,31 +931,149 @@ _OPENAPI_SNAPSHOT = """\
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TOO_LARGE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "REQUEST_TOO_LARGE: Request body too large"
+            "description": "REQUEST_TOO_LARGE: Request body too large",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "415": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNSUPPORTED_MEDIA_TYPE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "__UNSUPPORTED_MEDIA_TYPE_DESCRIPTION__"
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
-            "description": "VALIDATION_ERROR: Request validation failed"
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
