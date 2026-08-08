@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import math
 import random
 from asyncio import CancelledError
 from collections.abc import Callable, Mapping, Sequence
@@ -147,8 +148,9 @@ class ClientAttemptOutcome:
 
     ``will_retry`` describes the decision made after this attempt.
     ``retry_delay_seconds`` is the selected backoff, including a declared
-    ``Retry-After`` response header when present. ``completed_at`` is captured
-    before attempt observers run.
+    ``Retry-After`` response header when present and bounded by the retry
+    policy's maximum delay. ``completed_at`` is captured before attempt
+    observers run.
     """
 
     contract: Contract[Any, Any]
@@ -1214,11 +1216,18 @@ def _retry_delay(
     if exponential and policy.jitter:
         exponential *= random.uniform(1 - policy.jitter, 1 + policy.jitter)
     exponential = min(policy.max_delay_seconds, exponential)
-    retry_after = _retry_after_seconds(error) if error is not None else None
-    return max(exponential, retry_after or 0.0)
+    retry_after = (
+        _retry_after_seconds(error, maximum=policy.max_delay_seconds)
+        if error is not None
+        else None
+    )
+    return min(
+        policy.max_delay_seconds,
+        max(exponential, retry_after or 0.0),
+    )
 
 
-def _retry_after_seconds(error: AppError) -> float | None:
+def _retry_after_seconds(error: AppError, *, maximum: float) -> float | None:
     raw = next(
         (
             value
@@ -1229,9 +1238,16 @@ def _retry_after_seconds(error: AppError) -> float | None:
     )
     if raw is None:
         return None
-    try:
-        delay = float(raw)
-    except ValueError:
+    if raw.isascii() and raw.isdigit():
+        significant = raw.lstrip("0") or "0"
+        # A finite binary64 value has at most 309 significant decimal digits.
+        # Avoid handing an arbitrarily large untrusted integer to float().
+        if len(significant) > 309:
+            return maximum
+        delay = float(significant)
+        if not math.isfinite(delay):
+            return maximum
+    else:
         try:
             value = parsedate_to_datetime(raw)
         except (TypeError, ValueError, OverflowError):
@@ -1241,7 +1257,7 @@ def _retry_after_seconds(error: AppError) -> float | None:
         delay = (value - datetime.now(UTC)).total_seconds()
     if not delay >= 0 or not delay < float("inf"):
         return None
-    return delay
+    return min(maximum, delay)
 
 
 def _encoded_query_input(

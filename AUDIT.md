@@ -23,15 +23,16 @@ The findings below are therefore all things the existing gates do not see.
 
 ## Follow-up status
 
-The change following this audit resolves H1, H2, H3, H5, H6, and H7, plus the
+The changes following this audit resolve H1 through H7, plus the
 bare-OpenAPI metadata divergence, machine-readable stdout contamination, and
 orphaned check subprocess findings. Regression coverage now exercises each of
 those paths, including non-`BaseModel` repeated query fields. Follow-up
 adversarial passes also cover path-parameter shapes, concrete HTTP
 parameter round trips and inherited defaults, unstable idempotency serializers,
-and process-group descendants that ignore graceful termination. H4 and the
-other medium- and low-severity findings remain future work; the detailed
-sections below preserve the evidence captured at the audited revision.
+process-group descendants that ignore graceful termination, and bounded
+numeric and HTTP-date `Retry-After` hints. The other medium- and low-severity
+findings remain future work; the detailed sections below preserve the evidence
+captured at the audited revision.
 
 ## Verdict in one paragraph
 
@@ -99,6 +100,10 @@ the policy's declared delay ceiling. Reproduced: a declared error carrying
 inject the header) can pin calling workers arbitrarily; the only defense is
 `total_timeout_seconds`, which is off by default. Clamp `retry_after` to the
 policy bound or an explicit `max_retry_after_seconds`.
+
+Resolved after this audit: both numeric delays and HTTP dates are now clamped
+to `RetryPolicy.max_delay_seconds`, and the bounded value is exposed to attempt
+observers.
 
 ### H5. Additive changes to nested tool schemas can never pass the compatibility gate
 

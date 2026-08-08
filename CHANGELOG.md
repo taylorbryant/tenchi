@@ -46,6 +46,13 @@ versions may change the public API.
 
 ### Fixed
 
+- Outbound clients now clamp server-provided `Retry-After` delays and HTTP
+  dates to the retry policy's `max_delay_seconds`, preventing a dependency or
+  intermediary from pinning a caller beyond its configured backoff ceiling.
+  Arbitrarily large decimal hints remain bounded, attempt outcomes report the
+  delay actually selected, and oversized integer policy bounds fail with a
+  configuration error instead of leaking an `OverflowError`. Malformed delay
+  syntax and past HTTP dates are ignored.
 - Singular contracts reject response bodies for HTTP 204, 205, and 304 at
   declaration time.
 - Idempotency fingerprints reject lossy `Any` serialization, including

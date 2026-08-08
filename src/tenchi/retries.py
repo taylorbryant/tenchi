@@ -84,7 +84,7 @@ class RetryPolicy:
         if (
             not isinstance(jitter, int | float)
             or isinstance(jitter, bool)
-            or not math.isfinite(jitter)
+            or not _is_finite(jitter)
             or not 0 <= jitter <= 1
         ):
             raise ConfigurationError("RetryPolicy jitter must be between 0 and 1")
@@ -143,7 +143,7 @@ def _require_non_negative_finite(value: object, *, label: str) -> None:
     if (
         not isinstance(value, int | float)
         or isinstance(value, bool)
-        or not math.isfinite(value)
+        or not _is_finite(value)
         or value < 0
     ):
         raise ConfigurationError(f"{label} must be a finite number at least 0")
@@ -153,10 +153,17 @@ def _require_positive_finite(value: object, *, label: str) -> None:
     if (
         not isinstance(value, int | float)
         or isinstance(value, bool)
-        or not math.isfinite(value)
+        or not _is_finite(value)
         or value <= 0
     ):
         raise ConfigurationError(f"{label} must be a finite number greater than 0")
+
+
+def _is_finite(value: int | float) -> bool:
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 __all__ = ["RetryPolicy", "RetryTimeoutError", "retry_policy"]
