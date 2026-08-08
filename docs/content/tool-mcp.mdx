@@ -213,10 +213,11 @@ async def approve(
 ```
 
 Without an approval callback, the call returns `approval_required`. A callback
-that returns `False` produces `approval_denied`. Both results are structured,
-successful MCP responses so a client can obtain approval out of band and retry.
-The adapter validates input and obtains approval before opening the tool
-runner's lifespan or context.
+that returns `False` produces `approval_denied`. Both return ordinary MCP tool
+results rather than JSON-RPC protocol errors. The results set MCP's `isError`
+flag and retain structured details, so a client can inspect the reason, obtain
+approval out of band, and retry. The adapter validates input and obtains
+approval before opening the tool runner's lifespan or context.
 
 <Callout type="warning" title="Approval does not replace authorization">
   Approval answers whether this caller may attempt this exact destructive
@@ -266,6 +267,12 @@ The published output schema enumerates each tool's declared application error
 codes. Undeclared `AppError` values and unexpected exceptions become a generic
 `failed` result. Invalid output becomes `invalid_result`; neither result
 contains exception text, request input, or the invalid value.
+
+Every `ok: false` result also sets MCP's standard `isError` flag. Generic MCP
+hosts can use that signal to recognize an unsuccessful tool execution, while
+clients that understand Tenchi can inspect the structured `error.kind`, stable
+application error code, and safe details. These remain tool results rather than
+JSON-RPC protocol errors.
 
 `TOOL_MCP_PROTOCOL_VERSION` identifies this envelope and schema mapping. Tenchi
 uses a new version whenever the wire shape changes.

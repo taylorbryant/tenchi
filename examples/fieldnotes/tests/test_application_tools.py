@@ -151,6 +151,7 @@ async def test_mcp_requires_approval_before_saving_sources(tmp_path: Path) -> No
         "knowledge.search",
         "sources.save",
     ]
+    assert denied.is_error is True
     assert denied.structured_content is not None
     assert denied.structured_content["error"]["kind"] == "approval_required"
     assert not Path(database_path).exists()

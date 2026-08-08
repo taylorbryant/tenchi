@@ -30,7 +30,8 @@ those paths, including non-`BaseModel` repeated query fields. Follow-up
 adversarial passes also cover path-parameter shapes, concrete HTTP
 parameter round trips and inherited defaults, unstable idempotency serializers,
 process-group descendants that ignore graceful termination, and bounded
-numeric and HTTP-date `Retry-After` hints. The other medium- and low-severity
+numeric and HTTP-date `Retry-After` hints. Application MCP failure results now
+also set the standard MCP `isError` signal. The other medium- and low-severity
 findings remain future work; the detailed sections below preserve the evidence
 captured at the audited revision.
 
@@ -204,6 +205,9 @@ a permanently red test. Root cause is H8/M-class finding below: bare
   `CallToolResult`s with `ok: false` only inside Tenchi's envelope
   (`mcp.py:877-908`). Generic MCP hosts keying off `isError` feed failures
   to the model as ordinary output.
+
+  Resolved after this audit: failure envelopes remain structured tool results
+  and now set MCP's standard `isError` flag.
 - **OpenAPI omits the framework 500 and auth failure statuses the runtime
   actually produces** (`openapi.py:461-516`): the honesty rule maps every
   undeclared error to 500, and `security=` adds requirements but no 401/403

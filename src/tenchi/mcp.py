@@ -905,6 +905,7 @@ def _result(payload: dict[str, Any]) -> CallToolResult:
             )
         ],
         structured_content=payload,
+        is_error=payload["ok"] is False,
     )
 
 

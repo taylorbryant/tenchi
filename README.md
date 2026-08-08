@@ -327,7 +327,9 @@ Install `tenchi[mcp]` and use `create_tool_mcp_server()` to publish the same
 group over MCP. The adapter authenticates discovery and invocation, can filter
 visible tools per principal, denies destructive tools without an explicit
 approval decision, and returns versioned structured results through the stable
-2.x line of the official MCP Python SDK:
+2.x line of the official MCP Python SDK. Failed structured results also set
+MCP's standard `isError` flag so generic hosts do not treat them as successful
+tool output:
 
 ```python
 from app.server.runtime import DATABASE_PATH

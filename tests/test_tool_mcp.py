@@ -15,6 +15,8 @@ from typing import Annotated, Any, Literal, cast
 
 import pytest
 from httpx2 import ASGITransport, AsyncClient
+from jsonschema import Draft202012Validator
+from jsonschema.protocols import Validator
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.transport_security import TransportSecuritySettings
@@ -448,10 +450,53 @@ async def test_mcp_http_authentication_receives_request_headers() -> None:
         "ok": True,
         "result": "pong",
     }
+    assert result.is_error is False
     assert len(requests) == 2
     assert all(request.request_id is not None for request in requests)
     assert all(request.headers is not None for request in requests)
     assert events == ["ping:http-user"]
+
+
+async def test_mcp_http_preserves_structured_error_signal() -> None:
+    tools = application_tools()
+    server = create_tool_mcp_server(
+        tools=tools,
+        authenticate=lambda request: Principal("http-user"),
+        runner_factory=lambda principal: runner_for(tools, principal, []),
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["mcp.example.com"],
+            allowed_origins=["https://mcp.example.com"],
+        ),
+    )
+    app = server.streamable_http_app()
+    transport = ASGITransport(app=app)
+
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(
+            transport=transport,
+            base_url="https://mcp.example.com",
+        ) as client,
+        Client(
+            streamable_http_client(
+                "https://mcp.example.com/mcp",
+                http_client=client,
+            )
+        ) as session,
+    ):
+        listed = await session.list_tools()
+        invalid = await session.call_tool("projects.search", {"query": ""})
+
+    assert invalid.is_error is True
+    assert invalid.structured_content is not None
+    assert invalid.structured_content["error"]["kind"] == "invalid_input"
+    search = next(item for item in listed.tools if item.name == "projects.search")
+    assert search.output_schema is not None
+    validator: Validator = Draft202012Validator(search.output_schema)
+    assert validator.is_valid(  # type: ignore[reportUnknownMemberType]
+        invalid.structured_content
+    )
 
 
 async def test_mcp_invokes_object_scalar_and_no_input_tools() -> None:
@@ -517,6 +562,7 @@ async def test_mcp_supports_legacy_protocol_clients() -> None:
     async with Client(server, mode="legacy") as client:
         listed = await client.list_tools()
         result = await client.call_tool("system.ping", {})
+        invalid = await client.call_tool("projects.search", {"query": ""})
 
     assert any(tool.name == "system.ping" for tool in listed.tools)
     assert result.structured_content == {
@@ -524,6 +570,10 @@ async def test_mcp_supports_legacy_protocol_clients() -> None:
         "ok": True,
         "result": "pong",
     }
+    assert result.is_error is False
+    assert invalid.is_error is True
+    assert invalid.structured_content is not None
+    assert invalid.structured_content["error"]["kind"] == "invalid_input"
     assert events == ["ping:legacy-user"]
 
 
@@ -724,7 +774,7 @@ async def test_mcp_denies_destructive_tools_without_per_call_approval() -> None:
             {"item_id": "project-1"},
         )
 
-    assert required.is_error is False
+    assert required.is_error is True
     assert required.structured_content == {
         "schema_version": TOOL_MCP_PROTOCOL_VERSION,
         "ok": False,
@@ -758,6 +808,7 @@ async def test_mcp_denies_destructive_tools_without_per_call_approval() -> None:
         )
 
     assert result.structured_content is not None
+    assert result.is_error is True
     assert result.structured_content["error"]["kind"] == "approval_denied"
     assert approvals == [("alice", "projects.delete", {"item_id": "project-1"})]
     assert events == []
@@ -798,6 +849,7 @@ async def test_mcp_runs_an_approved_destructive_tool() -> None:
         "ok": True,
         "result": None,
     }
+    assert result.is_error is False
     assert _input_validation_calls == 1
     assert events == ["delete:project-1"]
 
@@ -853,6 +905,7 @@ async def test_mcp_returns_safe_structured_failures() -> None:
     )
 
     async with Client(server) as session:
+        listed = await session.list_tools()
         invalid = await session.call_tool("projects.reject", {"query": ""})
         declared = await session.call_tool("projects.reject", {"query": "x"})
         nonfinite = await session.call_tool(
@@ -865,6 +918,32 @@ async def test_mcp_returns_safe_structured_failures() -> None:
             {"query": "x"},
         )
 
+    assert all(
+        result.is_error
+        for result in (
+            invalid,
+            declared,
+            nonfinite,
+            unexpected,
+            invalid_result,
+        )
+    )
+    output_schemas = {
+        item.name: item.output_schema for item in listed.tools if item.output_schema
+    }
+    for name, result in (
+        ("projects.reject", invalid),
+        ("projects.reject", declared),
+        ("projects.reject", nonfinite),
+        ("projects.explode", unexpected),
+        ("projects.wrong", invalid_result),
+    ):
+        structured = result.structured_content
+        assert structured is not None
+        validator = Draft202012Validator(output_schemas[name])
+        assert validator.is_valid(  # type: ignore[reportUnknownMemberType]
+            structured
+        )
     assert invalid.structured_content is not None
     assert invalid.structured_content["error"] == {
         "kind": "invalid_input",

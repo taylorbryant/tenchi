@@ -46,6 +46,10 @@ versions may change the public API.
 
 ### Fixed
 
+- Application MCP calls now set the standard MCP `isError` flag whenever their
+  structured result has `ok: false`. Generic hosts can recognize invalid input,
+  approval failures, application errors, invalid results, and invocation
+  failures without losing Tenchi's versioned structured error details.
 - Outbound clients now clamp server-provided `Retry-After` delays and HTTP
   dates to the retry policy's `max_delay_seconds`, preventing a dependency or
   intermediary from pinning a caller beyond its configured backoff ceiling.

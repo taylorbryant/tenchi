@@ -264,7 +264,8 @@ API shape:
 - Application MCP authenticates both discovery and invocation, rechecks
   per-principal visibility before a call, and denies destructive tools without
   an application-owned approval decision. Discovery and approval never replace
-  use-case authorization.
+  use-case authorization. Versioned `ok: false` envelopes remain structured
+  tool results and set MCP's standard `isError` flag.
 
 ## CLI expectations
 

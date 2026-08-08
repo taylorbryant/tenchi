@@ -181,8 +181,9 @@ Declare every caller-visible `AppError`; undeclared and unexpected failures are
 masked by the tool runner.
 When application tools are exposed over MCP, authenticate discovery and calls,
 recheck per-principal visibility, and require an explicit approval decision for
-destructive tools. The `tenchi mcp` CLI remains the separate coding-agent
-server.
+destructive tools. Structured failure results set MCP's standard `isError` flag
+while retaining their versioned error envelope. The `tenchi mcp` CLI remains
+the separate coding-agent server.
 Evaluation declarations own typed cases and score thresholds. Evaluators return
 only normalized scores and usage; never put prompts or generated outputs in
 result metadata. Each invocation receives an isolated case input. Treat

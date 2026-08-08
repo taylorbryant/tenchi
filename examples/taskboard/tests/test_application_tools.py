@@ -194,6 +194,7 @@ async def test_application_mcp_reuses_authenticated_tool_wiring(
     ]
     assert projects.structured_content is not None
     assert projects.structured_content["result"][0]["name"] == "Launch"
+    assert denied.is_error is True
     assert denied.structured_content is not None
     assert denied.structured_content["error"]["kind"] == "approval_required"
 
