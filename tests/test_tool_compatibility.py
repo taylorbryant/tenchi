@@ -145,6 +145,33 @@ def test_nested_referenced_schema_changes_are_compared_directionally() -> None:
     )
 
 
+def test_additive_nested_referenced_schema_change_is_compatible() -> None:
+    baseline = manifest(
+        tool_entry(
+            input_schema={
+                "$defs": {
+                    "Filter": {
+                        "type": "object",
+                        "properties": {"limit": {"type": "integer"}},
+                    }
+                },
+                "$ref": "#/$defs/Filter",
+            }
+        )
+    )
+    current = deepcopy(baseline)
+    current["tools"][0]["input_schema"]["$defs"]["Filter"]["properties"]["cursor"] = {
+        "type": "string"
+    }
+
+    report = analyze_tool_compatibility(baseline, current)
+
+    assert report.compatible is True
+    assert [(change.severity, change.message) for change in report.changes] == [
+        ("additive", "property added")
+    ]
+
+
 def test_error_and_description_changes_have_explicit_semantics() -> None:
     baseline = manifest(
         tool_entry(

@@ -23,6 +23,7 @@ import logging
 import random
 from asyncio import CancelledError
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -41,12 +42,15 @@ from ._media_types import (
     media_type_matches,
     text_charset,
 )
+from ._values import same_python_value
 from .contracts import (
     _PATH_PARAMETER,  # pyright: ignore[reportPrivateUsage]
     Contract,
     ResponseHeadersT,
     ResponseT,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
+    _query_parameter_is_sequence,  # pyright: ignore[reportPrivateUsage]
+    _request_parameter_fields,  # pyright: ignore[reportPrivateUsage]
     _response_header_fields,  # pyright: ignore[reportPrivateUsage]
 )
 from .errors import (
@@ -374,6 +378,7 @@ class Client:
                 )
             self._owns_http = False
             self._http = http
+            self._configured_headers = http.headers
         else:
             if base_url is None and transport is None:
                 raise ConfigurationError(
@@ -381,11 +386,13 @@ class Client:
                     "and headers=), or a caller-owned http="
                 )
             self._owns_http = True
+            configured_headers = dict(headers) if headers else {}
             self._http = httpx.AsyncClient(
                 base_url=base_url or "http://testserver",
                 transport=transport,
-                headers=dict(headers) if headers else None,
+                headers=configured_headers or None,
             )
+            self._configured_headers = configured_headers
         self._errors = declared_errors
         self._observers = observer_chain
         self._attempt_observers = attempt_observer_chain
@@ -857,17 +864,32 @@ class Client:
                 "pass params= to call()"
             )
         adapter = _adapter(contract.params, contract=contract, slot="params")
-        values = adapter.dump_python(
-            adapter.validate_python(params), mode="json", by_alias=True
+        validated = adapter.validate_python(params)
+        serialization_value = _parameter_serialization_copy(
+            validated,
+            label=f"{contract.name}: params",
         )
-        encoded: dict[str, str] = {}
+        values = _serialized_parameter_values(
+            adapter,
+            adapter.dump_python(serialization_value, mode="json", by_alias=True),
+            location="path",
+            label=f"{contract.name}: params",
+        )
+        rendered: dict[str, str] = {}
         for key, value in values.items():
             if value is None or str(value) == "":
                 raise ValueError(
                     f"{contract.name}: path parameter {key!r} must be a "
                     f"non-empty value, got {value!r}"
                 )
-            encoded[key] = quote(str(value), safe="")
+            rendered[key] = str(value)
+        _validate_parameter_round_trip(
+            adapter,
+            validated,
+            rendered,
+            label=f"{contract.name}: params",
+        )
+        encoded = {key: quote(value, safe="") for key, value in rendered.items()}
         url = _PATH_PARAMETER.sub(
             lambda match: encoded.get(match.group(1), match.group(0)), contract.path
         )
@@ -881,16 +903,36 @@ class Client:
     def _build_query(
         self, contract: Contract[Any, Any], query: Any
     ) -> dict[str, Any] | None:
-        if contract.query is None or query is None:
+        if contract.query is None:
             return None
         adapter = _adapter(contract.query, contract=contract, slot="query")
-        values = adapter.dump_python(
-            adapter.validate_python(query),
-            mode="json",
-            by_alias=True,
-            exclude_none=True,
+        if query is None:
+            adapter.validate_python(_encoded_query_input(adapter, self._http.params))
+            return None
+        validated = adapter.validate_python(query)
+        serialization_value = _parameter_serialization_copy(
+            validated,
+            label=f"{contract.name}: query",
         )
-        return cast(dict[str, Any], values)
+        typed_values = _serialized_parameter_values(
+            adapter,
+            adapter.dump_python(
+                serialization_value,
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            ),
+            location="query",
+            label=f"{contract.name}: query",
+        )
+        effective = self._http.params.merge(typed_values)
+        _validate_parameter_round_trip(
+            adapter,
+            validated,
+            _encoded_query_input(adapter, effective),
+            label=f"{contract.name}: query",
+        )
+        return typed_values
 
     def _build_body(
         self, contract: Contract[Any, Any], request: Any
@@ -946,19 +988,48 @@ class Client:
         content_headers: dict[str, str] | None,
     ) -> dict[str, str] | None:
         merged = dict(content_headers or {})
-        if contract.headers is not None and headers is not None:
+        if contract.headers is not None:
             adapter = _adapter(contract.headers, contract=contract, slot="headers")
-            values = cast(
-                dict[str, Any],
+            configured = dict(self._configured_headers)
+            configured.update(merged)
+            validated = adapter.validate_python(
+                _encoded_header_input(adapter, configured)
+                if headers is None
+                else headers
+            )
+            serialization_value = _parameter_serialization_copy(
+                validated,
+                label=f"{contract.name}: headers",
+            )
+            values = _serialized_parameter_values(
+                adapter,
                 adapter.dump_python(
-                    adapter.validate_python(headers),
+                    serialization_value,
                     mode="json",
                     by_alias=True,
                     exclude_none=True,
                 ),
+                location="header",
+                label=f"{contract.name}: headers",
             )
-            for field, value in values.items():
-                merged[field.replace("_", "-")] = str(value)
+            rendered = {
+                field.replace("_", "-"): _render_request_header_value(
+                    field.replace("_", "-"),
+                    value,
+                    label=f"{contract.name}: headers",
+                )
+                for field, value in values.items()
+            }
+            effective = dict(self._http.headers)
+            effective.update(merged)
+            effective.update(rendered)
+            _validate_parameter_round_trip(
+                adapter,
+                validated,
+                _encoded_header_input(adapter, effective),
+                label=f"{contract.name}: headers",
+            )
+            merged.update(rendered)
         return merged or None
 
     def _raise_for_error(
@@ -1173,6 +1244,129 @@ def _retry_after_seconds(error: AppError) -> float | None:
     return delay
 
 
+def _encoded_query_input(
+    adapter: TypeAdapter[Any], values: Mapping[str, Any]
+) -> dict[str, str | list[str]]:
+    schema = adapter.json_schema(mode="validation", by_alias=True)
+    sequence_fields = frozenset(
+        name
+        for name, field_schema in _request_parameter_fields(
+            schema,
+            location="query",
+            label="query input",
+        )
+        if _query_parameter_is_sequence(schema, field_schema, seen_refs=set())
+    )
+    encoded: dict[str, str | list[str]] = {}
+    for key, value in httpx.QueryParams(values).multi_items():
+        existing = encoded.get(key)
+        if existing is None:
+            encoded[key] = [value] if key in sequence_fields else value
+        elif isinstance(existing, list):
+            existing.append(value)
+        else:
+            encoded[key] = [existing, value]
+    return encoded
+
+
+def _encoded_header_input(
+    adapter: TypeAdapter[Any], values: Mapping[str, str]
+) -> dict[str, str]:
+    schema = adapter.json_schema(mode="validation", by_alias=True)
+    fields = _request_parameter_fields(
+        schema,
+        location="header",
+        label="header input",
+    )
+    normalized = {name.casefold(): value for name, value in values.items()}
+    return {
+        name: normalized[wire_name]
+        for name, _ in fields
+        if (wire_name := name.replace("_", "-").casefold()) in normalized
+    }
+
+
+def _render_request_header_value(name: str, value: object, *, label: str) -> str:
+    rendered = str(value)
+    if "\r" in rendered or "\n" in rendered:
+        raise ValueError(f"{label} field {name!r} must not contain CR or LF")
+    if rendered[:1] in {" ", "\t"} or rendered[-1:] in {" ", "\t"}:
+        raise ValueError(
+            f"{label} field {name!r} must not start or end with whitespace"
+        )
+    if any(ord(character) < 32 or ord(character) == 127 for character in rendered):
+        raise ValueError(f"{label} field {name!r} must not contain control characters")
+    try:
+        rendered.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{label} field {name!r} must be ASCII encodable") from exc
+    return rendered
+
+
+def _serialized_parameter_values(
+    adapter: TypeAdapter[Any],
+    value: object,
+    *,
+    location: str,
+    label: str,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ConfigurationError(
+            f"{label} serialization must produce an object with string field names"
+        )
+    mapping = cast(Mapping[object, object], value)
+    if not all(isinstance(name, str) for name in mapping):
+        raise ConfigurationError(
+            f"{label} serialization must produce an object with string field names"
+        )
+    values = {cast(str, name): item for name, item in mapping.items()}
+    schema = adapter.json_schema(mode="serialization", by_alias=True)
+    declared = {
+        name
+        for name, _ in _request_parameter_fields(
+            schema,
+            location=location,
+            label=label,
+            check_required_nullable=False,
+        )
+    }
+    if not set(values) <= declared:
+        raise ConfigurationError(
+            f"{label} serialization produced undeclared HTTP parameter fields"
+        )
+    return values
+
+
+def _validate_parameter_round_trip(
+    adapter: TypeAdapter[Any],
+    validated: Any,
+    wire_input: Mapping[str, object],
+    *,
+    label: str,
+) -> None:
+    try:
+        round_tripped = adapter.validate_python(wire_input)
+    except Exception as exc:
+        raise ConfigurationError(
+            f"{label} serialization does not validate after HTTP encoding; "
+            "request parameter serializers must round-trip"
+        ) from exc
+    if not same_python_value(validated, round_tripped):
+        raise ConfigurationError(
+            f"{label} serialization changes the validated value after HTTP "
+            "encoding; request parameter serializers must round-trip"
+        )
+
+
+def _parameter_serialization_copy(value: Any, *, label: str) -> Any:
+    try:
+        return deepcopy(value)
+    except Exception as exc:
+        raise ConfigurationError(
+            f"{label} validated value cannot be isolated for safe serialization"
+        ) from exc
+
+
 def _adapter(
     annotation: Any, *, contract: Contract[Any, Any], slot: str
 ) -> TypeAdapter[Any]:
@@ -1213,6 +1407,11 @@ def _preflight_contract_types(
                     if slot == "response_headers"
                     else None
                 )
+                serialization_schema = (
+                    adapter.json_schema(mode="serialization", by_alias=True)
+                    if slot in {"params", "query", "headers"}
+                    else None
+                )
             except Exception as exc:
                 raise ConfigurationError(
                     f"{contract.name}: Pydantic cannot describe {slot} type "
@@ -1226,6 +1425,17 @@ def _preflight_contract_types(
                         f"{_type_name(annotation)}"
                     ),
                     validation_schema=validation_schema,
+                )
+            elif slot in {"params", "query", "headers"}:
+                _request_parameter_fields(
+                    schema,
+                    location={
+                        "params": "path",
+                        "query": "query",
+                        "headers": "header",
+                    }[slot],
+                    label=(f"{contract.name}: {slot} type {_type_name(annotation)}"),
+                    serialization_schema=serialization_schema,
                 )
             elif _object_schema(schema) is None:
                 raise ConfigurationError(

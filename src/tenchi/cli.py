@@ -464,16 +464,18 @@ def _build_parser() -> argparse.ArgumentParser:
     openapi_parser.add_argument(
         "--routes",
         dest="target",
-        default=_DEFAULT_ROUTES,
+        default=_DEFAULT_API_ROUTES,
         help="module:attribute of the RouteGroup (default: %(default)s)",
     )
     openapi_parser.add_argument(
         "--title",
         default=None,
-        help="API title (default: the current directory name)",
+        help="API title (default: discover OPENAPI_TITLE or use the directory name)",
     )
     openapi_parser.add_argument(
-        "--version", default="0.1.0", help="API version (default: %(default)s)"
+        "--version",
+        default=None,
+        help="API version (default: discover OPENAPI_VERSION or use 0.1.0)",
     )
     openapi_parser.add_argument(
         "--description",
@@ -1527,7 +1529,8 @@ def _evaluation_run(
 
 
 def _routes(target: str, *, as_json: bool = False) -> int:
-    group = _load_route_group("tenchi routes", target)
+    with redirect_stdout(sys.stderr if as_json else sys.stdout):
+        group = _load_route_group("tenchi routes", target)
     if group is None:
         return 1
 
@@ -1551,26 +1554,31 @@ def _map_app(
     kinds: Sequence[AppMapNodeKind] | None,
     as_json: bool,
 ) -> int:
-    group = _load_route_group("tenchi map", target)
+    output = sys.stderr if as_json else sys.stdout
+    with redirect_stdout(output):
+        group = _load_route_group("tenchi map", target)
     if group is None:
         return 1
     try:
-        evaluation_runner = load_evaluation_runner(Path.cwd(), evaluations_target)
-        runner = load_task_runner(Path.cwd(), tasks_target)
-        jobs = load_job_group(Path.cwd(), jobs_target)
-        tools = load_tool_group(Path.cwd(), tools_target)
+        with discard_evaluation_output():
+            evaluation_runner = load_evaluation_runner(Path.cwd(), evaluations_target)
+        with redirect_stdout(output):
+            runner = load_task_runner(Path.cwd(), tasks_target)
+            jobs = load_job_group(Path.cwd(), jobs_target)
+            tools = load_tool_group(Path.cwd(), tools_target)
     except OperationError as exc:
         _fail(f"tenchi map: {exc}")
         return 1
 
-    result = map_app(
-        Path.cwd(),
-        group,
-        runner.tasks,
-        jobs,
-        tools,
-        evaluation_runner.evaluations,
-    )
+    with redirect_stdout(output):
+        result = map_app(
+            Path.cwd(),
+            group,
+            runner.tasks,
+            jobs,
+            tools,
+            evaluation_runner.evaluations,
+        )
     if feature is not None:
         features = sorted(node.name for node in result.nodes if node.kind == "feature")
         if feature not in features:
@@ -1854,7 +1862,7 @@ def _compare_tool_baseline(
 def _openapi(
     target: str,
     title: str | None,
-    version: str,
+    version: str | None,
     *,
     description: str | None,
     security_json: str | None,
@@ -1872,7 +1880,17 @@ def _openapi(
         _fail("tenchi openapi: --snapshot requires --diff-ref")
         return 1
 
-    group = _load_route_group("tenchi openapi", target)
+    root = Path.cwd()
+    title, version, description, security_json = openapi_defaults(
+        root,
+        routes=target,
+        title=title,
+        version=version,
+        description=description,
+        security_json=security_json,
+    )
+    with redirect_stdout(sys.stderr):
+        group = _load_route_group("tenchi openapi", target)
     if group is None:
         return 1
 
@@ -1892,13 +1910,14 @@ def _openapi(
         security = cast(Mapping[str, Mapping[str, Any]], parsed_security)
 
     try:
-        document = openapi_schema(
-            group,
-            title=title or Path.cwd().name,
-            version=version,
-            description=description,
-            security=security,
-        )
+        with redirect_stdout(sys.stderr):
+            document = openapi_schema(
+                group,
+                title=title,
+                version=version,
+                description=description,
+                security=security,
+            )
     except ConfigurationError as exc:
         _fail(f"tenchi openapi: {exc}")
         return 1

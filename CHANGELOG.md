@@ -18,6 +18,53 @@ versions may change the public API.
   MCP authenticates every request from bearer headers. Its default answer
   adapter runs locally and in CI without provider credentials.
 
+### Changed
+
+- Bare `tenchi openapi` commands now use `app.server.routes:api_routes` and
+  discover literal `OPENAPI_TITLE`, `OPENAPI_VERSION`,
+  `OPENAPI_DESCRIPTION`, and `OPENAPI_SECURITY` declarations, matching
+  `tenchi check` and `tenchi verify`. Generated applications and documentation
+  use the concise standalone command without repeating that metadata.
+- Path inputs now support only non-null scalar fields, query inputs support
+  scalar fields or unambiguous repeated fields of non-null scalar values
+  (including fixed-length scalar tuples), and request-header inputs support
+  only single scalar fields. Header aliases must normalize to unique, valid
+  HTTP field names and cannot claim transport-owned framing headers. The
+  server, typed client, route binder, and OpenAPI generator validate both
+  Pydantic input and serialization schemas, rejecting nested, computed,
+  mixed-cardinality, required-nullable, serialization-cardinality, or otherwise
+  unsupported wire shapes during composition. Before I/O, the typed client
+  also verifies each concrete path/query/header value through its actual HTTP
+  encoding and Pydantic validation; inherited defaults, lossy, mutating, or
+  masking serializers, unsafe header text, and unrepresentable empty repeated
+  values cannot silently change the validated input.
+- Annotation-less idempotency fingerprints now distinguish non-JSON root
+  values by runtime type. Fingerprints also require canonical JSON to remain
+  stable after validation and reserialization, so dynamic or undeclared
+  serializer output cannot turn identical requests into false conflicts.
+  Typed coercions retain their existing semantic fingerprint behavior.
+
+### Fixed
+
+- Singular contracts reject response bodies for HTTP 204, 205, and 304 at
+  declaration time.
+- Idempotency fingerprints reject lossy `Any` serialization, including
+  non-finite floats that Pydantic would otherwise collapse to JSON `null`, and
+  compare untouched validated values so custom serializers and allowed model
+  extras cannot hide collisions. Every annotation-less non-JSON root type,
+  including models and string enums, receives a runtime-type namespace.
+- Application-tool compatibility recognizes nested `$defs`, allowing proven
+  additive nested schema changes while continuing to fail closed on unknown
+  changes.
+- Machine-readable route, application-map, and OpenAPI output cannot be
+  corrupted by application-controlled stdout during imports, map construction,
+  or schema generation. Evaluation imports remain fully suppressed so they
+  cannot expose sensitive output.
+- Interrupting `tenchi check` or `tenchi verify` now terminates the active
+  subprocess and its process group.
+- `tenchi doctor` reports unreadable or non-UTF-8 Python source as a structured
+  `TENCHI_DOCTOR_SOURCE_ERROR` finding instead of crashing with a traceback.
+
 ## [0.12.0] - 2026-08-06
 
 ### Added

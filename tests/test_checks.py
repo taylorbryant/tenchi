@@ -1,4 +1,5 @@
 import os
+import signal
 import sys
 from pathlib import Path
 from typing import Any
@@ -244,6 +245,45 @@ def test_check_cancellation_stops_the_active_process(
     assert stopped is True
 
 
+def test_keyboard_interrupt_stops_the_active_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "app").mkdir()
+    process = _FakeProcess(None)
+    stopped = False
+
+    def start(command: list[str], **kwargs: Any) -> _FakeProcess:
+        del command, kwargs
+        return process
+
+    def stop(value: _FakeProcess) -> None:
+        nonlocal stopped
+        stopped = True
+        value.returncode = -15
+
+    def interrupt(seconds: float) -> None:
+        del seconds
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(_checks, "_start_process", start)
+    monkeypatch.setattr(_checks, "_stop_process", stop)
+    monkeypatch.setattr(_checks, "sleep", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        _checks.run_check(
+            tmp_path,
+            routes="app.server.routes:api_routes",
+            title="Example",
+            version="0.1.0",
+            description=None,
+            snapshot="openapi.json",
+            security_json=None,
+            timeout_seconds=10,
+        )
+
+    assert stopped is True
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process groups only")
 def test_stop_process_reaps_a_child_after_its_process_group_disappears(
     monkeypatch: pytest.MonkeyPatch,
@@ -262,3 +302,25 @@ def test_stop_process_reaps_a_child_after_its_process_group_disappears(
     )
 
     assert process.wait_calls == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups only")
+def test_stop_process_kills_descendants_after_the_group_leader_exits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process = _FakeProcess(None)
+    signals: list[int] = []
+
+    def signal_group(process_id: int, sent_signal: int) -> None:
+        del process_id
+        signals.append(sent_signal)
+        if sent_signal == signal.SIGTERM:
+            process.returncode = 0
+
+    monkeypatch.setattr(os, "killpg", signal_group)
+
+    _checks._stop_process(  # pyright: ignore[reportPrivateUsage]
+        process  # pyright: ignore[reportArgumentType]
+    )
+
+    assert signals == [signal.SIGTERM, signal.SIGKILL]

@@ -104,11 +104,7 @@ The server now rejects shorter input before the use case runs. Generate the
 current OpenAPI and compare it to the committed baseline:
 
 ```shell
-uv run tenchi openapi \
-  --routes app.server.routes:api_routes \
-  --title my_app \
-  --version 0.1.0 \
-  --diff openapi.json
+uv run tenchi openapi --diff openapi.json
 ```
 
 Tightening a request constraint is breaking for existing callers, so the
@@ -125,11 +121,7 @@ The compatibility report now classifies the change as additive. After
 reviewing it, update the snapshot:
 
 ```shell
-uv run tenchi openapi \
-  --routes app.server.routes:api_routes \
-  --title my_app \
-  --version 0.1.0 \
-  --write openapi.json
+uv run tenchi openapi --write openapi.json
 uv run tenchi check
 ```
 

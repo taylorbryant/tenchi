@@ -302,12 +302,7 @@ Write the first canonical OpenAPI, application-tool, and evaluation-policy
 snapshots, then run the local project gates:
 
 ```shell
-uv run tenchi openapi \
-  --routes app.server.routes:api_routes \
-  --title "Existing app" \
-  --version 0.1.0 \
-  --description "Greeting API" \
-  --write openapi.json
+uv run tenchi openapi --write openapi.json
 uv run tenchi tools --write tools.json
 uv run tenchi eval snapshot --write evaluations.json
 uv run tenchi check

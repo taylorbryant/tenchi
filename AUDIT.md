@@ -21,6 +21,18 @@ Everything the repo gates on is green at HEAD:
 
 The findings below are therefore all things the existing gates do not see.
 
+## Follow-up status
+
+The change following this audit resolves H1, H2, H3, H5, H6, and H7, plus the
+bare-OpenAPI metadata divergence, machine-readable stdout contamination, and
+orphaned check subprocess findings. Regression coverage now exercises each of
+those paths, including non-`BaseModel` repeated query fields. Follow-up
+adversarial passes also cover path-parameter shapes, concrete HTTP
+parameter round trips and inherited defaults, unstable idempotency serializers,
+and process-group descendants that ignore graceful termination. H4 and the
+other medium- and low-severity findings remain future work; the detailed
+sections below preserve the evidence captured at the audited revision.
+
 ## Verdict in one paragraph
 
 Tenchi is an unusually disciplined codebase whose agent-legibility machinery

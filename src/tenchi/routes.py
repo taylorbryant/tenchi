@@ -31,6 +31,7 @@ from .contracts import (
     ResponseHeadersT,
     ResponseT,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
+    _request_parameter_fields,  # pyright: ignore[reportPrivateUsage]
 )
 from .errors import (
     ConfigurationError,
@@ -407,7 +408,8 @@ def _check_params_match_path(contract: Contract[Any, Any]) -> None:
         adapter = TypeAdapter(params_type)
         if not adapter.pydantic_complete:
             adapter.rebuild(raise_errors=True)
-        schema = adapter.json_schema(mode="validation")
+        schema = adapter.json_schema(mode="validation", by_alias=True)
+        serialization_schema = adapter.json_schema(mode="serialization", by_alias=True)
     except Exception as exc:
         raise RouteBindingError(
             f"route({contract.name!r}): could not inspect params type "
@@ -419,6 +421,15 @@ def _check_params_match_path(contract: Contract[Any, Any]) -> None:
             f"route({contract.name!r}): params type {_type_name(params_type)} must "
             "describe object-shaped input"
         )
+    try:
+        _request_parameter_fields(
+            schema,
+            location="path",
+            label=f"route({contract.name!r}) params type {_type_name(params_type)}",
+            serialization_schema=serialization_schema,
+        )
+    except ConfigurationError as exc:
+        raise RouteBindingError(str(exc)) from exc
     fields = set(object_schema.get("properties", {}))
     if fields != placeholders:
         raise RouteBindingError(

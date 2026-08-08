@@ -76,6 +76,31 @@ Field aliases are the wire names for path, query, and header fields and appear
 the same way in OpenAPI. `route()` verifies that path placeholders match the
 declared parameter schema.
 
+Path fields must serialize as one non-null scalar value. Query fields must
+serialize as one scalar value or an array of non-null scalar values; arrays use
+repeated query keys. A field cannot combine scalar and array alternatives
+because a single query value would be ambiguous. Request-header fields must
+serialize as one scalar value, and their aliases must
+normalize to unique, valid HTTP header names. They cannot declare
+transport-owned headers such as `Content-Type`, `Content-Length`, or `Host`;
+body media types belong to `request_media_type=`. Header values must also be
+safe ASCII field values without control characters or edge whitespace. Tenchi
+rejects nested path/query objects, multi-valued headers, null-only fields, and
+open-ended parameter mappings during route/server/OpenAPI composition because
+those shapes have no implicit wire encoding. Nullable query and header fields
+must be omittable, usually by declaring a `None` default; a required nullable
+field cannot distinguish `None` from a missing parameter and is rejected. Path
+fields cannot be nullable. Fixed-length tuples of scalar query values remain
+supported.
+
+Before sending a typed request, `Client` passes the concrete path, query, and
+header values through their actual HTTP encoding and the declared Pydantic
+validator again. That check includes configured httpx defaults, so inherited
+parameters cannot silently replace an omitted value. A custom serializer must
+preserve both the scalar-or-array shape and the validated value. An empty
+repeated value is usable only when omission reconstructs the same default;
+otherwise the client fails before I/O with no parameter payload in the error.
+
 ## Media types
 
 JSON is the default. Declare a different body or response representation with
@@ -115,6 +140,8 @@ See [Receive signed webhooks](/webhooks).
   cleanup, and returns a framework-owned `504`.
 - `errors=` declares the application failures callers are allowed to observe.
 - `responses=` declares status-dependent successful outcomes.
+- Singular `204`, `205`, and `304` outcomes must omit `response=` because
+  those statuses cannot carry a response body.
 
 Invalid combinations and unsupported schemas fail when `contract()` is called.
 Continue with [routes and server](/server), [responses](/responses), and

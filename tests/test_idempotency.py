@@ -1,9 +1,12 @@
 import asyncio
 import math
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, model_serializer
 
 from tenchi.errors import AppError, ConfigurationError
 from tenchi.idempotency import (
@@ -34,6 +37,61 @@ class Result(BaseModel):
 
 class SetRequest(BaseModel):
     tags: set[str]
+
+
+class AnyRequest(BaseModel):
+    value: Any
+
+
+class DatedRequest(BaseModel):
+    occurred_at: datetime
+
+
+class OtherRequest(BaseModel):
+    title: str
+    priority: int = Field(alias="Priority")
+
+
+class StringKind(StrEnum):
+    primary = "primary"
+
+
+def serialize_as_one(value: int) -> str:
+    del value
+    return "1"
+
+
+def collapse_values(values: list[int]) -> list[int]:
+    values[:] = [1]
+    return values
+
+
+class LossySerializedRequest(BaseModel):
+    value: Annotated[int, PlainSerializer(serialize_as_one, return_type=str)]
+
+
+class MutatingSerializedRequest(BaseModel):
+    values: Annotated[
+        list[int],
+        PlainSerializer(collapse_values, return_type=list[int]),
+    ]
+
+
+class ExtraRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+unstable_serializations = 0
+
+
+class UnstableSerializedRequest(BaseModel):
+    value: int
+
+    @model_serializer
+    def serialize_model(self) -> dict[str, int]:
+        global unstable_serializations
+        unstable_serializations += 1
+        return {"value": self.value, "nonce": unstable_serializations}
 
 
 class Clock:
@@ -134,11 +192,80 @@ def test_fingerprint_canonicalizes_validated_json() -> None:
 
 def test_fingerprint_distinguishes_types_and_rejects_non_json_numbers() -> None:
     assert fingerprint(1) != fingerprint("1")
+    assert fingerprint(b"abc") != fingerprint("abc")
+    occurred_at = datetime(2026, 8, 8, tzinfo=UTC)
+    assert fingerprint(occurred_at) != fingerprint(occurred_at.isoformat())
 
     with pytest.raises(ConfigurationError, match="canonical JSON"):
         fingerprint(math.nan)
     with pytest.raises(ConfigurationError, match="canonical JSON"):
         fingerprint({"unsupported": object()})
+
+
+def test_annotation_less_fingerprint_namespaces_non_json_root_types() -> None:
+    request = Request.model_validate({"title": "Ship", "Priority": 2})
+    other = OtherRequest.model_validate({"title": "Ship", "Priority": 2})
+
+    assert fingerprint(request) != fingerprint(other)
+    assert fingerprint(StringKind.primary) != fingerprint("primary")
+
+
+def test_fingerprint_compares_validated_values_before_custom_serialization() -> None:
+    assert (
+        len(
+            fingerprint(
+                LossySerializedRequest(value=1),
+                annotation=LossySerializedRequest,
+            )
+        )
+        == 64
+    )
+
+    with pytest.raises(ConfigurationError, match="serialization must preserve"):
+        fingerprint(
+            LossySerializedRequest(value=2),
+            annotation=LossySerializedRequest,
+        )
+
+    with pytest.raises(ConfigurationError, match="serialization must preserve"):
+        fingerprint(
+            ExtraRequest.model_validate({"value": b"abc"}),
+            annotation=ExtraRequest,
+        )
+
+    mutating = MutatingSerializedRequest(values=[1, 2])
+    with pytest.raises(ConfigurationError, match="serialization must preserve"):
+        fingerprint(mutating, annotation=MutatingSerializedRequest)
+    assert mutating.values == [1, 2]
+
+
+def test_fingerprint_rejects_unstable_serialized_fields() -> None:
+    unstable = UnstableSerializedRequest(value=1)
+
+    with pytest.raises(ConfigurationError, match="stable after validation"):
+        fingerprint(unstable, annotation=UnstableSerializedRequest)
+
+    assert unstable.value == 1
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, b"abc"])
+def test_fingerprint_rejects_lossy_untyped_nested_values(value: object) -> None:
+    with pytest.raises(ConfigurationError, match="serialization must preserve"):
+        fingerprint({"value": value})
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, b"abc"])
+def test_fingerprint_rejects_lossy_any_values(value: object) -> None:
+    with pytest.raises(ConfigurationError, match="serialization must preserve"):
+        fingerprint(AnyRequest(value=value), annotation=AnyRequest)
+
+
+def test_fingerprint_preserves_typed_json_coercion() -> None:
+    occurred_at = datetime(2026, 8, 8, tzinfo=UTC)
+
+    assert fingerprint(
+        {"occurred_at": occurred_at.isoformat()}, annotation=DatedRequest
+    ) == fingerprint(DatedRequest(occurred_at=occurred_at), annotation=DatedRequest)
 
 
 def test_fingerprint_rejects_unordered_collections() -> None:

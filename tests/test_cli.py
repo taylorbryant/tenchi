@@ -3,6 +3,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -243,6 +244,55 @@ def test_new_scaffolds_a_working_app(
         "skipped": 0,
         "total": 0,
     }
+
+
+def test_machine_readable_commands_keep_application_output_out_of_stdout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    routes_path = root / "app/server/routes.py"
+    routes_path.write_text(
+        'print("route import output")\n' + routes_path.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    evaluations_path = root / "app/server/evaluations.py"
+    evaluations_path.write_text(
+        'print("private evaluation output")\n'
+        + evaluations_path.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    for command in (("routes", "--json"), ("map", "--json"), ("openapi",)):
+        result = _tenchi(root, *command)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        json.loads(result.stdout)
+        assert "route import output" not in result.stdout
+        assert "private evaluation output" not in result.stdout + result.stderr
+
+
+def test_map_json_keeps_mapping_output_out_of_stdout(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import tenchi.cli as cli
+
+    monkeypatch.chdir(EXAMPLE_DIR)
+    original_map_app = cli.map_app  # pyright: ignore[reportPrivateImportUsage]
+
+    def noisy_map_app(*args: Any, **kwargs: Any) -> Any:
+        print("application map output")
+        return original_map_app(*args, **kwargs)
+
+    monkeypatch.setattr(cli, "map_app", noisy_map_app)
+
+    assert main(["map", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    json.loads(captured.out)
+    assert "application map output" not in captured.out
+    assert "application map output" in captured.err
 
 
 def test_new_with_a_long_valid_name_passes_generated_checks(
@@ -1422,9 +1472,16 @@ def test_make_use_case_requires_existing_feature(
 def test_openapi_prints_document(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    import json
+    import tenchi.cli as cli
 
     monkeypatch.chdir(EXAMPLE_DIR)
+    original_openapi_schema = cli.openapi_schema  # pyright: ignore[reportPrivateImportUsage]
+
+    def noisy_openapi_schema(*args: Any, **kwargs: Any) -> Any:
+        print("schema generation output")
+        return original_openapi_schema(*args, **kwargs)
+
+    monkeypatch.setattr(cli, "openapi_schema", noisy_openapi_schema)
 
     assert (
         main(
@@ -1438,12 +1495,17 @@ def test_openapi_prints_document(
                 "Todo API",
                 "--security",
                 '{"bearerAuth":{"type":"http","scheme":"bearer"}}',
+                "--routes",
+                "app.server.routes:routes",
             ]
         )
         == 0
     )
 
-    document = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    document = json.loads(captured.out)
+    assert "schema generation output" not in captured.out
+    assert "schema generation output" in captured.err
     assert document["info"] == {
         "description": "Todo API",
         "title": "Todos",
@@ -1471,7 +1533,26 @@ def test_openapi_rejects_invalid_security_json(
     assert "security scheme 'bearerAuth' must be a mapping" in capsys.readouterr().err
 
 
-def test_openapi_writes_file_and_defaults_title_to_directory(
+@pytest.mark.parametrize(
+    ("flag", "message"),
+    [
+        ("--title", "title must be a non-empty string"),
+        ("--version", "version must be a non-empty string"),
+    ],
+)
+def test_openapi_rejects_empty_metadata_overrides(
+    flag: str,
+    message: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert main(["openapi", flag, ""]) == 1
+    assert message in capsys.readouterr().err
+
+
+def test_openapi_writes_file_and_discovers_route_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1485,9 +1566,36 @@ def test_openapi_writes_file_and_defaults_title_to_directory(
     assert "Wrote" in capsys.readouterr().out
 
     document = json.loads(output.read_text())
-    assert document["info"]["title"] == EXAMPLE_DIR.name
+    assert document["info"] == {"title": "Todos", "version": "0.1.0"}
+    assert set(document["paths"]) == {"/todos", "/todos/{todo_id}"}
     assert list(document) == sorted(document)
     assert output.read_text().endswith("\n")
+
+
+def test_openapi_discovers_optional_description_and_security(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    routes_path = root / "app/server/routes.py"
+    routes_path.write_text(
+        routes_path.read_text().replace(
+            "OPENAPI_DESCRIPTION: str | None = None",
+            'OPENAPI_DESCRIPTION: str | None = "Generated API"\n'
+            'OPENAPI_SECURITY = {"bearerAuth": {"type": "http", "scheme": "bearer"}}',
+        )
+    )
+
+    result = _tenchi(root, "openapi")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    document = json.loads(result.stdout)
+    assert document["info"]["description"] == "Generated API"
+    assert document["security"] == [{"bearerAuth": []}]
+    assert document["components"]["securitySchemes"] == {
+        "bearerAuth": {"type": "http", "scheme": "bearer"}
+    }
 
 
 def test_openapi_output_remains_an_alias_for_write(
@@ -1500,6 +1608,19 @@ def test_openapi_output_remains_an_alias_for_write(
     assert main(["openapi", "--output", str(output)]) == 0
 
     assert output.is_file()
+
+
+def test_bare_openapi_check_matches_the_application_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(EXAMPLE_DIR)
+
+    assert main(["openapi", "--check", "openapi.json"]) == 0
+
+    captured = capsys.readouterr()
+    assert "OpenAPI snapshot matches openapi.json" in captured.out
+    assert captured.err == ""
 
 
 def test_openapi_check_accepts_a_current_snapshot(

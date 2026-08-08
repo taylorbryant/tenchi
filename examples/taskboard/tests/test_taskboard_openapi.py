@@ -1,8 +1,8 @@
 """The taskboard OpenAPI document is valid and reflects auth and errors."""
 
-import json
 from pathlib import Path
 
+import pytest
 from openapi_spec_validator import validate
 
 from app.server.routes import (
@@ -15,21 +15,11 @@ from tenchi.cli import main
 from tenchi.openapi import openapi_schema
 
 SNAPSHOT = Path(__file__).parent.parent / "openapi.json"
-OPENAPI_ARGUMENTS = [
-    "openapi",
-    "--routes",
-    "app.server.routes:api_routes",
-    "--title",
-    OPENAPI_TITLE,
-    "--version",
-    OPENAPI_VERSION,
-    "--security",
-    json.dumps(OPENAPI_SECURITY),
-]
 
 
-def test_openapi_snapshot_is_current() -> None:
-    assert main([*OPENAPI_ARGUMENTS, "--check", str(SNAPSHOT)]) == 0
+def test_openapi_snapshot_is_current(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(SNAPSHOT.parent)
+    assert main(["openapi", "--check", str(SNAPSHOT)]) == 0
 
 
 def test_document_is_valid_and_documents_errors() -> None:

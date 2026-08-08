@@ -370,10 +370,10 @@ def openapi_defaults(
     description: str | None,
     security_json: str | None,
 ) -> tuple[str, str, str | None, str | None]:
-    """Resolve check metadata from literal route-module declarations.
+    """Resolve OpenAPI metadata from literal route-module declarations.
 
-    Reading source keeps ``tenchi check --json`` free from application import
-    side effects before the individual validation steps begin.
+    Reading source keeps agent-facing commands free from application import
+    side effects before their validation steps begin.
     """
     resolved_root = root.resolve()
     module_name, _, _ = routes.partition(":")
@@ -390,8 +390,13 @@ def openapi_defaults(
             security_json = repr(security_mapping)
     return (
         title
-        or (declared_title if isinstance(declared_title, str) else resolved_root.name),
-        version or (declared_version if isinstance(declared_version, str) else "0.1.0"),
+        if title is not None
+        else (
+            declared_title if isinstance(declared_title, str) else resolved_root.name
+        ),
+        version
+        if version is not None
+        else (declared_version if isinstance(declared_version, str) else "0.1.0"),
         description
         if description is not None
         else (declared_description if isinstance(declared_description, str) else None),

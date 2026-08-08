@@ -368,6 +368,18 @@ def test_unparseable_module_is_reported_not_crashed(app_root: Path) -> None:
     assert findings[0].code == "TENCHI_DOCTOR_SYNTAX_ERROR"
 
 
+def test_non_utf8_module_is_reported_not_crashed(app_root: Path) -> None:
+    path = app_root / "app/features/todos/schemas.py"
+    path.write_bytes(b"title = 'caf\xe9'\n")
+
+    findings = run_doctor(app_root)
+
+    assert messages(findings) == [
+        "app/features/todos/schemas.py  could not read UTF-8 source: UnicodeDecodeError"
+    ]
+    assert findings[0].code == "TENCHI_DOCTOR_SOURCE_ERROR"
+
+
 def test_doctor_cli_reports_and_exits_nonzero(
     app_root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

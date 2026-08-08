@@ -60,20 +60,20 @@ subresource integrity metadata. Override `swagger_js_url=`,
 ## Store a canonical snapshot
 
 ```shell
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --version 0.1.0 --write openapi.json
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --version 0.1.0 --check openapi.json
+uv run tenchi openapi --write openapi.json
+uv run tenchi openapi --check openapi.json
 ```
 
 `--write` produces deterministic, key-sorted JSON. `--check` is an exact
-equality check suitable for a repository test.
+equality check suitable for a repository test. By default the command loads
+`app.server.routes:api_routes` and discovers literal `OPENAPI_TITLE`,
+`OPENAPI_VERSION`, `OPENAPI_DESCRIPTION`, and `OPENAPI_SECURITY` declarations
+from that module. Use the corresponding flags only to override this convention.
 
 ## Classify changes
 
 ```shell
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --version 0.1.0 --diff openapi-baseline.json
+uv run tenchi openapi --diff openapi-baseline.json
 ```
 
 The analyzer classifies changes as:
@@ -96,11 +96,8 @@ Breaking and unknown changes return a failing exit status. Use
 ## CI pattern
 
 ```shell
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --version 0.1.0 \
-  --diff-ref "$BASE_SHA" --snapshot openapi.json
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title Todos --version 0.1.0 --check openapi.json
+uv run tenchi openapi --diff-ref "$BASE_SHA" --snapshot openapi.json
+uv run tenchi openapi --check openapi.json
 ```
 
 `--diff-ref` resolves the snapshot inside the current Git repository and reads
@@ -108,8 +105,9 @@ uv run tenchi openapi --routes app.server.routes:api_routes \
 the command. Generated CI uses the pull request's base SHA; push checks retain
 exact snapshot validation without assuming a previous commit exists.
 
-Use identical routes, title, version, description, and security options for
-generation, comparison, and snapshot checks.
+Keep the route module's literal `OPENAPI_*` declarations stable across
+generation, comparison, and snapshot checks. Explicit CLI flags take precedence
+when an application uses a nonstandard target or metadata source.
 
 Programmatic consumers can import `analyze_openapi_compatibility()` from
 `tenchi.compatibility` and inspect its structured `CompatibilityReport`.

@@ -64,12 +64,9 @@ uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
 uv run tenchi tools --diff tools.json
 uv run tenchi tools --check tools.json
 uv run tenchi tools --write tools.json
-uv run tenchi openapi --routes app.server.routes:api_routes \\
-  --title __APP_NAME__ --version 0.1.0 --diff openapi.json
-uv run tenchi openapi --routes app.server.routes:api_routes \\
-  --title __APP_NAME__ --version 0.1.0 --check openapi.json
-uv run tenchi openapi --routes app.server.routes:api_routes \\
-  --title __APP_NAME__ --version 0.1.0 --write openapi.json
+uv run tenchi openapi --diff openapi.json
+uv run tenchi openapi --check openapi.json
+uv run tenchi openapi --write openapi.json
 uv run tenchi doctor    # check dependency direction and structure
 ```
 
@@ -200,9 +197,10 @@ explicitly because it may call providers and incur cost.
   together when an operation changes.
 - Test use cases directly with memory adapters; use `tenchi.testing` for HTTP
   integration tests so lifespan resources run.
-- Run `tenchi openapi --routes app.server.routes:api_routes --title __APP_NAME__
-  --version 0.1.0 --diff openapi.json` before replacing the snapshot with
-  `--write`; preserve those metadata flags when writing it.
+- Run `tenchi openapi --diff openapi.json` before replacing the snapshot with
+  `tenchi openapi --write openapi.json`; the command loads
+  `app.server.routes:api_routes` and discovers the literal `OPENAPI_*`
+  declarations in that module.
 - Run `tenchi tools --diff tools.json` before replacing the application-tool
   snapshot with `tenchi tools --write tools.json`.
 - Run `tenchi eval snapshot --diff evaluations.json` before replacing the
@@ -682,32 +680,9 @@ async def test_failed_repository_scope_rolls_back(tmp_path: Path) -> None:
 _OPENAPI_TEST = """\
 from tenchi.cli import main
 
-from app.server.routes import OPENAPI_DESCRIPTION, OPENAPI_TITLE, OPENAPI_VERSION
-
-OPENAPI_ARGS = [
-    "openapi",
-    "--routes",
-    "app.server.routes:api_routes",
-    "--title",
-    OPENAPI_TITLE,
-    "--version",
-    OPENAPI_VERSION,
-]
-if OPENAPI_DESCRIPTION is not None:
-    OPENAPI_ARGS.extend(("--description", OPENAPI_DESCRIPTION))
-
 
 def test_openapi_snapshot_is_current() -> None:
-    assert (
-        main(
-            [
-                *OPENAPI_ARGS,
-                "--check",
-                "openapi.json",
-            ]
-        )
-        == 0
-    )
+    assert main(["openapi", "--check", "openapi.json"]) == 0
 """
 
 _TOOLS_TEST = """\

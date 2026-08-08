@@ -104,17 +104,11 @@ snapshot. Use `--diff-format json` for the versioned compatibility result. See
 ## Manage OpenAPI
 
 ```shell
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --version 0.1.0
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --version 0.1.0 --diff openapi.json
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --version 0.1.0 \
-  --diff-ref origin/main --snapshot openapi.json
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --version 0.1.0 --check openapi.json
-uv run tenchi openapi --routes app.server.routes:api_routes \
-  --title my_app --version 0.1.0 --write openapi.json
+uv run tenchi openapi
+uv run tenchi openapi --diff openapi.json
+uv run tenchi openapi --diff-ref origin/main --snapshot openapi.json
+uv run tenchi openapi --check openapi.json
+uv run tenchi openapi --write openapi.json
 ```
 
 Common metadata options are `--title`, `--version`, `--description`, and
@@ -122,10 +116,10 @@ Common metadata options are `--title`, `--version`, `--description`, and
 Git commit instead of the working tree. See [OpenAPI and
 compatibility](/openapi) for the safe baseline workflow.
 
-The standalone `openapi` command does not discover metadata declarations from
-the route module. Use the same target and metadata flags for print, diff,
-check, and write operations. `tenchi check` and `tenchi verify` do discover
-literal `OPENAPI_*` declarations.
+Standalone `openapi`, `check`, and `verify` all default to
+`app.server.routes:api_routes` and discover literal `OPENAPI_*` declarations
+from that module. Common overrides are `--routes`, `--title`, `--version`,
+`--description`, and `--security`.
 
 When `--diff-format json` is selected, the versioned result includes the
 application root, baseline label, compatibility status, severity counts, and

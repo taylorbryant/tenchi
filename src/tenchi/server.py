@@ -25,11 +25,11 @@ from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from time import perf_counter
-from types import MappingProxyType, UnionType
-from typing import Any, Literal, Union, cast, get_args, get_origin, overload
+from types import MappingProxyType
+from typing import Any, Literal, cast, overload
 from uuid import uuid4
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError
 from starlette import responses as _starlette_responses
 from starlette import routing as _starlette_routing
 from starlette import types as _starlette_types
@@ -53,7 +53,9 @@ from ._media_types import (
 from .contracts import (
     Contract,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
+    _query_parameter_is_sequence,  # pyright: ignore[reportPrivateUsage]
     _render_response_header_value,  # pyright: ignore[reportPrivateUsage]
+    _request_parameter_fields,  # pyright: ignore[reportPrivateUsage]
     _response_header_fields,  # pyright: ignore[reportPrivateUsage]
 )
 from .errors import (
@@ -417,7 +419,7 @@ def create_app(
             response_headers_adapter=response_headers_adapter,
             response_header_names=response_header_names,
             required_response_headers=required_response_headers,
-            query_sequence_fields=_sequence_query_fields(item.contract.query),
+            query_sequence_fields=_sequence_query_fields(query_adapter),
             header_fields=_header_field_names(headers_adapter),
             body_limit=(
                 item.contract.max_request_bytes
@@ -618,6 +620,11 @@ def _annotation_adapter(
                 if slot == "response_headers"
                 else None
             )
+            serialization_schema = (
+                adapter.json_schema(mode="serialization", by_alias=True)
+                if slot in {"params", "query", "headers"}
+                else None
+            )
         except Exception as exc:
             raise ConfigurationError(
                 f"create_app: {label} has a {slot} type "
@@ -628,6 +635,17 @@ def _annotation_adapter(
                 schema,
                 label=(f"create_app: {label} response_headers type {type_name}"),
                 validation_schema=validation_schema,
+            )
+        elif slot in {"params", "query", "headers"}:
+            _request_parameter_fields(
+                schema,
+                location={
+                    "params": "path",
+                    "query": "query",
+                    "headers": "header",
+                }[slot],
+                label=f"create_app: {label} {slot} type {type_name}",
+                serialization_schema=serialization_schema,
             )
         elif _object_schema(schema) is None:
             raise ConfigurationError(
@@ -821,17 +839,19 @@ def _query_dict(
     return raw
 
 
-_SEQUENCE_ORIGINS = (list, set, frozenset, tuple)
-
-
-def _sequence_query_fields(annotation: Any) -> frozenset[str]:
-    """Wire names of query fields whose annotations expect a sequence."""
-    if not (inspect.isclass(annotation) and issubclass(annotation, BaseModel)):
+def _sequence_query_fields(adapter: TypeAdapter[Any] | None) -> frozenset[str]:
+    """Wire names of query fields whose schemas expect repeated values."""
+    if adapter is None:
         return frozenset()
+    schema = adapter.json_schema(mode="validation", by_alias=True)
     return frozenset(
-        field.validation_alias if isinstance(field.validation_alias, str) else name
-        for name, field in annotation.model_fields.items()
-        if _expects_sequence(field.annotation)
+        name
+        for name, field_schema in _request_parameter_fields(
+            schema,
+            location="query",
+            label="query input",
+        )
+        if _query_parameter_is_sequence(schema, field_schema, seen_refs=set())
     )
 
 
@@ -845,21 +865,6 @@ def _header_field_names(adapter: TypeAdapter[Any] | None) -> tuple[str, ...]:
     if not isinstance(properties, Mapping):
         return ()
     return tuple(cast(Mapping[str, Any], properties))
-
-
-def _expects_sequence(annotation: Any) -> bool:
-    if annotation in _SEQUENCE_ORIGINS:
-        return True
-    origin = get_origin(annotation)
-    if origin in _SEQUENCE_ORIGINS:
-        return True
-    if origin is Union or origin is UnionType:
-        return any(
-            _expects_sequence(argument)
-            for argument in get_args(annotation)
-            if argument is not type(None)
-        )
-    return False
 
 
 def _validated_payload(

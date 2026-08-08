@@ -1,7 +1,7 @@
 import pytest
 from pydantic import BaseModel
 
-from tenchi.contracts import contract
+from tenchi.contracts import Contract, contract
 from tenchi.errors import ConfigurationError, ErrorDef
 
 
@@ -68,6 +68,19 @@ def test_contract_rejects_malformed_path_parameter_syntax(path: str) -> None:
 def test_contract_rejects_invalid_status() -> None:
     with pytest.raises(ValueError, match="invalid status"):
         contract(method="GET", path="/items", status=42)
+
+
+@pytest.mark.parametrize("status", [204, 205, 304])
+def test_singular_contract_rejects_a_body_for_bodyless_status(status: int) -> None:
+    with pytest.raises(
+        ConfigurationError, match=rf"status {status} cannot declare a response body"
+    ):
+        contract(method="GET", path="/items", response=Item, status=status)
+
+    with pytest.raises(
+        ConfigurationError, match=rf"status {status} cannot declare a response body"
+    ):
+        Contract(method="GET", path="/items", response=Item, status=status)
 
 
 def test_contract_metadata_defaults() -> None:

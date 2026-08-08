@@ -80,6 +80,19 @@ _RESERVED_RESPONSE_HEADERS = frozenset(
         "x-tenchi-error-source",
     }
 )
+_RESERVED_REQUEST_HEADERS = frozenset(
+    {
+        "connection",
+        "content-length",
+        "content-type",
+        "host",
+        "keep-alive",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
 _SCALAR_HEADER_TYPES = frozenset({"string", "integer", "number", "boolean", "null"})
 
 
@@ -120,6 +133,14 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
         compare=False,
     )
     """Identity retained when route groups amend paths or declared errors."""
+
+    def __post_init__(self) -> None:
+        _validate_no_body_status(
+            path=self.path,
+            response=self.response,
+            status=self.status,
+            has_response_definitions=bool(self.responses),
+        )
 
     def declares_error(self, definition: ErrorDef) -> bool:
         """Whether this contract declares the given error as expected."""
@@ -244,6 +265,7 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
             extra fields and framework-owned header names are rejected.
         status: Singular successful status code. Defaults to 200. Response
             definitions carry their own statuses when ``responses=`` is used.
+            Statuses 204, 205, and 304 require ``response=None``.
         errors: Application errors this route is expected to return. Expected
             errors are mapped to their HTTP status; undeclared ``AppError``
             instances are treated as internal server errors.
@@ -429,6 +451,23 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
         responses=declared_responses,
         timeout=timeout,
     )
+
+
+def _validate_no_body_status(
+    *,
+    path: str,
+    response: object,
+    status: object,
+    has_response_definitions: bool,
+) -> None:
+    if (
+        not has_response_definitions
+        and status in (204, 205, 304)
+        and response is not None
+    ):
+        raise ConfigurationError(
+            f"contract(path={path!r}): status {status} cannot declare a response body"
+        )
 
 
 def _validate_runtime_options(
@@ -675,61 +714,321 @@ def _response_header_fields(  # pyright: ignore[reportUnusedFunction]
     return tuple(fields)
 
 
+def _request_parameter_fields(  # pyright: ignore[reportUnusedFunction]
+    schema: Mapping[str, Any],
+    *,
+    location: str,
+    label: str,
+    serialization_schema: Mapping[str, Any] | None = None,
+    check_required_nullable: bool = True,
+) -> tuple[tuple[str, Mapping[str, Any]], ...]:
+    """Validate fields that Tenchi can encode as HTTP parameters."""
+    if location not in {"path", "query", "header"}:
+        raise AssertionError(f"unsupported request parameter location {location!r}")
+    fields = _request_parameter_fields_in_schema(
+        schema,
+        location=location,
+        label=label,
+        check_required_nullable=check_required_nullable,
+    )
+    if serialization_schema is not None:
+        serialized_fields = _request_parameter_fields_in_schema(
+            serialization_schema,
+            location=location,
+            label=label,
+            check_required_nullable=False,
+        )
+        serialized_by_name = {
+            _request_parameter_wire_name(location, name): field_schema
+            for name, field_schema in serialized_fields
+        }
+        if {_request_parameter_wire_name(location, name) for name, _ in fields} != set(
+            serialized_by_name
+        ):
+            raise ConfigurationError(
+                f"{label} must use the same wire field names for validation and "
+                "serialization; use Field(alias=...) for wire names and avoid "
+                "computed parameter fields"
+            )
+        for name, field_schema in fields:
+            validation_shapes = _parameter_schema_shapes(
+                schema,
+                field_schema,
+                seen_refs=set(),
+            )
+            serialization_shapes = _parameter_schema_shapes(
+                serialization_schema,
+                serialized_by_name[_request_parameter_wire_name(location, name)],
+                seen_refs=set(),
+            )
+            if (
+                validation_shapes is None
+                or serialization_shapes is None
+                or validation_shapes - {"null"} != serialization_shapes - {"null"}
+            ):
+                raise ConfigurationError(
+                    f"{label} field {name!r} must use the same scalar or array "
+                    "shape for validation and serialization"
+                )
+    return fields
+
+
+def _request_parameter_fields_in_schema(
+    schema: Mapping[str, Any],
+    *,
+    location: str,
+    label: str,
+    check_required_nullable: bool = True,
+) -> tuple[tuple[str, Mapping[str, Any]], ...]:
+    object_schema = _object_schema(schema)
+    if object_schema is None:
+        raise ConfigurationError(f"{label} must describe object-shaped input")
+    if (
+        "additionalProperties" in object_schema
+        and object_schema["additionalProperties"] is not False
+    ):
+        raise ConfigurationError(
+            f"{label} must declare fixed {location} fields; additional properties "
+            "are not supported"
+        )
+    properties = object_schema.get("properties", {})
+    if not isinstance(properties, Mapping):
+        raise ConfigurationError(f"{label} must describe object-shaped input")
+    raw_required = object_schema.get("required", [])
+    required: set[object] = (
+        set(cast(list[object], raw_required))
+        if isinstance(raw_required, list)
+        else set()
+    )
+
+    fields: list[tuple[str, Mapping[str, Any]]] = []
+    header_names: set[str] = set()
+    for raw_name, raw_schema in cast(Mapping[object, object], properties).items():
+        if not isinstance(raw_name, str) or not isinstance(raw_schema, Mapping):
+            raise ConfigurationError(f"{label} has an invalid {location} field")
+        if location == "header":
+            wire_name = raw_name.replace("_", "-")
+            normalized_name = _request_parameter_wire_name(location, raw_name)
+            if not _HEADER_NAME.fullmatch(wire_name):
+                raise ConfigurationError(
+                    f"{label} field {raw_name!r} is not a valid HTTP header name"
+                )
+            if normalized_name in _RESERVED_REQUEST_HEADERS:
+                raise ConfigurationError(
+                    f"{label} field {raw_name!r} declares transport-owned HTTP "
+                    f"header {wire_name!r}"
+                )
+            if normalized_name in header_names:
+                raise ConfigurationError(
+                    f"{label} fields normalize to duplicate HTTP header name "
+                    f"{wire_name!r}"
+                )
+            header_names.add(normalized_name)
+        property_schema = cast(Mapping[str, Any], raw_schema)
+        shapes = _parameter_schema_shapes(
+            schema,
+            property_schema,
+            seen_refs=set(),
+        )
+        if check_required_nullable and shapes is not None and "null" in shapes:
+            if location == "path":
+                raise ConfigurationError(
+                    f"{label} field {raw_name!r} accepts null, which cannot be "
+                    "represented in a URL path"
+                )
+            if raw_name in required:
+                raise ConfigurationError(
+                    f"{label} field {raw_name!r} is required but accepts null; "
+                    f"nullable {location} fields must have a default so None can "
+                    "be represented by omission"
+                )
+        has_scalar = shapes is not None and "scalar" in shapes
+        has_sequence = shapes is not None and "sequence" in shapes
+        supported = (
+            shapes is not None
+            and shapes <= {"scalar", "sequence", "null"}
+            and (has_scalar != has_sequence)
+            and (location == "query" or (has_scalar and "sequence" not in shapes))
+        )
+        if not supported:
+            expected = (
+                "a scalar or an array of scalar values"
+                if location == "query"
+                else (
+                    "one non-null scalar value"
+                    if location == "path"
+                    else "one scalar value"
+                )
+            )
+            raise ConfigurationError(
+                f"{label} field {raw_name!r} must serialize as {expected}"
+            )
+        fields.append((raw_name, property_schema))
+    return tuple(fields)
+
+
+def _request_parameter_wire_name(location: str, name: str) -> str:
+    return name.replace("_", "-").casefold() if location == "header" else name
+
+
+def _parameter_schema_shapes(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    *,
+    seen_refs: set[str],
+) -> frozenset[str] | None:
+    """Classify the HTTP wire shapes allowed by a parameter schema."""
+    reference = schema.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/"):
+        if reference in seen_refs:
+            return None
+        target = _local_schema_reference(root, reference)
+        return (
+            _parameter_schema_shapes(
+                root,
+                target,
+                seen_refs={*seen_refs, reference},
+            )
+            if target is not None
+            else None
+        )
+    for union_key in ("anyOf", "oneOf"):
+        choices = schema.get(union_key)
+        if not isinstance(choices, list) or not choices:
+            continue
+        kinds: set[str] = set()
+        for choice in cast(list[object], choices):
+            if not isinstance(choice, Mapping):
+                return None
+            choice_shapes = _parameter_schema_shapes(
+                root,
+                cast(Mapping[str, Any], choice),
+                seen_refs=set(seen_refs),
+            )
+            if choice_shapes is None:
+                return None
+            kinds.update(choice_shapes)
+        return frozenset(kinds)
+
+    schema_type = cast(object, schema.get("type"))
+    raw_types: list[object] = (
+        cast(list[object], schema_type)
+        if isinstance(schema_type, list)
+        else [schema_type]
+    )
+    if any(item is not None for item in raw_types):
+        shapes: set[str] = set()
+        for item in raw_types:
+            if item == "null":
+                shapes.add("null")
+            elif isinstance(item, str) and item in _SCALAR_HEADER_TYPES:
+                shapes.add("scalar")
+            elif item == "array" and _array_items_are_non_null_scalar(
+                root,
+                schema,
+                seen_refs=set(seen_refs),
+            ):
+                shapes.add("sequence")
+            else:
+                return None
+        return frozenset(shapes)
+
+    if "const" in schema:
+        value = schema["const"]
+        if value is None:
+            return frozenset({"null"})
+        if isinstance(value, str | int | float | bool):
+            return frozenset({"scalar"})
+        return None
+    enum = schema.get("enum")
+    if isinstance(enum, list) and enum:
+        shapes: set[str] = set()
+        for value in cast(list[object], enum):
+            if value is None:
+                shapes.add("null")
+            elif isinstance(value, str | int | float | bool):
+                shapes.add("scalar")
+            else:
+                return None
+        return frozenset(shapes)
+    return None
+
+
+def _array_items_are_non_null_scalar(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    *,
+    seen_refs: set[str],
+) -> bool:
+    items = schema.get("items")
+    if isinstance(items, Mapping):
+        if _parameter_schema_shapes(
+            root,
+            cast(Mapping[str, Any], items),
+            seen_refs=set(seen_refs),
+        ) != frozenset({"scalar"}):
+            return False
+    elif items is not None and items is not False:
+        return False
+
+    prefix_items = schema.get("prefixItems")
+    if prefix_items is None:
+        return isinstance(items, Mapping)
+    if not isinstance(prefix_items, list) or not prefix_items:
+        return False
+    typed_prefix_items = cast(list[object], prefix_items)
+    if any(
+        not isinstance(item, Mapping)
+        or _parameter_schema_shapes(
+            root,
+            cast(Mapping[str, Any], item),
+            seen_refs=set(seen_refs),
+        )
+        != frozenset({"scalar"})
+        for item in typed_prefix_items
+    ):
+        return False
+    if isinstance(items, Mapping) or items is False:
+        return True
+    max_items = schema.get("maxItems")
+    return (
+        isinstance(max_items, int)
+        and not isinstance(max_items, bool)
+        and max_items <= len(typed_prefix_items)
+    )
+
+
+def _query_parameter_is_sequence(  # pyright: ignore[reportUnusedFunction]
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    *,
+    seen_refs: set[str],
+) -> bool:
+    """Whether a supported query field accepts repeated wire values."""
+    shapes = _parameter_schema_shapes(root, schema, seen_refs=seen_refs)
+    return shapes is not None and "sequence" in shapes and "scalar" not in shapes
+
+
+def _local_schema_reference(
+    root: Mapping[str, Any], reference: str
+) -> Mapping[str, Any] | None:
+    target: object = root
+    for raw_part in reference[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(target, Mapping) or part not in target:
+            return None
+        target = cast(Mapping[object, object], target)[part]
+    return cast(Mapping[str, Any], target) if isinstance(target, Mapping) else None
+
+
 def _is_scalar_header_schema(
     root: Mapping[str, Any],
     schema: Mapping[str, Any],
     *,
     seen_refs: set[str],
 ) -> bool:
-    reference = schema.get("$ref")
-    if isinstance(reference, str) and reference.startswith("#/"):
-        if reference in seen_refs:
-            return False
-        target: object = root
-        for raw_part in reference[2:].split("/"):
-            part = raw_part.replace("~1", "/").replace("~0", "~")
-            if not isinstance(target, Mapping) or part not in target:
-                return False
-            target = cast(Mapping[object, object], target)[part]
-        if not isinstance(target, Mapping):
-            return False
-        return _is_scalar_header_schema(
-            root,
-            cast(Mapping[str, Any], target),
-            seen_refs={*seen_refs, reference},
-        )
-    for union_key in ("anyOf", "oneOf"):
-        choices = schema.get(union_key)
-        if isinstance(choices, list):
-            typed_choices = cast(list[object], choices)
-            return bool(typed_choices) and all(
-                isinstance(choice, Mapping)
-                and _is_scalar_header_schema(
-                    root,
-                    cast(Mapping[str, Any], choice),
-                    seen_refs=set(seen_refs),
-                )
-                for choice in typed_choices
-            )
-    schema_type = schema.get("type")
-    if isinstance(schema_type, str):
-        return schema_type in _SCALAR_HEADER_TYPES
-    if isinstance(schema_type, list):
-        typed_schema_types = cast(list[object], schema_type)
-        return bool(typed_schema_types) and all(
-            isinstance(item, str) and item in _SCALAR_HEADER_TYPES
-            for item in typed_schema_types
-        )
-    if "const" in schema:
-        return (
-            isinstance(schema["const"], str | int | float | bool)
-            or schema["const"] is None
-        )
-    enum = schema.get("enum")
-    return isinstance(enum, list) and all(
-        isinstance(item, str | int | float | bool) or item is None
-        for item in cast(list[object], enum)
-    )
+    shapes = _parameter_schema_shapes(root, schema, seen_refs=seen_refs)
+    return shapes is not None and bool(shapes) and shapes <= {"scalar", "null"}
 
 
 def _render_response_header_value(  # pyright: ignore[reportUnusedFunction]

@@ -55,3 +55,16 @@ def test_openapi_default_flags_override_source_metadata(tmp_path: Path) -> None:
     )
 
     assert result == ("Flag", "9.0.0", "Flag description", '{"custom":{}}')
+
+
+def test_openapi_empty_flag_values_are_not_replaced_by_defaults(tmp_path: Path) -> None:
+    result = openapi_defaults(
+        tmp_path,
+        routes="app.server.routes:api_routes",
+        title="",
+        version="",
+        description=None,
+        security_json=None,
+    )
+
+    assert result[:2] == ("", "")

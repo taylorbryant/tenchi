@@ -3,10 +3,11 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Annotated
 
 import httpx
 import pytest
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, field_validator
 
 from tenchi.contracts import contract
 from tenchi.errors import ERROR_SOURCE_HEADER, AppError, ConfigurationError, ErrorDef
@@ -33,6 +34,11 @@ class SearchQuery(BaseModel):
     term: str = ""
     limit: int = 10
     tags: list[str] = []
+
+
+@dataclass(frozen=True, slots=True)
+class DataclassSearchQuery:
+    tags: list[str]
 
 
 class ClientHeaders(BaseModel):
@@ -400,6 +406,189 @@ async def test_single_repeated_query_value_still_makes_a_list(
 
     assert response.status_code == 200
     assert response.json()["tags"] == ["a"]
+
+
+async def test_dataclass_query_single_repeated_value_still_makes_a_list() -> None:
+    async def search(
+        query: DataclassSearchQuery, context: Context
+    ) -> DataclassSearchQuery:
+        return query
+
+    app_client = await make_client(
+        route_group(
+            route(
+                contract(
+                    method="GET",
+                    path="/search",
+                    query=DataclassSearchQuery,
+                    response=DataclassSearchQuery,
+                ),
+                search,
+            )
+        )
+    )
+    async with app_client:
+        response = await app_client.get("/search?tags=a")
+
+    assert response.status_code == 200
+    assert response.json() == {"tags": ["a"]}
+
+
+async def test_nullable_scalar_and_whole_array_parameters_remain_supported() -> None:
+    class OptionalQuery(BaseModel):
+        term: str | None = None
+        tags: list[str] | None = None
+
+    class OptionalHeaders(BaseModel):
+        x_trace: str | None = None
+
+    async def inspect_parameters(
+        query: OptionalQuery,
+        headers: OptionalHeaders,
+        context: Context,
+    ) -> str:
+        return f"{query.term}/{query.tags}/{headers.x_trace}"
+
+    app_client = await make_client(
+        route_group(
+            route(
+                contract(
+                    method="GET",
+                    path="/optional-parameters",
+                    query=OptionalQuery,
+                    headers=OptionalHeaders,
+                    response=str,
+                ),
+                inspect_parameters,
+            )
+        )
+    )
+    async with app_client:
+        omitted = await app_client.get("/optional-parameters")
+        supplied = await app_client.get(
+            "/optional-parameters?tags=a",
+            headers={"x-trace": "trace-1"},
+        )
+
+    assert omitted.status_code == 200
+    assert omitted.json() == "None/None/None"
+    assert supplied.status_code == 200
+    assert supplied.json() == "None/['a']/trace-1"
+
+
+def test_create_app_rejects_query_and_header_shapes_without_a_wire_encoding() -> None:
+    class NestedQuery(BaseModel):
+        filters: dict[str, str]
+
+    async def nested_query(query: NestedQuery, context: Context) -> None:
+        return None
+
+    nested_contract = contract(method="GET", path="/nested", query=NestedQuery)
+    with pytest.raises(
+        ConfigurationError,
+        match="query type NestedQuery field 'filters' must serialize as a scalar",
+    ):
+        create_app(
+            routes=route_group(route(nested_contract, nested_query)),
+            context_factory=lambda: Context(request_id=1),
+        )
+
+    class RepeatedHeaders(BaseModel):
+        x_values: list[str]
+
+    async def repeated_headers(headers: RepeatedHeaders, context: Context) -> None:
+        return None
+
+    header_contract = contract(
+        method="GET", path="/repeated-header", headers=RepeatedHeaders
+    )
+    with pytest.raises(
+        ConfigurationError,
+        match="headers type RepeatedHeaders field 'x_values' must serialize as one",
+    ):
+        create_app(
+            routes=route_group(route(header_contract, repeated_headers)),
+            context_factory=lambda: Context(request_id=1),
+        )
+
+    class CollidingHeaders(BaseModel):
+        first: str = Field(alias="X-Trace")
+        second: str = Field(alias="x_trace")
+
+    async def colliding_headers(headers: CollidingHeaders, context: Context) -> None:
+        return None
+
+    colliding_contract = contract(
+        method="GET", path="/colliding-headers", headers=CollidingHeaders
+    )
+    with pytest.raises(
+        ConfigurationError,
+        match="duplicate HTTP header name 'x-trace'",
+    ):
+        create_app(
+            routes=route_group(route(colliding_contract, colliding_headers)),
+            context_factory=lambda: Context(request_id=1),
+        )
+
+    class InvalidHeaders(BaseModel):
+        value: str = Field(alias="bad header")
+
+    async def invalid_headers(headers: InvalidHeaders, context: Context) -> None:
+        return None
+
+    invalid_contract = contract(
+        method="GET", path="/invalid-headers", headers=InvalidHeaders
+    )
+    with pytest.raises(
+        ConfigurationError,
+        match="field 'bad header' is not a valid HTTP header name",
+    ):
+        create_app(
+            routes=route_group(route(invalid_contract, invalid_headers)),
+            context_factory=lambda: Context(request_id=1),
+        )
+
+    class TransportHeaders(BaseModel):
+        content_type: str
+
+    async def transport_headers(headers: TransportHeaders, context: Context) -> None:
+        return None
+
+    transport_contract = contract(
+        method="GET", path="/transport-headers", headers=TransportHeaders
+    )
+    with pytest.raises(
+        ConfigurationError,
+        match="transport-owned HTTP header 'content-type'",
+    ):
+        create_app(
+            routes=route_group(route(transport_contract, transport_headers)),
+            context_factory=lambda: Context(request_id=1),
+        )
+
+    def serialize_nested(value: int) -> dict[str, int]:
+        return {"value": value}
+
+    class SerializedQuery(BaseModel):
+        value: Annotated[
+            int,
+            PlainSerializer(serialize_nested, return_type=dict[str, int]),
+        ]
+
+    async def serialized_query(query: SerializedQuery, context: Context) -> None:
+        return None
+
+    serialized_contract = contract(
+        method="GET", path="/serialized-query", query=SerializedQuery
+    )
+    with pytest.raises(
+        ConfigurationError,
+        match="query type SerializedQuery field 'value' must serialize as a scalar",
+    ):
+        create_app(
+            routes=route_group(route(serialized_contract, serialized_query)),
+            context_factory=lambda: Context(request_id=1),
+        )
 
 
 async def test_custom_validator_failure_is_a_422(client: httpx.AsyncClient) -> None:

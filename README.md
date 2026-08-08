@@ -383,11 +383,11 @@ tenchi tools --diff tools.json
 tenchi tools --diff-ref origin/main --snapshot tools.json
 tenchi tools --check tools.json
 tenchi tools --write tools.json
-tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0
-tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0 --diff openapi.json
-tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0 --diff-ref origin/main --snapshot openapi.json
-tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0 --check openapi.json
-tenchi openapi --routes app.server.routes:api_routes --title my_app --version 0.1.0 --write openapi.json
+tenchi openapi
+tenchi openapi --diff openapi.json
+tenchi openapi --diff-ref origin/main --snapshot openapi.json
+tenchi openapi --check openapi.json
+tenchi openapi --write openapi.json
 tenchi doctor --json
 tenchi check
 tenchi verify --base-ref origin/main --json
@@ -411,11 +411,12 @@ metadata-only, or unknown. Breaking and unknown changes return a non-zero
 status; additive and metadata-only changes pass. Use `--diff-format json` for
 machine-readable output. `--diff-ref` reads the snapshot at a Git commit, which
 keeps a pull-request gate historical even when the branch updates its snapshot.
-`openapi --check` remains the exact drift check for tests and CI. Pass the same
-`--routes`, `--title`, `--version`, `--description`, and `--security` options in
-every standalone `openapi` command; it does not discover route-module metadata.
-`tenchi check` and `tenchi verify` do discover literal `OPENAPI_*`
-declarations. Run `--diff` before replacing the baseline with `--write`.
+`openapi --check` remains the exact drift check for tests and CI. Like `check`
+and `verify`, standalone `openapi` defaults to `app.server.routes:api_routes`
+and discovers literal `OPENAPI_TITLE`, `OPENAPI_VERSION`,
+`OPENAPI_DESCRIPTION`, and `OPENAPI_SECURITY` declarations from that module.
+Flags override those declarations for nonstandard composition. Run `--diff`
+before replacing the baseline with `--write`.
 `--output` and `-o` remain aliases for `--write`. For programmatic checks,
 import `analyze_openapi_compatibility` from `tenchi.compatibility`.
 

@@ -19,6 +19,7 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence, Set
+from copy import deepcopy
 from dataclasses import dataclass
 from math import ceil, isfinite
 from time import monotonic
@@ -27,6 +28,7 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter
 
+from ._values import same_python_value
 from .errors import AppError, ConfigurationError, ErrorDef, TenchiError
 
 logger = logging.getLogger("tenchi.idempotency")
@@ -308,19 +310,19 @@ def fingerprint(value: Any, *, annotation: Any = _UNSET) -> str:
     declared: Any = cast(Any, type(value)) if annotation is _UNSET else annotation
     adapter = _build_adapter(declared, label="fingerprint annotation")
     validated = adapter.validate_python(value)
-    python_value = adapter.dump_python(
-        validated,
-        mode="python",
-        by_alias=True,
-    )
-    if _contains_unordered_collection(python_value):
-        raise ConfigurationError(
-            "fingerprint: unordered set and frozenset values are not supported; "
-            "convert them to a sorted tuple or list"
-        )
     try:
+        python_value = adapter.dump_python(
+            deepcopy(validated),
+            mode="python",
+            by_alias=True,
+        )
+        if _contains_unordered_collection(python_value):
+            raise ConfigurationError(
+                "fingerprint: unordered set and frozenset values are not supported; "
+                "convert them to a sorted tuple or list"
+            )
         jsonable = adapter.dump_python(
-            validated,
+            deepcopy(validated),
             mode="json",
             by_alias=True,
         )
@@ -331,11 +333,59 @@ def fingerprint(value: Any, *, annotation: Any = _UNSET) -> str:
             sort_keys=True,
             separators=(",", ":"),
         ).encode()
-    except (TypeError, ValueError) as exc:
+        round_tripped = adapter.validate_json(canonical)
+        round_trip_jsonable = adapter.dump_python(
+            deepcopy(round_tripped),
+            mode="json",
+            by_alias=True,
+        )
+        round_trip_canonical = json.dumps(
+            round_trip_jsonable,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    except ConfigurationError:
+        raise
+    except Exception as exc:
         raise ConfigurationError(
             "fingerprint: value must have a canonical JSON representation"
         ) from exc
-    return hashlib.sha256(canonical).hexdigest()
+    if not same_python_value(validated, round_tripped):
+        raise ConfigurationError(
+            "fingerprint: JSON serialization must preserve the validated value; "
+            "use a concrete annotation or convert lossy values to explicit JSON data"
+        )
+    if canonical != round_trip_canonical:
+        raise ConfigurationError(
+            "fingerprint: JSON serialization must be stable after validation; "
+            "exclude dynamic or undeclared serialized fields"
+        )
+    type_prefix = b""
+    if annotation is _UNSET and not _is_json_native(cast(object, value)):
+        value_type = type(cast(object, value))
+        type_prefix = f"{value_type.__module__}.{value_type.__qualname__}\0".encode()
+    return hashlib.sha256(type_prefix + canonical).hexdigest()
+
+
+def _is_json_native(value: object) -> bool:
+    if value is None or type(value) in {str, bool, int}:
+        return True
+    if type(value) is float:
+        assert isinstance(value, float)
+        return isfinite(value)
+    if type(value) is list:
+        assert isinstance(value, list)
+        return all(_is_json_native(item) for item in cast(list[object], value))
+    if type(value) is dict:
+        assert isinstance(value, Mapping)
+        mapping = cast(Mapping[object, object], value)
+        return all(
+            isinstance(key, str) and _is_json_native(item)
+            for key, item in mapping.items()
+        )
+    return False
 
 
 async def run_idempotently[ResultT](

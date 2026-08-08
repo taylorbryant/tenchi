@@ -31,6 +31,7 @@ _OPAQUE_RESTRICTIONS = ("pattern", "format", "multipleOf", "uniqueItems")
 _SCHEMA_KNOWN = frozenset(
     {
         "$ref",
+        "$defs",
         "type",
         "enum",
         "const",
@@ -89,7 +90,11 @@ class _Comparator:
         before_ref = before.get("$ref")
         after_ref = after.get("$ref")
         if "$ref" in before or "$ref" in after:
-            siblings = (set(before) | set(after)) - {"$ref"}
+            # Definitions are a reference registry, not a constraint sibling.
+            # Referenced definitions are compared through the fields that use
+            # them; treating the registry itself as opaque would turn every
+            # safe nested change into an unknown change at the wrapper.
+            siblings = (set(before) | set(after)) - {"$ref", "$defs"}
             if any(
                 _field_changed(before, after, key)
                 or _expanded_value(self.baseline, before.get(key))

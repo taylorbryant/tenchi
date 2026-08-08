@@ -163,7 +163,15 @@ only when every caller should share the same key namespace.
 
 `fingerprint()` validates against `annotation=` before hashing canonical JSON.
 Equivalent validated values therefore share a fingerprint even when mapping
-order or coercible input spelling differs.
+order or coercible input spelling differs. The serialized value must validate
+back to the same untouched Python value and serialize to the same canonical
+JSON again. Lossy or mutating serializers, dynamic or undeclared serializer
+output, and `Any` values such as non-finite floats or bytes therefore cannot
+silently collide with `null` or strings—or make one request acquire changing
+fingerprints. Pass a concrete annotation when Pydantic owns a non-JSON
+representation such as a datetime. Without `annotation=`, every non-JSON root
+type—including Pydantic models and string enums—includes its runtime type in
+the fingerprint.
 
 `set` and `frozenset` values are rejected because their iteration order is not
 a stable serialization boundary. Convert them to a sorted tuple or list before

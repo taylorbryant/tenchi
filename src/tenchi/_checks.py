@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -169,6 +170,7 @@ def _run_step(
     cancelled: Callable[[], bool] | None,
 ) -> CheckStepResult:
     started = perf_counter()
+    process: subprocess.Popen[bytes] | None = None
     try:
         with (
             TemporaryFile(mode="w+b") as stdout_file,
@@ -244,6 +246,9 @@ def _run_step(
             stdout_truncated=False,
             stderr_truncated=stderr_truncated,
         )
+    finally:
+        if process is not None and process.poll() is None:
+            _stop_process(process)
 
 
 def _start_process(
@@ -280,22 +285,25 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
         except ProcessLookupError:
             process.wait()
             return
-    else:  # pragma: no cover - exercised on Windows CI when available
-        process.terminate()
-    try:
+        with suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=1)
+        # The group leader may exit while a descendant ignores SIGTERM.
+        # Probe the group with SIGKILL even after wait() succeeds; killpg()
+        # reports ProcessLookupError once every member is gone.
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        if process.returncode is None:
+            process.wait()
+        return
+
+    # Windows has no process-group equivalent for this subprocess setup.
+    process.terminate()  # pragma: no cover - exercised on Windows CI
+    try:  # pragma: no cover - exercised on Windows CI
         process.wait(timeout=1)
         return
-    except subprocess.TimeoutExpired:
-        pass
-    if os.name == "posix":
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            process.wait()
-            return
-    else:  # pragma: no cover - exercised on Windows CI when available
+    except subprocess.TimeoutExpired:  # pragma: no cover - Windows CI
         process.kill()
-    process.wait()
+        process.wait()
 
 
 def _execution_command(command: tuple[str, ...]) -> list[str]:

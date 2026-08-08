@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import httpx
+import pytest
 from openapi_spec_validator import validate
 
 from app.infra.memory_todo_repository import MemoryTodoRepository
@@ -13,15 +14,6 @@ from tenchi.openapi import openapi_schema
 from tenchi.server import create_app
 
 SNAPSHOT = Path(__file__).parent.parent / "openapi.json"
-OPENAPI_ARGUMENTS = [
-    "openapi",
-    "--routes",
-    "app.server.routes:api_routes",
-    "--title",
-    OPENAPI_TITLE,
-    "--version",
-    OPENAPI_VERSION,
-]
 
 
 def test_document_is_valid_openapi() -> None:
@@ -40,8 +32,9 @@ def test_document_is_valid_openapi() -> None:
     )
 
 
-def test_openapi_snapshot_is_current() -> None:
-    assert main([*OPENAPI_ARGUMENTS, "--check", str(SNAPSHOT)]) == 0
+def test_openapi_snapshot_is_current(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(SNAPSHOT.parent)
+    assert main(["openapi", "--check", str(SNAPSHOT)]) == 0
 
 
 async def test_document_is_served_by_the_app() -> None:

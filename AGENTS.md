@@ -346,7 +346,11 @@ versioned snapshots intact.
 `openapi --write`, `openapi --check`, `openapi --diff`, and Git-backed
 `openapi --diff-ref` use the same canonical format; checked-in example and
 generated-app snapshots must be reproducible with their documented metadata and
-security options. Run `openapi --diff` before accepting a changed snapshot:
+security options. Standalone `openapi` defaults to
+`app.server.routes:api_routes` and discovers literal `OPENAPI_TITLE`,
+`OPENAPI_VERSION`, `OPENAPI_DESCRIPTION`, and `OPENAPI_SECURITY` declarations
+from that module, matching `check` and `verify`. Run `openapi --diff` before
+accepting a changed snapshot:
 breaking and unknown changes fail, while additive and metadata-only changes
 pass. CI compatibility checks must obtain their baseline from the pull-request
 base or preceding push; prefer `--diff-ref` when that baseline is committed.

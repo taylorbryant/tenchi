@@ -321,6 +321,16 @@ def run_doctor(root: Path) -> list[Finding]:
         # doctor has no rules for can still hide a syntax error.
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError) as exc:
+            findings.append(
+                Finding(
+                    path=relative.as_posix(),
+                    line=0,
+                    message=(f"could not read UTF-8 source: {type(exc).__name__}"),
+                    code="TENCHI_DOCTOR_SOURCE_ERROR",
+                )
+            )
+            continue
         except SyntaxError as exc:
             findings.append(
                 Finding(
@@ -383,7 +393,10 @@ def _authorization_findings(root: Path) -> list[Finding]:
             continue
         if _classify_module(_module_parts(relative)) != "use_cases":
             continue
-        source = path.read_text(encoding="utf-8")
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue  # already reported by the parse pass
         try:
             tree = ast.parse(source)
         except SyntaxError:

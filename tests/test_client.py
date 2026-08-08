@@ -2,11 +2,20 @@
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import assert_type
+from typing import Annotated, assert_type
 
 import httpx
 import pytest
-from pydantic import BaseModel, Field, ValidationError, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    SecretStr,
+    ValidationError,
+    computed_field,
+    model_serializer,
+)
 from starlette.applications import Starlette
 
 from tenchi.client import Client, ClientResponse, UnexpectedResponseError
@@ -248,6 +257,40 @@ async def test_call_substitutes_path_params(client: Client) -> None:
     assert item == Item(name="abc")
 
 
+async def test_call_rejects_lossy_path_parameter_serializers_before_io() -> None:
+    def increment(value: int) -> str:
+        return str(value + 1)
+
+    class SecretParams(BaseModel):
+        value: SecretStr
+
+    class ChangedParams(BaseModel):
+        value: Annotated[int, PlainSerializer(increment, return_type=str)]
+
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    cases = (
+        (SecretParams, SecretParams(value=SecretStr("secret"))),
+        (ChangedParams, ChangedParams(value=1)),
+    )
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        for params_type, value in cases:
+            declared = contract(
+                method="GET",
+                path="/items/{value}",
+                params=params_type,
+                status=204,
+            )
+            with pytest.raises(ConfigurationError, match="must round-trip"):
+                await client.call(declared, params=value)
+
+    assert requests == []
+
+
 async def test_call_substitutes_starlette_path_converters() -> None:
     class NumericParams(BaseModel):
         item_id: int
@@ -280,6 +323,95 @@ async def test_call_omits_query_to_use_defaults(client: Client) -> None:
     result = await client.call(search_contract)
 
     assert result == SearchQuery()
+
+
+async def test_omitted_query_can_use_inherited_httpx_parameters() -> None:
+    class RequiredQuery(BaseModel):
+        value: str
+
+    declared = contract(
+        method="GET",
+        path="/required",
+        query=RequiredQuery,
+        response=RequiredQuery,
+    )
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"value": request.url.params["value"]})
+
+    http = httpx.AsyncClient(
+        base_url="http://testserver",
+        params={"value": "inherited"},
+        transport=httpx.MockTransport(respond),
+    )
+    async with Client(http=http) as client:
+        result = await client.call(declared)
+    await http.aclose()
+
+    assert result == RequiredQuery(value="inherited")
+
+
+async def test_per_call_query_cannot_silently_reveal_inherited_parameters() -> None:
+    class OptionalQuery(BaseModel):
+        trace_id: str | None = None
+
+    declared = contract(
+        method="GET",
+        path="/query",
+        query=OptionalQuery,
+        status=204,
+    )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    http = httpx.AsyncClient(
+        base_url="http://testserver",
+        params={"trace_id": "inherited"},
+        transport=httpx.MockTransport(respond),
+    )
+    async with Client(http=http) as client:
+        with pytest.raises(ConfigurationError, match="changes the validated value"):
+            await client.call(declared, query=OptionalQuery())
+    await http.aclose()
+
+    assert requests == []
+
+
+@pytest.mark.parametrize("slot", ["query", "headers"])
+async def test_call_rejects_omitted_required_parameter_groups_before_io(
+    slot: str,
+) -> None:
+    class RequiredParameters(BaseModel):
+        value: str
+
+    if slot == "query":
+        declared = contract(
+            method="GET",
+            path="/required",
+            query=RequiredParameters,
+            status=204,
+        )
+    else:
+        declared = contract(
+            method="GET",
+            path="/required",
+            headers=RequiredParameters,
+            status=204,
+        )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ValidationError):
+            await client.call(declared)
+
+    assert requests == []
 
 
 async def test_call_returns_none_for_empty_response(client: Client) -> None:
@@ -342,6 +474,83 @@ async def test_call_uses_pydantic_aliases_as_wire_names() -> None:
 
     assert result == AliasedItem(wireTitle="milk")
     assert received == [("42", ["featured"], "secret", "milk")]
+
+
+async def test_header_alias_modes_can_normalize_to_the_same_wire_name() -> None:
+    class AliasedHeaders(BaseModel):
+        trace: str = Field(
+            validation_alias="X-Trace",
+            serialization_alias="x_trace",
+        )
+
+    declared = contract(
+        method="GET",
+        path="/header-alias-modes",
+        headers=AliasedHeaders,
+        response=str,
+    )
+
+    async def echo(headers: AliasedHeaders, context: Context) -> str:
+        return headers.trace
+
+    app = create_app(routes=route_group(route(declared, echo)), context_factory=Context)
+
+    async with Client(transport=httpx.ASGITransport(app=app)) as tenchi_client:
+        result = await tenchi_client.call(
+            declared,
+            headers=AliasedHeaders.model_validate({"X-Trace": "trace-1"}),
+        )
+
+    assert result == "trace-1"
+
+
+async def test_call_round_trips_fixed_tuple_query_fields() -> None:
+    class FixedQuery(BaseModel):
+        values: tuple[str, int]
+
+    declared = contract(
+        method="GET",
+        path="/fixed-query",
+        query=FixedQuery,
+        response=FixedQuery,
+    )
+
+    async def echo(query: FixedQuery, context: Context) -> FixedQuery:
+        return query
+
+    app = create_app(routes=route_group(route(declared, echo)), context_factory=Context)
+
+    async with Client(transport=httpx.ASGITransport(app=app)) as tenchi_client:
+        result = await tenchi_client.call(
+            declared,
+            query=FixedQuery(values=("first", 2)),
+        )
+
+    assert result == FixedQuery(values=("first", 2))
+
+
+async def test_call_uses_validation_requiredness_for_nullable_query_fields() -> None:
+    class OptionalQuery(BaseModel):
+        model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+        value: str | None = None
+
+    declared = contract(
+        method="GET",
+        path="/optional-query",
+        query=OptionalQuery,
+        response=OptionalQuery,
+    )
+
+    async def echo(query: OptionalQuery, context: Context) -> OptionalQuery:
+        return query
+
+    app = create_app(routes=route_group(route(declared, echo)), context_factory=Context)
+
+    async with Client(transport=httpx.ASGITransport(app=app)) as tenchi_client:
+        result = await tenchi_client.call(declared, query=OptionalQuery())
+
+    assert result == OptionalQuery(value=None)
 
 
 async def test_call_round_trips_text_media_type(client: Client) -> None:
@@ -475,6 +684,51 @@ async def test_owned_client_with_transport_and_default_headers() -> None:
     assert result == "from-default/en"
 
 
+async def test_omitted_header_model_defaults_override_httpx_defaults() -> None:
+    class AcceptHeaders(BaseModel):
+        accept: str = "application/json"
+
+    declared = contract(
+        method="GET",
+        path="/headers",
+        headers=AcceptHeaders,
+        status=204,
+    )
+    received: list[str] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        received.append(request.headers["accept"])
+        return httpx.Response(204)
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        await client.call(declared)
+
+    assert received == ["application/json"]
+
+
+async def test_nullable_header_cannot_hide_an_httpx_transport_default() -> None:
+    class OptionalAcceptHeaders(BaseModel):
+        accept: str | None = None
+
+    declared = contract(
+        method="GET",
+        path="/headers",
+        headers=OptionalAcceptHeaders,
+        status=204,
+    )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConfigurationError, match="changes the validated value"):
+            await client.call(declared)
+
+    assert requests == []
+
+
 async def test_per_call_headers_override_client_defaults() -> None:
     app = make_app()
 
@@ -490,6 +744,32 @@ async def test_per_call_headers_override_client_defaults() -> None:
     # defaulted accept_language — because the model fully describes the
     # contract's header inputs.
     assert result == "per-call/en"
+
+
+async def test_per_call_headers_cannot_silently_reveal_client_defaults() -> None:
+    class OptionalHeaders(BaseModel):
+        trace_id: str | None = Field(default=None, alias="X-Trace-ID")
+
+    declared = contract(
+        method="GET",
+        path="/headers",
+        headers=OptionalHeaders,
+        status=204,
+    )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    async with Client(
+        transport=httpx.MockTransport(respond),
+        headers={"x-trace-id": "inherited"},
+    ) as client:
+        with pytest.raises(ConfigurationError, match="changes the validated value"):
+            await client.call(declared, headers=OptionalHeaders())
+
+    assert requests == []
 
 
 def test_client_constructor_validation() -> None:
@@ -573,6 +853,442 @@ async def test_client_rejects_scalar_optional_input_types_before_io(slot: str) -
     async with Client(transport=httpx.MockTransport(respond)) as client:
         with pytest.raises(ConfigurationError, match=rf"{slot} type.*object"):
             await client.call(declared)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("slot", ["query", "headers"])
+async def test_client_rejects_parameters_without_a_wire_encoding(slot: str) -> None:
+    class NestedQuery(BaseModel):
+        filters: dict[str, str]
+
+    class RepeatedHeaders(BaseModel):
+        x_values: list[str]
+
+    calls: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(204)
+
+    declared = (
+        contract(method="GET", path="/unsupported-query", query=NestedQuery, status=204)
+        if slot == "query"
+        else contract(
+            method="GET",
+            path="/unsupported-headers",
+            headers=RepeatedHeaders,
+            status=204,
+        )
+    )
+    value = (
+        NestedQuery(filters={"status": "open"})
+        if slot == "query"
+        else RepeatedHeaders(x_values=["one", "two"])
+    )
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConfigurationError, match="must serialize as"):
+            if slot == "query":
+                await client.call(declared, query=value)
+            else:
+                await client.call(declared, headers=value)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "kind", ["nested serializer", "cardinality serializer", "computed field"]
+)
+async def test_client_rejects_parameter_serialization_schema_drift_before_io(
+    kind: str,
+) -> None:
+    def serialize_nested(value: int) -> dict[str, int]:
+        return {"value": value}
+
+    class SerializedQuery(BaseModel):
+        value: Annotated[
+            int,
+            PlainSerializer(serialize_nested, return_type=dict[str, int]),
+        ]
+
+    def serialize_values(values: list[int]) -> str:
+        return ",".join(str(value) for value in values)
+
+    class FlattenedQuery(BaseModel):
+        values: Annotated[
+            list[int],
+            PlainSerializer(serialize_values, return_type=str),
+        ]
+
+    class ComputedQuery(BaseModel):
+        value: int
+
+        @computed_field
+        @property
+        def doubled(self) -> int:
+            return self.value * 2
+
+    if kind == "nested serializer":
+        query_type = SerializedQuery
+        query = SerializedQuery(value=1)
+    elif kind == "cardinality serializer":
+        query_type = FlattenedQuery
+        query = FlattenedQuery(values=[1, 2])
+    else:
+        query_type = ComputedQuery
+        query = ComputedQuery(value=1)
+    calls: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(204)
+
+    declared = contract(
+        method="GET",
+        path="/serialization-drift",
+        query=query_type,
+        status=204,
+    )
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConfigurationError, match=r"serializ|field names"):
+            await client.call(declared, query=query)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("slot", ["params", "query", "headers"])
+async def test_client_rejects_undeclared_serialized_parameter_fields_before_io(
+    slot: str,
+) -> None:
+    class InjectedParameters(BaseModel):
+        value: str
+
+        @model_serializer
+        def serialize_model(  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+            self,
+        ):
+            return {"value": self.value, "injected": "not-declared"}
+
+    if slot == "params":
+        declared = contract(
+            method="GET",
+            path="/items/{value}",
+            params=InjectedParameters,
+            status=204,
+        )
+    elif slot == "query":
+        declared = contract(
+            method="GET",
+            path="/items",
+            query=InjectedParameters,
+            status=204,
+        )
+    else:
+        declared = contract(
+            method="GET",
+            path="/items",
+            headers=InjectedParameters,
+            status=204,
+        )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    value = InjectedParameters(value="one")
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConfigurationError, match="undeclared HTTP parameter"):
+            if slot == "params":
+                await client.call(declared, params=value)
+            elif slot == "query":
+                await client.call(declared, query=value)
+            else:
+                await client.call(declared, headers=value)
+
+    assert requests == []
+
+
+async def test_client_rejects_non_object_parameter_serialization_before_io() -> None:
+    class ListSerializedQuery(BaseModel):
+        value: str
+
+        @model_serializer
+        def serialize_model(  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+            self,
+        ):
+            return [self.value]
+
+    declared = contract(
+        method="GET",
+        path="/items",
+        query=ListSerializedQuery,
+        status=204,
+    )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ConfigurationError, match="must produce an object"):
+            await client.call(declared, query=ListSerializedQuery(value="one"))
+
+    assert requests == []
+
+
+async def test_client_rejects_query_values_that_do_not_round_trip_before_io() -> None:
+    def increment(value: int) -> str:
+        return str(value + 1)
+
+    def collapse(values: list[str]) -> list[str]:
+        values[:] = ["changed"]
+        return values
+
+    class SecretQuery(BaseModel):
+        value: SecretStr
+
+    class ChangedQuery(BaseModel):
+        value: Annotated[int, PlainSerializer(increment, return_type=str)]
+
+    class RequiredListQuery(BaseModel):
+        values: list[str]
+
+    class NullableListQuery(BaseModel):
+        values: list[str] | None = None
+
+    class MutatingQuery(BaseModel):
+        values: Annotated[
+            list[str],
+            PlainSerializer(collapse, return_type=list[str]),
+        ]
+
+    calls: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(204)
+
+    mutating = MutatingQuery(values=["one", "two"])
+    cases = (
+        (SecretQuery, SecretQuery(value=SecretStr("secret"))),
+        (ChangedQuery, ChangedQuery(value=1)),
+        (RequiredListQuery, RequiredListQuery(values=[])),
+        (NullableListQuery, NullableListQuery(values=[])),
+        (MutatingQuery, mutating),
+    )
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        for query_type, value in cases:
+            declared = contract(
+                method="GET",
+                path="/query-round-trip",
+                query=query_type,
+                status=204,
+            )
+            with pytest.raises(ConfigurationError, match="must round-trip"):
+                await client.call(declared, query=value)
+
+    assert calls == []
+    assert mutating.values == ["one", "two"]
+
+
+async def test_client_rejects_header_values_that_do_not_round_trip_before_io() -> None:
+    def increment(value: int) -> str:
+        return str(value + 1)
+
+    class SecretHeaders(BaseModel):
+        value: SecretStr
+
+    class ChangedHeaders(BaseModel):
+        value: Annotated[int, PlainSerializer(increment, return_type=str)]
+
+    calls: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(204)
+
+    cases = (
+        (SecretHeaders, SecretHeaders(value=SecretStr("secret"))),
+        (ChangedHeaders, ChangedHeaders(value=1)),
+    )
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        for headers_type, value in cases:
+            declared = contract(
+                method="GET",
+                path="/header-round-trip",
+                headers=headers_type,
+                status=204,
+            )
+            with pytest.raises(ConfigurationError, match="must round-trip"):
+                await client.call(declared, headers=value)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("line\nbreak", "must not contain CR or LF"),
+        (" padded", "must not start or end with whitespace"),
+        ("value\x00", "must not contain control characters"),
+        ("café", "must be ASCII encodable"),
+    ],
+)
+async def test_client_rejects_invalid_http_header_values_before_io(
+    value: str,
+    message: str,
+) -> None:
+    class UnsafeHeaders(BaseModel):
+        x_value: str
+
+    declared = contract(
+        method="GET",
+        path="/unsafe-header",
+        headers=UnsafeHeaders,
+        status=204,
+    )
+    calls: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(204)
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ValueError, match=message):
+            await client.call(declared, headers=UnsafeHeaders(x_value=value))
+
+    assert calls == []
+
+
+async def test_client_allows_parameter_serialization_that_round_trips() -> None:
+    def render_int(value: int) -> str:
+        return str(value)
+
+    class DefaultListQuery(BaseModel):
+        values: list[str] = []
+
+    class RenderedHeaders(BaseModel):
+        value: Annotated[int, PlainSerializer(render_int, return_type=str)]
+
+    calls: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(204)
+
+    query_contract = contract(
+        method="GET",
+        path="/default-list",
+        query=DefaultListQuery,
+        status=204,
+    )
+    header_contract = contract(
+        method="GET",
+        path="/rendered-header",
+        headers=RenderedHeaders,
+        status=204,
+    )
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        assert (
+            await client.call(query_contract, query=DefaultListQuery(values=[])) is None
+        )
+        assert (
+            await client.call(header_contract, headers=RenderedHeaders(value=1)) is None
+        )
+
+    assert [request.url.path for request in calls] == [
+        "/default-list",
+        "/rendered-header",
+    ]
+
+
+async def test_client_rejects_ambiguous_or_unencodable_parameter_unions() -> None:
+    class MixedCardinalityQuery(BaseModel):
+        value: str | list[str]
+
+    class NullableItemQuery(BaseModel):
+        values: list[str | None]
+
+    class NullHeader(BaseModel):
+        x_value: None
+
+    class RequiredNullableQuery(BaseModel):
+        value: str | None
+
+    class RequiredNullableHeaders(BaseModel):
+        x_value: str | None
+
+    calls: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(204)
+
+    declarations = (
+        (
+            contract(
+                method="GET",
+                path="/mixed-cardinality",
+                query=MixedCardinalityQuery,
+                status=204,
+            ),
+            "query",
+            MixedCardinalityQuery(value="one"),
+        ),
+        (
+            contract(
+                method="GET",
+                path="/nullable-items",
+                query=NullableItemQuery,
+                status=204,
+            ),
+            "query",
+            NullableItemQuery(values=["one", None]),
+        ),
+        (
+            contract(
+                method="GET",
+                path="/null-header",
+                headers=NullHeader,
+                status=204,
+            ),
+            "headers",
+            NullHeader(x_value=None),
+        ),
+        (
+            contract(
+                method="GET",
+                path="/required-nullable-query",
+                query=RequiredNullableQuery,
+                status=204,
+            ),
+            "query",
+            RequiredNullableQuery(value=None),
+        ),
+        (
+            contract(
+                method="GET",
+                path="/required-nullable-header",
+                headers=RequiredNullableHeaders,
+                status=204,
+            ),
+            "headers",
+            RequiredNullableHeaders(x_value=None),
+        ),
+    )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        for declared, slot, value in declarations:
+            with pytest.raises(
+                ConfigurationError,
+                match=r"must serialize as|required but accepts null",
+            ):
+                if slot == "query":
+                    await client.call(declared, query=value)
+                else:
+                    await client.call(declared, headers=value)
 
     assert calls == []
 

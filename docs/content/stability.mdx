@@ -36,15 +36,11 @@ release is source-compatible.
    snapshot:
 
    ```shell
-   uv run tenchi openapi \
-     --routes app.server.routes:api_routes \
-     --title my_app \
-     --version 0.1.0 \
-     --diff openapi.json
+   uv run tenchi openapi --diff openapi.json
    ```
 
-   Also pass the snapshot's `--description` and `--security` values when the
-   application configures them.
+   The command discovers the route module's literal `OPENAPI_*` declarations;
+   pass explicit metadata flags only when overriding that convention.
 5. Run `tenchi tools --diff tools.json` against the pre-upgrade snapshot.
 6. Run `tenchi eval snapshot --diff evaluations.json` against the pre-upgrade
    snapshot.

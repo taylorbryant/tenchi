@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 import pytest
 from openapi_spec_validator import validate
-from pydantic import BaseModel, Field, computed_field, create_model
+from pydantic import BaseModel, Field, PlainSerializer, computed_field, create_model
 
 from tenchi.contracts import contract
 from tenchi.errors import ConfigurationError, ErrorDef
@@ -126,6 +126,87 @@ def test_openapi_rejects_malformed_document_metadata_and_security() -> None:
                 "bearer": "http"
             },
         )
+
+
+def test_openapi_rejects_query_and_header_shapes_without_a_wire_encoding() -> None:
+    class NestedQuery(BaseModel):
+        filters: dict[str, str]
+
+    async def nested_query(query: NestedQuery, context: Context) -> None:
+        return None
+
+    nested = route_group(
+        route(contract(method="GET", path="/nested", query=NestedQuery), nested_query)
+    )
+    with pytest.raises(
+        ConfigurationError,
+        match="query input field 'filters' must serialize as a scalar",
+    ):
+        openapi_schema(nested, title="Items", version="1")
+
+    class RepeatedHeaders(BaseModel):
+        x_values: list[str]
+
+    async def repeated_headers(headers: RepeatedHeaders, context: Context) -> None:
+        return None
+
+    repeated = route_group(
+        route(
+            contract(method="GET", path="/repeated-header", headers=RepeatedHeaders),
+            repeated_headers,
+        )
+    )
+    with pytest.raises(
+        ConfigurationError,
+        match="header input field 'x_values' must serialize as one scalar value",
+    ):
+        openapi_schema(repeated, title="Items", version="1")
+
+    def serialize_nested(value: int) -> dict[str, int]:
+        return {"value": value}
+
+    class SerializedQuery(BaseModel):
+        value: Annotated[
+            int,
+            PlainSerializer(serialize_nested, return_type=dict[str, int]),
+        ]
+
+    async def serialized_query(query: SerializedQuery, context: Context) -> None:
+        return None
+
+    serialized = route_group(
+        route(
+            contract(method="GET", path="/serialized", query=SerializedQuery),
+            serialized_query,
+        )
+    )
+    with pytest.raises(
+        ConfigurationError,
+        match="query input field 'value' must serialize as a scalar",
+    ):
+        openapi_schema(serialized, title="Items", version="1")
+
+
+def test_fixed_tuple_query_fields_use_repeated_parameter_encoding() -> None:
+    class FixedQuery(BaseModel):
+        values: tuple[str, int]
+
+    async def search(query: FixedQuery, context: Context) -> None:
+        return None
+
+    routes = route_group(
+        route(contract(method="GET", path="/fixed", query=FixedQuery), search)
+    )
+
+    document = openapi_schema(routes, title="Items", version="1")
+    parameter = document["paths"]["/fixed"]["get"]["parameters"][0]
+
+    assert parameter["name"] == "values"
+    assert parameter["schema"]["type"] == "array"
+    assert parameter["schema"]["prefixItems"] == [
+        {"type": "string"},
+        {"type": "integer"},
+    ]
 
 
 def test_request_body_and_success_response() -> None:
@@ -465,7 +546,7 @@ def test_scalar_mapping_input_slots_are_rejected(slot: str) -> None:
         openapi_schema(group, title="X", version="1")
 
 
-def test_recursive_object_input_root_reference_is_resolved() -> None:
+def test_recursive_query_input_is_rejected_without_a_wire_encoding() -> None:
     class RecursiveQuery(BaseModel):
         term: str = ""
         child: "RecursiveQuery | None" = None
@@ -475,12 +556,11 @@ def test_recursive_object_input_root_reference_is_resolved() -> None:
     async def handler(query: RecursiveQuery, context: Context) -> None:
         return None
 
-    document = openapi_schema(
-        route_group(route(declared, handler)), title="X", version="1"
-    )
-
-    parameters = document["paths"]["/recursive"]["get"]["parameters"]
-    assert [parameter["name"] for parameter in parameters] == ["term", "child"]
+    with pytest.raises(
+        ConfigurationError,
+        match="field 'child' must serialize as a scalar or an array of scalar values",
+    ):
+        openapi_schema(route_group(route(declared, handler)), title="X", version="1")
 
 
 def test_group_level_errors_are_documented_on_every_route() -> None:

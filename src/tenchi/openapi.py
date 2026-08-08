@@ -24,6 +24,7 @@ from . import errors as tenchi_errors
 from .contracts import (
     Contract,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
+    _request_parameter_fields,  # pyright: ignore[reportPrivateUsage]
     _response_header_fields,  # pyright: ignore[reportPrivateUsage]
     contract,
 )
@@ -637,16 +638,59 @@ def _parameters(
     location: str,
     components: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    schema = _json_schema(annotation, components, mode="validation")
+    type_name = getattr(annotation, "__name__", repr(annotation))
+    serialization_schema: dict[str, Any] | None = None
+    serialization_components: dict[str, Any] = {}
+    try:
+        schema = _json_schema(annotation, components, mode="validation")
+        if location in {"path", "query", "header"}:
+            serialization_schema = _json_schema(
+                annotation,
+                serialization_components,
+                mode="serialization",
+            )
+    except ConfigurationError:
+        raise
+    except Exception as exc:
+        raise ConfigurationError(
+            f"openapi: {location} input type {type_name} Pydantic cannot describe: "
+            f"{exc}"
+        ) from exc
     object_schema = _resolved_object_schema(schema, components)
     if object_schema is None:
-        type_name = getattr(annotation, "__name__", repr(annotation))
         raise ConfigurationError(
             f"openapi: {location} input type {type_name} must be object-shaped"
         )
+    raw_properties = object_schema.get("properties", {})
+    if not isinstance(raw_properties, Mapping):
+        raise ConfigurationError(
+            f"openapi: {location} input must describe object-shaped input"
+        )
+    fields = (
+        _request_parameter_fields(
+            {**schema, "components": {"schemas": components}},
+            location=location,
+            label=f"openapi: {location} input",
+            serialization_schema=(
+                {
+                    **serialization_schema,
+                    "components": {"schemas": serialization_components},
+                }
+                if serialization_schema is not None
+                else None
+            ),
+        )
+        if location in {"path", "query", "header"}
+        else tuple(
+            (name, property_schema)
+            for name, property_schema in cast(
+                Mapping[str, Mapping[str, Any]], raw_properties
+            ).items()
+        )
+    )
     required = set(object_schema.get("required", []))
     parameters: list[dict[str, Any]] = []
-    for name, property_schema in object_schema.get("properties", {}).items():
+    for name, property_schema in fields:
         parameters.append(
             {
                 "name": name.replace("_", "-") if location == "header" else name,

@@ -1,7 +1,7 @@
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PlainSerializer
 
 from tenchi.contracts import contract
 from tenchi.errors import ConfigurationError, ErrorDef
@@ -413,7 +413,46 @@ def test_route_rejects_params_types_without_declared_path_fields() -> None:
     async def handler(params: dict[str, str], context: object) -> Item:
         return Item(name=params["item_id"])
 
-    with pytest.raises(RouteBindingError, match="do not match path template"):
+    with pytest.raises(RouteBindingError, match="must declare fixed path fields"):
+        route(declared, handler)
+
+
+@pytest.mark.parametrize("kind", ["nested", "nullable", "serialized"])
+def test_route_rejects_params_without_a_lossless_path_encoding(kind: str) -> None:
+    def serialize_nested(value: int) -> dict[str, int]:
+        return {"value": value}
+
+    class NestedParams(BaseModel):
+        item_id: dict[str, str]
+
+    class NullableParams(BaseModel):
+        item_id: str | None
+
+    class SerializedParams(BaseModel):
+        item_id: Annotated[
+            int,
+            PlainSerializer(serialize_nested, return_type=dict[str, int]),
+        ]
+
+    params_type = {
+        "nested": NestedParams,
+        "nullable": NullableParams,
+        "serialized": SerializedParams,
+    }[kind]
+    declared = contract(
+        method="GET",
+        path="/items/{item_id}",
+        params=params_type,
+        response=Item,
+    )
+
+    async def handler(params: Any, context: object) -> Item:
+        del params, context
+        return Item(name="x")
+
+    with pytest.raises(
+        RouteBindingError, match=r"cannot be represented|must serialize"
+    ):
         route(declared, handler)
 
 
