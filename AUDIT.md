@@ -33,9 +33,10 @@ process-group descendants that ignore graceful termination, and bounded
 numeric and HTTP-date `Retry-After` hints. Application MCP failure results now
 also set the standard MCP `isError` signal. Generated OpenAPI now enumerates
 exact error codes and their application/framework source and documents the
-framework-owned internal 500 on every operation. The other medium- and
-low-severity findings remain future work; the detailed sections below preserve
-the evidence captured at the audited revision.
+framework-owned internal 500 on every operation. Outbound clients can now
+explicitly retry selected raw HTTP failure statuses with bounded `Retry-After`
+handling. The other medium- and low-severity findings remain future work; the
+detailed sections below preserve the evidence captured at the audited revision.
 
 ## Verdict in one paragraph
 
@@ -234,6 +235,11 @@ a permanently red test. Root cause is H8/M-class finding below: bare
   accepts only declared app error codes; a load balancer's 503 or any
   framework-sourced 5xx is `UnexpectedResponseError`, never retried
   (`client.py:545-556, 993-998`). No `retry_on_statuses` knob exists.
+
+  Resolved after this audit: `retry_on_statuses` accepts explicit, unique
+  400–599 statuses. Matching raw responses and declared application errors use
+  the same attempt limits, deadlines, cancellation, observability, and bounded
+  `Retry-After` behavior; every unselected status remains terminal.
 - **Invalid success bodies raise bare `pydantic.ValidationError`**,
   contradicting the module's documented two-exception taxonomy and leaking
   response payload fragments into logs (`client.py:787-794`), while

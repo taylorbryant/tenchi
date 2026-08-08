@@ -543,16 +543,17 @@ def response(body: 'type[Any] | UnionType | None', /, *body_alternatives: 'type[
 class RetryPolicy
     max_attempts: int = 3
     retry_on: tuple[str, ...] = ()
+    retry_on_statuses: tuple[int, ...] = ()
     retry_transport_errors: bool = True
     base_delay_seconds: float = 0.1
     max_delay_seconds: float = 5.0
     jitter: float = 0.2
     total_timeout_seconds: float | None = None
     allow_unsafe_methods: bool = False
-    def __init__(self, *, max_attempts: 'int' = 3, retry_on: 'tuple[str, ...]' = (), retry_transport_errors: 'bool' = True, base_delay_seconds: 'float' = 0.1, max_delay_seconds: 'float' = 5.0, jitter: 'float' = 0.2, total_timeout_seconds: 'float | None' = None, allow_unsafe_methods: 'bool' = False) -> None
+    def __init__(self, *, max_attempts: 'int' = 3, retry_on: 'tuple[str, ...]' = (), retry_on_statuses: 'tuple[int, ...]' = (), retry_transport_errors: 'bool' = True, base_delay_seconds: 'float' = 0.1, max_delay_seconds: 'float' = 5.0, jitter: 'float' = 0.2, total_timeout_seconds: 'float | None' = None, allow_unsafe_methods: 'bool' = False) -> None
 class RetryTimeoutError(TenchiError, TimeoutError)
     def __init__(self, *, contract_name: 'str', attempts: 'int') -> 'None'
-def retry_policy(*, max_attempts: 'int' = 3, retry_on: 'Sequence[str]' = (), retry_transport_errors: 'bool' = True, base_delay_seconds: 'float' = 0.1, max_delay_seconds: 'float' = 5.0, jitter: 'float' = 0.2, total_timeout_seconds: 'float | None' = None, allow_unsafe_methods: 'bool' = False) -> 'RetryPolicy'
+def retry_policy(*, max_attempts: 'int' = 3, retry_on: 'Sequence[str]' = (), retry_on_statuses: 'Sequence[int]' = (), retry_transport_errors: 'bool' = True, base_delay_seconds: 'float' = 0.1, max_delay_seconds: 'float' = 5.0, jitter: 'float' = 0.2, total_timeout_seconds: 'float | None' = None, allow_unsafe_methods: 'bool' = False) -> 'RetryPolicy'
 
 # tenchi.server
 ContextFactory = collections.abc.Callable[..., typing.Any]

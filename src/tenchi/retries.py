@@ -1,9 +1,9 @@
 """Explicit retry policy for contract-driven outbound calls.
 
 Retries are opt-in because repeating a request is a business decision, not a
-transport default. A policy names the declared application errors that are
-transient, bounds attempts and elapsed time, and requires an explicit opt-in
-before an unsafe HTTP method may be repeated.
+transport default. A policy names the declared application errors and raw HTTP
+statuses that are transient, bounds attempts and elapsed time, and requires an
+explicit opt-in before an unsafe HTTP method may be repeated.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ class RetryPolicy:
 
     max_attempts: int = 3
     retry_on: tuple[str, ...] = ()
+    retry_on_statuses: tuple[int, ...] = ()
     retry_transport_errors: bool = True
     base_delay_seconds: float = 0.1
     max_delay_seconds: float = 5.0
@@ -62,6 +63,26 @@ class RetryPolicy:
         if len(set(retry_values)) != len(retry_values):
             raise ConfigurationError(
                 "RetryPolicy retry_on must not contain duplicate error codes"
+            )
+        retry_on_statuses = cast(object, self.retry_on_statuses)
+        if not isinstance(retry_on_statuses, tuple):
+            raise ConfigurationError(
+                "RetryPolicy retry_on_statuses must be a tuple of HTTP statuses"
+            )
+        status_values = cast(tuple[object, ...], retry_on_statuses)
+        if any(
+            not isinstance(status, int)
+            or isinstance(status, bool)
+            or not 400 <= status <= 599
+            for status in status_values
+        ):
+            raise ConfigurationError(
+                "RetryPolicy retry_on_statuses must contain HTTP statuses "
+                "from 400 through 599"
+            )
+        if len(set(status_values)) != len(status_values):
+            raise ConfigurationError(
+                "RetryPolicy retry_on_statuses must not contain duplicate HTTP statuses"
             )
         _require_bool(
             self.retry_transport_errors,
@@ -103,6 +124,7 @@ def retry_policy(
     *,
     max_attempts: int = 3,
     retry_on: Sequence[str] = (),
+    retry_on_statuses: Sequence[int] = (),
     retry_transport_errors: bool = True,
     base_delay_seconds: float = 0.1,
     max_delay_seconds: float = 5.0,
@@ -113,18 +135,25 @@ def retry_policy(
     """Declare a retry policy for an outbound client call.
 
     ``retry_on`` contains stable codes from errors declared by the contract
-    or client. Unsafe methods such as POST require
-    ``allow_unsafe_methods=True``; callers should normally pair that opt-in
-    with an idempotency key.
+    or client. ``retry_on_statuses`` explicitly selects raw HTTP failures such
+    as intermediary-generated 502, 503, or 504 responses. Unsafe methods such
+    as POST require ``allow_unsafe_methods=True``; callers should normally pair
+    that opt-in with an idempotency key.
     """
     raw_codes = cast(object, retry_on)
     if isinstance(raw_codes, str | bytes) or not isinstance(raw_codes, Sequence):
         raise ConfigurationError(
             "retry_policy retry_on must be a sequence of error codes"
         )
+    raw_statuses = cast(object, retry_on_statuses)
+    if isinstance(raw_statuses, str | bytes) or not isinstance(raw_statuses, Sequence):
+        raise ConfigurationError(
+            "retry_policy retry_on_statuses must be a sequence of HTTP statuses"
+        )
     return RetryPolicy(
         max_attempts=max_attempts,
         retry_on=tuple(cast(Sequence[str], raw_codes)),
+        retry_on_statuses=tuple(cast(Sequence[int], raw_statuses)),
         retry_transport_errors=retry_transport_errors,
         base_delay_seconds=base_delay_seconds,
         max_delay_seconds=max_delay_seconds,

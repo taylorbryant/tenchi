@@ -6,10 +6,15 @@ import httpx
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from tenchi.client import Client, ClientAttemptOutcome, ClientOutcome
+from tenchi.client import (
+    Client,
+    ClientAttemptOutcome,
+    ClientOutcome,
+    UnexpectedResponseError,
+)
 from tenchi.contracts import contract
 from tenchi.errors import ConfigurationError, ErrorDef
-from tenchi.retries import RetryTimeoutError, retry_policy
+from tenchi.retries import RetryPolicy, RetryTimeoutError, retry_policy
 
 
 class Item(BaseModel):
@@ -171,6 +176,179 @@ async def test_retry_after_is_validated_and_bounded(
     ]
 
 
+@pytest.mark.parametrize(
+    ("retry_after", "base_delay", "max_delay", "expected_delay"),
+    [
+        ("2", 0, 5, 2),
+        ("86400", 0, 1, 1),
+        ("9" * 5000, 0, 1, 1),
+        ("not-a-date", 0.25, 1, 0.25),
+    ],
+)
+async def test_retries_selected_raw_statuses_with_bounded_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+    retry_after: str,
+    base_delay: float,
+    max_delay: float,
+    expected_delay: float,
+) -> None:
+    requests = 0
+    sleeps: list[float] = []
+    attempts: list[ClientAttemptOutcome] = []
+    outcomes: list[ClientOutcome] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return httpx.Response(
+                503,
+                text="upstream unavailable",
+                headers={"retry-after": retry_after},
+            )
+        return httpx.Response(200, json={"name": "milk"})
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr("tenchi.client.asyncio.sleep", fake_sleep)
+    async with Client(
+        transport=httpx.MockTransport(respond),
+        observers=(outcomes.append,),
+        attempt_observers=(attempts.append,),
+    ) as client:
+        result = await client.call(
+            get_item,
+            retry=retry_policy(
+                retry_on_statuses=(502, 503, 504),
+                base_delay_seconds=base_delay,
+                max_delay_seconds=max_delay,
+                jitter=0,
+            ),
+        )
+
+    assert result == Item(name="milk")
+    assert requests == 2
+    assert sleeps == [expected_delay]
+    assert [item.status for item in attempts] == [
+        "unexpected_response",
+        "succeeded",
+    ]
+    assert [item.status_code for item in attempts] == [503, 200]
+    assert [item.will_retry for item in attempts] == [True, False]
+    assert [item.retry_delay_seconds for item in attempts] == [
+        expected_delay,
+        None,
+    ]
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "succeeded"
+    assert outcomes[0].attempts == 2
+
+
+async def test_status_retry_applies_to_declared_application_errors() -> None:
+    requests = 0
+    attempts: list[ClientAttemptOutcome] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return httpx.Response(
+                503,
+                json={
+                    "code": temporarily_unavailable.code,
+                    "message": temporarily_unavailable.message,
+                },
+                headers={
+                    "content-type": "application/json",
+                    "x-tenchi-error-source": "app",
+                },
+            )
+        return httpx.Response(200, json={"name": "milk"})
+
+    async with Client(
+        transport=httpx.MockTransport(respond),
+        attempt_observers=(attempts.append,),
+    ) as client:
+        result = await client.call(
+            get_item,
+            retry=retry_policy(
+                retry_on_statuses=(503,),
+                base_delay_seconds=0,
+                max_delay_seconds=0,
+                jitter=0,
+            ),
+        )
+
+    assert result == Item(name="milk")
+    assert requests == 2
+    assert [item.status for item in attempts] == ["app_error", "succeeded"]
+    assert attempts[0].error_code == temporarily_unavailable.code
+    assert attempts[0].will_retry is True
+
+
+async def test_does_not_retry_unselected_or_exhausted_raw_statuses() -> None:
+    attempts: list[ClientAttemptOutcome] = []
+    outcomes: list[ClientOutcome] = []
+    requests = 0
+
+    async def unavailable(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(502, text="bad gateway")
+
+    async with Client(
+        transport=httpx.MockTransport(unavailable),
+        observers=(outcomes.append,),
+        attempt_observers=(attempts.append,),
+    ) as client:
+        with pytest.raises(UnexpectedResponseError) as unselected:
+            await client.call(
+                get_item,
+                retry=retry_policy(
+                    retry_on_statuses=(503,),
+                    base_delay_seconds=0,
+                    max_delay_seconds=0,
+                    jitter=0,
+                ),
+            )
+    assert unselected.value.status_code == 502
+    assert requests == 1
+    assert len(attempts) == 1
+    assert attempts[0].will_retry is False
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "unexpected_response"
+    assert outcomes[0].attempts == 1
+
+    attempts.clear()
+    outcomes.clear()
+    requests = 0
+    async with Client(
+        transport=httpx.MockTransport(unavailable),
+        observers=(outcomes.append,),
+        attempt_observers=(attempts.append,),
+    ) as client:
+        with pytest.raises(UnexpectedResponseError) as exhausted:
+            await client.call(
+                get_item,
+                retry=retry_policy(
+                    max_attempts=2,
+                    retry_on_statuses=(502,),
+                    base_delay_seconds=0,
+                    max_delay_seconds=0,
+                    jitter=0,
+                ),
+            )
+    assert exhausted.value.status_code == 502
+    assert requests == 2
+    assert [item.will_retry for item in attempts] == [True, False]
+    assert [item.retry_delay_seconds for item in attempts] == [0, None]
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "unexpected_response"
+    assert outcomes[0].status_code == 502
+    assert outcomes[0].attempts == 2
+
+
 async def test_retries_transport_errors_but_not_invalid_responses() -> None:
     requests = 0
 
@@ -290,6 +468,46 @@ async def test_retry_deadline_can_expire_during_backoff() -> None:
     assert [item.status for item in outcomes] == ["timed_out"]
 
 
+async def test_retry_deadline_can_expire_during_raw_status_backoff() -> None:
+    requests = 0
+    attempts: list[ClientAttemptOutcome] = []
+    outcomes: list[ClientOutcome] = []
+
+    async def unavailable(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(
+            503,
+            text="upstream unavailable",
+            headers={"retry-after": "1"},
+        )
+
+    async with Client(
+        transport=httpx.MockTransport(unavailable),
+        observers=(outcomes.append,),
+        attempt_observers=(attempts.append,),
+    ) as client:
+        with pytest.raises(RetryTimeoutError) as excinfo:
+            await client.call(
+                get_item,
+                retry=retry_policy(
+                    retry_on_statuses=(503,),
+                    base_delay_seconds=0,
+                    max_delay_seconds=1,
+                    jitter=0,
+                    total_timeout_seconds=0.01,
+                ),
+            )
+
+    assert requests == 1
+    assert excinfo.value.attempts == 1
+    assert [item.status for item in attempts] == ["unexpected_response"]
+    assert attempts[0].will_retry is True
+    assert attempts[0].retry_delay_seconds == 1
+    assert [item.status for item in outcomes] == ["timed_out"]
+    assert outcomes[0].attempts == 1
+
+
 async def test_external_cancellation_is_not_converted_to_retry_timeout() -> None:
     attempts: list[ClientAttemptOutcome] = []
     outcomes: list[ClientOutcome] = []
@@ -379,6 +597,54 @@ async def test_external_cancellation_during_retry_after_backoff_is_preserved(
     assert outcomes[0].attempts == 1
 
 
+async def test_external_cancellation_during_raw_status_backoff_is_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[ClientAttemptOutcome] = []
+    outcomes: list[ClientOutcome] = []
+    backoff_started = asyncio.Event()
+
+    async def unavailable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            text="upstream unavailable",
+            headers={"retry-after": "86400"},
+        )
+
+    async def wait_in_backoff(delay: float) -> None:
+        assert delay == 1
+        backoff_started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("tenchi.client.asyncio.sleep", wait_in_backoff)
+    async with Client(
+        transport=httpx.MockTransport(unavailable),
+        observers=(outcomes.append,),
+        attempt_observers=(attempts.append,),
+    ) as client:
+        running = asyncio.create_task(
+            client.call(
+                get_item,
+                retry=retry_policy(
+                    retry_on_statuses=(503,),
+                    base_delay_seconds=0,
+                    max_delay_seconds=1,
+                    jitter=0,
+                ),
+            )
+        )
+        await backoff_started.wait()
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+
+    assert [item.status for item in attempts] == ["unexpected_response"]
+    assert attempts[0].will_retry is True
+    assert attempts[0].retry_delay_seconds == 1
+    assert [item.status for item in outcomes] == ["cancelled"]
+    assert outcomes[0].attempts == 1
+
+
 async def test_attempt_observer_time_does_not_consume_the_retry_deadline() -> None:
     attempts: list[ClientAttemptOutcome] = []
     outcomes: list[ClientOutcome] = []
@@ -460,11 +726,31 @@ async def test_user_timeout_error_is_not_misreported_as_retry_deadline() -> None
 
 
 def test_retry_policy_accepts_sequences_and_rejects_invalid_values() -> None:
-    policy = retry_policy(retry_on=[temporarily_unavailable.code])
+    policy = retry_policy(
+        retry_on=[temporarily_unavailable.code],
+        retry_on_statuses=[502, 503, 504],
+    )
     assert policy.retry_on == (temporarily_unavailable.code,)
+    assert policy.retry_on_statuses == (502, 503, 504)
 
     with pytest.raises(ConfigurationError, match="sequence of error codes"):
         retry_policy(retry_on="TEMPORARILY_UNAVAILABLE")  # pyright: ignore[reportArgumentType]
+
+    with pytest.raises(ConfigurationError, match="sequence of HTTP statuses"):
+        retry_policy(retry_on_statuses="503")  # pyright: ignore[reportArgumentType]
+
+    for status in (True, 399, 600, "503"):
+        with pytest.raises(
+            ConfigurationError,
+            match="HTTP statuses from 400 through 599",
+        ):
+            retry_policy(retry_on_statuses=(status,))  # pyright: ignore[reportArgumentType]
+
+    with pytest.raises(ConfigurationError, match="duplicate HTTP statuses"):
+        retry_policy(retry_on_statuses=(503, 503))
+
+    with pytest.raises(ConfigurationError, match="must be a tuple"):
+        RetryPolicy(retry_on_statuses=[503])  # pyright: ignore[reportArgumentType]
 
     with pytest.raises(
         ConfigurationError,

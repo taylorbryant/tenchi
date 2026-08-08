@@ -52,7 +52,8 @@ framework code, the CLI, docs, or the example apps.
     outbound outcomes.
   - `opentelemetry.py` — the optional payload-safe OpenTelemetry observer
     bundle; applications own SDK providers, exporters, and shutdown.
-  - `retries.py` — explicit bounded retry policies for outbound client calls.
+  - `retries.py` — explicit bounded retry policies for transport failures,
+    declared error codes, and selected raw HTTP statuses.
   - `jobs.py` — queue-neutral job declarations, messages, handler bindings,
     and validated dispatch.
   - `tools.py` — transport-neutral application-tool declarations, explicit

@@ -70,6 +70,7 @@ from tenchi.retries import retry_policy
 dependency_retry = retry_policy(
     max_attempts=3,
     retry_on=("TEMPORARILY_UNAVAILABLE",),
+    retry_on_statuses=(502, 503, 504),
     base_delay_seconds=0.2,
     max_delay_seconds=2,
     total_timeout_seconds=5,
@@ -82,17 +83,24 @@ todo = await client.call(
 )
 ```
 
-Transport failures are retryable by default within the policy. Declared
-application errors are retried only when their stable code appears in
-`retry_on`. Tenchi uses exponential backoff with bounded jitter. A valid
-`Retry-After` decimal-integer delay or HTTP date carried by the declared error
-can increase the wait, but never beyond `max_delay_seconds`. Malformed and past
+Transport failures are retryable by default within the policy. Prefer selecting
+declared application errors by stable code in `retry_on`. A status in
+`retry_on_statuses` retries every response with that status—including a
+declared application error—so add one only when an intermediary may return the
+same transient failure without Tenchi's error envelope. The status list accepts
+unique values from 400 through 599; all other unexpected statuses remain
+terminal.
+
+Tenchi uses exponential backoff with bounded jitter. A valid `Retry-After`
+decimal-integer delay or HTTP date from a selected status or declared error can
+increase the wait, but never beyond `max_delay_seconds`. Malformed and past
 values are ignored. The total timeout covers attempts and backoff; exceeding it
 raises `RetryTimeoutError`. Caller cancellation always remains cancellation.
 
-Unexpected statuses, invalid media types, invalid error envelopes, and invalid
-success bodies or headers are never retried. They indicate contract drift or
-bad data, not a transient dependency.
+Invalid success bodies or headers are never retried. Neither are invalid media
+types or error envelopes unless their HTTP status is explicitly selected. This
+keeps contract drift and bad data terminal while allowing deliberate recovery
+from raw proxy and load-balancer failures.
 
 GET, HEAD, OPTIONS, and TRACE may use a policy directly. Retrying POST, PUT,
 PATCH, or DELETE requires `allow_unsafe_methods=True`:

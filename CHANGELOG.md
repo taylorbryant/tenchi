@@ -9,6 +9,13 @@ versions may change the public API.
 
 ### Added
 
+- Outbound retry policies can now explicitly select raw 400–599 response
+  statuses such as proxy-generated 502, 503, and 504 failures. Selected raw
+  responses honor decimal or HTTP-date `Retry-After` values within the existing
+  delay ceiling while preserving total deadlines, cancellation, unsafe-method
+  opt-in, and payload-safe attempt outcomes. Declared application errors may be
+  selected by stable code or status; unselected statuses and invalid successful
+  responses remain terminal.
 - The Fieldnotes reference backend demonstrates a complete cited-AI
   application with authenticated, owner-scoped source ingestion; transactional
   outbox indexing; deterministic passage retrieval; cited answers through HTTP,

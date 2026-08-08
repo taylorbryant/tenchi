@@ -147,10 +147,10 @@ class ClientAttemptOutcome:
     """The payload-safe result of one transport attempt.
 
     ``will_retry`` describes the decision made after this attempt.
-    ``retry_delay_seconds`` is the selected backoff, including a declared
-    ``Retry-After`` response header when present and bounded by the retry
-    policy's maximum delay. ``completed_at`` is captured before attempt
-    observers run.
+    ``retry_delay_seconds`` is the selected backoff, including a valid
+    ``Retry-After`` response header from a selected status or declared error
+    when present and bounded by the retry policy's maximum delay.
+    ``completed_at`` is captured before attempt observers run.
     """
 
     contract: Contract[Any, Any]
@@ -205,6 +205,7 @@ class _ClientAttempt:
         "max_attempts",
         "outcome",
         "remote_error_code",
+        "retry_after_header",
         "started",
         "status_code",
     )
@@ -222,10 +223,12 @@ class _ClientAttempt:
         self.started = perf_counter()
         self.status_code: int | None = None
         self.remote_error_code: str | None = None
+        self.retry_after_header: str | None = None
         self.outcome: ClientAttemptOutcome | None = None
 
     def response_received(self, response: httpx.Response) -> None:
         self.status_code = response.status_code
+        self.retry_after_header = response.headers.get("retry-after")
 
     def remote_app_error(self, error: AppError) -> None:
         self.remote_error_code = error.code
@@ -553,14 +556,29 @@ class Client:
                 raise
             except AppError as exc:
                 error_code = attempt.remote_error_code
-                should_retry = (
+                retry_by_code = (
                     policy is not None
                     and error_code is not None
                     and error_code in policy.retry_on
-                    and attempt_number < max_attempts
                 )
+                retry_by_status = (
+                    policy is not None
+                    and attempt.status_code is not None
+                    and attempt.status_code in policy.retry_on_statuses
+                )
+                should_retry = (
+                    retry_by_code or retry_by_status
+                ) and attempt_number < max_attempts
                 delay = (
-                    _retry_delay(policy, attempt_number, error=exc)
+                    _retry_delay(
+                        policy,
+                        attempt_number,
+                        retry_after=(
+                            attempt.retry_after_header
+                            if retry_by_status
+                            else _app_error_retry_after(exc)
+                        ),
+                    )
                     if should_retry and policy is not None
                     else None
                 )
@@ -588,13 +606,35 @@ class Client:
                     )
                     raise
             except UnexpectedResponseError:
-                attempt_outcome = attempt.finish("unexpected_response")
-                await self._finish_attempt(call, attempt)
-                call.finish(
-                    "unexpected_response",
-                    completed_at=attempt_outcome.completed_at,
+                should_retry = (
+                    policy is not None
+                    and attempt.status_code is not None
+                    and attempt.status_code in policy.retry_on_statuses
+                    and attempt_number < max_attempts
                 )
-                raise
+                delay = (
+                    _retry_delay(
+                        policy,
+                        attempt_number,
+                        retry_after=attempt.retry_after_header,
+                    )
+                    if should_retry and policy is not None
+                    else None
+                )
+                attempt_outcome = attempt.finish(
+                    "unexpected_response",
+                    will_retry=should_retry,
+                    retry_delay_seconds=delay,
+                )
+                observer_seconds = await self._finish_attempt(call, attempt)
+                if deadline is not None:
+                    deadline += observer_seconds
+                if not should_retry:
+                    call.finish(
+                        "unexpected_response",
+                        completed_at=attempt_outcome.completed_at,
+                    )
+                    raise
             except httpx.TransportError:
                 transport_status: Literal["transport_error", "unexpected_response"] = (
                     "transport_error"
@@ -1210,25 +1250,25 @@ def _retry_delay(
     policy: RetryPolicy,
     attempt: int,
     *,
-    error: AppError | None = None,
+    retry_after: str | None = None,
 ) -> float:
     exponential = policy.base_delay_seconds * (2.0 ** min(attempt - 1, 1023))
     if exponential and policy.jitter:
         exponential *= random.uniform(1 - policy.jitter, 1 + policy.jitter)
     exponential = min(policy.max_delay_seconds, exponential)
-    retry_after = (
-        _retry_after_seconds(error, maximum=policy.max_delay_seconds)
-        if error is not None
+    retry_after_seconds = (
+        _retry_after_seconds(retry_after, maximum=policy.max_delay_seconds)
+        if retry_after is not None
         else None
     )
     return min(
         policy.max_delay_seconds,
-        max(exponential, retry_after or 0.0),
+        max(exponential, retry_after_seconds or 0.0),
     )
 
 
-def _retry_after_seconds(error: AppError, *, maximum: float) -> float | None:
-    raw = next(
+def _app_error_retry_after(error: AppError) -> str | None:
+    return next(
         (
             value
             for name, value in error.headers.items()
@@ -1236,8 +1276,9 @@ def _retry_after_seconds(error: AppError, *, maximum: float) -> float | None:
         ),
         None,
     )
-    if raw is None:
-        return None
+
+
+def _retry_after_seconds(raw: str, *, maximum: float) -> float | None:
     if raw.isascii() and raw.isdigit():
         significant = raw.lstrip("0") or "0"
         # A finite binary64 value has at most 309 significant decimal digits.

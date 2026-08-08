@@ -135,8 +135,9 @@ The main pieces are:
   documents the framework-owned 500 available on every operation.
 - A named exception hierarchy that distinguishes configuration mistakes from
   runtime application and transport failures.
-- A contract-driven async client with explicit bounded retries, per-attempt
-  outcomes, OpenAPI 3.1 generation, and an optional Swagger UI route.
+- A contract-driven async client with explicit bounded retries for transport
+  failures, declared error codes, and selected raw HTTP statuses; per-attempt
+  outcomes; OpenAPI 3.1 generation; and an optional Swagger UI route.
 - Lifespan resources, request-scoped contexts, authentication hooks, middleware,
   request deadlines, HTTP and use-case outcome observers, pagination, health
   checks, in-process testing helpers, and an optional OpenTelemetry bridge for
