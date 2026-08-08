@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, field_valida
 
 from tenchi.contracts import contract
 from tenchi.errors import ERROR_SOURCE_HEADER, AppError, ConfigurationError, ErrorDef
-from tenchi.routes import RouteGroup, route, route_group
+from tenchi.routes import Route, RouteGroup, route, route_group
 from tenchi.server import create_app
 
 
@@ -73,6 +73,33 @@ async def make_client(routes: RouteGroup) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://testserver"
     )
+
+
+def test_create_app_rechecks_idempotency_headers_on_direct_routes() -> None:
+    class EmptyKeyAllowed(BaseModel):
+        idempotency_key: str
+
+    declared = contract(
+        method="POST",
+        path="/commands",
+        headers=EmptyKeyAllowed,
+        idempotency_key=True,
+    )
+
+    async def command(headers: EmptyKeyAllowed, context: Context) -> None:
+        return None
+
+    direct = Route(
+        contract=declared,
+        use_case=command,
+        call_kwargs=("headers", "context"),
+    )
+
+    with pytest.raises(
+        ConfigurationError,
+        match="required, non-empty string field named 'Idempotency-Key'",
+    ):
+        create_app(routes=RouteGroup((direct,)), context_factory=lambda: Context(1))
 
 
 @pytest.fixture

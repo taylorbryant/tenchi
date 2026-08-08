@@ -57,6 +57,7 @@ from .contracts import (
     _render_response_header_value,  # pyright: ignore[reportPrivateUsage]
     _request_parameter_fields,  # pyright: ignore[reportPrivateUsage]
     _response_header_fields,  # pyright: ignore[reportPrivateUsage]
+    _validate_idempotency_key_header,  # pyright: ignore[reportPrivateUsage]
 )
 from .errors import (
     ERROR_SOURCE_HEADER,
@@ -647,6 +648,13 @@ def _annotation_adapter(
                 label=f"create_app: {label} {slot} type {type_name}",
                 serialization_schema=serialization_schema,
             )
+            if slot == "headers" and contract.idempotency_key:
+                assert serialization_schema is not None
+                _validate_idempotency_key_header(
+                    schema,
+                    label=f"create_app: {label} headers type {type_name}",
+                    serialization_schema=serialization_schema,
+                )
         elif _object_schema(schema) is None:
             raise ConfigurationError(
                 f"create_app: {label} has a {slot} type "

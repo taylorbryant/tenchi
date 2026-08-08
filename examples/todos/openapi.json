@@ -211,6 +211,13 @@
         "requestBody": {
           "content": {
             "application/json": {
+              "examples": {
+                "create": {
+                  "value": {
+                    "title": "Buy milk"
+                  }
+                }
+              },
               "schema": {
                 "properties": {
                   "title": {
@@ -233,6 +240,15 @@
           "201": {
             "content": {
               "application/json": {
+                "examples": {
+                  "created": {
+                    "value": {
+                      "completed": false,
+                      "id": "todo_123",
+                      "title": "Buy milk"
+                    }
+                  }
+                },
                 "schema": {
                   "properties": {
                     "completed": {

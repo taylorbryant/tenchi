@@ -42,6 +42,7 @@ create_task_contract = contract(
     request=CreateTask,
     response=Task,
     status=201,
+    idempotency_key=True,
     errors=(IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS),
 )
 ```
@@ -50,6 +51,18 @@ Missing or malformed headers fail normal request validation. A reused key with
 different input raises `IDEMPOTENCY_CONFLICT`. Matching work that still owns
 an active reservation raises `IDEMPOTENCY_IN_PROGRESS`, optionally with
 `Retry-After`.
+
+`idempotency_key=True` is a checked contract promise. It is allowed only on
+unsafe methods and requires exactly one required, non-empty string header whose
+wire name is `Idempotency-Key`. OpenAPI publishes both that parameter and
+`x-tenchi-idempotency-key: Idempotency-Key`, so generated clients and agents can
+tell that retries using the same key describe one logical command. Removing
+that promise is a breaking OpenAPI compatibility change. Adding the promise is
+additive only when the required header already exists; adding that required
+header to an established operation remains breaking for existing callers.
+
+The flag does not call `run_idempotently()` or prove transaction placement.
+The use case and durable store below remain the implementation of the promise.
 
 These are application errors under Tenchi's
 [honesty rule](/errors#the-honesty-rule).

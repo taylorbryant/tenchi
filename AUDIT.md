@@ -48,10 +48,10 @@ comparable. Goal 1 — agents *building* APIs — is largely achieved, with the
 remaining pain concentrated in a handful of CLI inconsistencies and
 composition-time checks the framework promises but misses. Goal 2 — agents
 *consuming* APIs — is achieved only for MCP and in-ecosystem Python clients;
-the raw-OpenAPI path, which is exactly the path an external agent takes, is
-honest but under-specified (no examples, no machine-readable error taxonomy,
-no idempotency surfacing, no streaming story). Seven confirmed high-severity
-defects need fixing; none is architectural.
+the raw-OpenAPI path, which is exactly the path an external agent takes, was
+honest but under-specified when this audit was written. Resolution notes in the
+findings below record the capabilities and fixes added since then. Seven
+confirmed high-severity defects were identified; none was architectural.
 
 ---
 
@@ -393,12 +393,17 @@ the consumer can import the server's contract objects — eager preflight
 before I/O, symmetric error semantics, payload-safe observability, bounded
 retries.
 
-But a non-Python or third-party agent gets only the OpenAPI document, and
-today that document is not sufficient to reproduce correct behavior:
+But a non-Python or third-party agent gets only the OpenAPI document. At audit
+time that document was not sufficient to reproduce correct behavior; the
+resolution notes below distinguish the current state:
 
 1. **No examples anywhere** — `contract()` has no `examples=`; for LLM
    consumers one example request/response per operation is worth more than
    most of the schema.
+
+   **Resolved after the audit:** contracts and response definitions now carry
+   named examples. OpenAPI validates their serialized wire values against the
+   published schema before emitting standard Media Type examples.
 2. **No `servers` block** — the document doesn't say where the API lives.
 3. **Error codes not machine-discoverable; `x-tenchi-error-source`
    undocumented** — the doc cannot teach a consumer Tenchi's own error
@@ -417,6 +422,12 @@ today that document is not sufficient to reproduce correct behavior:
    key or what header carries it, and the client won't generate one on
    unsafe retries. This is the single most important thing an agent needs
    to retry POSTs safely.
+
+   **Resolved after the audit:** `idempotency_key=True` requires a conventional,
+   non-empty string `Idempotency-Key` header and emits a directional,
+   compatibility-aware OpenAPI extension. Key generation remains deliberately
+   caller-owned so one key continues to represent one logical command across
+   attempts.
 
 There is also no `tenchi` command to emit a self-contained client or a
 consumption guide companion to the doc — an `llms.txt`-style artifact *for

@@ -17,6 +17,10 @@ create_todo_contract = contract(
     response=Todo,
     response_headers=CreatedTodoHeaders,
     status=201,
+    request_examples={"create": CreateTodo(title="Buy milk")},
+    response_examples={
+        "created": Todo(id="todo_123", title="Buy milk", completed=False)
+    },
     summary="Create a todo",
     tags=("todos",),
 )

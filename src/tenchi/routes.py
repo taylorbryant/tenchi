@@ -32,6 +32,7 @@ from .contracts import (
     ResponseT,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
     _request_parameter_fields,  # pyright: ignore[reportPrivateUsage]
+    _validate_idempotency_key_header,  # pyright: ignore[reportPrivateUsage]
 )
 from .errors import (
     ConfigurationError,
@@ -122,6 +123,7 @@ def route(
     call_kwargs.append("context")
 
     _check_params_match_path(contract)
+    _check_idempotency_header(contract)
 
     try:
         signature = inspect.signature(use_case)
@@ -436,6 +438,31 @@ def _check_params_match_path(contract: Contract[Any, Any]) -> None:
             f"route({contract.name!r}): params model fields {sorted(fields)} "
             f"do not match path template parameters {sorted(placeholders)}"
         )
+
+
+def _check_idempotency_header(contract: Contract[Any, Any]) -> None:
+    if not contract.idempotency_key:
+        return
+    headers_type: Any = contract.headers
+    assert headers_type is not None
+    try:
+        adapter = TypeAdapter(headers_type)
+        if not adapter.pydantic_complete:
+            adapter.rebuild(raise_errors=True)
+        schema = adapter.json_schema(mode="validation", by_alias=True)
+        serialization_schema = adapter.json_schema(mode="serialization", by_alias=True)
+        _validate_idempotency_key_header(
+            schema,
+            label=f"route({contract.name!r}) headers type {_type_name(headers_type)}",
+            serialization_schema=serialization_schema,
+        )
+    except ConfigurationError as exc:
+        raise RouteBindingError(str(exc)) from exc
+    except Exception as exc:
+        raise RouteBindingError(
+            f"route({contract.name!r}): could not inspect headers type "
+            f"{_type_name(headers_type)}: {exc}"
+        ) from exc
 
 
 def _check_type_coherence(

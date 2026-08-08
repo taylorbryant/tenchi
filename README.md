@@ -72,6 +72,10 @@ create_todo_contract = contract(
     response=Todo,
     response_headers=CreatedTodoHeaders,
     status=201,
+    request_examples={"create": CreateTodo(title="Buy milk")},
+    response_examples={
+        "created": Todo(id="todo_123", title="Buy milk", completed=False)
+    },
 )
 ```
 
@@ -133,6 +137,8 @@ The main pieces are:
 - Declared application errors with a stable JSON envelope. OpenAPI enumerates
   the exact codes and application/framework source for every error status and
   documents the framework-owned 500 available on every operation.
+- Named request and response examples are validated, serialized with real wire
+  aliases, and checked against the generated OpenAPI schema before publication.
 - A named exception hierarchy that distinguishes configuration mistakes from
   runtime application and transport failures.
 - A contract-driven async client with explicit bounded retries for transport
@@ -146,6 +152,9 @@ The main pieces are:
   fingerprints, durable store transitions, typed result replay, scoped keys,
   expiration, standard conflict/in-progress errors, and a concurrency-safe
   memory adapter for tests.
+- Checked contract metadata identifies retry-safe unsafe HTTP operations through
+  the required `Idempotency-Key` header and a machine-readable OpenAPI
+  extension; applications still own replay storage and transaction placement.
 - Infrastructure-neutral fixed-window rate limits with atomic store decisions,
   weighted costs, a standard declared 429 response, and a concurrency-safe
   memory adapter for tests.

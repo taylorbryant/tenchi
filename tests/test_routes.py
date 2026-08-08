@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import pytest
 from pydantic import BaseModel, Field, PlainSerializer
@@ -318,6 +318,72 @@ def test_route_computes_headers_kwarg() -> None:
         "headers",
         "context",
     )
+
+
+@pytest.mark.parametrize(
+    "headers_type",
+    [
+        type("MissingKey", (BaseModel,), {"__annotations__": {"x_key": str}}),
+        type(
+            "EmptyKeyAllowed",
+            (BaseModel,),
+            {"__annotations__": {"idempotency_key": str}},
+        ),
+        type(
+            "OptionalKey",
+            (BaseModel,),
+            {
+                "__annotations__": {"idempotency_key": str | None},
+                "idempotency_key": None,
+            },
+        ),
+        type(
+            "IntegerKey",
+            (BaseModel,),
+            {"__annotations__": {"idempotency_key": int}},
+        ),
+    ],
+)
+def test_route_rejects_invalid_declared_idempotency_headers(
+    headers_type: type[BaseModel],
+) -> None:
+    declared = contract(
+        method="POST",
+        path="/commands",
+        headers=headers_type,
+        idempotency_key=True,
+    )
+
+    async def command(headers: Any, context: object) -> None:
+        return None
+
+    with pytest.raises(
+        RouteBindingError,
+        match="required, non-empty string field named 'Idempotency-Key'",
+    ):
+        route(declared, command)
+
+
+def test_route_accepts_root_non_empty_constraints_on_composed_string_headers() -> None:
+    class ComposedKeyHeaders(BaseModel):
+        idempotency_key: Annotated[
+            str | Literal["fixed"],
+            Field(min_length=1),
+        ]
+
+    declared = contract(
+        method="POST",
+        path="/commands",
+        headers=ComposedKeyHeaders,
+        idempotency_key=True,
+    )
+
+    async def command(headers: ComposedKeyHeaders, context: object) -> None:
+        return None
+
+    bound = route(declared, command)
+
+    assert bound.contract is declared
 
 
 def test_route_group_errors_append_and_dedupe() -> None:

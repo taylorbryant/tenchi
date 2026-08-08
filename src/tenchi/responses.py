@@ -8,7 +8,7 @@ status, or routes that must return a streaming/file/redirect response, declare
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import UnionType
 from typing import Any, Generic, Union, cast, get_origin, overload
@@ -38,7 +38,8 @@ class ResponseDef(Generic[BodyT, HeadersT]):
     Build definitions with :func:`response`. ``passthrough=True`` permits a
     presenter to return a Starlette response while the declaration still
     supplies the status, media type, body type, and header type used for
-    runtime checks, OpenAPI, and the typed client.
+    runtime checks, OpenAPI, and the typed client. Named examples are validated,
+    serialized, and revalidated when OpenAPI is generated.
     """
 
     body: type[BodyT] | UnionType | None
@@ -47,6 +48,7 @@ class ResponseDef(Generic[BodyT, HeadersT]):
     media_type: str | None = "application/json"
     description: str = "Successful response"
     passthrough: bool = False
+    examples: tuple[tuple[str, object], ...] = ()
 
     def __post_init__(self) -> None:
         _validate_response_definition(
@@ -57,6 +59,15 @@ class ResponseDef(Generic[BodyT, HeadersT]):
             description=self.description,
             passthrough=self.passthrough,
         )
+        _validate_example_items(
+            self.examples,
+            label=f"response(status={self.status!r}) examples",
+        )
+        if self.examples and self.body is None:
+            raise ConfigurationError(
+                f"response(status={self.status!r}): examples were provided but "
+                "the response declares no response body"
+            )
 
     @property
     def _tenchi_response_definition(self) -> None:
@@ -88,6 +99,7 @@ def response[BodyT](
     media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
+    examples: Mapping[str, object] | None = None,
 ) -> ResponseDef[BodyT, None]: ...
 
 
@@ -101,6 +113,7 @@ def response[BodyT, HeadersT](
     media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
+    examples: Mapping[str, object] | None = None,
 ) -> ResponseDef[BodyT, HeadersT]: ...
 
 
@@ -114,6 +127,7 @@ def response(
     media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
+    examples: None = None,
 ) -> ResponseDef[None, None]: ...
 
 
@@ -127,6 +141,7 @@ def response[HeadersT](
     media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
+    examples: None = None,
 ) -> ResponseDef[None, HeadersT]: ...
 
 
@@ -139,6 +154,7 @@ def response(
     media_type: str | None = "application/json",
     description: str = "Successful response",
     passthrough: bool = False,
+    examples: Mapping[str, object] | None = None,
 ) -> ResponseDef[Any, Any]:
     """Declare one variant for ``contract(responses=...)``.
 
@@ -149,6 +165,10 @@ def response(
 
     Nested unions remain ordinary annotations, such as
     ``response(list[Created | Accepted], status=200)``.
+
+    ``examples=`` maps stable documentation names to values of the declared
+    body type. Put examples on the individual definition so OpenAPI associates
+    them with the correct status and media type.
     """
     normalized_body = _body_annotation(body, body_alternatives)
     return ResponseDef(
@@ -158,7 +178,47 @@ def response(
         media_type=media_type,
         description=description,
         passthrough=passthrough,
+        examples=_validated_examples(
+            examples,
+            label=f"response(status={status!r}) examples",
+        ),
     )
+
+
+def _validated_examples(
+    value: object,
+    *,
+    label: str,
+) -> tuple[tuple[str, object], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, Mapping):
+        raise ConfigurationError(f"{label} must be a mapping of names to values")
+    mapping = cast(Mapping[object, object], value)
+    items = tuple((cast(str, name), example) for name, example in mapping.items())
+    _validate_example_items(items, label=label)
+    return items
+
+
+def _validate_example_items(value: object, *, label: str) -> None:
+    if not isinstance(value, tuple):
+        raise ConfigurationError(f"{label} must contain named example entries")
+    items = cast(tuple[object, ...], value)
+    names: set[str] = set()
+    for index, item in enumerate(items):
+        if not isinstance(item, tuple):
+            raise ConfigurationError(f"{label} must contain named example entries")
+        entry = cast(tuple[object, ...], item)
+        if len(entry) != 2:
+            raise ConfigurationError(f"{label} must contain named example entries")
+        name = entry[0]
+        if not isinstance(name, str) or not name.strip():
+            raise ConfigurationError(
+                f"{label} name at index {index} must be a non-empty string"
+            )
+        if name in names:
+            raise ConfigurationError(f"{label} repeats example name {name!r}")
+        names.add(name)
 
 
 def _validate_response_definition(

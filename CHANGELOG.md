@@ -9,6 +9,22 @@ versions may change the public API.
 
 ### Added
 
+- Contracts can declare named `request_examples=` and `response_examples=`;
+  response definitions accept their own `examples=` for multi-status routes.
+  OpenAPI validates isolated example values through Pydantic, serializes real
+  wire aliases, revalidates the serialized payload through the receiving
+  boundary, verifies it against the published schema, and emits standard Media
+  Type example objects without leaking invalid payloads in configuration
+  errors. Example values do not participate in response-generic inference, and
+  example-only compatibility changes are metadata.
+- Unsafe HTTP contracts can declare `idempotency_key=True`. Route, server,
+  client, and OpenAPI composition require one required, non-empty string
+  `Idempotency-Key` header; generated operations publish
+  `x-tenchi-idempotency-key: Idempotency-Key`, application maps retain the
+  promise, and compatibility treats the guarantee itself as additive and its
+  removal as breaking. Adding the required header to an existing route remains
+  breaking under the normal parameter rules. The metadata documents
+  application-owned replay semantics without pretending to implement them.
 - Outbound retry policies can now explicitly select raw 400–599 response
   statuses such as proxy-generated 502, 503, and 504 failures. Selected raw
   responses honor decimal or HTTP-date `Retry-After` values within the existing

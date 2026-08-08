@@ -1,15 +1,21 @@
 """Conservative compatibility classification for Tenchi OpenAPI snapshots."""
 
 from copy import deepcopy
-from typing import Any
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Annotated, Any
 
 import pytest
+from pydantic import BaseModel, Field
 
 from tenchi.compatibility import (
     CompatibilityReport,
     analyze_openapi_compatibility,
     render_compatibility_report,
 )
+from tenchi.contracts import contract
+from tenchi.openapi import openapi_schema
+from tenchi.routes import route, route_group
 
 
 def document() -> dict[str, Any]:
@@ -861,6 +867,104 @@ def test_malformed_webhook_extension_change_fails_closed() -> None:
 
     assert report.status == "review required"
     assert messages(report) == ["webhook verification requirement changed"]
+
+
+def test_idempotency_guarantee_is_directional() -> None:
+    baseline = document()
+    baseline["paths"]["/items"]["post"]["parameters"].append(
+        {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": True,
+            "schema": {"type": "string", "minLength": 1},
+        }
+    )
+    guaranteed = deepcopy(baseline)
+    guaranteed["paths"]["/items"]["post"]["x-tenchi-idempotency-key"] = (
+        "Idempotency-Key"
+    )
+
+    added = analyze_openapi_compatibility(baseline, guaranteed)
+    removed = analyze_openapi_compatibility(guaranteed, baseline)
+
+    assert added.status == "compatible"
+    assert messages(added) == ["idempotency guarantee documented"]
+    assert removed.status == "incompatible"
+    assert messages(removed) == ["idempotency guarantee removed"]
+
+
+def test_generated_referenced_idempotency_header_is_recognized_as_additive() -> None:
+    class Key(StrEnum):
+        FIXED = "fixed"
+
+    class ReferencedKeyHeaders(BaseModel):
+        idempotency_key: Annotated[Key, Field(min_length=1)]
+
+    @dataclass(frozen=True, slots=True)
+    class Context:
+        pass
+
+    async def command(headers: ReferencedKeyHeaders, context: Context) -> None:
+        return None
+
+    declared = contract(
+        method="POST",
+        path="/commands",
+        headers=ReferencedKeyHeaders,
+        status=204,
+        idempotency_key=True,
+    )
+    current = openapi_schema(
+        route_group(route(declared, command)),
+        title="Commands",
+        version="1",
+    )
+    baseline = deepcopy(current)
+    del baseline["paths"]["/commands"]["post"]["x-tenchi-idempotency-key"]
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.status == "compatible"
+    assert messages(report) == ["idempotency guarantee documented"]
+
+
+def test_malformed_idempotency_extension_change_fails_closed() -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    current["paths"]["/items"]["post"]["x-tenchi-idempotency-key"] = True
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.status == "review required"
+    assert messages(report) == ["idempotency guarantee changed"]
+
+
+def test_idempotency_extension_without_its_required_header_fails_closed() -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    current["paths"]["/items"]["post"]["x-tenchi-idempotency-key"] = "Idempotency-Key"
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.status == "review required"
+    assert messages(report) == ["idempotency guarantee changed"]
+
+
+def test_openapi_examples_are_metadata() -> None:
+    baseline = document()
+    current = deepcopy(baseline)
+    current["paths"]["/items"]["post"]["requestBody"]["content"]["application/json"][
+        "examples"
+    ] = {"create": {"value": {"name": "example"}}}
+    current["paths"]["/items"]["post"]["responses"]["201"]["content"][
+        "application/json"
+    ]["examples"] = {"created": {"value": {"name": "example"}}}
+
+    report = analyze_openapi_compatibility(baseline, current)
+
+    assert report.status == "compatible"
+    assert severities(report) == ["metadata", "metadata"]
+    assert messages(report) == ["examples changed", "examples changed"]
 
 
 @pytest.mark.parametrize(

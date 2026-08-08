@@ -672,6 +672,7 @@ dynamic_contract = contract(
     )
     assert dict(dynamic.details) == {
         "export_name": "dynamic_contract",
+        "idempotency_key": False,
         "webhook": False,
     }
 

@@ -3,8 +3,8 @@ import { Callout } from "@/components/callout";
 # OpenAPI and compatibility
 
 Tenchi derives OpenAPI 3.1 from composed contracts. The document describes the
-same types, headers, errors, media types, visibility, and successful response
-definitions enforced by the server and client.
+same types, headers, errors, media types, examples, visibility, retry guarantees,
+and successful response definitions enforced by the server and client.
 
 ## Generate a document
 
@@ -53,6 +53,43 @@ private_routes = route_group(
     errors=(unauthorized,),
 )
 ```
+
+## Teach clients and agents how to call an operation
+
+Named `request_examples=` and `response_examples=` values flow from a contract
+to the corresponding OpenAPI Media Type Object. Tenchi runs them through the
+declared Pydantic validator and serializer, revalidates the serialized wire
+payload through the receiving boundary, and checks the resulting JSON against
+the published schema. This keeps aliases, custom validators, and custom
+serializers honest while giving external clients and agents concrete payloads
+they can adapt.
+
+```python
+create_todo_contract = contract(
+    method="POST",
+    path="/todos",
+    request=CreateTodo,
+    response=Todo,
+    status=201,
+    request_examples={"create": CreateTodo(title="Buy milk")},
+    response_examples={
+        "created": Todo(id="todo_123", title="Buy milk", completed=False)
+    },
+)
+```
+
+Changing examples is metadata-only for compatibility. Do not put secrets,
+personal data, or production payloads in them because the OpenAPI document is
+often public.
+
+An unsafe contract marked `idempotency_key=True` must declare a required,
+non-empty string `Idempotency-Key` header. It then emits
+`x-tenchi-idempotency-key: Idempotency-Key`. Adding the documented guarantee is
+additive when the required header already exists; adding that header to an
+established operation is still breaking. Removing the guarantee is breaking
+because callers may already rely on safe logical retries. The extension
+describes application behavior—it does not replace the idempotency store and
+use-case implementation.
 
 ## Serve OpenAPI
 

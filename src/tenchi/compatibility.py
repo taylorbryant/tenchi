@@ -22,6 +22,10 @@ from ._schema_compatibility import (
     JsonObject,
     compare_schema,
 )
+from .contracts import (
+    _schema_json_types,  # pyright: ignore[reportPrivateUsage]
+    _schema_requires_non_empty_string,  # pyright: ignore[reportPrivateUsage]
+)
 from .errors import ERROR_SOURCE_HEADER as _ERROR_SOURCE_HEADER
 from .errors import internal_server_error as _internal_server_error
 from .evaluations import MAX_EVALUATION_TOKENS
@@ -62,6 +66,7 @@ _OPERATION_KNOWN = frozenset(
         *_OPERATION_METADATA,
         "x-timeout-seconds",
         "x-tenchi-webhook",
+        "x-tenchi-idempotency-key",
         "parameters",
         "requestBody",
         "responses",
@@ -207,6 +212,7 @@ class _Analyzer:
         if _field_changed(before, after, "x-timeout-seconds"):
             self.changes.add("unknown", location, "request timeout changed")
         self._compare_webhook_requirement(before, after, location=location)
+        self._compare_idempotency_guarantee(before, after, location=location)
 
         self._compare_security(
             _effective_security(self.baseline, before),
@@ -258,6 +264,40 @@ class _Analyzer:
                 "additive",
                 location,
                 "webhook verification requirement was removed",
+            )
+
+    def _compare_idempotency_guarantee(
+        self,
+        before: JsonObject,
+        after: JsonObject,
+        *,
+        location: str,
+    ) -> None:
+        field = "x-tenchi-idempotency-key"
+        if not _field_changed(before, after, field):
+            return
+        before_value = before.get(field)
+        after_value = after.get(field)
+        expected = "Idempotency-Key"
+        before_valid = _has_idempotency_key_parameter(self.baseline, before)
+        after_valid = _has_idempotency_key_parameter(self.current, after)
+        if before_value is None and after_value == expected and after_valid:
+            self.changes.add(
+                "additive",
+                location,
+                "idempotency guarantee documented",
+            )
+        elif before_value == expected and after_value is None and before_valid:
+            self.changes.add(
+                "breaking",
+                location,
+                "idempotency guarantee removed",
+            )
+        else:
+            self.changes.add(
+                "unknown",
+                location,
+                "idempotency guarantee changed",
             )
 
     def _compare_security(
@@ -587,10 +627,15 @@ class _Analyzer:
                 direction=direction,
                 location=media_location,
             )
+            if any(
+                _field_changed(before_media, after_media, field)
+                for field in ("example", "examples")
+            ):
+                self.changes.add("metadata", media_location, "examples changed")
             self._unknown_fields(
                 before_media,
                 after_media,
-                known={"schema"},
+                known={"schema", "example", "examples"},
                 location=media_location,
                 message="unsupported media fields changed",
             )
@@ -1544,6 +1589,26 @@ def _parameters(value: object) -> dict[tuple[str, str], JsonObject] | None:
             return None
         result[key] = parameter
     return result
+
+
+def _has_idempotency_key_parameter(
+    document: JsonObject,
+    operation: JsonObject,
+) -> bool:
+    parameters = _parameters(operation.get("parameters"))
+    if parameters is None:
+        return False
+    matches = [
+        parameter
+        for (location, name), parameter in parameters.items()
+        if location == "header" and name.casefold() == "idempotency-key"
+    ]
+    if len(matches) != 1 or matches[0].get("required") is not True:
+        return False
+    schema = _object(matches[0].get("schema"))
+    return _schema_json_types(document, schema, seen_refs=set()) == frozenset(
+        {"string"}
+    ) and _schema_requires_non_empty_string(document, schema, seen_refs=set())
 
 
 def _effective_security(document: JsonObject, operation: JsonObject) -> object:

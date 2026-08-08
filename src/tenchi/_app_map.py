@@ -761,6 +761,8 @@ def _discover_contracts(
         public = _literal_keyword(call, "public", bool)
         webhook_value = _keyword_value(call, "webhook")
         webhook = _literal_keyword(call, "webhook", bool)
+        idempotency_key_value = _keyword_value(call, "idempotency_key")
+        idempotency_key = _literal_keyword(call, "idempotency_key", bool)
         tags_value = _keyword_value(call, "tags")
         tags = _literal_string_tuple(call, "tags")
         details = _details(
@@ -778,6 +780,9 @@ def _discover_contracts(
             ),
             public=False if public_value is None else public,
             webhook=False if webhook_value is None else webhook,
+            idempotency_key=(
+                False if idempotency_key_value is None else idempotency_key
+            ),
             tags=() if tags_value is None else tags,
         )
         builder.add_node(
@@ -1468,6 +1473,7 @@ def _add_runtime_routes(
                     statuses=statuses,
                     public=item.contract.public,
                     webhook=item.contract.webhook,
+                    idempotency_key=item.contract.idempotency_key,
                     call_kwargs=item.call_kwargs,
                 ),
             )
@@ -1501,6 +1507,7 @@ def _add_runtime_routes(
                         statuses=_contract_statuses(declared_contract),
                         public=declared_contract.public,
                         webhook=declared_contract.webhook,
+                        idempotency_key=declared_contract.idempotency_key,
                         tags=declared_contract.tags,
                     ),
                 )

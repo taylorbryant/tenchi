@@ -52,7 +52,14 @@ class PutTodoResult:
     created: bool
 
 
-created = response(Todo, status=201, description="Todo created")
+created = response(
+    Todo,
+    status=201,
+    description="Todo created",
+    examples={
+        "created": Todo(id="todo_123", title="Buy milk", completed=False)
+    },
+)
 existing = response(Todo, status=200, description="Todo replaced")
 
 put_todo_contract = contract(
@@ -72,7 +79,9 @@ put_todo_route = route(put_todo_contract, put_todo, present=present_put)
 
 The use case returns domain-shaped data. A synchronous presenter selects the
 declared wire response. The typed client exposes the selected definition on
-`ClientResponse.definition`.
+`ClientResponse.definition`. Examples belong on the individual definition so
+OpenAPI attaches each one to the correct status and media type. Tenchi validates
+and serializes them the same way as singular `response_examples=` values.
 
 ## Alternative body schemas
 

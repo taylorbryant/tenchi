@@ -102,6 +102,12 @@ def test_taskboard_app_map_covers_real_application_relationships() -> None:
     )
     assert dict(member_contract.details)["statuses"] == (201, 200)
     assert "status" not in dict(member_contract.details)
+    create_task_contract = next(
+        node
+        for node in result.nodes
+        if node.id == "contract:tasks.create_task_contract"
+    )
+    assert dict(create_task_contract.details)["idempotency_key"] is True
     webhook_contract = next(
         node
         for node in result.nodes

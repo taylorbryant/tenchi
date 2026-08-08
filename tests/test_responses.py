@@ -42,6 +42,7 @@ created = response(
     status=201,
     headers=CreatedHeaders,
     description="A new item was created",
+    examples={"created": Item(name="new")},
 )
 existing = response(
     Item,
@@ -130,6 +131,69 @@ async def test_named_responses_drive_server_and_typed_client() -> None:
     assert existing_response.http_response.status_code == 200
     assert existing_response.definition is existing
     assert existing_response.headers is None
+
+
+def test_response_examples_are_named_and_body_bound() -> None:
+    declared = response(
+        Item,
+        status=200,
+        examples={"item": Item(name="example")},
+    )
+
+    assert declared.examples == (("item", Item(name="example")),)
+    with pytest.raises(ConfigurationError, match="no response body"):
+        response(  # pyright: ignore[reportCallIssue]
+            None,
+            status=204,
+            examples={"empty": None},  # pyright: ignore[reportArgumentType]
+        )
+    with pytest.raises(ConfigurationError, match="non-empty string"):
+        response(Item, status=200, examples={"": Item(name="example")})
+    with pytest.raises(ConfigurationError, match="named example entries"):
+        ResponseDef(  # type: ignore[arg-type]
+            body=Item,
+            status=200,
+            examples=("not-an-entry",),  # pyright: ignore[reportArgumentType]
+        )
+    with pytest.raises(ConfigurationError, match="repeats example name 'same'"):
+        ResponseDef(
+            body=Item,
+            status=200,
+            examples=(
+                ("same", Item(name="one")),
+                ("same", Item(name="two")),
+            ),
+        )
+
+
+def test_examples_do_not_widen_response_type_inference() -> None:
+    definition = response(
+        Item,
+        status=200,
+        examples={"checked-later": "not-an-item"},
+    )
+    declared = contract(
+        method="GET",
+        path="/items",
+        response=Item,
+        response_examples={"checked-later": "not-an-item"},
+    )
+    direct_definition = ResponseDef(
+        body=Item,
+        status=200,
+        examples=(("checked-later", "not-an-item"),),
+    )
+    direct_contract = Contract(
+        method="GET",
+        path="/items",
+        response=Item,
+        response_examples=(("checked-later", "not-an-item"),),
+    )
+
+    assert_type(definition, ResponseDef[Item, None])
+    assert_type(declared, Contract[Item, None])
+    assert_type(direct_definition, ResponseDef[Item, None])
+    assert_type(direct_contract, Contract[Item, None])
 
 
 def test_route_map_reports_response_definition_statuses() -> None:
@@ -374,6 +438,9 @@ def test_openapi_documents_each_response_definition() -> None:
 
     assert responses["201"]["description"] == "A new item was created"
     assert "Location" in responses["201"]["headers"]
+    assert responses["201"]["content"]["application/json"]["examples"] == {
+        "created": {"value": {"name": "new"}}
+    }
     assert responses["200"]["description"] == "The existing item was returned"
 
 
@@ -387,6 +454,15 @@ def test_response_declarations_fail_early_when_ambiguous_or_incoherent() -> None
         )
 
     wrong = response(str, status=202)
+    with pytest.raises(ConfigurationError, match="put examples= on each response"):
+        contract(  # pyright: ignore[reportCallIssue]
+            method="GET",
+            path="/misplaced-examples",
+            responses=(existing,),
+            response_examples={  # pyright: ignore[reportArgumentType]
+                "existing": Item(name="example")
+            },
+        )
     with pytest.raises(ConfigurationError, match="do not also pass response"):
         contract(  # pyright: ignore[reportCallIssue]
             method="GET",

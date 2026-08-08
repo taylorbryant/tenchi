@@ -28,6 +28,8 @@ from .errors import (
 )
 from .responses import (
     ResponseDef,
+    _validate_example_items,  # pyright: ignore[reportPrivateUsage]
+    _validated_examples,  # pyright: ignore[reportPrivateUsage]
     _validated_response_defs,  # pyright: ignore[reportPrivateUsage]
 )
 
@@ -57,6 +59,8 @@ class _ResponseDefView(Protocol[_ResponseBodyCo, _ResponseHeadersCo]):
 
 
 _METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 _PATH_PARAMETER = re.compile(
     r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::[a-zA-Z_][a-zA-Z0-9_]*)?\}"
 )
@@ -111,6 +115,8 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
     headers: type[Any] | UnionType | None = None
     response: type[ResponseT] | UnionType | None = None
     response_headers: type[ResponseHeadersT] | UnionType | None = None
+    request_examples: tuple[tuple[str, object], ...] = ()
+    response_examples: tuple[tuple[str, object], ...] = ()
     status: int = 200
     errors: tuple[ErrorDef, ...] = ()
     name: str = field(default="")
@@ -121,6 +127,7 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
     tags: tuple[str, ...] = ()
     public: bool = False
     webhook: bool = False
+    idempotency_key: bool = False
     deprecated: bool | datetime = False
     sunset: datetime | None = None
     max_request_bytes: int | None = None
@@ -141,6 +148,28 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
             status=self.status,
             has_response_definitions=bool(self.responses),
         )
+        _validate_idempotency_declaration(
+            method=self.method,
+            path=self.path,
+            headers=self.headers,
+            idempotency_key=self.idempotency_key,
+        )
+        _validate_example_items(
+            self.request_examples,
+            label=f"contract(path={self.path!r}) request_examples",
+        )
+        _validate_example_items(
+            self.response_examples,
+            label=f"contract(path={self.path!r}) response_examples",
+        )
+        _validate_example_body_declarations(
+            path=self.path,
+            request=self.request,
+            response=self.response,
+            has_response_definitions=bool(self.responses),
+            request_examples=self.request_examples,
+            response_examples=self.response_examples,
+        )
 
     def declares_error(self, definition: ErrorDef) -> bool:
         """Whether this contract declares the given error as expected."""
@@ -158,6 +187,8 @@ def contract(
     headers: type[Any] | UnionType | None = None,
     response: type[ResponseT] | UnionType | None = None,
     response_headers: type[ResponseHeadersT] | UnionType | None = None,
+    request_examples: Mapping[str, object] | None = None,
+    response_examples: Mapping[str, object] | None = None,
     status: int = 200,
     errors: Sequence[ErrorDef] = (),
     name: str | None = None,
@@ -168,6 +199,7 @@ def contract(
     tags: Sequence[str] = (),
     public: bool = False,
     webhook: bool = False,
+    idempotency_key: bool = False,
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
@@ -187,6 +219,8 @@ def contract(
     headers: type[Any] | UnionType | None = None,
     response: None = None,
     response_headers: None = None,
+    request_examples: Mapping[str, object] | None = None,
+    response_examples: None = None,
     status: int = 200,
     errors: Sequence[ErrorDef] = (),
     name: str | None = None,
@@ -197,6 +231,7 @@ def contract(
     tags: Sequence[str] = (),
     public: bool = False,
     webhook: bool = False,
+    idempotency_key: bool = False,
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
@@ -215,6 +250,8 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
     headers: type[Any] | UnionType | None = None,
     response: type[ResponseT] | UnionType | None = None,
     response_headers: type[ResponseHeadersT] | UnionType | None = None,
+    request_examples: Mapping[str, object] | None = None,
+    response_examples: Mapping[str, object] | None = None,
     status: int = 200,
     errors: Sequence[ErrorDef] = (),
     name: str | None = None,
@@ -225,6 +262,7 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
     tags: Sequence[str] = (),
     public: bool = False,
     webhook: bool = False,
+    idempotency_key: bool = False,
     deprecated: bool | datetime = False,
     sunset: datetime | None = None,
     max_request_bytes: int | None = None,
@@ -263,6 +301,14 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
             fixed set of fields that validate and serialize under the same
             names, and each field must serialize to one scalar value. Dynamic
             extra fields and framework-owned header names are rejected.
+        request_examples: Named example request values for OpenAPI. Values are
+            validated, serialized, and revalidated through ``request`` when the
+            document is generated, so published examples use the real wire
+            aliases and cannot drift from the receiving boundary or published
+            schema.
+        response_examples: Named example response values for a singular
+            response. Put examples for multi-response contracts on each
+            :func:`tenchi.responses.response` definition instead.
         status: Singular successful status code between 200 and 399. Defaults
             to 200. Response definitions carry their own statuses when
             ``responses=`` is used.
@@ -296,6 +342,12 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
             ``webhook(contract, verifier)`` is supplied. The verifier runs
             before request parsing and may attach a verified service identity
             to the application context.
+        idempotency_key: Document that this unsafe operation implements
+            idempotent replay through a required non-empty string
+            ``Idempotency-Key``
+            request header. Tenchi verifies that header declaration and emits
+            machine-readable OpenAPI metadata; the application still owns the
+            durable idempotency implementation.
         deprecated: Mark the operation as deprecated. Pass an aware
             datetime (the instant deprecation took effect) to send an
             RFC 9745 ``Deprecation: @<unix-timestamp>`` response header;
@@ -347,6 +399,14 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
     declared_tags = _validated_tags(tags, path=path)
     declared_responses = _validated_response_defs(
         responses, label=f"contract(path={path!r}) responses"
+    )
+    declared_request_examples = _validated_examples(
+        request_examples,
+        label=f"contract(path={path!r}) request_examples",
+    )
+    declared_response_examples = _validated_examples(
+        response_examples,
+        label=f"contract(path={path!r}) response_examples",
     )
 
     normalized_method = method.upper()
@@ -400,6 +460,20 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
         raise ConfigurationError(
             f"contract(path={path!r}): webhook=True requires a request type"
         )
+    _validate_idempotency_declaration(
+        method=normalized_method,
+        path=path,
+        headers=headers,
+        idempotency_key=idempotency_key,
+    )
+    _validate_example_body_declarations(
+        path=path,
+        request=request,
+        response=response,
+        has_response_definitions=bool(declared_responses),
+        request_examples=declared_request_examples,
+        response_examples=declared_response_examples,
+    )
     if timeout is not None and (timeout <= 0 or not isfinite(timeout)):
         raise ConfigurationError(
             f"contract(path={path!r}): timeout must be finite and positive, "
@@ -437,6 +511,8 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
         query=query,
         headers=headers,
         response=resolved_response,
+        request_examples=declared_request_examples,
+        response_examples=declared_response_examples,
         response_headers=resolved_response_headers,
         status=status,
         errors=declared_errors,
@@ -448,12 +524,65 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
         tags=declared_tags,
         public=public,
         webhook=webhook,
+        idempotency_key=idempotency_key,
         deprecated=deprecated,
         sunset=sunset,
         max_request_bytes=max_request_bytes,
         responses=declared_responses,
         timeout=timeout,
     )
+
+
+def _validate_idempotency_declaration(
+    *,
+    method: object,
+    path: object,
+    headers: object,
+    idempotency_key: object,
+) -> None:
+    if not isinstance(idempotency_key, bool):
+        raise ConfigurationError(
+            f"contract(path={path!r}): idempotency_key must be a bool, got "
+            f"{type(idempotency_key).__name__}"
+        )
+    if not idempotency_key:
+        return
+    if method not in _METHODS - _SAFE_METHODS:
+        raise ConfigurationError(
+            f"contract(path={path!r}): idempotency_key=True is only valid for "
+            "unsafe methods"
+        )
+    if headers is None:
+        raise ConfigurationError(
+            f"contract(path={path!r}): idempotency_key=True requires a headers "
+            f"type with a required string {_IDEMPOTENCY_KEY_HEADER!r} field"
+        )
+
+
+def _validate_example_body_declarations(
+    *,
+    path: object,
+    request: object,
+    response: object,
+    has_response_definitions: bool,
+    request_examples: object,
+    response_examples: object,
+) -> None:
+    if request_examples and request is None:
+        raise ConfigurationError(
+            f"contract(path={path!r}): request_examples were provided but the "
+            "contract declares no request type"
+        )
+    if response_examples and (response is None or has_response_definitions):
+        reason = (
+            "the contract uses response definitions; put examples= on each "
+            "response definition"
+            if has_response_definitions
+            else "the contract declares no response body"
+        )
+        raise ConfigurationError(
+            f"contract(path={path!r}): response_examples were provided but {reason}"
+        )
 
 
 def _validate_no_body_status(
@@ -774,6 +903,230 @@ def _request_parameter_fields(  # pyright: ignore[reportUnusedFunction]
                     "shape for validation and serialization"
                 )
     return fields
+
+
+def _validate_idempotency_key_header(  # pyright: ignore[reportUnusedFunction]
+    schema: Mapping[str, Any],
+    *,
+    label: str,
+    serialization_schema: Mapping[str, Any] | None = None,
+) -> None:
+    """Require the conventional idempotency header in both schema modes."""
+    fields = _request_parameter_fields(
+        schema,
+        location="header",
+        label=label,
+        serialization_schema=serialization_schema,
+    )
+    object_schema = _object_schema(schema)
+    required_value: object = object_schema.get("required", []) if object_schema else []
+    required: set[object] = (
+        set(cast(list[object], required_value))
+        if isinstance(required_value, list)
+        else set()
+    )
+    matching = next(
+        (
+            (name, field_schema)
+            for name, field_schema in fields
+            if _request_parameter_wire_name("header", name)
+            == _IDEMPOTENCY_KEY_HEADER.casefold()
+        ),
+        None,
+    )
+    valid = (
+        matching is not None
+        and matching[0] in required
+        and _schema_json_types(schema, matching[1], seen_refs=set())
+        == frozenset({"string"})
+        and _schema_requires_non_empty_string(schema, matching[1], seen_refs=set())
+    )
+    if valid and serialization_schema is not None:
+        serialized_fields = _request_parameter_fields(
+            serialization_schema,
+            location="header",
+            label=label,
+            check_required_nullable=False,
+        )
+        serialized = next(
+            (
+                field_schema
+                for name, field_schema in serialized_fields
+                if _request_parameter_wire_name("header", name)
+                == _IDEMPOTENCY_KEY_HEADER.casefold()
+            ),
+            None,
+        )
+        valid = (
+            serialized is not None
+            and _schema_json_types(
+                serialization_schema,
+                serialized,
+                seen_refs=set(),
+            )
+            == frozenset({"string"})
+            and _schema_requires_non_empty_string(
+                serialization_schema,
+                serialized,
+                seen_refs=set(),
+            )
+        )
+    if not valid:
+        raise ConfigurationError(
+            f"{label} must declare one required, non-empty string field named "
+            f"{_IDEMPOTENCY_KEY_HEADER!r}"
+        )
+
+
+def _schema_json_types(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    *,
+    seen_refs: set[str],
+) -> frozenset[str] | None:
+    reference = schema.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/"):
+        if reference in seen_refs:
+            return None
+        target = _local_schema_reference(root, reference)
+        return (
+            _schema_json_types(
+                root,
+                target,
+                seen_refs={*seen_refs, reference},
+            )
+            if target is not None
+            else None
+        )
+    for union_key in ("anyOf", "oneOf"):
+        choices = schema.get(union_key)
+        if not isinstance(choices, list) or not choices:
+            continue
+        types: set[str] = set()
+        for choice in cast(list[object], choices):
+            if not isinstance(choice, Mapping):
+                return None
+            choice_types = _schema_json_types(
+                root,
+                cast(Mapping[str, Any], choice),
+                seen_refs=set(seen_refs),
+            )
+            if choice_types is None:
+                return None
+            types.update(choice_types)
+        return frozenset(types)
+    intersections = schema.get("allOf")
+    if isinstance(intersections, list) and intersections:
+        known: list[frozenset[str]] = []
+        for choice in cast(list[object], intersections):
+            if not isinstance(choice, Mapping):
+                return None
+            choice_types = _schema_json_types(
+                root,
+                cast(Mapping[str, Any], choice),
+                seen_refs=set(seen_refs),
+            )
+            if choice_types is not None:
+                known.append(choice_types)
+        if not known:
+            return None
+        result = set(known[0])
+        for choice_types in known[1:]:
+            result.intersection_update(choice_types)
+        return frozenset(result)
+
+    schema_type = schema.get("type")
+    if isinstance(schema_type, str):
+        return frozenset({schema_type})
+    if isinstance(schema_type, list) and all(
+        isinstance(item, str) for item in cast(list[object], schema_type)
+    ):
+        return frozenset(cast(list[str], schema_type))
+    if "const" in schema:
+        return frozenset({_json_value_type(schema["const"])})
+    enum = schema.get("enum")
+    if isinstance(enum, list) and enum:
+        return frozenset(_json_value_type(value) for value in cast(list[object], enum))
+    return None
+
+
+def _schema_requires_non_empty_string(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    *,
+    seen_refs: set[str],
+) -> bool:
+    if _schema_directly_requires_non_empty_string(schema):
+        return True
+    reference = schema.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/"):
+        if reference in seen_refs:
+            return False
+        target = _local_schema_reference(root, reference)
+        if target is None:
+            return False
+        if _schema_requires_non_empty_string(
+            root,
+            target,
+            seen_refs={*seen_refs, reference},
+        ):
+            return True
+    for union_key in ("anyOf", "oneOf"):
+        choices = schema.get(union_key)
+        if isinstance(choices, list) and choices:
+            return all(
+                isinstance(choice, Mapping)
+                and _schema_requires_non_empty_string(
+                    root,
+                    cast(Mapping[str, Any], choice),
+                    seen_refs=set(seen_refs),
+                )
+                for choice in cast(list[object], choices)
+            )
+    intersections = schema.get("allOf")
+    if isinstance(intersections, list) and intersections:
+        return any(
+            isinstance(choice, Mapping)
+            and _schema_requires_non_empty_string(
+                root,
+                cast(Mapping[str, Any], choice),
+                seen_refs=set(seen_refs),
+            )
+            for choice in cast(list[object], intersections)
+        )
+    return False
+
+
+def _schema_directly_requires_non_empty_string(schema: Mapping[str, Any]) -> bool:
+    minimum = schema.get("minLength")
+    if isinstance(minimum, int) and not isinstance(minimum, bool) and minimum >= 1:
+        return True
+    constant = schema.get("const")
+    if isinstance(constant, str):
+        return bool(constant)
+    enum = schema.get("enum")
+    enum_values = cast(list[object], enum) if isinstance(enum, list) else []
+    return bool(enum_values) and all(
+        isinstance(value, str) and bool(value) for value in enum_values
+    )
+
+
+def _json_value_type(value: object) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, Mapping):
+        return "object"
+    return "unknown"
 
 
 def _request_parameter_fields_in_schema(

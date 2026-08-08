@@ -1291,6 +1291,14 @@
         "requestBody": {
           "content": {
             "application/json": {
+              "examples": {
+                "create": {
+                  "value": {
+                    "project_id": "project_123",
+                    "title": "Ship the release"
+                  }
+                }
+              },
               "schema": {
                 "properties": {
                   "project_id": {
@@ -1319,6 +1327,17 @@
           "201": {
             "content": {
               "application/json": {
+                "examples": {
+                  "created": {
+                    "value": {
+                      "id": "task_123",
+                      "project_id": "project_123",
+                      "status": "todo",
+                      "title": "Ship the release",
+                      "version": 1
+                    }
+                  }
+                },
                 "schema": {
                   "properties": {
                     "id": {
@@ -1717,6 +1736,7 @@
         "tags": [
           "tasks"
         ],
+        "x-tenchi-idempotency-key": "Idempotency-Key",
         "x-timeout-seconds": 10.0
       }
     },

@@ -18,6 +18,7 @@ from .schemas import (
     GetTaskParams,
     ListTasksQuery,
     Task,
+    TaskStatus,
     UpdateTask,
     UpdateTaskHeaders,
 )
@@ -40,6 +41,19 @@ create_task_contract = contract(
     response_headers=CreatedTaskHeaders,
     status=201,
     timeout=10.0,
+    idempotency_key=True,
+    request_examples={
+        "create": CreateTask(project_id="project_123", title="Ship the release")
+    },
+    response_examples={
+        "created": Task(
+            id="task_123",
+            project_id="project_123",
+            title="Ship the release",
+            status=TaskStatus.TODO,
+            version=1,
+        )
+    },
     errors=(
         project_not_found,
         forbidden,

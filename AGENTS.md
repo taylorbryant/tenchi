@@ -256,6 +256,10 @@ API shape:
   supplied through the application context. The store that protects database
   writes participates in the same transaction; keys are scoped to an actor or
   tenant, and contracts declare both standard idempotency errors.
+- HTTP contracts that implement that guarantee set `idempotency_key=True` and
+  declare one required, non-empty string `Idempotency-Key` header. This is
+  checked and published to OpenAPI; it never substitutes for
+  `run_idempotently()` or correct transaction placement.
 - Application-level quotas use `enforce_rate_limit()` with a `RateLimitStore`
   scoped from authenticated identity, never untrusted request input. Put the
   consume inside idempotent work when one logical operation should cost once.
@@ -361,6 +365,10 @@ pass. CI compatibility checks must obtain their baseline from the pull-request
 base or preceding push; prefer `--diff-ref` when that baseline is committed.
 Comparing against the snapshot committed in the same change is only an equality
 check and belongs to `openapi --check`.
+Named request/response examples are validated and serialized against the exact
+published schema. Example changes are metadata. Removing a documented
+idempotency-key guarantee is breaking; adding one is additive only when its
+required header already exists compatibly.
 `verify --base-ref <ref>` resolves the ref once, runs `check`, requires an
 application map with no diagnostics or unresolved relationships, and compares
 OpenAPI, application-tool, and evaluation-policy snapshots with that immutable

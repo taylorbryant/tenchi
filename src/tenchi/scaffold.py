@@ -172,6 +172,9 @@ and pure policy functions. Declare every expected `AppError` on its contract or
 route group; undeclared application errors intentionally become framework 500s.
 OpenAPI enumerates the exact codes and application/framework source for each
 error status and documents the framework-owned internal 500 on every operation.
+Contract examples are public documentation. Use named, realistic placeholder
+values; Tenchi validates their serialized form against OpenAPI, so never put
+credentials, personal data, or production payloads in them.
 Security configuration does not invent authentication failures, so declare
 those errors on every protected contract or route group.
 Contracts marked `webhook=True` require an exact-body verifier binding in
@@ -305,6 +308,10 @@ create_todo_contract = contract(
     response=Todo,
     response_headers=CreatedTodoHeaders,
     status=201,
+    request_examples={"create": CreateTodo(title="Buy milk")},
+    response_examples={
+        "created": Todo(id="todo_123", title="Buy milk", completed=False)
+    },
 )
 
 list_todos_contract = contract(
@@ -869,6 +876,13 @@ _OPENAPI_SNAPSHOT = """\
         "requestBody": {
           "content": {
             "application/json": {
+              "examples": {
+                "create": {
+                  "value": {
+                    "title": "Buy milk"
+                  }
+                }
+              },
               "schema": {
                 "properties": {
                   "title": {
@@ -891,6 +905,15 @@ _OPENAPI_SNAPSHOT = """\
           "201": {
             "content": {
               "application/json": {
+                "examples": {
+                  "created": {
+                    "value": {
+                      "completed": false,
+                      "id": "todo_123",
+                      "title": "Buy milk"
+                    }
+                  }
+                },
                 "schema": {
                   "properties": {
                     "completed": {

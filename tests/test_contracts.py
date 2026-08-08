@@ -1,5 +1,5 @@
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tenchi.contracts import Contract, contract
 from tenchi.errors import ConfigurationError, ErrorDef
@@ -24,6 +24,9 @@ def test_contract_defaults() -> None:
     assert declared.timeout is None
     assert declared.public is False
     assert declared.webhook is False
+    assert declared.idempotency_key is False
+    assert declared.request_examples == ()
+    assert declared.response_examples == ()
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
@@ -126,6 +129,96 @@ def test_contract_carries_and_validates_webhook_metadata() -> None:
         )
     with pytest.raises(ConfigurationError, match="requires a request type"):
         contract(method="POST", path="/webhook", webhook=True)
+
+
+def test_contract_carries_idempotency_and_named_examples() -> None:
+    class CommandHeaders(BaseModel):
+        idempotency_key: str = Field(min_length=1)
+
+    request_example = Item(name="create")
+    response_example = Item(name="created")
+
+    declared = contract(
+        method="POST",
+        path="/items",
+        request=Item,
+        headers=CommandHeaders,
+        response=Item,
+        idempotency_key=True,
+        request_examples={"create": request_example},
+        response_examples={"created": response_example},
+    )
+
+    assert declared.idempotency_key is True
+    assert declared.request_examples == (("create", request_example),)
+    assert declared.response_examples == (("created", response_example),)
+
+
+def test_contract_rejects_idempotency_without_an_unsafe_header_boundary() -> None:
+    class CommandHeaders(BaseModel):
+        idempotency_key: str
+
+    with pytest.raises(ConfigurationError, match="idempotency_key must be a bool"):
+        contract(
+            method="POST",
+            path="/items",
+            headers=CommandHeaders,
+            idempotency_key=1,  # type: ignore[arg-type]
+        )
+    with pytest.raises(ConfigurationError, match="only valid for unsafe methods"):
+        contract(
+            method="GET",
+            path="/items",
+            headers=CommandHeaders,
+            idempotency_key=True,
+        )
+    with pytest.raises(ConfigurationError, match="requires a headers type"):
+        contract(method="POST", path="/items", idempotency_key=True)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("request_examples", {"create": Item(name="create")}, "no request type"),
+        ("response_examples", {"ok": Item(name="ok")}, "no response body"),
+        ("request_examples", {"": Item(name="create")}, "non-empty string"),
+    ],
+)
+def test_contract_rejects_examples_without_a_named_body(
+    field: str, value: object, message: str
+) -> None:
+    kwargs: dict[str, object] = {
+        "method": "POST",
+        "path": "/items",
+        field: value,
+    }
+    if field == "request_examples" and message == "non-empty string":
+        kwargs["request"] = Item
+
+    with pytest.raises(ConfigurationError, match=message):
+        contract(**kwargs)  # type: ignore[arg-type]
+
+
+def test_direct_contract_construction_cannot_bypass_new_invariants() -> None:
+    with pytest.raises(ConfigurationError, match="requires a headers type"):
+        Contract(method="POST", path="/items", idempotency_key=True)
+    with pytest.raises(ConfigurationError, match="named example entries"):
+        Contract(  # type: ignore[arg-type]
+            method="POST",
+            path="/items",
+            request=Item,
+            request_examples=("not-an-entry",),  # pyright: ignore[reportArgumentType]
+        )
+    with pytest.raises(ConfigurationError, match="repeats example name 'same'"):
+        Contract(
+            method="POST",
+            path="/items",
+            request=Item,
+            request_examples=(
+                ("same", Item(name="one")),
+                ("same", Item(name="two")),
+            ),
+        )
 
 
 def test_contract_rejects_empty_media_type() -> None:

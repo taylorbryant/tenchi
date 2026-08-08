@@ -5,7 +5,15 @@ from typing import Annotated, Any
 import httpx
 import pytest
 from openapi_spec_validator import validate
-from pydantic import BaseModel, Field, PlainSerializer, computed_field, create_model
+from pydantic import (
+    BaseModel,
+    Field,
+    PlainSerializer,
+    computed_field,
+    create_model,
+    field_serializer,
+    field_validator,
+)
 
 from tenchi.contracts import contract
 from tenchi.errors import ConfigurationError, ErrorDef
@@ -25,6 +33,31 @@ class ItemParams(BaseModel):
 class SearchQuery(BaseModel):
     term: str
     limit: int = 10
+
+
+class CommandHeaders(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+BrokenSerializedInteger = Annotated[
+    int,
+    PlainSerializer(lambda _: "not-an-integer"),
+]
+
+
+class BrokenRoundTripPayload(BaseModel):
+    value: str
+
+    @field_validator("value")
+    @classmethod
+    def reject_serialized_value(cls, value: str) -> str:
+        if value == "wire-invalid":
+            raise ValueError("value is not accepted at the boundary")
+        return value
+
+    @field_serializer("value")
+    def serialize_value(self, value: str) -> str:
+        return "wire-invalid"
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +124,183 @@ def test_document_skeleton() -> None:
     assert document["info"] == {"title": "Items", "version": "1.2.3"}
     assert set(document["paths"]) == {"/items", "/items/{item_id}", "/search"}
     assert set(document["paths"]["/items"]) == {"post", "delete"}
+
+
+def test_openapi_publishes_validated_named_examples_and_idempotency() -> None:
+    class AliasedItem(BaseModel):
+        item_name: str = Field(alias="itemName")
+
+    async def create_aliased_item(
+        request: AliasedItem,
+        headers: CommandHeaders,
+        context: Context,
+    ) -> AliasedItem:
+        return request
+
+    declared = contract(
+        method="POST",
+        path="/aliased-items",
+        request=AliasedItem,
+        headers=CommandHeaders,
+        response=AliasedItem,
+        status=201,
+        idempotency_key=True,
+        request_examples={"create": AliasedItem(itemName="example")},
+        response_examples={"created": AliasedItem(itemName="example")},
+    )
+
+    document = openapi_schema(
+        route_group(route(declared, create_aliased_item)),
+        title="Items",
+        version="1",
+    )
+    operation = document["paths"]["/aliased-items"]["post"]
+
+    assert operation["x-tenchi-idempotency-key"] == "Idempotency-Key"
+    assert (
+        next(
+            parameter
+            for parameter in operation["parameters"]
+            if parameter["name"].casefold() == "idempotency-key"
+        )["required"]
+        is True
+    )
+    assert operation["requestBody"]["content"]["application/json"]["examples"] == {
+        "create": {"value": {"itemName": "example"}}
+    }
+    assert operation["responses"]["201"]["content"]["application/json"]["examples"] == {
+        "created": {"value": {"itemName": "example"}}
+    }
+
+
+def test_openapi_rejects_examples_that_serialize_outside_the_published_schema() -> None:
+    async def broken(context: Context) -> BrokenSerializedInteger:
+        return 1
+
+    declared = contract(
+        method="GET",
+        path="/broken",
+        response=BrokenSerializedInteger,  # pyright: ignore[reportArgumentType]
+        response_examples={"broken": 1},
+    )
+
+    with pytest.raises(
+        ConfigurationError,
+        match=(
+            "response status 200 example 'broken' does not satisfy its published schema"
+        ),
+    ):
+        openapi_schema(
+            route_group(route(declared, broken)),
+            title="Items",
+            version="1",
+        )
+
+
+@pytest.mark.parametrize("direction", ["request", "response"])
+def test_openapi_rejects_examples_that_do_not_round_trip_through_pydantic(
+    direction: str,
+) -> None:
+    example = BrokenRoundTripPayload(value="source-valid")
+
+    async def receive(
+        request: BrokenRoundTripPayload,
+        context: Context,
+    ) -> None:
+        return None
+
+    async def read(context: Context) -> BrokenRoundTripPayload:
+        return BrokenRoundTripPayload(value="source-valid")
+
+    if direction == "request":
+        declared = contract(
+            method="POST",
+            path="/broken-request-round-trip",
+            request=BrokenRoundTripPayload,
+            status=204,
+            request_examples={"broken": example},
+        )
+        bound = route(declared, receive)
+    else:
+        declared = contract(
+            method="GET",
+            path="/broken-response-round-trip",
+            response=BrokenRoundTripPayload,
+            response_examples={"broken": example},
+        )
+        bound = route(declared, read)
+
+    with pytest.raises(
+        ConfigurationError,
+        match=f"{direction}.*example 'broken' does not satisfy its published schema",
+    ):
+        openapi_schema(
+            route_group(bound),
+            title="Items",
+            version="1",
+        )
+
+
+def test_openapi_rejects_invalid_request_examples_without_echoing_payloads() -> None:
+    async def create(request: Item, context: Context) -> Item:
+        return request
+
+    declared = contract(
+        method="POST",
+        path="/invalid-example",
+        request=Item,
+        response=Item,
+        request_examples={"invalid": {"private_payload": "do-not-echo"}},
+    )
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        openapi_schema(
+            route_group(route(declared, create)),
+            title="Items",
+            version="1",
+        )
+
+    assert "request example 'invalid' does not satisfy its published schema" in str(
+        excinfo.value
+    )
+    assert "private_payload" not in str(excinfo.value)
+    assert "do-not-echo" not in str(excinfo.value)
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+
+
+def test_openapi_isolates_examples_from_mutating_serializers() -> None:
+    def serialize_values(values: list[int]) -> list[int]:
+        values.append(2)
+        return values
+
+    class MutatingExample(BaseModel):
+        values: Annotated[
+            list[int],
+            PlainSerializer(serialize_values, return_type=list[int]),
+        ]
+
+    original = MutatingExample(values=[1])
+
+    async def read(context: Context) -> MutatingExample:
+        return MutatingExample(values=[1])
+
+    declared = contract(
+        method="GET",
+        path="/mutating-example",
+        response=MutatingExample,
+        response_examples={"value": original},
+    )
+    document = openapi_schema(
+        route_group(route(declared, read)),
+        title="Items",
+        version="1",
+    )
+
+    assert original.values == [1]
+    assert document["paths"]["/mutating-example"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["examples"]["value"]["value"] == {"values": [1, 2]}
 
 
 def test_openapi_rejects_bare_string_tag_sequences() -> None:

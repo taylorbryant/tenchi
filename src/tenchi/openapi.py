@@ -14,18 +14,23 @@ import inspect
 import json
 import posixpath
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from datetime import UTC
 from html import escape
 from typing import Any, cast
 
+from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.protocols import Validator
 from pydantic import TypeAdapter
 
 from . import errors as tenchi_errors
 from .contracts import (
+    _IDEMPOTENCY_KEY_HEADER,  # pyright: ignore[reportPrivateUsage]
     Contract,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
     _request_parameter_fields,  # pyright: ignore[reportPrivateUsage]
     _response_header_fields,  # pyright: ignore[reportPrivateUsage]
+    _validate_idempotency_key_header,  # pyright: ignore[reportPrivateUsage]
     contract,
 )
 from .errors import ERROR_SOURCE_HEADER as _ERROR_SOURCE_HEADER
@@ -40,6 +45,7 @@ from .routes import (
 )
 
 _ERROR_COMPONENT = "ErrorResponse"
+_INVALID_EXAMPLE = object()
 
 _SWAGGER_UI_VERSION = "5.32.9"
 _SWAGGER_UI_CSS_URL = (
@@ -433,6 +439,8 @@ def _operation(
         operation["x-timeout-seconds"] = declared.timeout
     if declared.webhook:
         operation["x-tenchi-webhook"] = True
+    if declared.idempotency_key:
+        operation["x-tenchi-idempotency-key"] = _IDEMPOTENCY_KEY_HEADER
 
     parameters: list[dict[str, Any]] = []
     if declared.params is not None:
@@ -440,20 +448,35 @@ def _operation(
     if declared.query is not None:
         parameters.extend(_parameters(declared.query, "query", components))
     if declared.headers is not None:
-        parameters.extend(_parameters(declared.headers, "header", components))
+        parameters.extend(
+            _parameters(
+                declared.headers,
+                "header",
+                components,
+                require_idempotency_key=declared.idempotency_key,
+            )
+        )
     if parameters:
         operation["parameters"] = parameters
 
     if declared.request is not None:
+        request_schema = _json_schema(
+            declared.request,
+            components,
+            mode="validation",
+        )
+        request_media: dict[str, Any] = {"schema": request_schema}
+        if declared.request_examples:
+            request_media["examples"] = _serialized_examples(
+                declared.request,
+                declared.request_examples,
+                schema=request_schema,
+                components=components,
+                label=f"route {declared.name!r} request",
+            )
         operation["requestBody"] = {
             "required": True,
-            "content": {
-                declared.request_media_type: {
-                    "schema": _json_schema(
-                        declared.request, components, mode="validation"
-                    )
-                }
-            },
+            "content": {declared.request_media_type: request_media},
         }
 
     operation["responses"] = _responses(declared, components, error_schemas)
@@ -545,11 +568,29 @@ def _successful_response(
     }
     if response_type is not None:
         assert media_type is not None
-        response["content"] = {
-            media_type: {
-                "schema": _json_schema(response_type, components, mode="serialization")
-            }
-        }
+        response_schema = _json_schema(
+            response_type,
+            components,
+            mode="serialization",
+        )
+        response_media: dict[str, Any] = {"schema": response_schema}
+        examples = (
+            definition.examples
+            if definition is not None
+            else declared.response_examples
+        )
+        if examples:
+            response_status = (
+                definition.status if definition is not None else declared.status
+            )
+            response_media["examples"] = _serialized_examples(
+                response_type,
+                examples,
+                schema=response_schema,
+                components=components,
+                label=(f"route {declared.name!r} response status {response_status}"),
+            )
+        response["content"] = {media_type: response_media}
     headers = _successful_response_headers(
         declared,
         components,
@@ -671,6 +712,8 @@ def _parameters(
     annotation: Any,
     location: str,
     components: dict[str, Any],
+    *,
+    require_idempotency_key: bool = False,
 ) -> list[dict[str, Any]]:
     type_name = getattr(annotation, "__name__", repr(annotation))
     serialization_schema: dict[str, Any] | None = None
@@ -722,6 +765,16 @@ def _parameters(
             ).items()
         )
     )
+    if require_idempotency_key:
+        assert serialization_schema is not None
+        _validate_idempotency_key_header(
+            {**schema, "components": {"schemas": components}},
+            label=f"openapi: {location} input type {type_name}",
+            serialization_schema={
+                **serialization_schema,
+                "components": {"schemas": serialization_components},
+            },
+        )
     required = set(object_schema.get("required", []))
     parameters: list[dict[str, Any]] = []
     for name, property_schema in fields:
@@ -734,6 +787,41 @@ def _parameters(
             }
         )
     return parameters
+
+
+def _serialized_examples(
+    annotation: Any,
+    examples: tuple[tuple[str, Any], ...],
+    *,
+    schema: dict[str, Any],
+    components: dict[str, Any],
+    label: str,
+) -> dict[str, dict[str, object]]:
+    adapter = TypeAdapter(annotation)
+    root_schema = {**schema, "components": {"schemas": components}}
+    validator: Validator = Draft202012Validator(
+        root_schema,
+        format_checker=FormatChecker(),
+    )
+    rendered: dict[str, dict[str, object]] = {}
+    for name, value in examples:
+        serialized: object = _INVALID_EXAMPLE
+        try:
+            isolated = deepcopy(value)
+            validated = adapter.validate_python(isolated)
+            encoded = adapter.dump_json(validated, by_alias=True)
+            adapter.validate_json(encoded)
+            serialized = json.loads(encoded)
+            validator.validate(serialized)  # pyright: ignore[reportUnknownMemberType]
+        except Exception:
+            serialized = _INVALID_EXAMPLE
+        if serialized is _INVALID_EXAMPLE:
+            raise ConfigurationError(
+                f"openapi: {label} example {name!r} does not satisfy its "
+                "published schema"
+            )
+        rendered[name] = {"value": serialized}
+    return rendered
 
 
 def _resolved_object_schema(

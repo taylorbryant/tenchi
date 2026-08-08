@@ -52,6 +52,19 @@ def test_document_is_valid_and_documents_errors() -> None:
     assert idempotency_key["schema"]["minLength"] == 1
     assert idempotency_key["schema"]["maxLength"] == 128
     assert idempotency_key["schema"]["pattern"].endswith("*$")
+    assert create_task["x-tenchi-idempotency-key"] == "Idempotency-Key"
+    assert create_task["requestBody"]["content"]["application/json"]["examples"][
+        "create"
+    ]["value"] == {
+        "project_id": "project_123",
+        "title": "Ship the release",
+    }
+    assert (
+        create_task["responses"]["201"]["content"]["application/json"]["examples"][
+            "created"
+        ]["value"]["status"]
+        == "todo"
+    )
     assert create_task["responses"]["201"]["headers"]["ETag"]["required"] is True
     assert create_task["responses"]["201"]["headers"]["Location"]["required"] is True
     assert create_task["x-timeout-seconds"] == 10.0

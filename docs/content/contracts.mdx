@@ -33,6 +33,10 @@ create_todo_contract = contract(
     response=Todo,
     response_headers=CreatedTodoHeaders,
     status=201,
+    request_examples={"create": CreateTodo(title="Buy milk")},
+    response_examples={
+        "created": Todo(id="todo_123", title="Buy milk", completed=False)
+    },
     name="create_todo",
     summary="Create a todo",
     tags=("todos",),
@@ -112,6 +116,26 @@ decoding.
 Charset-qualified text types are encoded and decoded strictly. An unsupported
 declared charset fails when the contract is built rather than during a call.
 
+## Give callers concrete examples
+
+Use `request_examples=` and `response_examples=` when a caller would benefit
+from seeing a complete valid exchange. Each mapping key is a stable,
+human-readable example name. Values are ordinary instances of the declared
+types—not hand-written JSON.
+
+When OpenAPI is generated, Tenchi validates an isolated copy of each value,
+serializes it with Pydantic and its wire aliases, revalidates that wire payload,
+and verifies it against the schema it publishes. A stale value, a non-round-trip
+validator/serializer pair, or a serializer that contradicts the schema fails
+generation without including the example payload in the error. Examples appear
+under the operation's request or response media type, where OpenAPI clients and
+agents can discover them.
+
+For a contract with `responses=`, put `examples={...}` on each
+[`response()` definition](/responses) so every example stays attached to its
+status and media type. Examples are public API documentation: use realistic
+placeholder values, never credentials, personal data, or production payloads.
+
 ## Metadata and visibility
 
 `summary`, `description`, and `tags` feed OpenAPI. `deprecated` accepts `True`
@@ -125,6 +149,12 @@ itself.
 `webhook=True` marks a signed inbound operation. Unlike descriptive metadata,
 it is enforced: `create_app()` requires a matching exact-body verifier binding.
 See [Receive signed webhooks](/webhooks).
+
+`idempotency_key=True` makes an unsafe operation's retry guarantee explicit.
+The contract must declare one required, non-empty string `Idempotency-Key`
+header. Tenchi checks both Pydantic validation and serialization schemas and
+publishes the guarantee in OpenAPI. The flag does not implement replay or
+storage; follow [Make operations safe to retry](/idempotency) for that work.
 
 <Callout title="One access-control signal">
   Authentication hooks should exempt operations through

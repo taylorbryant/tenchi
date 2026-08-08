@@ -71,6 +71,38 @@ get_item_contract = contract(
     response=Item,
     errors=(item_missing,),
 )
+
+
+async def test_client_rechecks_idempotency_headers_before_io() -> None:
+    class EmptyKeyAllowed(BaseModel):
+        idempotency_key: str
+
+    declared = contract(
+        method="POST",
+        path="/commands",
+        headers=EmptyKeyAllowed,
+        idempotency_key=True,
+    )
+    called = False
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(204)
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(
+            ConfigurationError,
+            match="required, non-empty string field named 'Idempotency-Key'",
+        ):
+            await client.call(
+                declared,
+                headers=EmptyKeyAllowed(idempotency_key="key"),
+            )
+
+    assert called is False
+
+
 search_contract = contract(
     method="GET", path="/search", query=SearchQuery, response=SearchQuery
 )
