@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-09
+
 ### Added
 
 - Background-job groups now publish a versioned, payload-free durable-message
