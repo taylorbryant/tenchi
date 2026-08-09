@@ -351,7 +351,12 @@ govern them.
 Structured CLI results and MCP tool inputs and outputs share one agent protocol
 version. Additive changes may update its current canonical snapshot; breaking
 or unknown changes require a version bump and a new snapshot, leaving earlier
-versioned snapshots intact.
+versioned snapshots intact. Every CLI invocation that requests `--json` or
+`--diff-format json` must emit exactly one validated JSON object on stdout for
+expected success and failure paths. Failures that occur before the normal
+operation result exists use the shared, redacted `operation_error` result and
+retain a nonzero exit status; application exception text and payloads never
+enter that result.
 `openapi --write`, `openapi --check`, `openapi --diff`, and Git-backed
 `openapi --diff-ref` use the same canonical format; checked-in example and
 generated-app snapshots must be reproducible with their documented metadata and

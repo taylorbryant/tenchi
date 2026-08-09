@@ -29,6 +29,7 @@ from tenchi._agent_protocol import (
 )
 from tenchi._cli_results import (
     AGENT_PROTOCOL_VERSION,
+    AgentOperationErrorResult,
     MakeResult,
 )
 from tenchi._mcp_server import McpServerOptions, build_mcp_server
@@ -231,6 +232,25 @@ def test_agent_result_registry_rejects_extra_fields() -> None:
 
     with pytest.raises(ValueError, match="does not exactly match"):
         validate_agent_result("doctor", doctor_payload)
+
+
+def test_operation_error_result_is_bound_to_its_registered_schema() -> None:
+    payload = AgentOperationErrorResult(
+        operation="routes",
+        code="TENCHI_CLI_TARGET_LOAD_FAILED",
+        message="Could not load the configured route target.",
+        details={"target": "app.server.routes:routes"},
+    ).as_dict()
+
+    assert validate_agent_result("operation_error", payload) == payload
+
+    with pytest.raises(ValueError, match="Agent result 'routes'"):
+        validate_agent_result("routes", payload)
+
+    invalid_details = dict(payload)
+    invalid_details["details"] = {"unsafe": object()}
+    with pytest.raises(ValueError, match="Agent result 'operation_error'"):
+        validate_agent_result("operation_error", invalid_details)
 
 
 async def test_mcp_outputs_use_the_cli_result_contracts() -> None:

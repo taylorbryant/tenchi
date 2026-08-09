@@ -37,9 +37,46 @@ type TaskRunErrorKind = Literal[
     "invalid_result",
     "failed",
 ]
+type AgentOperationName = Literal[
+    "cli",
+    "make",
+    "routes",
+    "tools",
+    "map",
+    "openapi",
+    "doctor",
+    "check",
+    "verify",
+    "preflight",
+    "eval.list",
+    "eval.snapshot",
+    "eval.run",
+    "task.list",
+    "task.run",
+]
+type AgentOperationErrorCode = Literal[
+    "TENCHI_CLI_INVALID_ARGUMENTS",
+    "TENCHI_CLI_TARGET_LOAD_FAILED",
+    "TENCHI_CLI_CONFIGURATION_INVALID",
+    "TENCHI_CLI_SELECTION_NOT_FOUND",
+    "TENCHI_CLI_SNAPSHOT_READ_FAILED",
+    "TENCHI_CLI_OPERATION_FAILED",
+]
+type AgentOperationErrorDetail = str | int | bool | list[str]
+type AgentOperationErrorDetails = dict[str, AgentOperationErrorDetail]
 type AgentProtocolVersion = Literal[6]
 
 AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 6
+
+
+class AgentOperationErrorPayload(TypedDict):
+    schema_version: AgentProtocolVersion
+    result: Literal["operation_error"]
+    operation: AgentOperationName
+    ok: Literal[False]
+    code: AgentOperationErrorCode
+    message: str
+    details: AgentOperationErrorDetails | None
 
 
 class DiagnosticPayload(TypedDict):
@@ -48,6 +85,30 @@ class DiagnosticPayload(TypedDict):
     message: str
     path: str
     line: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class AgentOperationErrorResult:
+    """A redacted failure before an operation-specific result can be built."""
+
+    operation: AgentOperationName
+    code: AgentOperationErrorCode
+    message: str
+    details: AgentOperationErrorDetails | None = None
+    schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
+    result: Literal["operation_error"] = "operation_error"
+    ok: Literal[False] = False
+
+    def as_dict(self) -> AgentOperationErrorPayload:
+        return {
+            "schema_version": self.schema_version,
+            "result": self.result,
+            "operation": self.operation,
+            "ok": self.ok,
+            "code": self.code,
+            "message": self.message,
+            "details": self.details,
+        }
 
 
 class DoctorPayload(TypedDict):

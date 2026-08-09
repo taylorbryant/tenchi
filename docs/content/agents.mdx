@@ -247,6 +247,29 @@ Human and JSON modes represent the same operation. Use JSON when another tool
 will make a decision; use human output when a person is reviewing the work in a
 terminal.
 
+If a JSON operation cannot build its normal result—for example, because its
+application target cannot be loaded—Tenchi still writes exactly one versioned
+object to stdout and exits nonzero:
+
+```json
+{
+  "schema_version": 6,
+  "result": "operation_error",
+  "operation": "routes",
+  "ok": false,
+  "code": "TENCHI_CLI_TARGET_LOAD_FAILED",
+  "message": "Could not load the configured route target.",
+  "details": {"target": "app.server.routes:routes"}
+}
+```
+
+The stable code is intended for branching. The message is safe to display, and
+optional details contain only deliberate context; application exception text
+and payloads are excluded. Argument parsing failures use
+`TENCHI_CLI_INVALID_ARGUMENTS` and also preserve stdout as valid JSON.
+Operation-specific failures that occur after loading—such as invalid task
+input—remain in that operation's normal result schema.
+
 ## Know when to inspect the source yourself
 
 The application map is source-backed and conservative. Python permits dynamic

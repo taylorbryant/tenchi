@@ -125,7 +125,9 @@ Framework agent workflow: https://tenchi.io/agents
 Use `--json` with `tenchi map`, `tenchi routes`, `tenchi tools`, `tenchi
 preflight`, `tenchi eval list|run`, `tenchi task`, `tenchi doctor`, `tenchi
 check`, `tenchi verify`, and `tenchi make ...` when structured output is more
-useful than terminal text.
+useful than terminal text. On an expected failure before the command can build
+its normal result, parse the versioned `operation_error` object from stdout and
+branch on its stable `code`; the process still exits nonzero.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
 `app_map`, `routes`, `tools`, `preflight`, `evaluation_list`, `task_list`,

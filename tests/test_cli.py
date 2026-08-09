@@ -33,6 +33,26 @@ def _tenchi(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _assert_operation_error(
+    result: subprocess.CompletedProcess[str],
+    *,
+    operation: str,
+    code: str,
+) -> dict[str, Any]:
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "schema_version": 6,
+        "result": "operation_error",
+        "operation": operation,
+        "ok": False,
+        "code": code,
+        "message": payload["message"],
+        "details": payload["details"],
+    }
+    return payload
+
+
 def _write_tool_module(
     root: Path,
     *,
@@ -515,8 +535,13 @@ def test_eval_snapshot_diff_ref_requires_an_explicit_missing_baseline_override(
         "json",
     )
 
-    assert rejected.returncode == 1
-    assert "could not read baseline" in rejected.stderr
+    failure = _assert_operation_error(
+        rejected,
+        operation="eval.snapshot",
+        code="TENCHI_CLI_OPERATION_FAILED",
+    )
+    assert failure["message"] == "Could not compare the evaluation-policy baseline."
+    assert rejected.stderr == ""
 
     allowed = _tenchi(
         tmp_path,
@@ -677,13 +702,19 @@ def test_tools_rejects_incompatible_output_modes(
     monkeypatch.chdir(tmp_path)
 
     assert main(["tools", "--diff-format", "json"]) == 1
-    assert "--diff-format requires --diff" in capsys.readouterr().err
+    invalid_diff = json.loads(capsys.readouterr().out)
+    assert invalid_diff["operation"] == "tools"
+    assert invalid_diff["code"] == "TENCHI_CLI_INVALID_ARGUMENTS"
+    assert "--diff-format requires --diff" in invalid_diff["message"]
 
     assert main(["tools", "--snapshot", "tools.json"]) == 1
     assert "--snapshot requires --diff-ref" in capsys.readouterr().err
 
     assert main(["tools", "--json", "--check", "tools.json"]) == 1
-    assert "--json cannot be combined" in capsys.readouterr().err
+    incompatible = json.loads(capsys.readouterr().out)
+    assert incompatible["operation"] == "tools"
+    assert incompatible["code"] == "TENCHI_CLI_INVALID_ARGUMENTS"
+    assert "--json cannot be combined" in incompatible["message"]
 
 
 def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> None:
@@ -751,10 +782,139 @@ def test_preflight_cli_redacts_import_failures(tmp_path: Path) -> None:
         "--json",
     )
 
-    assert result.returncode == 1
-    assert "could not import 'environment' (RuntimeError)" in result.stderr
+    payload = _assert_operation_error(
+        result,
+        operation="preflight",
+        code="TENCHI_CLI_TARGET_LOAD_FAILED",
+    )
+    assert payload["details"] == {"target": "environment:checks"}
     assert "secret-manager-token" not in result.stdout
     assert "secret-manager-token" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("arguments", "operation"),
+    [
+        (("routes", "--routes", "missing:routes", "--json"), "routes"),
+        (("tools", "--tools", "missing:tools", "--json"), "tools"),
+        (("map", "--routes", "missing:routes", "--json"), "map"),
+        (
+            ("preflight", "--preflight", "missing:checks", "--json"),
+            "preflight",
+        ),
+        (
+            ("eval", "list", "--evaluations", "missing:runner", "--json"),
+            "eval.list",
+        ),
+        (
+            ("eval", "run", "--evaluations", "missing:runner", "--json"),
+            "eval.run",
+        ),
+        (("task", "list", "--tasks", "missing:runner", "--json"), "task.list"),
+        (
+            ("task", "run", "repair", "--tasks", "missing:runner", "--json"),
+            "task.run",
+        ),
+    ],
+)
+def test_json_commands_report_target_loading_failures(
+    tmp_path: Path,
+    arguments: tuple[str, ...],
+    operation: str,
+) -> None:
+    result = _tenchi(tmp_path, *arguments)
+
+    payload = _assert_operation_error(
+        result,
+        operation=operation,
+        code="TENCHI_CLI_TARGET_LOAD_FAILED",
+    )
+    assert payload["message"].startswith("Could not load")
+    assert result.stderr == ""
+
+
+def test_json_argument_errors_are_versioned_and_do_not_echo_values(
+    tmp_path: Path,
+) -> None:
+    result = _tenchi(
+        tmp_path,
+        "routes",
+        "--json",
+        "--unknown-option",
+        "application-secret",
+    )
+
+    assert result.returncode == 2
+    payload = _assert_operation_error(
+        result,
+        operation="routes",
+        code="TENCHI_CLI_INVALID_ARGUMENTS",
+    )
+    assert payload["message"] == "Command arguments are invalid."
+    assert payload["details"] is None
+    assert "application-secret" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("arguments", "operation"),
+    [
+        (("routes", "--json", "--help"), "routes"),
+        (("openapi", "--diff-format", "json", "--help"), "openapi"),
+    ],
+)
+def test_structured_json_cannot_be_bypassed_by_help(
+    tmp_path: Path,
+    arguments: tuple[str, ...],
+    operation: str,
+) -> None:
+    result = _tenchi(tmp_path, *arguments)
+
+    payload = _assert_operation_error(
+        result,
+        operation=operation,
+        code="TENCHI_CLI_INVALID_ARGUMENTS",
+    )
+    assert payload["message"] == (
+        "Structured JSON output cannot be combined with help."
+    )
+    assert payload["details"] is None
+    assert result.stderr == ""
+
+
+def test_json_operation_errors_redact_application_exceptions(tmp_path: Path) -> None:
+    (tmp_path / "broken.py").write_text(
+        "raise RuntimeError('application-secret')\n",
+        encoding="utf-8",
+    )
+
+    result = _tenchi(
+        tmp_path,
+        "routes",
+        "--routes",
+        "broken:routes",
+        "--json",
+    )
+
+    _assert_operation_error(
+        result,
+        operation="routes",
+        code="TENCHI_CLI_TARGET_LOAD_FAILED",
+    )
+    assert "application-secret" not in result.stdout + result.stderr
+
+
+def test_map_json_reports_an_unknown_feature_as_a_stable_selection_failure() -> None:
+    result = _tenchi(EXAMPLE_DIR, "map", "--feature", "missing", "--json")
+
+    payload = _assert_operation_error(
+        result,
+        operation="map",
+        code="TENCHI_CLI_SELECTION_NOT_FOUND",
+    )
+    assert payload["details"] == {
+        "feature": "missing",
+        "available_features": ["todos"],
+    }
 
 
 def test_task_cli_lists_runs_and_reports_validation_as_versioned_json(
@@ -1859,6 +2019,50 @@ def test_openapi_diff_reports_unreadable_and_invalid_baselines(
     assert "could not compare baseline" in capsys.readouterr().err
 
 
+def test_openapi_json_diff_reports_a_versioned_baseline_failure(
+    tmp_path: Path,
+) -> None:
+    result = _tenchi(
+        EXAMPLE_DIR,
+        "openapi",
+        "--diff",
+        str(tmp_path / "missing.json"),
+        "--diff-format",
+        "json",
+    )
+
+    payload = _assert_operation_error(
+        result,
+        operation="openapi",
+        code="TENCHI_CLI_SNAPSHOT_READ_FAILED",
+    )
+    assert payload["message"] == "Could not read the OpenAPI baseline."
+    assert payload["details"] == {"path": str(tmp_path / "missing.json")}
+    assert result.stderr == ""
+
+
+def test_openapi_json_diff_reports_invalid_configuration_without_details() -> None:
+    result = _tenchi(
+        EXAMPLE_DIR,
+        "openapi",
+        "--security",
+        '{"auth":"invalid"}',
+        "--diff",
+        "missing.json",
+        "--diff-format",
+        "json",
+    )
+
+    payload = _assert_operation_error(
+        result,
+        operation="openapi",
+        code="TENCHI_CLI_CONFIGURATION_INVALID",
+    )
+    assert payload["message"] == "The OpenAPI configuration is invalid."
+    assert payload["details"] is None
+    assert result.stderr == ""
+
+
 def test_openapi_diff_format_cannot_be_used_with_another_mode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1880,7 +2084,10 @@ def test_openapi_diff_format_cannot_be_used_with_another_mode(
         == 1
     )
 
-    assert "--diff-format requires --diff" in capsys.readouterr().err
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["operation"] == "openapi"
+    assert payload["code"] == "TENCHI_CLI_INVALID_ARGUMENTS"
+    assert "--diff-format requires --diff" in payload["message"]
     assert not snapshot.exists()
 
 

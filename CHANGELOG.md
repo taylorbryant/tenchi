@@ -9,6 +9,12 @@ versions may change the public API.
 
 ### Added
 
+- Every `--json` command now returns a versioned `operation_error` object when
+  invalid arguments, target-loading failures, invalid composition, unknown
+  selections, or baseline failures prevent its normal result from being built.
+  JSON compatibility reports provide the same guarantee, nonzero exit statuses
+  remain intact, and `operation_error` values omit application exception text
+  and payloads. Agent protocol v6 records the additive shared error schema.
 - Contracts can declare named `request_examples=` and `response_examples=`;
   response definitions accept their own `examples=` for multi-status routes.
   OpenAPI validates isolated example values through Pydantic, serializes real

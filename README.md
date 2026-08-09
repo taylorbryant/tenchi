@@ -485,13 +485,18 @@ payload-safe result. Evaluation execution remains separate from `check` and
 incur cost; those commands verify only the declared policy.
 
 Generator `--dry-run` output lists every file without writing it. `make`,
-`map`, `tools`, `eval list|run`, `doctor`, `check`, and `verify` accept `--json`
-and return versioned results for agents and automation. `tenchi check` runs Ruff
+`routes`, `map`, `tools`, `preflight`, `eval list|run`, `task list|run`,
+`doctor`, `check`, and `verify` accept `--json` and return versioned results for
+agents and automation. `tenchi check` runs Ruff
 formatting and linting, Pyright, pytest, doctor, and the OpenAPI,
 application-tool, and evaluation-policy snapshot checks even when an earlier
 step fails; failed output is bounded and each step reports its duration.
 Tenchi snapshots the JSON Schema for these results and the MCP tool surface;
 breaking protocol changes require a new `schema_version`.
+Expected failures that occur before an operation-specific result exists still
+emit one versioned `operation_error` object with a stable operation and code.
+The machine-readable failure excludes application exception text and payloads,
+and the process retains a nonzero exit status.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
 inspect, preview, edit, validate, and compatibility loop.
 

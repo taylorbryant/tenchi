@@ -3,6 +3,14 @@
 The `tenchi` command scaffolds the prescribed structure, inspects the composed
 application, and keeps API changes reviewable.
 
+Commands with `--json`, plus compatibility commands using
+`--diff-format json`, reserve stdout for one versioned JSON object. If Tenchi
+cannot construct the command's normal result, it emits a shared
+`operation_error` object with a stable operation and error code, then exits
+nonzero. These failures omit application exception text and payloads. This
+means an agent can parse both success and expected failure without falling back
+to terminal prose.
+
 ## Create an application
 
 ```shell

@@ -40,10 +40,11 @@ import argparse
 import asyncio
 import json
 import math
+import os
 import shlex
 import sys
 from collections.abc import Mapping, Sequence
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any, cast
 
@@ -65,7 +66,14 @@ from ._cli_operations import (
     valid_name,
     write_files,
 )
-from ._cli_results import CheckResult, MakeResult
+from ._cli_results import (
+    AgentOperationErrorCode,
+    AgentOperationErrorDetails,
+    AgentOperationErrorResult,
+    AgentOperationName,
+    CheckResult,
+    MakeResult,
+)
 from ._evaluation_operations import (
     EvaluationDiffResult,
     compare_evaluation_baseline,
@@ -157,10 +165,78 @@ _DEFAULT_TASKS = "app.server.tasks:runner"
 _DEFAULT_JOBS = "app.server.jobs:jobs"
 _DEFAULT_TOOLS = "app.server.tools:tools"
 
+_AGENT_COMMAND_OPERATIONS: dict[str, AgentOperationName] = {
+    "make": "make",
+    "routes": "routes",
+    "tools": "tools",
+    "map": "map",
+    "openapi": "openapi",
+    "doctor": "doctor",
+    "check": "check",
+    "verify": "verify",
+    "preflight": "preflight",
+}
+
+
+def _structured_json_requested(argv: Sequence[str]) -> bool:
+    """Return whether *argv* asks the CLI to reserve stdout for JSON."""
+    if "--json" in argv or "--diff-format=json" in argv:
+        return True
+    return any(
+        argument == "--diff-format"
+        and index + 1 < len(argv)
+        and argv[index + 1] == "json"
+        for index, argument in enumerate(argv)
+    )
+
+
+def _agent_operation_from_argv(argv: Sequence[str]) -> AgentOperationName:
+    """Identify the stable operation name without parsing untrusted arguments."""
+    if not argv:
+        return "cli"
+    command = argv[0]
+    if command == "eval":
+        if len(argv) > 1 and argv[1] in {"list", "snapshot", "run"}:
+            return cast(AgentOperationName, f"eval.{argv[1]}")
+        return "cli"
+    if command == "task":
+        if len(argv) > 1 and argv[1] in {"list", "run"}:
+            return cast(AgentOperationName, f"task.{argv[1]}")
+        return "cli"
+    return _AGENT_COMMAND_OPERATIONS.get(command, "cli")
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = tuple(sys.argv[1:] if argv is None else argv)
+    structured_json = _structured_json_requested(raw_argv)
+    if structured_json and any(argument in {"-h", "--help"} for argument in raw_argv):
+        _print_operation_error(
+            operation=_agent_operation_from_argv(raw_argv),
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="Structured JSON output cannot be combined with help.",
+            details=None,
+        )
+        return 2
+    if structured_json:
+        try:
+            with (
+                open(os.devnull, "w", encoding="utf-8") as parser_stderr,
+                redirect_stderr(parser_stderr),
+            ):
+                args = parser.parse_args(raw_argv)
+        except SystemExit as exc:
+            if exc.code == 0:
+                raise
+            _print_operation_error(
+                operation=_agent_operation_from_argv(raw_argv),
+                code="TENCHI_CLI_INVALID_ARGUMENTS",
+                message="Command arguments are invalid.",
+                details=None,
+            )
+            return 2
+    else:
+        args = parser.parse_args(raw_argv)
 
     if args.command == "new":
         return _new(args.name)
@@ -1262,8 +1338,22 @@ def _preflight(
                 )
             )
     except (OperationError, ConfigurationError) as exc:
-        _fail(f"tenchi preflight: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="preflight",
+            code=(
+                "TENCHI_CLI_TARGET_LOAD_FAILED"
+                if isinstance(exc, OperationError)
+                else "TENCHI_CLI_CONFIGURATION_INVALID"
+            ),
+            message=(
+                "Could not load the configured preflight target."
+                if isinstance(exc, OperationError)
+                else "The preflight configuration is invalid."
+            ),
+            details={"target": target},
+            as_json=as_json,
+            human_message=f"tenchi preflight: {exc}",
+        )
 
     if as_json:
         _print_agent_json("preflight", result.as_dict())
@@ -1293,8 +1383,22 @@ def _evaluation_list(target: str, *, as_json: bool) -> int:
             runner = load_evaluation_runner(Path.cwd(), target)
             result = evaluation_list_result(Path.cwd(), target, runner)
     except (OperationError, ConfigurationError) as exc:
-        _fail(f"tenchi eval list: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="eval.list",
+            code=(
+                "TENCHI_CLI_TARGET_LOAD_FAILED"
+                if isinstance(exc, OperationError)
+                else "TENCHI_CLI_CONFIGURATION_INVALID"
+            ),
+            message=(
+                "Could not load the configured evaluation target."
+                if isinstance(exc, OperationError)
+                else "The evaluation configuration is invalid."
+            ),
+            details={"target": target},
+            as_json=as_json,
+            human_message=f"tenchi eval list: {exc}",
+        )
 
     if as_json:
         _print_agent_json("evaluation_list", result.as_dict())
@@ -1324,23 +1428,60 @@ def _evaluation_snapshot(
     diff_format: str,
     allow_missing_baseline: bool,
 ) -> int:
+    as_json = diff_format == "json"
     if diff is None and diff_ref is None and diff_format != "text":
-        _fail("tenchi eval snapshot: --diff-format requires --diff or --diff-ref")
-        return 1
+        return _render_operation_error(
+            operation="eval.snapshot",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--diff-format requires --diff or --diff-ref.",
+            details=None,
+            as_json=as_json,
+            human_message=(
+                "tenchi eval snapshot: --diff-format requires --diff or --diff-ref"
+            ),
+        )
     if snapshot is not None and diff_ref is None:
-        _fail("tenchi eval snapshot: --snapshot requires --diff-ref")
-        return 1
+        return _render_operation_error(
+            operation="eval.snapshot",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--snapshot requires --diff-ref.",
+            details=None,
+            as_json=as_json,
+            human_message="tenchi eval snapshot: --snapshot requires --diff-ref",
+        )
     if allow_missing_baseline and diff_ref is None:
-        _fail("tenchi eval snapshot: --allow-missing-baseline requires --diff-ref")
-        return 1
+        return _render_operation_error(
+            operation="eval.snapshot",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--allow-missing-baseline requires --diff-ref.",
+            details=None,
+            as_json=as_json,
+            human_message=(
+                "tenchi eval snapshot: --allow-missing-baseline requires --diff-ref"
+            ),
+        )
 
     try:
         with discard_evaluation_output():
             runner = load_evaluation_runner(Path.cwd(), target)
             manifest = evaluation_manifest(runner.evaluations)
     except (OperationError, ConfigurationError) as exc:
-        _fail(f"tenchi eval snapshot: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="eval.snapshot",
+            code=(
+                "TENCHI_CLI_TARGET_LOAD_FAILED"
+                if isinstance(exc, OperationError)
+                else "TENCHI_CLI_CONFIGURATION_INVALID"
+            ),
+            message=(
+                "Could not load the configured evaluation target."
+                if isinstance(exc, OperationError)
+                else "The evaluation configuration is invalid."
+            ),
+            details={"target": target},
+            as_json=as_json,
+            human_message=f"tenchi eval snapshot: {exc}",
+        )
 
     rendered = render_evaluation_snapshot(manifest)
     if write is not None:
@@ -1369,8 +1510,14 @@ def _evaluation_snapshot(
                 allow_missing_baseline=allow_missing_baseline,
             )
         except OperationError as exc:
-            _fail(f"tenchi eval snapshot: {exc}")
-            return 1
+            return _render_operation_error(
+                operation="eval.snapshot",
+                code="TENCHI_CLI_OPERATION_FAILED",
+                message="Could not compare the evaluation-policy baseline.",
+                details=None,
+                as_json=as_json,
+                human_message=f"tenchi eval snapshot: {exc}",
+            )
         return _render_evaluation_diff(result, output_format=diff_format)
     sys.stdout.write(rendered)
     return 0
@@ -1428,8 +1575,16 @@ def _diff_evaluation_snapshot(
     try:
         baseline_text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
-        _fail(f"tenchi eval snapshot: could not read baseline {str(path)!r}: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="eval.snapshot",
+            code="TENCHI_CLI_SNAPSHOT_READ_FAILED",
+            message="Could not read the evaluation-policy baseline.",
+            details={"path": str(path)},
+            as_json=output_format == "json",
+            human_message=(
+                f"tenchi eval snapshot: could not read baseline {str(path)!r}: {exc}"
+            ),
+        )
     try:
         result = compare_evaluation_baseline(
             Path.cwd(),
@@ -1438,8 +1593,14 @@ def _diff_evaluation_snapshot(
             current=current,
         )
     except OperationError as exc:
-        _fail(f"tenchi eval snapshot: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="eval.snapshot",
+            code="TENCHI_CLI_OPERATION_FAILED",
+            message="Could not compare the evaluation-policy baseline.",
+            details=None,
+            as_json=output_format == "json",
+            human_message=f"tenchi eval snapshot: {exc}",
+        )
     return _render_evaluation_diff(result, output_format=output_format)
 
 
@@ -1482,8 +1643,22 @@ def _evaluation_run(
                 )
             )
     except (OperationError, ConfigurationError) as exc:
-        _fail(f"tenchi eval run: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="eval.run",
+            code=(
+                "TENCHI_CLI_TARGET_LOAD_FAILED"
+                if isinstance(exc, OperationError)
+                else "TENCHI_CLI_CONFIGURATION_INVALID"
+            ),
+            message=(
+                "Could not load the configured evaluation target."
+                if isinstance(exc, OperationError)
+                else "The evaluation configuration is invalid."
+            ),
+            details={"target": target},
+            as_json=as_json,
+            human_message=f"tenchi eval run: {exc}",
+        )
 
     if as_json:
         _print_agent_json("evaluation_run", result.as_dict())
@@ -1529,10 +1704,18 @@ def _evaluation_run(
 
 
 def _routes(target: str, *, as_json: bool = False) -> int:
-    with redirect_stdout(sys.stderr if as_json else sys.stdout):
-        group = _load_route_group("tenchi routes", target)
-    if group is None:
-        return 1
+    try:
+        with redirect_stdout(sys.stderr if as_json else sys.stdout):
+            group = load_route_group(Path.cwd(), target)
+    except OperationError as exc:
+        return _render_operation_error(
+            operation="routes",
+            code="TENCHI_CLI_TARGET_LOAD_FAILED",
+            message="Could not load the configured route target.",
+            details={"target": target},
+            as_json=as_json,
+            human_message=f"tenchi routes: {exc}",
+        )
 
     result = routes_result(Path.cwd(), group)
     if as_json:
@@ -1555,11 +1738,9 @@ def _map_app(
     as_json: bool,
 ) -> int:
     output = sys.stderr if as_json else sys.stdout
-    with redirect_stdout(output):
-        group = _load_route_group("tenchi map", target)
-    if group is None:
-        return 1
     try:
+        with redirect_stdout(output):
+            group = load_route_group(Path.cwd(), target)
         with discard_evaluation_output():
             evaluation_runner = load_evaluation_runner(Path.cwd(), evaluations_target)
         with redirect_stdout(output):
@@ -1567,8 +1748,14 @@ def _map_app(
             jobs = load_job_group(Path.cwd(), jobs_target)
             tools = load_tool_group(Path.cwd(), tools_target)
     except OperationError as exc:
-        _fail(f"tenchi map: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="map",
+            code="TENCHI_CLI_TARGET_LOAD_FAILED",
+            message="Could not load an application-map composition target.",
+            details=None,
+            as_json=as_json,
+            human_message=f"tenchi map: {exc}",
+        )
 
     with redirect_stdout(output):
         result = map_app(
@@ -1583,11 +1770,17 @@ def _map_app(
         features = sorted(node.name for node in result.nodes if node.kind == "feature")
         if feature not in features:
             available = ", ".join(features) if features else "none"
-            _fail(
-                f"tenchi map: unknown feature {feature!r}; "
-                f"available features: {available}"
+            return _render_operation_error(
+                operation="map",
+                code="TENCHI_CLI_SELECTION_NOT_FOUND",
+                message="The requested application-map feature does not exist.",
+                details={"feature": feature, "available_features": features},
+                as_json=as_json,
+                human_message=(
+                    f"tenchi map: unknown feature {feature!r}; "
+                    f"available features: {available}"
+                ),
             )
-            return 1
     result = project_app_map(result, feature=feature, kinds=kinds)
     if as_json:
         _print_agent_json("app_map", result.as_dict())
@@ -1608,8 +1801,14 @@ def _task_list(target: str, *, as_json: bool) -> int:
             runner = load_task_runner(Path.cwd(), target)
             result = task_list_result(Path.cwd(), target, runner)
     except OperationError as exc:
-        _fail(f"tenchi task list: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="task.list",
+            code="TENCHI_CLI_TARGET_LOAD_FAILED",
+            message="Could not load the configured task target.",
+            details={"target": target},
+            as_json=as_json,
+            human_message=f"tenchi task list: {exc}",
+        )
     if as_json:
         _print_agent_json("task_list", result.as_dict())
         return 0
@@ -1652,8 +1851,14 @@ def _task_run(
                 )
             )
     except OperationError as exc:
-        _fail(f"tenchi task run: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="task.run",
+            code="TENCHI_CLI_TARGET_LOAD_FAILED",
+            message="Could not load the configured task target.",
+            details={"target": target},
+            as_json=as_json,
+            human_message=f"tenchi task run: {exc}",
+        )
     if as_json:
         _print_agent_json("task_run", result.as_dict())
     elif result.ok:
@@ -1681,29 +1886,56 @@ def _tools(
     snapshot: str | None,
     diff_format: str,
 ) -> int:
+    structured = as_json or diff_format == "json"
     has_snapshot_mode = any(
         value is not None for value in (write, check, diff, diff_ref)
     )
     if as_json and has_snapshot_mode:
-        _fail(
-            "tenchi tools: --json cannot be combined with snapshot write, "
-            "check, or diff modes"
+        return _render_operation_error(
+            operation="tools",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message=(
+                "--json cannot be combined with snapshot write, check, or diff modes."
+            ),
+            details=None,
+            as_json=True,
+            human_message=(
+                "tenchi tools: --json cannot be combined with snapshot write, "
+                "check, or diff modes"
+            ),
         )
-        return 1
     if diff is None and diff_ref is None and diff_format != "text":
-        _fail("tenchi tools: --diff-format requires --diff or --diff-ref")
-        return 1
+        return _render_operation_error(
+            operation="tools",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--diff-format requires --diff or --diff-ref.",
+            details=None,
+            as_json=structured,
+            human_message="tenchi tools: --diff-format requires --diff or --diff-ref",
+        )
     if snapshot is not None and diff_ref is None:
-        _fail("tenchi tools: --snapshot requires --diff-ref")
-        return 1
+        return _render_operation_error(
+            operation="tools",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--snapshot requires --diff-ref.",
+            details=None,
+            as_json=structured,
+            human_message="tenchi tools: --snapshot requires --diff-ref",
+        )
 
     try:
         with redirect_stdout(sys.stderr):
             group = load_tool_group(Path.cwd(), target)
             manifest = tool_manifest(group)
     except OperationError as exc:
-        _fail(f"tenchi tools: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="tools",
+            code="TENCHI_CLI_TARGET_LOAD_FAILED",
+            message="Could not load the configured application-tool target.",
+            details={"target": target},
+            as_json=structured,
+            human_message=f"tenchi tools: {exc}",
+        )
 
     rendered = render_tool_snapshot(manifest)
     if write is not None:
@@ -1793,8 +2025,16 @@ def _diff_tool_snapshot(
     try:
         baseline_text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
-        _fail(f"tenchi tools: could not read baseline {str(path)!r}: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="tools",
+            code="TENCHI_CLI_SNAPSHOT_READ_FAILED",
+            message="Could not read the application-tool baseline.",
+            details={"path": str(path)},
+            as_json=output_format == "json",
+            human_message=(
+                f"tenchi tools: could not read baseline {str(path)!r}: {exc}"
+            ),
+        )
     return _compare_tool_baseline(
         baseline_text,
         baseline_label=str(path),
@@ -1819,8 +2059,14 @@ def _diff_tool_ref(
         baseline_text = baseline.text
         baseline_label = baseline.label
     except OperationError as exc:
-        _fail(f"tenchi tools: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="tools",
+            code="TENCHI_CLI_OPERATION_FAILED",
+            message="Could not read the application-tool baseline from Git.",
+            details=None,
+            as_json=output_format == "json",
+            human_message=f"tenchi tools: {exc}",
+        )
     return _compare_tool_baseline(
         baseline_text,
         baseline_label=baseline_label,
@@ -1844,8 +2090,14 @@ def _compare_tool_baseline(
             current=current,
         )
     except OperationError as exc:
-        _fail(f"tenchi tools: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="tools",
+            code="TENCHI_CLI_OPERATION_FAILED",
+            message="Could not compare the application-tool baseline.",
+            details=None,
+            as_json=output_format == "json",
+            human_message=f"tenchi tools: {exc}",
+        )
 
     if output_format == "json":
         _print_agent_json("tool_diff", result.as_dict())
@@ -1873,12 +2125,27 @@ def _openapi(
     snapshot: str | None,
     diff_format: str,
 ) -> int:
+    as_json = diff_format == "json"
     if diff is None and diff_ref is None and diff_format != "text":
-        _fail("tenchi openapi: --diff-format requires --diff or --diff-ref")
-        return 1
+        return _render_operation_error(
+            operation="openapi",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--diff-format requires --diff or --diff-ref.",
+            details=None,
+            as_json=as_json,
+            human_message=(
+                "tenchi openapi: --diff-format requires --diff or --diff-ref"
+            ),
+        )
     if snapshot is not None and diff_ref is None:
-        _fail("tenchi openapi: --snapshot requires --diff-ref")
-        return 1
+        return _render_operation_error(
+            operation="openapi",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--snapshot requires --diff-ref.",
+            details=None,
+            as_json=as_json,
+            human_message="tenchi openapi: --snapshot requires --diff-ref",
+        )
 
     root = Path.cwd()
     title, version, description, security_json = openapi_defaults(
@@ -1889,24 +2156,44 @@ def _openapi(
         description=description,
         security_json=security_json,
     )
-    with redirect_stdout(sys.stderr):
-        group = _load_route_group("tenchi openapi", target)
-    if group is None:
-        return 1
+    try:
+        with redirect_stdout(sys.stderr):
+            group = load_route_group(Path.cwd(), target)
+    except OperationError as exc:
+        return _render_operation_error(
+            operation="openapi",
+            code="TENCHI_CLI_TARGET_LOAD_FAILED",
+            message="Could not load the configured OpenAPI route target.",
+            details={"target": target},
+            as_json=as_json,
+            human_message=f"tenchi openapi: {exc}",
+        )
 
     security: Mapping[str, Mapping[str, Any]] | None = None
     if security_json is not None:
         try:
             parsed_security: object = json.loads(security_json)
         except json.JSONDecodeError as exc:
-            _fail(
-                "tenchi openapi: --security must be valid JSON "
-                f"(line {exc.lineno}, column {exc.colno})"
+            return _render_operation_error(
+                operation="openapi",
+                code="TENCHI_CLI_INVALID_ARGUMENTS",
+                message="--security must be valid JSON.",
+                details={"line": exc.lineno, "column": exc.colno},
+                as_json=as_json,
+                human_message=(
+                    "tenchi openapi: --security must be valid JSON "
+                    f"(line {exc.lineno}, column {exc.colno})"
+                ),
             )
-            return 1
         if not isinstance(parsed_security, Mapping):
-            _fail("tenchi openapi: --security must be a JSON object")
-            return 1
+            return _render_operation_error(
+                operation="openapi",
+                code="TENCHI_CLI_INVALID_ARGUMENTS",
+                message="--security must be a JSON object.",
+                details=None,
+                as_json=as_json,
+                human_message="tenchi openapi: --security must be a JSON object",
+            )
         security = cast(Mapping[str, Mapping[str, Any]], parsed_security)
 
     try:
@@ -1919,8 +2206,14 @@ def _openapi(
                 security=security,
             )
     except ConfigurationError as exc:
-        _fail(f"tenchi openapi: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="openapi",
+            code="TENCHI_CLI_CONFIGURATION_INVALID",
+            message="The OpenAPI configuration is invalid.",
+            details=None,
+            as_json=as_json,
+            human_message=f"tenchi openapi: {exc}",
+        )
     rendered = render_openapi_snapshot(document)
     if write is not None:
         try:
@@ -1998,8 +2291,16 @@ def _diff_openapi_snapshot(
     try:
         baseline_text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
-        _fail(f"tenchi openapi: could not read baseline {str(path)!r}: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="openapi",
+            code="TENCHI_CLI_SNAPSHOT_READ_FAILED",
+            message="Could not read the OpenAPI baseline.",
+            details={"path": str(path)},
+            as_json=output_format == "json",
+            human_message=(
+                f"tenchi openapi: could not read baseline {str(path)!r}: {exc}"
+            ),
+        )
     return _compare_openapi_baseline(
         baseline_text,
         baseline_label=str(path),
@@ -2020,8 +2321,14 @@ def _diff_openapi_ref(
         baseline_text = baseline.text
         baseline_label = baseline.label
     except OperationError as exc:
-        _fail(f"tenchi openapi: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="openapi",
+            code="TENCHI_CLI_OPERATION_FAILED",
+            message="Could not read the OpenAPI baseline from Git.",
+            details=None,
+            as_json=output_format == "json",
+            human_message=f"tenchi openapi: {exc}",
+        )
     return _compare_openapi_baseline(
         baseline_text,
         baseline_label=baseline_label,
@@ -2045,8 +2352,14 @@ def _compare_openapi_baseline(
             current=current,
         )
     except OperationError as exc:
-        _fail(f"tenchi openapi: {exc}")
-        return 1
+        return _render_operation_error(
+            operation="openapi",
+            code="TENCHI_CLI_OPERATION_FAILED",
+            message="Could not compare the OpenAPI baseline.",
+            details=None,
+            as_json=output_format == "json",
+            human_message=f"tenchi openapi: {exc}",
+        )
 
     if output_format == "json":
         _print_agent_json("openapi_diff", result.as_dict())
@@ -2128,14 +2441,6 @@ def _dev(app_target: str, host: str, port: int, *, reload: bool) -> int:
     return 0
 
 
-def _load_route_group(command: str, target: str) -> RouteGroup | None:
-    try:
-        return load_route_group(Path.cwd(), target)
-    except OperationError as exc:
-        _fail(f"{command}: {exc}")
-        return None
-
-
 def format_routes(group: RouteGroup) -> list[str]:
     """Format a route group as aligned ``METHOD PATH STATUS use_case`` rows."""
     rows: list[tuple[str, str, str, str]] = []
@@ -2168,6 +2473,45 @@ def _print_agent_json(
     value: Mapping[str, object],
 ) -> None:
     print(json.dumps(validate_agent_result(result_name, value), indent=2))
+
+
+def _print_operation_error(
+    *,
+    operation: AgentOperationName,
+    code: AgentOperationErrorCode,
+    message: str,
+    details: AgentOperationErrorDetails | None,
+) -> None:
+    _print_agent_json(
+        "operation_error",
+        AgentOperationErrorResult(
+            operation=operation,
+            code=code,
+            message=message,
+            details=details,
+        ).as_dict(),
+    )
+
+
+def _render_operation_error(
+    *,
+    operation: AgentOperationName,
+    code: AgentOperationErrorCode,
+    message: str,
+    details: AgentOperationErrorDetails | None,
+    as_json: bool,
+    human_message: str,
+) -> int:
+    if as_json:
+        _print_operation_error(
+            operation=operation,
+            code=code,
+            message=message,
+            details=details,
+        )
+    else:
+        _fail(human_message)
+    return 1
 
 
 def _fail(message: str) -> None:

@@ -9,6 +9,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from ._app_map import AppMapPayload
 from ._cli_results import (
+    AgentOperationErrorPayload,
     CheckPayload,
     DoctorPayload,
     EvaluationListPayload,
@@ -25,6 +26,7 @@ from ._tool_operations import ToolDiffPayload, ToolListPayload
 from ._verify_operations import VerificationPayload
 
 type AgentResultName = Literal[
+    "operation_error",
     "app_map",
     "routes",
     "doctor",
@@ -44,6 +46,10 @@ type AgentResultName = Literal[
 type JsonObject = dict[str, object]
 
 AGENT_RESULT_ADAPTERS: dict[AgentResultName, TypeAdapter[object]] = {
+    "operation_error": cast(
+        TypeAdapter[object],
+        TypeAdapter(AgentOperationErrorPayload),
+    ),
     "app_map": cast(TypeAdapter[object], TypeAdapter(AppMapPayload)),
     "routes": cast(TypeAdapter[object], TypeAdapter(RoutesPayload)),
     "doctor": cast(TypeAdapter[object], TypeAdapter(DoctorPayload)),

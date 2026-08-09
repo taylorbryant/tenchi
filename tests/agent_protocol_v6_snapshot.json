@@ -1507,6 +1507,116 @@
       "title": "OpenApiDiffPayload",
       "type": "object"
     },
+    "operation_error": {
+      "$defs": {
+        "AgentOperationErrorCode": {
+          "enum": [
+            "TENCHI_CLI_INVALID_ARGUMENTS",
+            "TENCHI_CLI_TARGET_LOAD_FAILED",
+            "TENCHI_CLI_CONFIGURATION_INVALID",
+            "TENCHI_CLI_SELECTION_NOT_FOUND",
+            "TENCHI_CLI_SNAPSHOT_READ_FAILED",
+            "TENCHI_CLI_OPERATION_FAILED"
+          ],
+          "type": "string"
+        },
+        "AgentOperationErrorDetail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "AgentOperationErrorDetails": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentOperationErrorDetail"
+          },
+          "type": "object"
+        },
+        "AgentOperationName": {
+          "enum": [
+            "cli",
+            "make",
+            "routes",
+            "tools",
+            "map",
+            "openapi",
+            "doctor",
+            "check",
+            "verify",
+            "preflight",
+            "eval.list",
+            "eval.snapshot",
+            "eval.run",
+            "task.list",
+            "task.run"
+          ],
+          "type": "string"
+        },
+        "AgentProtocolVersion": {
+          "const": 6,
+          "type": "integer"
+        }
+      },
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/AgentOperationErrorCode"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentOperationErrorDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "$ref": "#/$defs/AgentOperationName"
+        },
+        "result": {
+          "const": "operation_error",
+          "title": "Result",
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/AgentProtocolVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "result",
+        "operation",
+        "ok",
+        "code",
+        "message",
+        "details"
+      ],
+      "title": "AgentOperationErrorPayload",
+      "type": "object"
+    },
     "preflight": {
       "$defs": {
         "AgentProtocolVersion": {
