@@ -19,9 +19,10 @@ from jsonschema import Draft202012Validator
 from jsonschema.protocols import Validator
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
-from mcp.types import CallToolResult, TextContent
+from mcp.types import INTERNAL_ERROR, CallToolResult, TextContent
 from pydantic import BaseModel, Field, PlainSerializer, field_validator
 from pydantic_core import core_schema
 
@@ -997,10 +998,12 @@ async def test_mcp_masks_authentication_and_runner_configuration_failures() -> N
         runner_factory=lambda principal: runner_for(tools, principal, []),
     )
     async with Client(authentication_failure) as session:
-        with pytest.raises(MCPError, match="authentication failed") as failed:
+        with pytest.raises(MCPError, match="Tool discovery failed") as failed:
             await session.list_tools()
 
     assert "token-secret" not in str(failed.value)
+    assert "authentication failed" not in str(failed.value)
+    assert failed.value.code == INTERNAL_ERROR
 
     def fail_visibility(
         principal: Principal,
@@ -1016,10 +1019,12 @@ async def test_mcp_masks_authentication_and_runner_configuration_failures() -> N
         allow_tool=fail_visibility,
     )
     async with Client(visibility_failure) as session:
-        with pytest.raises(MCPError, match="tool visibility check failed") as failed:
+        with pytest.raises(MCPError, match="Tool discovery failed") as failed:
             await session.list_tools()
 
     assert "visibility-secret" not in str(failed.value)
+    assert "visibility check failed" not in str(failed.value)
+    assert failed.value.code == INTERNAL_ERROR
 
     def fail_approval(
         principal: Principal,
@@ -1129,6 +1134,113 @@ async def test_mcp_cancellation_reaches_tool_cleanup() -> None:
     assert events == ["context:enter", "run", "context:rollback"]
 
 
+async def test_mcp_rejects_legacy_sse_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tools = application_tools()
+    server = create_tool_mcp_server(
+        tools=tools,
+        authenticate=lambda request: Principal("alice"),
+        runner_factory=lambda principal: runner_for(tools, principal, []),
+    )
+    base_calls: list[str] = []
+
+    def unsafe_sse_app(*args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        base_calls.append("sse_app")
+        return object()
+
+    async def unsafe_run_sse_async(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        base_calls.append("run_sse_async")
+
+    monkeypatch.setattr(MCPServer, "sse_app", unsafe_sse_app)
+    monkeypatch.setattr(MCPServer, "run_sse_async", unsafe_run_sse_async)
+
+    with pytest.raises(ConfigurationError, match="does not support legacy SSE"):
+        server.sse_app()
+    with pytest.raises(ConfigurationError, match="does not support legacy SSE"):
+        await server.run_sse_async()
+
+    assert base_calls == []
+
+
+def test_mcp_run_rejects_legacy_sse_and_stateful_http_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tools = application_tools()
+    server = create_tool_mcp_server(
+        tools=tools,
+        authenticate=lambda request: Principal("alice"),
+        runner_factory=lambda principal: runner_for(tools, principal, []),
+    )
+    base_calls: list[str] = []
+
+    async def unsafe_run_sse_async(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        base_calls.append("run_sse_async")
+
+    async def unsafe_run_streamable_http_async(
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        del args, kwargs
+        base_calls.append("run_streamable_http_async")
+
+    monkeypatch.setattr(MCPServer, "run_sse_async", unsafe_run_sse_async)
+    monkeypatch.setattr(
+        MCPServer,
+        "run_streamable_http_async",
+        unsafe_run_streamable_http_async,
+    )
+
+    with pytest.raises(ConfigurationError, match="does not support legacy SSE"):
+        server.run("sse")
+    with pytest.raises(ConfigurationError, match="requires stateless_http=True"):
+        server.run("streamable-http", stateless_http=False)
+
+    assert base_calls == []
+
+
+async def test_mcp_streamable_runner_enforces_stateless_mode_and_security(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tools = application_tools()
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["mcp.example.com"],
+        allowed_origins=["https://mcp.example.com"],
+    )
+    server = create_tool_mcp_server(
+        tools=tools,
+        authenticate=lambda request: Principal("alice"),
+        runner_factory=lambda principal: runner_for(tools, principal, []),
+        transport_security=transport_security,
+    )
+    base_calls: list[dict[str, Any]] = []
+
+    async def run_streamable_http_async(*args: Any, **kwargs: Any) -> None:
+        del args
+        base_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        MCPServer,
+        "run_streamable_http_async",
+        run_streamable_http_async,
+    )
+
+    with pytest.raises(ConfigurationError, match="requires stateless_http=True"):
+        await server.run_streamable_http_async(stateless_http=False)
+    with pytest.raises(ConfigurationError, match="requires stateless_http=True"):
+        await server.run_streamable_http_async(stateless_http=cast(Any, 1))
+
+    await server.run_streamable_http_async()
+
+    assert len(base_calls) == 1
+    assert base_calls[0]["stateless_http"] is True
+    assert base_calls[0]["transport_security"] is transport_security
+
+
 def test_mcp_validates_composition_options() -> None:
     tools = application_tools()
 
@@ -1169,6 +1281,8 @@ def test_mcp_validates_composition_options() -> None:
     )
     with pytest.raises(ConfigurationError, match="requires stateless_http=True"):
         server.streamable_http_app(stateless_http=False)
+    with pytest.raises(ConfigurationError, match="requires stateless_http=True"):
+        server.streamable_http_app(stateless_http=cast(Any, 1))
 
 
 async def _render_tool_mcp_protocol() -> dict[str, object]:

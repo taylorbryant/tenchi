@@ -341,7 +341,9 @@ visible tools per principal, denies destructive tools without an explicit
 approval decision, and returns versioned structured results through the stable
 2.x line of the official MCP Python SDK. Failed structured results also set
 MCP's standard `isError` flag so generic hosts do not treat them as successful
-tool output:
+tool output. Streamable HTTP is the supported network transport; inherited
+legacy SSE entrypoints are rejected because they cannot preserve Tenchi's
+per-request header authentication boundary:
 
 ```python
 from app.server.runtime import DATABASE_PATH

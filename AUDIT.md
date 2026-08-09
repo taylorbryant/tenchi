@@ -268,6 +268,11 @@ a permanently red test. Root cause is H8/M-class finding below: bare
   capture, and the `transport_security` passed at composition
   (`mcp.py:233-294`).
 
+  Resolved after this audit: application MCP rejects the SDK's legacy SSE
+  application, async runner, and generic `run("sse")` path. Both Streamable
+  HTTP entrypoints require literal stateless mode, retain configured transport
+  security, and preserve Tenchi's per-request header scope.
+
 ### CLI and tooling
 
 - **`routes --json`, `map --json`, and `openapi` print modes let

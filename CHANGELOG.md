@@ -94,6 +94,11 @@ versions may change the public API.
 
 ### Fixed
 
+- Application MCP now rejects the MCP SDK's inherited legacy SSE entrypoints,
+  which bypassed Tenchi's Streamable HTTP request-header scope, stateless-mode
+  enforcement, and configured transport security. Both Streamable HTTP entry
+  points require the literal stateless mode, while discovery authentication and
+  visibility failures return one stable, redacted protocol error.
 - The typed client now normalizes invalid successful bodies and response
   headers into payload-safe `UnexpectedResponseError` values. The exception
   retains only the contract, status, and a stable reason; malformed dependency

@@ -9,6 +9,10 @@ Each MCP request is authenticated independently. Discovery and invocation use
 the same optional visibility filter, destructive calls are denied unless an
 application approval callback accepts them, and execution delegates to a
 caller-specific :class:`~tenchi.tools.ToolRunner`.
+
+Network serving supports stateless Streamable HTTP only. The MCP SDK's legacy
+SSE entrypoints are rejected because they do not preserve Tenchi's per-request
+header authentication scope.
 """
 
 from __future__ import annotations
@@ -88,6 +92,11 @@ _ERROR_KINDS: tuple[_McpFailureKind, ...] = (
     "invalid_result",
     "failed",
 )
+
+_LEGACY_SSE_UNSUPPORTED = (
+    "Tenchi application MCP does not support legacy SSE; use Streamable HTTP"
+)
+_DISCOVERY_FAILED = "Tool discovery failed."
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,11 +251,7 @@ class _ToolMcpServer[PrincipalT](MCPServer[dict[str, Any]]):
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
-        if not stateless_http:
-            raise ConfigurationError(
-                "Tenchi application MCP requires stateless_http=True so each "
-                "request is authenticated independently"
-            )
+        _require_stateless_http(stateless_http)
         app = super().streamable_http_app(
             streamable_http_path=streamable_http_path,
             json_response=json_response,
@@ -277,6 +282,7 @@ class _ToolMcpServer[PrincipalT](MCPServer[dict[str, Any]]):
         max_request_body_size: int = 4 * 1024 * 1024,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
+        _require_stateless_http(stateless_http)
         await super().run_streamable_http_async(
             host=host,
             port=port,
@@ -293,6 +299,31 @@ class _ToolMcpServer[PrincipalT](MCPServer[dict[str, Any]]):
             ),
         )
 
+    def sse_app(
+        self,
+        *,
+        sse_path: str = "/sse",
+        message_path: str = "/messages/",
+        transport_security: TransportSecuritySettings | None = None,
+        host: str = "127.0.0.1",
+    ) -> Starlette:
+        """Reject legacy SSE, which lacks Tenchi's HTTP request scope."""
+        del sse_path, message_path, transport_security, host
+        raise ConfigurationError(_LEGACY_SSE_UNSUPPORTED)
+
+    async def run_sse_async(
+        self,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 8000,
+        sse_path: str = "/sse",
+        message_path: str = "/messages/",
+        transport_security: TransportSecuritySettings | None = None,
+    ) -> None:
+        """Reject legacy SSE, which lacks Tenchi's HTTP request scope."""
+        del host, port, sse_path, message_path, transport_security
+        raise ConfigurationError(_LEGACY_SSE_UNSUPPORTED)
+
     async def list_tools(self) -> list[McpTool]:
         try:
             principal = await self._principal()
@@ -302,7 +333,7 @@ class _ToolMcpServer[PrincipalT](MCPServer[dict[str, Any]]):
                     visible.append(entry.definition)
             return visible
         except ToolError as exc:
-            raise MCPError(code=INTERNAL_ERROR, message=str(exc)) from exc
+            raise MCPError(code=INTERNAL_ERROR, message=_DISCOVERY_FAILED) from exc
 
     async def call_tool(
         self,
@@ -567,7 +598,8 @@ def create_tool_mcp_server[PrincipalT](
 
     Pass the MCP SDK's ``TransportSecuritySettings`` when serving Streamable
     HTTP on a non-loopback host. The SDK's default policy allows loopback
-    development hosts only.
+    development hosts only. Legacy SSE serving is intentionally unsupported;
+    use ``streamable_http_app()`` or ``run_streamable_http_async()``.
     """
     raw_tools = cast(object, tools)
     if not isinstance(raw_tools, ToolGroup):
@@ -632,6 +664,14 @@ def create_tool_mcp_server[PrincipalT](
         website_url=website_url,
         transport_security=transport_security,
     )
+
+
+def _require_stateless_http(value: object) -> None:
+    if value is not True:
+        raise ConfigurationError(
+            "Tenchi application MCP requires stateless_http=True so each "
+            "request is authenticated independently"
+        )
 
 
 def _mcp_entries(tools: ToolGroup) -> dict[str, _McpEntry]:
