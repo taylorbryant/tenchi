@@ -664,7 +664,8 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         name="verify",
         description=(
             "Produce one versioned completion receipt by running the project "
-            "checks, strict application-map validation, and OpenAPI, "
+            "checks, protected repository verification policy, strict "
+            "application-map validation, and OpenAPI, "
             "job-message, application-tool, and evaluation-policy compatibility "
             "against an explicit Git ref. Missing job or evaluation snapshots "
             "require explicit "
@@ -863,7 +864,8 @@ def _fallback_agent_instructions() -> str:
    Missing historical snapshots require explicit human authorization for the
    one first-adoption comparison.
 11. Run `verify` against the merge base, previous push, or previous release and
-   report its receipt.
+   report its receipt. Resolve `tenchi.toml` policy failures instead of
+   disabling a requirement to make the receipt pass.
 12. Use `task_list` before any separately authorized operational task run.
 
 Full guidance: https://tenchi.io/agents

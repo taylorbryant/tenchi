@@ -39,7 +39,7 @@ def test_app_map_is_deterministic_and_versioned() -> None:
     second = map_app(EXAMPLE_DIR, api_routes)
 
     assert first.as_dict() == second.as_dict()
-    assert first.schema_version == 7
+    assert first.schema_version == 8
     assert first.summary.features == 1
     assert first.summary.contracts == 3
     assert first.summary.routes == 3
@@ -50,7 +50,7 @@ def test_app_map_is_deterministic_and_versioned() -> None:
     assert first.diagnostics == ()
     assert first.unresolved == ()
     assert len({node.id for node in first.nodes}) == len(first.nodes)
-    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 7
+    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 8
 
 
 def test_app_map_json_wire_format_matches_snapshot() -> None:
@@ -697,7 +697,7 @@ def test_map_cli_supports_json_human_and_projections() -> None:
     complete = _tenchi("map", "--json")
     assert complete.returncode == 0, complete.stderr
     payload = json.loads(complete.stdout)
-    assert payload["schema_version"] == 7
+    assert payload["schema_version"] == 8
     assert payload["summary"]["routes"] == 3
 
     projected = _tenchi(

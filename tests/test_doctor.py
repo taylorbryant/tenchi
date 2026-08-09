@@ -400,7 +400,7 @@ def test_doctor_json_has_versioned_stable_diagnostics(
 ) -> None:
     assert main(["doctor", "--json"]) == 0
     clean = json.loads(capsys.readouterr().out)
-    assert clean["schema_version"] == 7
+    assert clean["schema_version"] == 8
     assert clean["ok"] is True
     assert clean["diagnostics"] == []
 

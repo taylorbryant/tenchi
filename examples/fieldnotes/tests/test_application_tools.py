@@ -121,8 +121,10 @@ async def test_mcp_requires_approval_before_saving_sources(tmp_path: Path) -> No
     )
 
     async with Client(server) as session:
-        with pytest.raises(MCPError, match="authentication failed"):
+        with pytest.raises(MCPError, match="Tool discovery failed") as failure:
             await session.list_tools()
+
+    assert "authentication failed" not in str(failure.value)
 
     mcp_app = server.streamable_http_app()
     transport = ASGITransport(app=mcp_app)

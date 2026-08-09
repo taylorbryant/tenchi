@@ -16,7 +16,8 @@ Commands are intentionally few and reliable:
   application's canonical OpenAPI document.
 - ``tenchi doctor`` checks dependency direction and prescribed structure.
 - ``tenchi check`` runs the complete application validation loop.
-- ``tenchi verify`` adds architecture and Git-baseline compatibility evidence.
+- ``tenchi verify`` protects repository policy and adds architecture plus
+  Git-baseline compatibility evidence.
 - ``tenchi preflight`` observes the target deployment environment.
 - ``tenchi eval`` snapshots, discovers, and runs application-owned AI evaluations.
 - ``tenchi task`` discovers and runs validated operational tasks.
@@ -788,7 +789,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     verify_parser = subparsers.add_parser(
         "verify",
-        help="Produce one receipt for checks, architecture, and contract compatibility",
+        help=(
+            "Produce one receipt for policy, checks, architecture, and contract "
+            "compatibility"
+        ),
     )
     verify_parser.add_argument(
         "--base-ref",
@@ -1388,6 +1392,25 @@ def _verify(
 def _render_verification_result(result: VerificationResult) -> None:
     commit = result.baseline_commit or "unresolved"
     print(f"Baseline: {result.baseline_ref} -> {commit}")
+    if result.policy is not None:
+        status = "passed" if result.policy.ok else "failed"
+        source = (
+            result.policy.path
+            if result.policy.source == "repository"
+            else "built-in defaults"
+        )
+        print(f"[{status}] verification policy ({source})")
+        for change in result.policy.changes:
+            location = change.stage or "policy"
+            print(f"  [{change.severity}] {location}: {change.message}")
+        for requirement in result.policy.requirements:
+            if requirement.status not in {"skipped", "not_configured"}:
+                continue
+            label = _verification_stage_label(requirement.stage)
+            print(
+                f"[{requirement.status}] {label} "
+                f"({requirement.current.replace('_', ' ')})"
+            )
     if result.check is not None:
         _render_check_result(result.check)
     if result.architecture is not None:
@@ -1442,6 +1465,17 @@ def _render_verification_result(result: VerificationResult) -> None:
     summary = "passed" if result.ok else "failed"
     print()
     print(f"verify: {summary} in {result.duration_seconds:.2f}s")
+
+
+def _verification_stage_label(stage: str) -> str:
+    return {
+        "check": "project checks",
+        "architecture": "architecture",
+        "openapi": "OpenAPI compatibility",
+        "jobs": "job compatibility",
+        "tools": "application-tool compatibility",
+        "evaluations": "evaluation-policy compatibility",
+    }[stage]
 
 
 def _preflight(

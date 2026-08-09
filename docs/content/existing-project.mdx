@@ -296,6 +296,29 @@ pythonVersion = "3.12"
 Keep any existing test and source paths when merging these tables into the
 project's configuration.
 
+## Declare required verification evidence
+
+Create `tenchi.toml` at the application root:
+
+```toml
+schema_version = 1
+
+[verify]
+check = true
+architecture = true
+openapi = true
+jobs = true
+tools = true
+evaluations = true
+```
+
+This makes the repository's definition of done explicit for humans, agents,
+and CI. A project without this file already receives the same strict built-in
+requirements, so adding the complete policy is a metadata-only adoption.
+Commit it with the first snapshots. Later verification compares it with the
+selected Git baseline, retains any stronger historical requirement for the
+current run, and rejects a removed or weakened policy.
+
 ## Create the baseline and validate the app
 
 Write the first canonical OpenAPI, durable job-message, application-tool, and evaluation-policy

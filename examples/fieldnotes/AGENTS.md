@@ -27,6 +27,8 @@ verification rules apply here.
   credential-free.
 - When a model replaces it, classify the answer evaluation as `model`, report
   token and cost usage, set budgets, and review the policy snapshot change.
+- `tenchi.toml` requires every completion-receipt stage. Fix failed evidence;
+  do not weaken the policy to make a change pass.
 
 ## Validation loop
 

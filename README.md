@@ -468,8 +468,29 @@ comma-separated node projection, and `--json` for the versioned result.
 finished tree. It resolves the historical ref to an immutable commit, runs
 `tenchi check`, requires an application map without diagnostics or unresolved
 relationships, and compares the OpenAPI, durable job-message, application-tool,
-and evaluation-policy boundaries with their snapshots at that commit. It never
-updates snapshots and exits non-zero when any evidence fails.
+and evaluation-policy boundaries with their snapshots at that commit.
+Generated applications also commit a repository-owned `tenchi.toml`:
+
+```toml
+schema_version = 1
+
+[verify]
+check = true
+architecture = true
+openapi = true
+jobs = true
+tools = true
+evaluations = true
+```
+
+Verification compares this policy with the same historical commit. If a change
+disables or removes required evidence, Tenchi still runs the historical
+requirement and fails the receipt for the weakening. Missing policy files use
+the strict built-in policy for existing applications; malformed or removed
+repository policies fail closed. The JSON receipt records each requirement as
+`passed`, `failed`, `skipped`, `not_configured`, or `not_verifiable`. Verify
+never updates snapshots and exits non-zero when required evidence or the policy
+comparison fails.
 
 `tenchi task list` reports the runner's task names and JSON Schemas. `tenchi
 task run` validates input, owns one application lifespan and scoped context,

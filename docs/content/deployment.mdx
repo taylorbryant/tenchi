@@ -134,7 +134,9 @@ uv run tenchi verify --base-ref "$BASE_SHA"
 security configuration from `app.server.routes:api_routes`. It runs the same
 deterministic checks, rejects incomplete application-map evidence, and compares
 OpenAPI, durable job messages, application tools, and evaluation policy with
-the resolved commit.
+the resolved commit. It also compares `tenchi.toml` with that commit and keeps
+the stronger current-or-deployed requirement active, so a release cannot avoid
+a gate by weakening it in the same change.
 Use its metadata flags only when the application does not keep those values as
 literal route-module declarations.
 

@@ -57,14 +57,34 @@ from ._tool_operations import (
     load_tool_group,
     tool_diff_result,
 )
+from ._verification_policy import (
+    VERIFICATION_EVIDENCE_STAGES,
+    VerificationEvidenceStage,
+    VerificationPolicyChange,
+    VerificationPolicyChangeSeverity,
+    VerificationPolicyComparison,
+    VerificationPolicySource,
+    VerificationRequirement,
+    default_verification_policy,
+    verification_policy_comparison,
+)
 
 type VerificationStage = Literal[
     "baseline",
+    "policy",
+    "check",
     "architecture",
     "openapi",
     "jobs",
     "tools",
     "evaluations",
+]
+type VerificationEvidenceStatus = Literal[
+    "passed",
+    "failed",
+    "skipped",
+    "not_configured",
+    "not_verifiable",
 ]
 
 
@@ -80,6 +100,31 @@ class VerificationArchitecturePayload(TypedDict):
     unresolved: list[AppMapUnresolvedPayload]
 
 
+class VerificationRequirementPayload(TypedDict):
+    stage: VerificationEvidenceStage
+    current: VerificationRequirement
+    baseline: VerificationRequirement
+    enforced: bool
+    status: VerificationEvidenceStatus
+
+
+class VerificationPolicyChangePayload(TypedDict):
+    severity: VerificationPolicyChangeSeverity
+    stage: VerificationEvidenceStage | None
+    message: str
+
+
+class VerificationPolicyPayload(TypedDict):
+    path: str
+    source: VerificationPolicySource
+    baseline_source: VerificationPolicySource
+    baseline: str
+    ok: bool
+    compatible: bool
+    requirements: list[VerificationRequirementPayload]
+    changes: list[VerificationPolicyChangePayload]
+
+
 class VerificationErrorPayload(TypedDict):
     stage: VerificationStage
     message: str
@@ -92,6 +137,7 @@ class VerificationPayload(TypedDict):
     ok: bool
     baseline: VerificationBaselinePayload
     duration_seconds: float
+    policy: VerificationPolicyPayload | None
     check: CheckPayload | None
     architecture: VerificationArchitecturePayload | None
     openapi: OpenApiDiffPayload | None
@@ -123,6 +169,65 @@ class VerificationArchitectureResult:
 
 
 @dataclass(frozen=True, slots=True)
+class VerificationRequirementResult:
+    """Declared and enforced state for one verification evidence stage."""
+
+    stage: VerificationEvidenceStage
+    current: VerificationRequirement
+    baseline: VerificationRequirement
+    enforced: bool
+    status: VerificationEvidenceStatus
+
+    def as_dict(self) -> VerificationRequirementPayload:
+        return {
+            "stage": self.stage,
+            "current": self.current,
+            "baseline": self.baseline,
+            "enforced": self.enforced,
+            "status": self.status,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationPolicyResult:
+    """Protected repository policy plus the evidence it required."""
+
+    path: str
+    source: VerificationPolicySource
+    baseline_source: VerificationPolicySource
+    baseline: str
+    compatible: bool
+    requirements: tuple[VerificationRequirementResult, ...]
+    changes: tuple[VerificationPolicyChange, ...]
+
+    @property
+    def ok(self) -> bool:
+        return self.compatible and all(
+            requirement.status not in {"failed", "not_verifiable"}
+            for requirement in self.requirements
+        )
+
+    def as_dict(self) -> VerificationPolicyPayload:
+        return {
+            "path": self.path,
+            "source": self.source,
+            "baseline_source": self.baseline_source,
+            "baseline": self.baseline,
+            "ok": self.ok,
+            "compatible": self.compatible,
+            "requirements": [item.as_dict() for item in self.requirements],
+            "changes": [
+                {
+                    "severity": change.severity,
+                    "stage": change.stage,
+                    "message": change.message,
+                }
+                for change in self.changes
+            ],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class VerificationErrorResult:
     """A stage that could not produce verification evidence."""
 
@@ -148,26 +253,13 @@ class VerificationResult:
     tools: ToolDiffResult | None
     evaluations: EvaluationDiffResult | None
     errors: tuple[VerificationErrorResult, ...]
+    policy: VerificationPolicyResult | None = None
     schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
     tenchi_version: str = __version__
 
     @property
     def ok(self) -> bool:
-        return (
-            not self.errors
-            and self.check is not None
-            and self.check.ok
-            and self.architecture is not None
-            and self.architecture.ok
-            and self.openapi is not None
-            and self.openapi.report.compatible
-            and self.jobs is not None
-            and self.jobs.report.compatible
-            and self.tools is not None
-            and self.tools.report.compatible
-            and self.evaluations is not None
-            and self.evaluations.report.compatible
-        )
+        return not self.errors and self.policy is not None and self.policy.ok
 
     def as_dict(self) -> VerificationPayload:
         return {
@@ -180,6 +272,7 @@ class VerificationResult:
                 "commit": self.baseline_commit,
             },
             "duration_seconds": self.duration_seconds,
+            "policy": self.policy.as_dict() if self.policy is not None else None,
             "check": self.check.as_dict() if self.check is not None else None,
             "architecture": (
                 self.architecture.as_dict() if self.architecture is not None else None
@@ -227,6 +320,8 @@ def verification_result(
     job_report: JobDiffResult | None = None
     tool_report: ToolDiffResult | None = None
     evaluation_report: EvaluationDiffResult | None = None
+    policy_comparison: VerificationPolicyComparison | None = None
+    policy_error: str | None = None
 
     try:
         snapshot_path = project_path(resolved_root, snapshot)
@@ -253,108 +348,184 @@ def verification_result(
         )
 
     _raise_if_cancelled(cancelled)
-    resolved_title, resolved_version, resolved_description, resolved_security = (
-        openapi_defaults(
-            resolved_root,
-            routes=routes,
-            title=title,
-            version=version,
-            description=description,
-            security_json=security_json,
-        )
-    )
-    check = run_check(
-        resolved_root,
-        routes=routes,
-        title=resolved_title,
-        version=resolved_version,
-        description=resolved_description,
-        snapshot=str(snapshot_path),
-        evaluations=evaluations,
-        evaluation_snapshot=str(evaluation_snapshot_path),
-        jobs=jobs,
-        job_snapshot=str(job_snapshot_path),
-        tools=tools,
-        tool_snapshot=str(tool_snapshot_path),
-        security_json=resolved_security,
-        timeout_seconds=timeout_seconds,
-        cancelled=cancelled,
-        step_completed=step_completed,
-    )
-
-    _raise_if_cancelled(cancelled)
     try:
-        route_group = load_route_group(resolved_root, routes)
-        with discard_evaluation_output():
-            evaluation_runner = load_evaluation_runner(resolved_root, evaluations)
-        task_runner = load_task_runner(resolved_root, tasks)
-        job_group = load_job_group(resolved_root, jobs)
-        tool_group = load_tool_group(resolved_root, tools)
-        app_map = map_app(
+        policy_comparison = verification_policy_comparison(
             resolved_root,
-            route_group,
-            task_runner.tasks,
-            job_group,
-            tool_group,
-            evaluation_runner.evaluations,
-        )
-        architecture = VerificationArchitectureResult(
-            summary=app_map.summary.as_dict(),
-            diagnostics=app_map.diagnostics,
-            unresolved=app_map.unresolved,
+            ref=baseline_commit,
         )
     except OperationError as exc:
-        errors.append(VerificationErrorResult("architecture", str(exc)))
+        policy_error = str(exc)
+        errors.append(VerificationErrorResult("policy", policy_error))
 
-    _raise_if_cancelled(cancelled)
-    try:
-        openapi = openapi_diff_result(
+    initial_policy_comparison = policy_comparison
+
+    fallback_policy = default_verification_policy()
+
+    def enforced(stage: VerificationEvidenceStage) -> bool:
+        if policy_comparison is None:
+            return fallback_policy.requirement(stage) == "required"
+        return policy_comparison.enforced(stage)
+
+    resolved_title = title or resolved_root.name
+    resolved_version = version or "0.1.0"
+    resolved_description = description
+    resolved_security = security_json
+    openapi_ready = not (enforced("check") or enforced("openapi"))
+    if not openapi_ready:
+        try:
+            (
+                resolved_title,
+                resolved_version,
+                resolved_description,
+                resolved_security,
+            ) = openapi_defaults(
+                resolved_root,
+                routes=routes,
+                title=title,
+                version=version,
+                description=description,
+                security_json=security_json,
+            )
+        except OperationError as exc:
+            for stage in ("check", "openapi"):
+                if enforced(stage):
+                    errors.append(VerificationErrorResult(stage, str(exc)))
+        else:
+            openapi_ready = True
+
+    if enforced("check") and openapi_ready:
+        check = run_check(
             resolved_root,
             routes=routes,
-            snapshot=snapshot_path,
-            ref=baseline_commit,
             title=resolved_title,
             version=resolved_version,
             description=resolved_description,
-            security_json=resolved_security,
-        )
-    except OperationError as exc:
-        errors.append(VerificationErrorResult("openapi", str(exc)))
-
-    _raise_if_cancelled(cancelled)
-    try:
-        job_report = job_diff_result(
-            resolved_root,
-            jobs=jobs,
-            snapshot=job_snapshot_path,
-            ref=baseline_commit,
-            allow_missing_baseline=allow_missing_job_baseline,
-        )
-    except OperationError as exc:
-        errors.append(VerificationErrorResult("jobs", str(exc)))
-
-    _raise_if_cancelled(cancelled)
-    try:
-        tool_report = tool_diff_result(
-            resolved_root,
-            tools=tools,
-            snapshot=tool_snapshot_path,
-            ref=baseline_commit,
-        )
-    except OperationError as exc:
-        errors.append(VerificationErrorResult("tools", str(exc)))
-
-    _raise_if_cancelled(cancelled)
-    try:
-        evaluation_report = evaluation_diff_result(
-            resolved_root,
+            snapshot=str(snapshot_path),
             evaluations=evaluations,
-            snapshot=evaluation_snapshot_path,
+            evaluation_snapshot=str(evaluation_snapshot_path),
+            jobs=jobs,
+            job_snapshot=str(job_snapshot_path),
+            tools=tools,
+            tool_snapshot=str(tool_snapshot_path),
+            security_json=resolved_security,
+            timeout_seconds=timeout_seconds,
+            cancelled=cancelled,
+            step_completed=step_completed,
+        )
+
+    _raise_if_cancelled(cancelled)
+    if enforced("architecture"):
+        try:
+            route_group = load_route_group(resolved_root, routes)
+            with discard_evaluation_output():
+                evaluation_runner = load_evaluation_runner(resolved_root, evaluations)
+            task_runner = load_task_runner(resolved_root, tasks)
+            job_group = load_job_group(resolved_root, jobs)
+            tool_group = load_tool_group(resolved_root, tools)
+            app_map = map_app(
+                resolved_root,
+                route_group,
+                task_runner.tasks,
+                job_group,
+                tool_group,
+                evaluation_runner.evaluations,
+            )
+            architecture = VerificationArchitectureResult(
+                summary=app_map.summary.as_dict(),
+                diagnostics=app_map.diagnostics,
+                unresolved=app_map.unresolved,
+            )
+        except OperationError as exc:
+            errors.append(VerificationErrorResult("architecture", str(exc)))
+
+    _raise_if_cancelled(cancelled)
+    if enforced("openapi") and openapi_ready:
+        try:
+            openapi = openapi_diff_result(
+                resolved_root,
+                routes=routes,
+                snapshot=snapshot_path,
+                ref=baseline_commit,
+                title=resolved_title,
+                version=resolved_version,
+                description=resolved_description,
+                security_json=resolved_security,
+            )
+        except OperationError as exc:
+            errors.append(VerificationErrorResult("openapi", str(exc)))
+
+    _raise_if_cancelled(cancelled)
+    if enforced("jobs"):
+        try:
+            job_report = job_diff_result(
+                resolved_root,
+                jobs=jobs,
+                snapshot=job_snapshot_path,
+                ref=baseline_commit,
+                allow_missing_baseline=allow_missing_job_baseline,
+            )
+        except OperationError as exc:
+            errors.append(VerificationErrorResult("jobs", str(exc)))
+
+    _raise_if_cancelled(cancelled)
+    if enforced("tools"):
+        try:
+            tool_report = tool_diff_result(
+                resolved_root,
+                tools=tools,
+                snapshot=tool_snapshot_path,
+                ref=baseline_commit,
+            )
+        except OperationError as exc:
+            errors.append(VerificationErrorResult("tools", str(exc)))
+
+    _raise_if_cancelled(cancelled)
+    if enforced("evaluations"):
+        try:
+            evaluation_report = evaluation_diff_result(
+                resolved_root,
+                evaluations=evaluations,
+                snapshot=evaluation_snapshot_path,
+                ref=baseline_commit,
+                allow_missing_baseline=allow_missing_evaluation_baseline,
+            )
+        except OperationError as exc:
+            errors.append(VerificationErrorResult("evaluations", str(exc)))
+
+    _raise_if_cancelled(cancelled)
+    try:
+        final_policy_comparison = verification_policy_comparison(
+            resolved_root,
             ref=baseline_commit,
-            allow_missing_baseline=allow_missing_evaluation_baseline,
         )
     except OperationError as exc:
-        errors.append(VerificationErrorResult("evaluations", str(exc)))
+        final_policy_error = str(exc)
+        if final_policy_error != policy_error:
+            errors.append(VerificationErrorResult("policy", final_policy_error))
+        policy_comparison = None
+    else:
+        if (
+            initial_policy_comparison is not None
+            and final_policy_comparison != initial_policy_comparison
+        ):
+            errors.append(
+                VerificationErrorResult(
+                    "policy",
+                    "verification policy changed while verification was running; "
+                    "rerun verify against the finished tree",
+                )
+            )
+        policy_comparison = final_policy_comparison
+
+    policy = _policy_result(
+        policy_comparison,
+        check=check,
+        architecture=architecture,
+        openapi=openapi,
+        jobs=job_report,
+        tools=tool_report,
+        evaluations=evaluation_report,
+    )
 
     return VerificationResult(
         root=str(resolved_root),
@@ -368,6 +539,67 @@ def verification_result(
         tools=tool_report,
         evaluations=evaluation_report,
         errors=tuple(errors),
+        policy=policy,
+    )
+
+
+def _policy_result(
+    comparison: VerificationPolicyComparison | None,
+    *,
+    check: CheckResult | None,
+    architecture: VerificationArchitectureResult | None,
+    openapi: OpenApiDiffResult | None,
+    jobs: JobDiffResult | None,
+    tools: ToolDiffResult | None,
+    evaluations: EvaluationDiffResult | None,
+) -> VerificationPolicyResult | None:
+    if comparison is None:
+        return None
+    evidence: dict[VerificationEvidenceStage, bool | None] = {
+        "check": check.ok if check is not None else None,
+        "architecture": architecture.ok if architecture is not None else None,
+        "openapi": openapi.report.compatible if openapi is not None else None,
+        "jobs": jobs.report.compatible if jobs is not None else None,
+        "tools": tools.report.compatible if tools is not None else None,
+        "evaluations": (
+            evaluations.report.compatible if evaluations is not None else None
+        ),
+    }
+    requirements: list[VerificationRequirementResult] = []
+    for stage in VERIFICATION_EVIDENCE_STAGES:
+        current = comparison.current.requirement(stage)
+        historical = comparison.historical.requirement(stage)
+        enforced = comparison.enforced(stage)
+        outcome = evidence[stage]
+        if enforced:
+            status: VerificationEvidenceStatus = (
+                "not_verifiable"
+                if outcome is None
+                else "passed"
+                if outcome
+                else "failed"
+            )
+        elif current == "disabled":
+            status = "skipped"
+        else:
+            status = "not_configured"
+        requirements.append(
+            VerificationRequirementResult(
+                stage=stage,
+                current=current,
+                baseline=historical,
+                enforced=enforced,
+                status=status,
+            )
+        )
+    return VerificationPolicyResult(
+        path=comparison.path,
+        source=comparison.current.source,
+        baseline_source=comparison.historical.source,
+        baseline=comparison.baseline,
+        compatible=comparison.compatible,
+        requirements=tuple(requirements),
+        changes=comparison.changes,
     )
 
 

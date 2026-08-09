@@ -42,7 +42,7 @@ def _assert_operation_error(
     assert result.returncode != 0
     payload = json.loads(result.stdout)
     assert payload == {
-        "schema_version": 7,
+        "schema_version": 8,
         "result": "operation_error",
         "operation": operation,
         "ok": False,
@@ -193,6 +193,17 @@ def test_new_scaffolds_a_working_app(
     assert (root / "jobs.json").is_file()
     assert (root / "tools.json").is_file()
     assert (root / "evaluations.json").is_file()
+    assert tomllib.loads((root / "tenchi.toml").read_text()) == {
+        "schema_version": 1,
+        "verify": {
+            "check": True,
+            "architecture": True,
+            "openapi": True,
+            "jobs": True,
+            "tools": True,
+            "evaluations": True,
+        },
+    }
     assert (root / "AGENTS.md").is_file()
     assert (root / ".mcp.json").is_file()
     assert (root / "tests/test_openapi_snapshot.py").is_file()
@@ -243,7 +254,7 @@ def test_new_scaffolds_a_working_app(
     mapped = _tenchi(root, "map", "--json")
     assert mapped.returncode == 0, mapped.stdout + mapped.stderr
     app_map = json.loads(mapped.stdout)
-    assert app_map["schema_version"] == 7
+    assert app_map["schema_version"] == 8
     assert app_map["summary"] == {
         "features": 1,
         "contracts": 2,
@@ -266,7 +277,7 @@ def test_new_scaffolds_a_working_app(
     preflight = _tenchi(root, "preflight", "--json")
     assert preflight.returncode == 0, preflight.stdout + preflight.stderr
     preflight_result = json.loads(preflight.stdout)
-    assert preflight_result["schema_version"] == 7
+    assert preflight_result["schema_version"] == 8
     assert preflight_result["ok"] is True
     assert preflight_result["counts"] == {
         "passed": 0,
@@ -280,13 +291,13 @@ def test_new_scaffolds_a_working_app(
         evaluation_list.stdout + evaluation_list.stderr
     )
     listed_evaluations = json.loads(evaluation_list.stdout)
-    assert listed_evaluations["schema_version"] == 7
+    assert listed_evaluations["schema_version"] == 8
     assert listed_evaluations["evaluations"] == []
 
     evaluation_run = _tenchi(root, "eval", "run", "--json")
     assert evaluation_run.returncode == 0, evaluation_run.stdout + evaluation_run.stderr
     evaluation_report = json.loads(evaluation_run.stdout)
-    assert evaluation_report["schema_version"] == 7
+    assert evaluation_report["schema_version"] == 8
     assert evaluation_report["ok"] is True
     assert evaluation_report["counts"] == {
         "completed": 0,
@@ -510,7 +521,7 @@ def test_eval_snapshot_cli_writes_checks_and_classifies_policy_changes(
 
     assert changed.returncode == 1
     report = json.loads(changed.stdout)
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert report["compatible"] is False
     assert report["changes"][0]["message"].startswith("threshold decreased")
     assert "private prompt" not in changed.stdout + changed.stderr
@@ -635,7 +646,7 @@ def test_jobs_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> None
     agent_result = _tenchi(tmp_path, "jobs", "--jobs", target, "--json")
     assert agent_result.returncode == 0, agent_result.stderr
     listed_result = json.loads(agent_result.stdout)
-    assert listed_result["schema_version"] == 7
+    assert listed_result["schema_version"] == 8
     assert listed_result["manifest"] == manifest
 
     written = _tenchi(tmp_path, "jobs", "--jobs", target, "--write", "jobs.json")
@@ -717,7 +728,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     agent_result = _tenchi(tmp_path, "tools", "--tools", target, "--json")
     assert agent_result.returncode == 0, agent_result.stderr
     listed_result = json.loads(agent_result.stdout)
-    assert listed_result["schema_version"] == 7
+    assert listed_result["schema_version"] == 8
     assert listed_result["root"] == str(tmp_path)
     assert listed_result["manifest"] == manifest
 
@@ -753,7 +764,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     )
     assert diff.returncode == 1
     report = json.loads(diff.stdout)
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert report["status"] == "incompatible"
     assert report["counts"]["breaking"] == 1
     assert report["counts"]["metadata"] == 1
@@ -860,7 +871,7 @@ def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> Non
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 7
+    assert payload["schema_version"] == 8
     assert payload["target"] == target
     assert payload["ok"] is False
     assert payload["counts"] == {
@@ -1055,7 +1066,7 @@ def test_task_cli_lists_runs_and_reports_validation_as_versioned_json(
     listed = _tenchi(tmp_path, "task", "list", "--tasks", target, "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     listing = json.loads(listed.stdout)
-    assert listing["schema_version"] == 7
+    assert listing["schema_version"] == 8
     assert listing["target"] == target
     assert listing["tasks"][0]["name"] == "records.repair"
     assert listing["tasks"][0]["input_required"] is True
@@ -1107,7 +1118,7 @@ def test_generated_app_checks_pass(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert report["ok"] is True
     assert report["counts"] == {"passed": 9, "failed": 0, "total": 9}
     assert [step["name"] for step in report["steps"]] == [
@@ -1146,10 +1157,32 @@ def test_verify_produces_one_receipt_against_an_immutable_baseline(
 
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads(result.stdout)
-    assert receipt["schema_version"] == 7
+    assert receipt["schema_version"] == 8
     assert receipt["tenchi_version"]
     assert receipt["ok"] is True
     assert receipt["baseline"] == {"ref": "HEAD", "commit": commit}
+    assert receipt["policy"]["source"] == "repository"
+    assert receipt["policy"]["baseline_source"] == "repository"
+    assert receipt["policy"]["ok"] is True
+    assert receipt["policy"]["compatible"] is True
+    assert receipt["policy"]["changes"] == []
+    assert receipt["policy"]["requirements"] == [
+        {
+            "stage": stage,
+            "current": "required",
+            "baseline": "required",
+            "enforced": True,
+            "status": "passed",
+        }
+        for stage in [
+            "check",
+            "architecture",
+            "openapi",
+            "jobs",
+            "tools",
+            "evaluations",
+        ]
+    ]
     assert receipt["check"]["ok"] is True
     assert receipt["architecture"]["ok"] is True
     assert receipt["architecture"]["diagnostics"] == []
@@ -1219,6 +1252,172 @@ def test_verify_requires_an_explicit_first_adoption_override(
     assert allowed_receipt["evaluations"]["changes"][-1]["location"] == (
         "evaluation manifest baseline"
     )
+
+
+def test_verify_rejects_and_still_runs_a_weakened_required_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "strict policy")
+    policy = root / "tenchi.toml"
+    policy.write_text(
+        policy.read_text(encoding="utf-8").replace(
+            "check = true",
+            "check = false",
+        ),
+        encoding="utf-8",
+    )
+
+    result = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["check"]["ok"] is True
+    assert receipt["policy"]["ok"] is False
+    assert receipt["policy"]["compatible"] is False
+    assert receipt["policy"]["changes"] == [
+        {
+            "severity": "breaking",
+            "stage": "check",
+            "message": "required check evidence became disabled",
+        }
+    ]
+    check = receipt["policy"]["requirements"][0]
+    assert check == {
+        "stage": "check",
+        "current": "disabled",
+        "baseline": "required",
+        "enforced": True,
+        "status": "passed",
+    }
+
+
+def test_verify_reports_a_repository_disabled_stage_as_skipped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    policy = root / "tenchi.toml"
+    policy.write_text(
+        policy.read_text(encoding="utf-8").replace(
+            "evaluations = true",
+            "evaluations = false",
+        ),
+        encoding="utf-8",
+    )
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "policy without historical evaluation diff")
+
+    result = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["evaluations"] is None
+    evaluation = receipt["policy"]["requirements"][-1]
+    assert evaluation == {
+        "stage": "evaluations",
+        "current": "disabled",
+        "baseline": "disabled",
+        "enforced": False,
+        "status": "skipped",
+    }
+
+
+def test_verify_runs_strict_defaults_when_the_current_policy_is_invalid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "valid policy")
+    (root / "tenchi.toml").write_text(
+        'schema_version = 1\n[verify]\ncheck = "disabled"\n',
+        encoding="utf-8",
+    )
+
+    result = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["policy"] is None
+    assert receipt["check"]["ok"] is True
+    assert receipt["architecture"]["ok"] is True
+    assert receipt["openapi"]["compatible"] is True
+    assert receipt["jobs"]["compatible"] is True
+    assert receipt["tools"]["compatible"] is True
+    assert receipt["evaluations"]["compatible"] is True
+    assert receipt["errors"] == [
+        {
+            "stage": "policy",
+            "message": (
+                "verification policy 'tenchi.toml' stage 'check' must be a boolean"
+            ),
+        }
+    ]
+
+
+def test_verify_rejects_a_policy_mutated_by_project_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "strict policy")
+    (root / "tests/test_policy_mutation.py").write_text(
+        """\
+from pathlib import Path
+
+
+def test_project_check_cannot_change_verification_policy() -> None:
+    policy = Path(__file__).parents[1] / "tenchi.toml"
+    policy.write_text(
+        policy.read_text(encoding="utf-8").replace(
+            "check = true",
+            "check = false",
+        ),
+        encoding="utf-8",
+    )
+""",
+        encoding="utf-8",
+    )
+
+    result = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["check"]["ok"] is True
+    assert receipt["policy"]["compatible"] is False
+    assert receipt["errors"] == [
+        {
+            "stage": "policy",
+            "message": (
+                "verification policy changed while verification was running; "
+                "rerun verify against the finished tree"
+            ),
+        }
+    ]
 
 
 def test_verify_requires_explicit_job_manifest_first_adoption(
@@ -1466,7 +1665,7 @@ def test_openapi_diff_ref_reads_the_snapshot_from_git(
     )
     assert compatible_result.returncode == 0, compatible_result.stderr
     compatible = json.loads(compatible_result.stdout)
-    assert compatible["schema_version"] == 7
+    assert compatible["schema_version"] == 8
     assert compatible["root"] == str(root)
     assert compatible["baseline"] == "HEAD:openapi.json"
     assert compatible["compatible"] is True
@@ -1643,7 +1842,7 @@ def test_make_dry_run_and_json_share_a_versioned_result(
     assert main(["make", "feature", "notes", "--dry-run", "--json"]) == 0
     planned = json.loads(capsys.readouterr().out)
 
-    assert planned["schema_version"] == 7
+    assert planned["schema_version"] == 8
     assert planned["ok"] is True
     assert planned["dry_run"] is True
     assert planned["artifact"] == "feature"
@@ -1691,7 +1890,7 @@ def test_make_json_reports_errors_without_writing(
     assert main(["make", "feature", "notes", "--json"]) == 1
 
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == 7
+    assert result["schema_version"] == 8
     assert result["ok"] is False
     assert result["files"] == []
     assert "app/features/ not found" in result["error"]
@@ -2355,7 +2554,7 @@ def test_routes_json_emits_a_machine_readable_map(
     assert main(["routes", "--json"]) == 0
 
     result = cast(dict[str, Any], json.loads(capsys.readouterr().out))
-    assert result["schema_version"] == 7
+    assert result["schema_version"] == 8
     assert result["root"] == str(EXAMPLE_DIR)
     entries = cast(list[dict[str, Any]], result["routes"])
     assert entries

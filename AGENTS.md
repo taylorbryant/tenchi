@@ -387,7 +387,13 @@ required header already exists compatibly.
 `verify --base-ref <ref>` resolves the ref once, runs `check`, requires an
 application map with no diagnostics or unresolved relationships, and compares
 OpenAPI, job-message, application-tool, and evaluation-policy snapshots with
-that immutable commit. It never writes snapshots. A missing job snapshot
+that immutable commit. Generated applications declare required evidence in
+`tenchi.toml`. Verification compares that policy with the same commit and
+enforces the stronger current-or-historical requirement, so a gate cannot skip
+itself while being weakened. Missing policy files retain Tenchi's strict
+built-in requirements; malformed or removed repository policies fail closed.
+The receipt distinguishes passed, failed, skipped, not-configured, and
+not-verifiable evidence. It never writes snapshots. A missing job snapshot
 requires the explicit `--allow-missing-job-baseline` first-adoption override. A
 missing evaluation snapshot requires the explicit
 `--allow-missing-evaluation-baseline` first-adoption override. The CLI and

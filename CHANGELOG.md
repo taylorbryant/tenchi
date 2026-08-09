@@ -11,6 +11,17 @@ versions may change the public API.
 
 ### Added
 
+- Generated applications now commit a versioned `tenchi.toml` verification
+  policy declaring the checks, architecture evidence, and historical OpenAPI,
+  job, tool, and evaluation comparisons required before a change is done.
+  `tenchi verify` compares the current policy with its immutable Git baseline,
+  enforces the stronger current-or-historical requirement so a weakening
+  cannot skip its own gate, rechecks the policy after project-owned code has
+  run so a mid-verification mutation fails, and reports passed, failed, skipped,
+  not-configured, and not-verifiable evidence in one canonical CLI/MCP
+  receipt. Missing policies retain strict built-in requirements; malformed or
+  removed repository policies fail closed. Agent protocol v8 records the
+  protected policy while retaining all earlier snapshots.
 - Background-job groups now publish a versioned, payload-free durable-message
   manifest containing stable names, descriptions, and consumer input schemas.
   `tenchi jobs` prints, writes, checks, and directionally compares `jobs.json`;

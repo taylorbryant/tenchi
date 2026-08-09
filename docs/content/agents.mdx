@@ -29,7 +29,8 @@ tool changed, run the tool compatibility diff before updating `tools.json`.
 If an evaluation policy changed, run the evaluation compatibility diff before
 updating `evaluations.json`.
 Finish with `uv run tenchi verify --base-ref <historical-ref> --json` and report
-the receipt with the files changed.
+the receipt with the files changed. Do not weaken `tenchi.toml` to make a
+failing requirement disappear.
 ```
 
 If you already know the feature, include its name in the task so the agent can
@@ -42,6 +43,7 @@ complete application graph.
 | --- | --- |
 | Canonical application structure | Predictable locations for contracts, behavior, ports, policies, adapters, and composition |
 | `AGENTS.md` in every generated app | Repository-local placement rules, dependency direction, and a validation loop |
+| `tenchi.toml` in every generated app | A protected, repository-owned declaration of the evidence required before a change is done |
 | `.mcp.json` in every generated app | Project-local registration for Tenchi's MCP tools and instructions resource |
 | `tenchi map --json` | A versioned graph with stable node IDs, source locations, registration state, and relationship evidence |
 | `tenchi task list --json` | Validated operational task names and their input/output JSON Schemas |
@@ -51,7 +53,7 @@ complete application graph.
 | `tenchi tools --json` | Registered machine-facing names, schemas, errors, and safety annotations |
 | `tenchi jobs --json` | Registered durable job names and payload schemas without queued values |
 | `tenchi check --json` | One bounded, complete result for formatting, linting, types, tests, architecture, and boundary snapshot drift |
-| `tenchi verify --base-ref <ref> --json` | One completion receipt tied to an immutable commit, including checks, strict architecture evidence, and all four compatibility reports |
+| `tenchi verify --base-ref <ref> --json` | One completion receipt tied to an immutable commit, including protected policy requirements, checks, strict architecture evidence, and all four compatibility reports |
 | `tenchi preflight --json` | Redacted, timeout-bounded evidence that the selected deployment environment is ready |
 | OpenAPI compatibility commands | A historical contract baseline that an agent cannot accidentally replace and then compare to itself |
 | Tool compatibility commands | Directional proof that machine-facing input, output, errors, and safety did not break existing callers |
@@ -228,11 +230,19 @@ against the same historical point:
 uv run tenchi verify --base-ref origin/main --json
 ```
 
-The receipt contains the resolved commit, complete check result, application
-summary, diagnostics, unresolved relationships, and all four compatibility
-reports. It passes only when every check passes, the map has no diagnostics or
-unresolved relationships, and none of the four boundaries contains a breaking
-or unknown change.
+The receipt contains the resolved commit, current and historical
+`tenchi.toml` requirements, complete check result, application summary,
+diagnostics, unresolved relationships, and all four compatibility reports. It
+passes only when the policy was not weakened, every enforced requirement
+passes, the map has no diagnostics or unresolved relationships, and none of
+the four boundaries contains a breaking or unknown change.
+
+If an agent disables or removes a required stage in `tenchi.toml`, Tenchi
+retains the historical requirement for that run and reports the policy change
+as incompatible. The agent therefore cannot make a difficult check disappear
+in the same change that weakens the policy. A missing policy uses strict
+built-in requirements for existing applications; generated applications commit
+the policy so the repository owns its definition of done.
 
 `verify` does not replace the diff-before-write review. It proves that the
 finished tree—including accepted snapshot updates—still agrees with the
@@ -247,7 +257,7 @@ release instead of the branch's current commit.
 | `tenchi make ... --json` | Artifact identity, dry-run state, files, next steps, and structured failure |
 | `tenchi doctor --json` | Overall status and source-anchored diagnostics with stable codes |
 | `tenchi check --json` | Overall status, counts, duration, and every validation step |
-| `tenchi verify --base-ref <ref> --json` | Resolved baseline commit, checks, strict architecture evidence, and OpenAPI, job, tool, and evaluation-policy compatibility |
+| `tenchi verify --base-ref <ref> --json` | Resolved baseline commit, protected verification requirements and statuses, checks, strict architecture evidence, and OpenAPI, job, tool, and evaluation-policy compatibility |
 | `tenchi preflight --json` | Deployment-environment status, counts, durations, and stable failure codes without dependency details |
 | `tenchi eval list --json` | Evaluation discovery without evaluated inputs or provider calls |
 | `tenchi eval run [name] --json` | Payload-safe scores, usage, thresholds, budgets, statuses, and failure codes for an explicitly authorized AI evaluation run |
@@ -269,7 +279,7 @@ object to stdout and exits nonzero:
 
 ```json
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "result": "operation_error",
   "operation": "routes",
   "ok": false,

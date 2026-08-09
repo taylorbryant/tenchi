@@ -75,7 +75,7 @@ each call, so a server that stays open sees edits made during the agent session.
 | `jobs_diff` | A directional compatibility report against `jobs.json`, another project snapshot, or that snapshot at a Git ref |
 | `tools_diff` | A directional compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
 | `evaluation_diff` | A payload-free compatibility report against `evaluations.json`, another project snapshot, or that snapshot at a Git ref; missing Git snapshots fail unless first adoption is explicit, and evaluators never run |
-| `verify` | One completion receipt containing checks, strict architecture evidence, and all four compatibility reports against a required Git ref |
+| `verify` | One completion receipt containing protected `tenchi.toml` requirements, checks, strict architecture evidence, and all four compatibility reports against a required Git ref |
 | `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI, job, tool, and evaluation-policy snapshot checks |
 
 `task_run` is absent by default. Start the server with
@@ -137,7 +137,8 @@ For a feature change, give the agent this sequence:
 8. Call `tools_diff` before accepting a changed application-tool snapshot.
 9. Call `evaluation_diff` before accepting a changed evaluation-policy snapshot.
 10. Call `verify` with the pull request base, previous push, or previous release
-   and retain its completion receipt.
+   and retain its completion receipt. Resolve policy changes as well as failed
+   evidence; do not disable a `tenchi.toml` stage to make the receipt pass.
 
 The agent must still make route and infrastructure wiring explicit in the
 application source. MCP previews follow the same rule as `tenchi make`: they

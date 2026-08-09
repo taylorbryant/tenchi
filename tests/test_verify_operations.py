@@ -19,6 +19,12 @@ from tenchi._openapi_operations import (
     resolve_git_commit,
 )
 from tenchi._tool_operations import ToolDiffResult
+from tenchi._verification_policy import (
+    VerificationPolicy,
+    VerificationPolicyChange,
+    VerificationPolicyComparison,
+    default_verification_policy,
+)
 from tenchi.compatibility import CompatibilityReport
 
 
@@ -47,6 +53,9 @@ def _run_with_map(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     app_map: AppMapResult,
+    *,
+    policy: VerificationPolicyComparison | None = None,
+    final_policy: VerificationPolicyComparison | None = None,
 ) -> _verify_operations.VerificationResult:
     (tmp_path / "app").mkdir()
     (tmp_path / "openapi.json").write_text("{}")
@@ -67,6 +76,26 @@ def _run_with_map(
             steps=(),
             duration_seconds=0.01,
         )
+
+    if policy is None:
+        strict = default_verification_policy()
+        policy = VerificationPolicyComparison(
+            path="tenchi.toml",
+            baseline=f"{commit}:tenchi.toml",
+            current=strict,
+            historical=strict,
+            changes=(),
+        )
+
+    policy_results = iter((policy, final_policy or policy))
+
+    def fake_verification_policy_comparison(
+        root: Path,
+        *,
+        ref: str,
+    ) -> VerificationPolicyComparison:
+        del root, ref
+        return next(policy_results)
 
     def fake_load_route_group(root: Path, target: str) -> object:
         del root, target
@@ -132,6 +161,11 @@ def _run_with_map(
         _verify_operations,
         "run_check",
         fake_run_check,
+    )
+    monkeypatch.setattr(
+        _verify_operations,
+        "verification_policy_comparison",
+        fake_verification_policy_comparison,
     )
     monkeypatch.setattr(
         _verify_operations,
@@ -224,6 +258,12 @@ def test_verification_preserves_other_evidence_when_one_stage_cannot_run(
     assert result.openapi is None
     assert result.tools is not None and result.tools.report.compatible
     assert result.evaluations is not None and result.evaluations.report.compatible
+    assert result.policy is not None
+    openapi_requirement = next(
+        item for item in result.policy.requirements if item.stage == "openapi"
+    )
+    assert openapi_requirement.status == "not_verifiable"
+    assert result.policy.ok is False
     assert result.errors == (
         _verify_operations.VerificationErrorResult(
             stage="openapi",
@@ -271,6 +311,157 @@ def test_verification_fails_closed_on_unresolved_architecture_evidence(
     assert result.architecture is not None
     assert result.architecture.ok is False
     assert result.architecture.unresolved == (unresolved,)
+    assert result.policy is not None
+    architecture_requirement = next(
+        item for item in result.policy.requirements if item.stage == "architecture"
+    )
+    assert architecture_requirement.status == "failed"
+
+
+def test_verification_runs_a_requirement_that_the_current_policy_weakens(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_map = AppMapResult(
+        root=str(tmp_path),
+        summary=_summary(),
+        nodes=(),
+        edges=(),
+        diagnostics=(),
+        unresolved=(),
+    )
+    historical = default_verification_policy()
+    current = VerificationPolicy(
+        source="repository",
+        requirements=tuple(
+            (stage, "disabled" if stage == "check" else "required")
+            for stage, _ in historical.requirements
+        ),
+    )
+    policy = VerificationPolicyComparison(
+        path="tenchi.toml",
+        baseline=f"{'a' * 40}:tenchi.toml",
+        current=current,
+        historical=historical,
+        changes=(
+            VerificationPolicyChange(
+                severity="breaking",
+                stage="check",
+                message="required check evidence became disabled",
+            ),
+        ),
+    )
+
+    def fake_openapi_diff_result(root: Path, **kwargs: object) -> OpenApiDiffResult:
+        del kwargs
+        return OpenApiDiffResult(
+            root=str(root),
+            baseline=f"{'a' * 40}:openapi.json",
+            report=CompatibilityReport(()),
+        )
+
+    monkeypatch.setattr(
+        _verify_operations,
+        "openapi_diff_result",
+        fake_openapi_diff_result,
+    )
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        app_map,
+        policy=policy,
+    )
+
+    assert result.ok is False
+    assert result.check is not None and result.check.ok
+    assert result.errors == ()
+    assert result.policy is not None
+    assert result.policy.compatible is False
+    check_requirement = result.policy.requirements[0]
+    assert check_requirement.current == "disabled"
+    assert check_requirement.baseline == "required"
+    assert check_requirement.enforced is True
+    assert check_requirement.status == "passed"
+
+
+def test_verification_rejects_policy_changes_during_the_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_map = AppMapResult(
+        root=str(tmp_path),
+        summary=_summary(),
+        nodes=(),
+        edges=(),
+        diagnostics=(),
+        unresolved=(),
+    )
+    historical = default_verification_policy()
+    initial = VerificationPolicyComparison(
+        path="tenchi.toml",
+        baseline=f"{'a' * 40}:tenchi.toml",
+        current=historical,
+        historical=historical,
+        changes=(),
+    )
+    weakened = VerificationPolicy(
+        source="repository",
+        requirements=tuple(
+            (stage, "disabled" if stage == "check" else "required")
+            for stage, _ in historical.requirements
+        ),
+    )
+    final = VerificationPolicyComparison(
+        path="tenchi.toml",
+        baseline=initial.baseline,
+        current=weakened,
+        historical=historical,
+        changes=(
+            VerificationPolicyChange(
+                severity="breaking",
+                stage="check",
+                message="required check evidence became disabled",
+            ),
+        ),
+    )
+
+    def fake_openapi_diff_result(root: Path, **kwargs: object) -> OpenApiDiffResult:
+        del kwargs
+        return OpenApiDiffResult(
+            root=str(root),
+            baseline=f"{'a' * 40}:openapi.json",
+            report=CompatibilityReport(()),
+        )
+
+    monkeypatch.setattr(
+        _verify_operations,
+        "openapi_diff_result",
+        fake_openapi_diff_result,
+    )
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        app_map,
+        policy=initial,
+        final_policy=final,
+    )
+
+    assert result.ok is False
+    assert result.check is not None and result.check.ok
+    assert result.policy is not None
+    assert result.policy.compatible is False
+    assert result.policy.source == "repository"
+    assert result.errors == (
+        _verify_operations.VerificationErrorResult(
+            stage="policy",
+            message=(
+                "verification policy changed while verification was running; "
+                "rerun verify against the finished tree"
+            ),
+        ),
+    )
 
 
 @pytest.mark.parametrize("ref", ["main\x00other", "main\x1bother"])

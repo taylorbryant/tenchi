@@ -44,6 +44,18 @@ typeCheckingMode = "strict"
 pythonVersion = "3.12"
 """
 
+_VERIFICATION_POLICY = """\
+schema_version = 1
+
+[verify]
+check = true
+architecture = true
+openapi = true
+jobs = true
+tools = true
+evaluations = true
+"""
+
 _README = """\
 # __APP_NAME__
 
@@ -87,6 +99,11 @@ without running evaluators. After accepting any snapshot updates, run `tenchi
 verify --base-ref <ref>` to rerun the checks and record architecture plus all
 compatibility reports against one immutable commit.
 
+`tenchi.toml` is the repository-owned definition of required verification
+evidence. `verify` compares it with the selected Git baseline before enforcing
+the stronger current-or-historical requirement, so weakening a gate cannot
+skip that gate in the same change.
+
 The API persists to `__APP_NAME__.db` by default. Override the location with
 `__APP_ENV_PREFIX___DATABASE`. With the development server running, browse
 Swagger UI at http://127.0.0.1:8000/docs.
@@ -123,8 +140,8 @@ Framework agent workflow: https://tenchi.io/agents
    step as unfinished work.
 5. Finish with `uv run tenchi verify --base-ref <ref> --json`, using the pull
    request base, previous push, or previous release as `<ref>`. Treat a failed
-   check, architecture diagnostic, unresolved relationship, or incompatible
-   boundary as unfinished work.
+   check, weakened `tenchi.toml`, architecture diagnostic, unresolved
+   relationship, or incompatible boundary as unfinished work.
 
 Use `--json` with `tenchi map`, `tenchi routes`, `tenchi jobs`, `tenchi tools`,
 `tenchi preflight`, `tenchi eval list|run`, `tenchi task`, `tenchi doctor`,
@@ -1136,6 +1153,7 @@ _OPENAPI_SNAPSHOT = """\
 
 _FILES: dict[str, str] = {
     "pyproject.toml": _PYPROJECT,
+    "tenchi.toml": _VERIFICATION_POLICY,
     "README.md": _README,
     "AGENTS.md": _AGENTS,
     ".mcp.json": _MCP_JSON,

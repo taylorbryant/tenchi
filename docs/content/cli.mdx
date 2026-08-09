@@ -207,6 +207,51 @@ the selected Git ref. The receipt records the immutable commit resolved from
 compatibility reports use the same historical state even if the named ref moves
 later.
 
+The application root may contain a repository-owned `tenchi.toml`:
+
+```toml
+schema_version = 1
+
+[verify]
+check = true
+architecture = true
+openapi = true
+jobs = true
+tools = true
+evaluations = true
+```
+
+`true` makes the evidence required. `false` requests a deliberate skip, and an
+omitted key records the current requirement as `not_configured`. A stage is
+actually `skipped` or `not_configured` only when the historical policy did not
+require it too; otherwise the historical requirement remains enforced and its
+evidence reports `passed`, `failed`, or `not_verifiable`. Generated
+applications require all six stages. An application without `tenchi.toml`
+keeps the same safe behavior through Tenchi's built-in policy, so existing
+projects do not lose coverage before adopting the file.
+
+`check` means the complete local `tenchi check` loop, including exact drift
+checks for the four checked-in snapshots. `openapi`, `jobs`, `tools`, and
+`evaluations` mean their separate historical compatibility comparisons against
+the selected Git baseline. Disabling one historical comparison does not remove
+its exact snapshot check while `check` remains required.
+
+Verify compares the current policy with `tenchi.toml` at the resolved baseline.
+Changing a required stage to `false` or removing its key is incompatible. Tenchi
+still runs a stage required by either policy, so a change cannot disable the
+check that would report its own weakening. Adding a repository policy is safe
+only when it preserves the built-in requirements; removing a committed policy
+fails closed. Invalid TOML, unknown stages, unsupported schema versions, and
+unreadable historical policies also fail without suppressing the strict
+built-in stages. Tenchi reads the policy again after every project-owned stage
+has completed and rejects the receipt if a test or import changed it while
+verification was running.
+
+The structured receipt gives every stage its current and historical
+requirement, whether it was enforced, and one of `passed`, `failed`, `skipped`,
+`not_configured`, or `not_verifiable`. `policy.ok` is true only when the policy
+is compatible and all enforced evidence passed.
+
 Use the pull request base, previous push, or previous release as the base ref.
 The option is required: using the current branch snapshot could hide a breaking
 change when code and its updated snapshot are committed together. The command
