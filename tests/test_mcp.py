@@ -57,6 +57,7 @@ def test_stdio_runner_preserves_every_captured_application_override(
         allow_task_runs=True,
         allow_evaluation_runs=True,
         snapshot="api/openapi.json",
+        job_snapshot="api/jobs.json",
         tool_snapshot="api/tools.json",
         evaluation_snapshot="api/evaluations.json",
         title="Custom",
@@ -103,11 +104,13 @@ async def test_mcp_lists_the_stable_tool_surface_and_annotations() -> None:
         "app_map",
         "routes",
         "tools",
+        "jobs",
         "doctor",
         "preflight",
         "evaluation_list",
         "task_list",
         "openapi_diff",
+        "jobs_diff",
         "tools_diff",
         "evaluation_diff",
         "make_preview",
@@ -164,7 +167,7 @@ async def test_coding_agent_mcp_supports_legacy_protocol_clients() -> None:
 
     assert any(tool.name == "routes" for tool in listed.tools)
     assert routes.structured_content is not None
-    assert routes.structured_content["schema_version"] == 6
+    assert routes.structured_content["schema_version"] == 7
 
 
 async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> None:
@@ -173,6 +176,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
     async with Client(server) as session:
         routes = await session.call_tool("routes", {})
         tools = await session.call_tool("tools", {})
+        jobs = await session.call_tool("jobs", {})
         app_map = await session.call_tool(
             "app_map", {"feature": "todos", "kinds": ["contract", "route"]}
         )
@@ -188,19 +192,25 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
         )
         diff = await session.call_tool("openapi_diff", {})
         tool_diff = await session.call_tool("tools_diff", {})
+        job_diff = await session.call_tool("jobs_diff", {})
         evaluation_diff = await session.call_tool("evaluation_diff", {})
 
     assert routes.is_error is False
     assert routes.structured_content is not None
-    assert routes.structured_content["schema_version"] == 6
+    assert routes.structured_content["schema_version"] == 7
     assert routes.structured_content["root"] == str(EXAMPLE_ROOT)
     assert any(item["path"] == "/todos" for item in routes.structured_content["routes"])
 
     assert tools.is_error is False
     assert tools.structured_content is not None
-    assert tools.structured_content["schema_version"] == 6
+    assert tools.structured_content["schema_version"] == 7
     assert tools.structured_content["manifest"]["schema_version"] == 1
     assert tools.structured_content["manifest"]["tools"] == []
+
+    assert jobs.is_error is False
+    assert jobs.structured_content is not None
+    assert jobs.structured_content["manifest"]["schema_version"] == 1
+    assert jobs.structured_content["manifest"]["jobs"] == []
 
     assert app_map.is_error is False
     assert app_map.structured_content is not None
@@ -212,22 +222,22 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert doctor.is_error is False
     assert doctor.structured_content is not None
-    assert doctor.structured_content["schema_version"] == 6
+    assert doctor.structured_content["schema_version"] == 7
 
     assert preflight.is_error is False
     assert preflight.structured_content is not None
-    assert preflight.structured_content["schema_version"] == 6
+    assert preflight.structured_content["schema_version"] == 7
     assert preflight.structured_content["ok"] is True
     assert preflight.structured_content["checks"] == []
 
     assert evaluations.is_error is False
     assert evaluations.structured_content is not None
-    assert evaluations.structured_content["schema_version"] == 6
+    assert evaluations.structured_content["schema_version"] == 7
     assert evaluations.structured_content["evaluations"] == []
 
     assert tasks.is_error is False
     assert tasks.structured_content is not None
-    assert tasks.structured_content["schema_version"] == 6
+    assert tasks.structured_content["schema_version"] == 7
     assert tasks.structured_content["tasks"] == []
 
     assert preview.is_error is False
@@ -242,17 +252,20 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert diff.is_error is False
     assert diff.structured_content is not None
-    assert diff.structured_content["schema_version"] == 6
+    assert diff.structured_content["schema_version"] == 7
     assert diff.structured_content["compatible"] is True
 
     assert tool_diff.is_error is False
     assert tool_diff.structured_content is not None
-    assert tool_diff.structured_content["schema_version"] == 6
+    assert tool_diff.structured_content["schema_version"] == 7
     assert tool_diff.structured_content["compatible"] is True
+    assert job_diff.is_error is False
+    assert job_diff.structured_content is not None
+    assert job_diff.structured_content["compatible"] is True
 
     assert evaluation_diff.is_error is False
     assert evaluation_diff.structured_content is not None
-    assert evaluation_diff.structured_content["schema_version"] == 6
+    assert evaluation_diff.structured_content["schema_version"] == 7
     assert evaluation_diff.structured_content["compatible"] is True
 
 
@@ -591,6 +604,7 @@ async def test_mcp_check_returns_failed_validation_as_data(
     assert captured["description"] == "Custom description"
     assert captured["snapshot"] == str((EXAMPLE_ROOT / "openapi.json").resolve())
     assert captured["tool_snapshot"] == str((EXAMPLE_ROOT / "tools.json").resolve())
+    assert captured["job_snapshot"] == str((EXAMPLE_ROOT / "jobs.json").resolve())
     assert captured["security_json"] == (
         '{"apiKey":{"type":"apiKey","in":"header","name":"x-key"}}'
     )
@@ -612,6 +626,7 @@ async def test_mcp_verify_returns_the_shared_receipt(
             check=None,
             architecture=None,
             openapi=None,
+            jobs=None,
             tools=None,
             evaluations=None,
             errors=(
@@ -641,7 +656,7 @@ async def test_mcp_verify_returns_the_shared_receipt(
 
     assert result.is_error is False
     assert result.structured_content is not None
-    assert result.structured_content["schema_version"] == 6
+    assert result.structured_content["schema_version"] == 7
     assert result.structured_content["tenchi_version"] == __version__
     assert result.structured_content["ok"] is False
     assert result.structured_content["baseline"] == {
@@ -770,11 +785,13 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
         "app_map",
         "routes",
         "tools",
+        "jobs",
         "doctor",
         "preflight",
         "evaluation_list",
         "task_list",
         "openapi_diff",
+        "jobs_diff",
         "tools_diff",
         "evaluation_diff",
         "make_preview",
@@ -786,7 +803,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
     assert server_info.version == __version__
     assert routes.is_error is False
     assert routes.structured_content is not None
-    assert routes.structured_content["schema_version"] == 6
+    assert routes.structured_content["schema_version"] == 7
     assert diff.is_error is False
     assert diff.structured_content is not None
     assert diff.structured_content["counts"]["metadata"] == 1

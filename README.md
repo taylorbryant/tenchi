@@ -392,6 +392,11 @@ tenchi make use-case notes create_note --dry-run
 tenchi routes
 tenchi map
 tenchi map --feature notes --kind route,tool,use-case,port --json
+tenchi jobs
+tenchi jobs --diff jobs.json
+tenchi jobs --diff-ref origin/main --snapshot jobs.json
+tenchi jobs --check jobs.json
+tenchi jobs --write jobs.json
 tenchi tools
 tenchi tools --diff tools.json
 tenchi tools --diff-ref origin/main --snapshot tools.json
@@ -442,6 +447,13 @@ outputs, newly possible errors, and less-safe annotations fail compatibility.
 Use `--diff-format json` for a versioned result, or import
 `analyze_tool_compatibility` from `tenchi.compatibility`.
 
+`jobs --write` stores the registered durable job-message manifest as canonical
+JSON without queued payloads or handler results. Run `jobs --diff` or
+`jobs --diff-ref` before replacing it. Removed jobs and narrower consumer input
+schemas fail compatibility; additive jobs, wider accepted inputs, and
+description-only changes can pass. Import `analyze_job_compatibility` from
+`tenchi.compatibility` for programmatic checks.
+
 `tenchi map` combines source declarations with the composed route group into a
 deterministic graph of features, contracts, routes, operational tasks,
 background jobs, application tools, evaluations, use cases, policies, ports,
@@ -453,9 +465,9 @@ comma-separated node projection, and `--json` for the versioned result.
 `tenchi verify --base-ref <ref>` produces one completion receipt for the
 finished tree. It resolves the historical ref to an immutable commit, runs
 `tenchi check`, requires an application map without diagnostics or unresolved
-relationships, and compares the OpenAPI, application-tool, and evaluation-policy
-boundaries with their snapshots at that commit. It never updates snapshots and
-exits non-zero when any evidence fails.
+relationships, and compares the OpenAPI, durable job-message, application-tool,
+and evaluation-policy boundaries with their snapshots at that commit. It never
+updates snapshots and exits non-zero when any evidence fails.
 
 `tenchi task list` reports the runner's task names and JSON Schemas. `tenchi
 task run` validates input, owns one application lifespan and scoped context,
@@ -485,11 +497,11 @@ payload-safe result. Evaluation execution remains separate from `check` and
 incur cost; those commands verify only the declared policy.
 
 Generator `--dry-run` output lists every file without writing it. `make`,
-`routes`, `map`, `tools`, `preflight`, `eval list|run`, `task list|run`,
+`routes`, `map`, `jobs`, `tools`, `preflight`, `eval list|run`, `task list|run`,
 `doctor`, `check`, and `verify` accept `--json` and return versioned results for
 agents and automation. `tenchi check` runs Ruff
 formatting and linting, Pyright, pytest, doctor, and the OpenAPI,
-application-tool, and evaluation-policy snapshot checks even when an earlier
+job-message, application-tool, and evaluation-policy snapshot checks even when an earlier
 step fails; failed output is bounded and each step reports its duration.
 Tenchi snapshots the JSON Schema for these results and the MCP tool surface;
 breaking protocol changes require a new `schema_version`.
@@ -500,10 +512,11 @@ and the process retains a nonzero exit status.
 See the [coding-agent workflow](https://tenchi.io/agents) for the complete
 inspect, preview, edit, validate, and compatibility loop.
 
-The `tenchi mcp` CLI serves the same versioned map, route, application-tool,
-preflight, evaluation-discovery, task-discovery, doctor, generator-preview,
-OpenAPI-diff, tool-diff, evaluation-policy-diff, check, and verification results
-over stdio. Evaluation execution is absent unless the server starts with
+The `tenchi mcp` CLI serves the same versioned map, route, job-message,
+application-tool, preflight, evaluation-discovery, task-discovery, doctor,
+generator-preview, OpenAPI-diff, job-diff, tool-diff, evaluation-policy-diff,
+check, and verification results over stdio. Evaluation execution is absent
+unless the server starts with
 `--allow-evaluation-runs`;
 task execution is absent unless it starts with `--allow-task-runs`.
 Preflight remains available as a read-only tool but deliberately contacts the

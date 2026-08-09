@@ -354,6 +354,31 @@ def test_create_app_rejects_invalid_response_header_shapes_and_names() -> None:
             context_factory=lambda: Context(request_id=1),
         )
 
+    class RequiredNullableHeaders(BaseModel):
+        note: str | None = Field(alias="X-Note")
+
+    required_nullable = contract(
+        method="GET",
+        path="/required-nullable-response-header",
+        response=Item,
+        response_headers=RequiredNullableHeaders,
+    )
+
+    def nullable_headers(item: Item) -> RequiredNullableHeaders:
+        return RequiredNullableHeaders.model_validate({"X-Note": None})
+
+    with pytest.raises(ConfigurationError, match="required but accepts null"):
+        create_app(
+            routes=route_group(
+                route(
+                    required_nullable,
+                    handler,
+                    response_headers=nullable_headers,
+                )
+            ),
+            context_factory=lambda: Context(request_id=1),
+        )
+
 
 async def test_invalid_body_maps_to_framework_422(
     client: httpx.AsyncClient,
@@ -848,6 +873,18 @@ async def test_405_keeps_the_allow_header(client: httpx.AsyncClient) -> None:
 
     assert response.status_code == 405
     assert "POST" in response.headers["allow"]
+
+
+async def test_trailing_slash_variant_uses_the_framework_404_boundary(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get("/whoami/", follow_redirects=False)
+
+    assert response.status_code == 404
+    assert "location" not in response.headers
+    assert response.headers[ERROR_SOURCE_HEADER] == "framework"
+    assert "x-request-id" in response.headers
+    assert response.json()["code"] == "NOT_FOUND"
 
 
 def test_route_group_rejects_trailing_slash_prefix() -> None:

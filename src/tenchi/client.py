@@ -24,6 +24,7 @@ import math
 import random
 from asyncio import CancelledError
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -83,6 +84,7 @@ class _Unset:
 
 
 _UNSET = _Unset()
+_INVALID_RESPONSE_VALUE = object()
 
 
 class UnexpectedResponseError(TenchiError):
@@ -93,7 +95,6 @@ class UnexpectedResponseError(TenchiError):
         *,
         contract_name: str,
         status_code: int,
-        body: Any,
         reason: str | None = None,
     ) -> None:
         message = (
@@ -104,7 +105,6 @@ class UnexpectedResponseError(TenchiError):
         super().__init__(message)
         self.contract_name = contract_name
         self.status_code = status_code
-        self.body = body
         self.reason = reason
 
 
@@ -822,7 +822,6 @@ class Client:
                     raise UnexpectedResponseError(
                         contract_name=contract.name,
                         status_code=response.status_code,
-                        body=response.content,
                         reason="the declared response requires an empty body",
                     )
                 body = cast(ResponseT, None)
@@ -834,14 +833,31 @@ class Client:
                     response,
                     declared=response_media_type,
                 )
-                if is_json_media_type(response_media_type):
-                    body = selected_response_adapter.validate_json(response.content)
-                elif is_text_media_type(response_media_type):
-                    body = selected_response_adapter.validate_python(
-                        self._decode_text_response(contract, response)
+                validated_body: object = _INVALID_RESPONSE_VALUE
+                try:
+                    if is_json_media_type(response_media_type):
+                        validated_body = selected_response_adapter.validate_json(
+                            response.content
+                        )
+                    elif is_text_media_type(response_media_type):
+                        validated_body = selected_response_adapter.validate_python(
+                            self._decode_text_response(contract, response)
+                        )
+                    else:
+                        validated_body = selected_response_adapter.validate_python(
+                            response.content
+                        )
+                except UnexpectedResponseError:
+                    raise
+                except Exception:
+                    pass
+                if validated_body is _INVALID_RESPONSE_VALUE:
+                    raise UnexpectedResponseError(
+                        contract_name=contract.name,
+                        status_code=response.status_code,
+                        reason="response body does not match the declared schema",
                     )
-                else:
-                    body = selected_response_adapter.validate_python(response.content)
+                body = cast(ResponseT, validated_body)
             if selected_headers_adapter is None:
                 validated_headers = cast(ResponseHeadersT, None)
             else:
@@ -857,9 +873,18 @@ class Client:
                     for raw_name, wire_name, _, _ in fields
                     if response.headers.get_list(wire_name)
                 }
-                validated_headers = selected_headers_adapter.validate_python(
-                    header_values
-                )
+                validated_header_value: object = _INVALID_RESPONSE_VALUE
+                with suppress(Exception):
+                    validated_header_value = selected_headers_adapter.validate_python(
+                        header_values
+                    )
+                if validated_header_value is _INVALID_RESPONSE_VALUE:
+                    raise UnexpectedResponseError(
+                        contract_name=contract.name,
+                        status_code=response.status_code,
+                        reason="response headers do not match the declared schema",
+                    )
+                validated_headers = cast(ResponseHeadersT, validated_header_value)
             return ClientResponse(
                 body=body,
                 headers=validated_headers,
@@ -1089,20 +1114,30 @@ class Client:
                 response,
                 declared="application/json",
             )
+        invalid_json = False
         try:
             body: Any = response.json()
         except ValueError:
+            invalid_json = True
             body = response.text
+        if invalid_json and response.status_code >= 400:
+            raise UnexpectedResponseError(
+                contract_name=contract.name,
+                status_code=response.status_code,
+                reason="error response envelope is invalid",
+            )
 
         if isinstance(body, dict):
             envelope = cast(dict[str, Any], body)
             code = envelope.get("code")
             message = envelope.get("message")
-            if not isinstance(message, str):
+            if response.status_code >= 400 and (
+                not isinstance(code, str) or not isinstance(message, str)
+            ):
                 raise UnexpectedResponseError(
                     contract_name=contract.name,
                     status_code=response.status_code,
-                    body=body,
+                    reason="error response envelope is invalid",
                 )
             for definition in errors:
                 if (
@@ -1125,11 +1160,16 @@ class Client:
                     if call is not None:
                         call.remote_app_error(error)
                     raise error
+        elif response.status_code >= 400:
+            raise UnexpectedResponseError(
+                contract_name=contract.name,
+                status_code=response.status_code,
+                reason="error response envelope is invalid",
+            )
 
         raise UnexpectedResponseError(
             contract_name=contract.name,
             status_code=response.status_code,
-            body=body,
         )
 
     @staticmethod
@@ -1145,10 +1185,8 @@ class Client:
         raise UnexpectedResponseError(
             contract_name=contract.name,
             status_code=response.status_code,
-            body=response.content,
             reason=(
-                f"response content type {actual!r} does not match declared "
-                f"media type {declared!r}"
+                f"response content type does not match declared media type {declared!r}"
             ),
         )
 
@@ -1158,31 +1196,34 @@ class Client:
     ) -> str:
         actual = response.headers.get("content-type")
         assert actual is not None
+        content_type_invalid = False
         try:
             charset = text_charset(actual)
-        except MediaTypeError as exc:
+        except MediaTypeError:
+            content_type_invalid = True
+            charset = ""
+        if content_type_invalid:
             raise UnexpectedResponseError(
                 contract_name=contract.name,
                 status_code=response.status_code,
-                body=response.content,
-                reason=f"response content type is invalid: {exc}",
-            ) from exc
+                reason="response content type is invalid",
+            )
+        charset_error: str | None = None
+        decoded: str | None = None
         try:
-            return response.content.decode(charset)
-        except LookupError as exc:
+            decoded = response.content.decode(charset)
+        except LookupError:
+            charset_error = "response declares an unsupported charset"
+        except UnicodeDecodeError:
+            charset_error = "response body is not valid for the declared charset"
+        if charset_error is not None:
             raise UnexpectedResponseError(
                 contract_name=contract.name,
                 status_code=response.status_code,
-                body=response.content,
-                reason=f"response declares unsupported charset {charset!r}",
-            ) from exc
-        except UnicodeDecodeError as exc:
-            raise UnexpectedResponseError(
-                contract_name=contract.name,
-                status_code=response.status_code,
-                body=response.content,
-                reason=f"response body is not valid for charset {charset!r}",
-            ) from exc
+                reason=charset_error,
+            )
+        assert decoded is not None
+        return decoded
 
 
 async def _notify_client_observers(

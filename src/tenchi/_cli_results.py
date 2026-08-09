@@ -41,6 +41,7 @@ type AgentOperationName = Literal[
     "cli",
     "make",
     "routes",
+    "jobs",
     "tools",
     "map",
     "openapi",
@@ -64,9 +65,9 @@ type AgentOperationErrorCode = Literal[
 ]
 type AgentOperationErrorDetail = str | int | bool | list[str]
 type AgentOperationErrorDetails = dict[str, AgentOperationErrorDetail]
-type AgentProtocolVersion = Literal[6]
+type AgentProtocolVersion = Literal[7]
 
-AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 6
+AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 7
 
 
 class AgentOperationErrorPayload(TypedDict):

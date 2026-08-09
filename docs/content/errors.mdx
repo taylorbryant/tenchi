@@ -116,7 +116,7 @@ application-specific 401 or 403.
 
 The typed client raises declared `AppError` values. An undocumented status,
 invalid envelope, wrong error source, mismatched media type, or invalid success
-body raises `UnexpectedResponseError`.
+body or headers raises `UnexpectedResponseError`.
 
 Pass shared group errors to `Client(errors=...)` when the server declares them
 at a route-group boundary. This keeps client and server error semantics

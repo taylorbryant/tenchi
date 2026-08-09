@@ -52,10 +52,11 @@ def test_check_runs_every_step_and_bounds_failure_output(
         timeout_seconds=10,
     )
 
-    assert len(calls) == 8
+    assert len(calls) == 9
     assert result.ok is False
     assert [step.status for step in result.steps] == [
         "failed",
+        "passed",
         "passed",
         "passed",
         "passed",
@@ -137,7 +138,7 @@ def test_check_bounds_timeout_output_after_adding_the_timeout_message(
         timeout_seconds=0.001,
     )
 
-    assert len(result.steps) == 8
+    assert len(result.steps) == 9
     assert all(step.exit_code == 124 for step in result.steps)
     assert all(len(step.stdout.encode()) <= 65_536 for step in result.steps)
     assert all(len(step.stderr.encode()) <= 65_536 for step in result.steps)
@@ -173,7 +174,7 @@ def test_check_passes_description_to_the_openapi_step(
     )
 
     assert result.ok is True
-    assert calls[-3][-4:] == [
+    assert calls[-4][-4:] == [
         "--description",
         "Example API",
         "--check",
@@ -185,6 +186,13 @@ def test_check_passes_description_to_the_openapi_step(
         "app.server.tools:tools",
         "--check",
         "tools.json",
+    ]
+    assert calls[-2][-5:] == [
+        "jobs",
+        "--jobs",
+        "app.server.jobs:jobs",
+        "--check",
+        "jobs.json",
     ]
 
 

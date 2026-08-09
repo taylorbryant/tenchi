@@ -1,7 +1,10 @@
 import asyncio
+import time
 from dataclasses import dataclass
 
-from tenchi.errors import ERROR_SOURCE_HEADER
+import pytest
+
+from tenchi.errors import ERROR_SOURCE_HEADER, ConfigurationError
 from tenchi.health import health_route
 from tenchi.routes import route_group
 from tenchi.server import create_app
@@ -139,3 +142,80 @@ async def test_hung_check_times_out_to_503() -> None:
 
     assert response.status_code == 503
     assert response.json()["details"]["checks"]["upstream"] == "failed: TimeoutError"
+
+
+async def test_check_cannot_defeat_deadline_by_suppressing_cancellation() -> None:
+    cancelled = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def suppresses_cancellation(context: object) -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            await release.wait()
+            finished.set()
+
+    app = make_app(
+        checks={"upstream": suppresses_cancellation},
+        check_timeout=0.01,
+    )
+
+    async with open_http(app) as http:
+        response = await asyncio.wait_for(http.get("/health"), timeout=0.1)
+
+    assert response.status_code == 503
+    assert response.json()["details"]["checks"]["upstream"] == ("failed: TimeoutError")
+    await asyncio.wait_for(cancelled.wait(), timeout=0.1)
+    release.set()
+    await asyncio.wait_for(finished.wait(), timeout=0.1)
+
+
+async def test_blocking_sync_check_does_not_block_the_health_deadline() -> None:
+    def blocks(context: object) -> None:
+        time.sleep(0.1)
+
+    app = make_app(checks={"upstream": blocks}, check_timeout=0.01)
+    started = time.monotonic()
+
+    async with open_http(app) as http:
+        response = await http.get("/health")
+
+    assert time.monotonic() - started < 0.08
+    assert response.status_code == 503
+    assert response.json()["details"]["checks"]["upstream"] == "failed: TimeoutError"
+
+
+async def test_base_exception_from_check_is_a_redacted_health_failure() -> None:
+    class FatalCheckFailure(BaseException):
+        pass
+
+    def fails(context: object) -> None:
+        raise FatalCheckFailure("do not expose me")
+
+    app = make_app(checks={"upstream": fails})
+
+    async with open_http(app) as http:
+        response = await http.get("/health")
+
+    assert response.status_code == 503
+    assert response.json()["details"]["checks"]["upstream"] == (
+        "failed: FatalCheckFailure"
+    )
+    assert "do not expose me" not in response.text
+
+
+@pytest.mark.parametrize("timeout", [0.0, -1.0, float("inf"), float("nan"), True])
+def test_health_route_rejects_invalid_timeouts(timeout: float) -> None:
+    with pytest.raises(ConfigurationError, match="finite number greater than zero"):
+        health_route(check_timeout=timeout)
+
+
+def test_health_route_rejects_malformed_check_registries() -> None:
+    with pytest.raises(ConfigurationError, match="checks must be a mapping"):
+        health_route(checks=[])  # pyright: ignore[reportArgumentType]
+    with pytest.raises(ConfigurationError, match="non-empty strings"):
+        health_route(checks={"": lambda context: None})
+    with pytest.raises(ConfigurationError, match="must be callable"):
+        health_route(checks={"database": object()})  # pyright: ignore[reportArgumentType]

@@ -95,6 +95,10 @@ constrained paths take precedence over broader parameterized paths. A `GET`
 contract handles `HEAD` automatically unless a matching explicit `HEAD`
 contract takes precedence.
 
+Contract paths are exact. If `/todos` is declared, `/todos/` reaches Tenchi's
+structured framework 404 response instead of redirecting. Declare both paths
+explicitly only when the API intends to support both spellings.
+
 ## Lifespan and request scopes
 
 An async context manager can create process-scoped resources once:

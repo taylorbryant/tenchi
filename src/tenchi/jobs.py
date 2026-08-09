@@ -16,11 +16,15 @@ import json
 import re
 from asyncio import CancelledError
 from collections.abc import Awaitable, Callable, Iterator, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import UnionType
-from typing import Any, cast, overload
+from typing import Any, Literal, cast, overload
 
-from pydantic import TypeAdapter
+from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.protocols import Validator
+from pydantic import ConfigDict, TypeAdapter, with_config
+from typing_extensions import TypedDict
 
 from .errors import ConfigurationError, TenchiError
 from .execution import (
@@ -32,6 +36,24 @@ from .execution import (
 )
 
 _JOB_NAME = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
+JOB_MANIFEST_VERSION = 1
+
+
+@with_config(ConfigDict(extra="forbid"))
+class JobManifestEntry(TypedDict):
+    """One durable job message contract in a discovery manifest."""
+
+    name: str
+    description: str | None
+    input_schema: dict[str, Any]
+
+
+@with_config(ConfigDict(extra="forbid"))
+class JobManifest(TypedDict):
+    """Versioned deterministic discovery document for registered jobs."""
+
+    schema_version: Literal[1]
+    jobs: list[JobManifestEntry]
 
 
 class JobBindingError(ConfigurationError, TypeError):
@@ -57,15 +79,43 @@ class Job[RequestT, ResultT]:
     _request_adapter: TypeAdapter[Any] = field(
         init=False, repr=False, compare=False, hash=False
     )
+    _request_schema: dict[str, Any] = field(
+        init=False, repr=False, compare=False, hash=False
+    )
+    _request_schema_validator: Validator = field(
+        init=False, repr=False, compare=False, hash=False
+    )
     _result_adapter: TypeAdapter[Any] = field(
         init=False, repr=False, compare=False, hash=False
     )
 
     def __post_init__(self) -> None:
+        raw_name = cast(object, self.name)
+        if not isinstance(raw_name, str) or _JOB_NAME.fullmatch(raw_name) is None:
+            raise JobBindingError(
+                "job name must use dotted snake_case, such as "
+                f"'projects.member_added'; got {self.name!r}"
+            )
+        raw_description = cast(object, self.description)
+        if raw_description is not None and (
+            not isinstance(raw_description, str) or not raw_description.strip()
+        ):
+            raise JobBindingError(
+                f"job({self.name!r}): description must be a non-empty string or None"
+            )
+        if isinstance(raw_description, str):
+            object.__setattr__(self, "description", raw_description.strip())
+        request_adapter = _build_adapter(self.name, self.request, label="request")
+        request_schema, request_schema_validator = _request_schema(
+            self.name,
+            request_adapter,
+        )
+        object.__setattr__(self, "_request_adapter", request_adapter)
+        object.__setattr__(self, "_request_schema", request_schema)
         object.__setattr__(
             self,
-            "_request_adapter",
-            _build_adapter(self.name, self.request, label="request"),
+            "_request_schema_validator",
+            request_schema_validator,
         )
         object.__setattr__(
             self,
@@ -102,24 +152,9 @@ def job(
     description: str | None = None,
 ) -> Job[Any, Any]:
     """Declare a stable background-job message and result contract."""
-    raw_name = cast(object, name)
-    if not isinstance(raw_name, str) or _JOB_NAME.fullmatch(raw_name) is None:
-        raise JobBindingError(
-            "job name must use dotted snake_case, such as "
-            f"'projects.member_added'; got {name!r}"
-        )
-    raw_description = cast(object, description)
-    if raw_description is not None and (
-        not isinstance(raw_description, str) or not raw_description.strip()
-    ):
-        raise JobBindingError(
-            f"job({name!r}): description must be a non-empty string or None"
-        )
     return Job(
         name=name,
-        description=(
-            raw_description.strip() if isinstance(raw_description, str) else None
-        ),
+        description=description,
         request=request,
         result=result,
     )
@@ -141,21 +176,41 @@ def job_message[RequestT, ResultT](
     _require_job(declaration, label="job_message")
     adapter = declaration._request_adapter  # pyright: ignore[reportPrivateUsage]
     validated = adapter.validate_python(request)
-    payload_json = adapter.dump_json(
-        validated,
-        by_alias=True,
-        round_trip=True,
-        warnings="error",
-    )
-    # Some serializers can emit a valid JSON value that the same annotation
-    # cannot consume (for example, an unconstrained non-finite float becomes
-    # JSON null). Reject that at the producer boundary, before it reaches a
-    # durable queue and becomes a deterministic consumer failure.
-    adapter.validate_json(payload_json)
+    payload_json = _serialized_job_payload(declaration, adapter, validated)
+    if payload_json is None:
+        raise JobBindingError(
+            f"job_message({declaration.name!r}): serialized payload does not "
+            "match the published input schema"
+        )
     return JobMessage(
         name=declaration.name,
         payload_json=payload_json,
     )
+
+
+def _serialized_job_payload(
+    declaration: Job[Any, Any],
+    adapter: TypeAdapter[Any],
+    validated: Any,
+) -> bytes | None:
+    try:
+        payload_json = adapter.dump_json(
+            validated,
+            by_alias=True,
+            round_trip=True,
+            warnings="error",
+        )
+        serialized = json.loads(payload_json)
+        validator = declaration._request_schema_validator  # pyright: ignore[reportPrivateUsage]
+        validator.validate(serialized)
+        # Strict JSON validation prevents coercion from hiding a serializer
+        # that emits a different wire type than the published input schema.
+        adapter.validate_json(payload_json, strict=True)
+    except (CancelledError, KeyboardInterrupt):
+        raise
+    except Exception:
+        return None
+    return payload_json
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,13 +220,23 @@ class JobHandler[RequestT, ResultT]:
     job: Job[RequestT, ResultT]
     use_case: Callable[..., Awaitable[ResultT]] = field(repr=False)
 
+    def __post_init__(self) -> None:
+        _validate_job_handler(self.job, self.use_case)
+
 
 def job_handler[RequestT, ResultT](
     declaration: Job[RequestT, ResultT],
     use_case: Callable[..., Awaitable[ResultT]],
 ) -> JobHandler[RequestT, ResultT]:
     """Bind a job declaration to an exactly annotated async use case."""
-    _require_job(declaration, label="job_handler")
+    return JobHandler(job=declaration, use_case=use_case)
+
+
+def _validate_job_handler(
+    declaration: Job[Any, Any],
+    use_case: Callable[..., Awaitable[Any]],
+) -> None:
+    _require_job(declaration, label="JobHandler")
     signature = _handler_signature(declaration.name, use_case)
     _validate_handler_shape(declaration.name, use_case, signature)
     request_parameter = signature.parameters["request"]
@@ -199,7 +264,6 @@ def job_handler[RequestT, ResultT](
             f"return annotation {_type_name(result_annotation)} does not match "
             f"the job result {_type_name(declaration.result)}"
         )
-    return JobHandler(job=declaration, use_case=use_case)
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +271,24 @@ class JobGroup:
     """A flat, ordered collection of uniquely named job handlers."""
 
     handlers: tuple[JobHandler[Any, Any], ...]
+
+    def __post_init__(self) -> None:
+        raw_handlers = cast(object, self.handlers)
+        if not isinstance(raw_handlers, tuple):
+            raise ConfigurationError("JobGroup.handlers must be a tuple")
+        seen: set[str] = set()
+        for index, item in enumerate(cast(tuple[object, ...], raw_handlers)):
+            if not isinstance(item, JobHandler):
+                raise ConfigurationError(
+                    f"JobGroup.handlers[{index}] must be a JobHandler, got "
+                    f"{type(item).__name__}"
+                )
+            binding = cast(JobHandler[Any, Any], item)
+            if binding.job.name in seen:
+                raise ConfigurationError(
+                    f"job_group contains duplicate job name {binding.job.name!r}"
+                )
+            seen.add(binding.job.name)
 
     def __iter__(self) -> Iterator[JobHandler[Any, Any]]:
         return iter(self.handlers)
@@ -222,14 +304,49 @@ def job_group(
     flattened: list[JobHandler[Any, Any]] = []
     for index, item in enumerate(items):
         _append_handlers(flattened, item, index=index)
-    seen: set[str] = set()
-    for item in flattened:
-        if item.job.name in seen:
-            raise ConfigurationError(
-                f"job_group contains duplicate job name {item.job.name!r}"
-            )
-        seen.add(item.job.name)
     return JobGroup(handlers=tuple(flattened))
+
+
+def job_manifest(jobs: JobGroup) -> JobManifest:
+    """Return the canonical, payload-free message manifest for *jobs*.
+
+    Only the producer-to-consumer message boundary is included. Handler result
+    values are process-local acknowledgements and are not part of a durable
+    queue message contract.
+    """
+    raw_jobs = cast(object, jobs)
+    if not isinstance(raw_jobs, JobGroup):
+        raise ConfigurationError(
+            f"job_manifest: jobs must be a JobGroup, got {type(jobs).__name__}"
+        )
+    entries: list[JobManifestEntry] = []
+    for binding in sorted(jobs, key=lambda item: item.job.name):
+        declaration = binding.job
+        entries.append(
+            {
+                "name": declaration.name,
+                "description": declaration.description,
+                "input_schema": deepcopy(
+                    declaration._request_schema  # pyright: ignore[reportPrivateUsage]
+                ),
+            }
+        )
+    payload: JobManifest = {
+        "schema_version": JOB_MANIFEST_VERSION,
+        "jobs": entries,
+    }
+    return cast(
+        JobManifest,
+        json.loads(
+            json.dumps(
+                payload,
+                allow_nan=False,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +355,18 @@ class JobDispatcher:
 
     jobs: JobGroup
     use_case_observers: tuple[UseCaseObserver, ...] = field(default=(), repr=False)
+
+    def __post_init__(self) -> None:
+        raw_jobs = cast(object, self.jobs)
+        if not isinstance(raw_jobs, JobGroup):
+            raise ConfigurationError(
+                f"JobDispatcher.jobs must be a JobGroup, got {type(raw_jobs).__name__}"
+            )
+        try:
+            observers = _validated_observers(self.use_case_observers)
+        except Exception as exc:
+            raise ConfigurationError(f"JobDispatcher: {exc}") from exc
+        object.__setattr__(self, "use_case_observers", observers)
 
     async def dispatch(
         self,
@@ -398,6 +527,35 @@ def _build_adapter(name: str, annotation: Any, *, label: str) -> TypeAdapter[Any
         ) from exc
 
 
+def _request_schema(
+    name: str,
+    adapter: TypeAdapter[Any],
+) -> tuple[dict[str, Any], Validator]:
+    try:
+        schema = cast(
+            dict[str, Any],
+            json.loads(
+                json.dumps(
+                    adapter.json_schema(mode="validation", by_alias=True),
+                    allow_nan=False,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            ),
+        )
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(
+            schema,
+            format_checker=FormatChecker(),
+        )
+    except Exception as exc:
+        raise JobBindingError(
+            f"job({name!r}): request JSON Schema is invalid: {exc}"
+        ) from exc
+    return schema, validator
+
+
 def _validated_result(declaration: Job[Any, Any], raw: Any) -> Any:
     try:
         adapter = declaration._result_adapter  # pyright: ignore[reportPrivateUsage]
@@ -465,11 +623,14 @@ def _type_name(value: object) -> str:
 
 
 __all__ = [
+    "JOB_MANIFEST_VERSION",
     "Job",
     "JobBindingError",
     "JobDispatcher",
     "JobGroup",
     "JobHandler",
+    "JobManifest",
+    "JobManifestEntry",
     "JobMessage",
     "JobNotFoundError",
     "JobResultError",
@@ -477,5 +638,6 @@ __all__ = [
     "job",
     "job_group",
     "job_handler",
+    "job_manifest",
     "job_message",
 ]

@@ -9,9 +9,9 @@ shape.
 ## What is protected today
 
 Every change on `main` runs formatting, linting, strict Pyright, framework
-tests, standalone application tests, architecture checks, exact OpenAPI
-and application-tool snapshots, and compatibility analysis against historical
-baselines.
+tests, standalone application tests, architecture checks, exact OpenAPI,
+job-message, application-tool, and evaluation-policy snapshots, and
+compatibility analysis against historical baselines.
 
 The repository also snapshots public module signatures. An accidental API
 change fails CI; an intentional one must update the snapshot and changelog.
@@ -31,7 +31,8 @@ release is source-compatible.
 1. Read the release entry in `CHANGELOG.md`.
 2. Upgrade Tenchi in a branch and refresh the lockfile.
 3. Run `tenchi check` to verify formatting, lint, types, tests, architecture,
-   and the current OpenAPI, application-tool, and evaluation-policy snapshots.
+   and the current OpenAPI, job-message, application-tool, and
+   evaluation-policy snapshots.
 4. Compare OpenAPI with the same route target and metadata used to create the
    snapshot:
 

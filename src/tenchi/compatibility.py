@@ -37,10 +37,12 @@ __all__ = [
     "CompatibilityChange",
     "CompatibilityReport",
     "analyze_evaluation_compatibility",
+    "analyze_job_compatibility",
     "analyze_openapi_compatibility",
     "analyze_tool_compatibility",
     "render_compatibility_report",
     "render_evaluation_compatibility_report",
+    "render_job_compatibility_report",
     "render_tool_compatibility_report",
 ]
 
@@ -884,6 +886,80 @@ def analyze_tool_compatibility(
     return _ToolAnalyzer(before, after).run()
 
 
+class _JobAnalyzer:
+    def __init__(self, baseline: JsonObject, current: JsonObject) -> None:
+        self.baseline = baseline
+        self.current = current
+        self.changes = _Collector()
+
+    def run(self) -> CompatibilityReport:
+        if self.baseline["schema_version"] != self.current["schema_version"]:
+            self.changes.add(
+                "unknown",
+                "job manifest",
+                "manifest schema version changed",
+            )
+            return CompatibilityReport(tuple(self.changes.values))
+
+        before_jobs = _jobs_by_name(self.baseline)
+        after_jobs = _jobs_by_name(self.current)
+        before_names = set(before_jobs)
+        after_names = set(after_jobs)
+        for name in sorted(after_names - before_names):
+            self.changes.add("additive", f"job {name!r}", "job added")
+        for name in sorted(before_names - after_names):
+            self.changes.add("breaking", f"job {name!r}", "job removed")
+        for name in sorted(before_names & after_names):
+            before = before_jobs[name]
+            after = after_jobs[name]
+            location = f"job {name!r}"
+            if _field_changed(before, after, "description"):
+                self.changes.add("metadata", location, "description changed")
+            before_input = _object(before["input_schema"])
+            after_input = _object(after["input_schema"])
+            compare_schema(
+                before_input,
+                after_input,
+                direction="input",
+                baseline=before_input,
+                current=after_input,
+                location=f"{location} input",
+                changes=self.changes,
+            )
+            known = {"name", "description", "input_schema"}
+            if any(
+                _field_changed(before, after, key)
+                for key in (set(before) | set(after)) - known
+            ):
+                self.changes.add(
+                    "unknown",
+                    location,
+                    "unsupported job fields changed",
+                )
+
+        known = {"schema_version", "jobs"}
+        if any(
+            _field_changed(self.baseline, self.current, key)
+            for key in (set(self.baseline) | set(self.current)) - known
+        ):
+            self.changes.add(
+                "unknown",
+                "job manifest",
+                "unsupported manifest fields changed",
+            )
+        return CompatibilityReport(tuple(self.changes.values))
+
+
+def analyze_job_compatibility(
+    baseline: object,
+    current: object,
+) -> CompatibilityReport:
+    """Classify changes between versioned durable job-message manifests."""
+    before = _job_manifest_document(baseline, label="baseline")
+    after = _job_manifest_document(current, label="current")
+    return _JobAnalyzer(before, after).run()
+
+
 class _EvaluationAnalyzer:
     def __init__(self, baseline: JsonObject, current: JsonObject) -> None:
         self.baseline = baseline
@@ -1183,6 +1259,30 @@ def render_tool_compatibility_report(
     return "\n".join(lines) + "\n"
 
 
+def render_job_compatibility_report(
+    report: CompatibilityReport,
+    *,
+    baseline_path: str,
+) -> str:
+    """Render a concise human-readable job-message compatibility report."""
+    counts = ", ".join(
+        f"{report.count(severity)} {severity}" for severity in _SEVERITIES
+    )
+    lines = [
+        f"Job compatibility against {baseline_path}: {report.status}",
+        counts,
+    ]
+    if not report.changes:
+        lines.append("No job message changes found.")
+        return "\n".join(lines) + "\n"
+    for severity in _SEVERITIES:
+        group = [change for change in report.changes if change.severity == severity]
+        if group:
+            lines.extend(("", severity.upper()))
+            lines.extend(f"  - {change.location}: {change.message}" for change in group)
+    return "\n".join(lines) + "\n"
+
+
 def render_evaluation_compatibility_report(
     report: CompatibilityReport,
     *,
@@ -1323,6 +1423,59 @@ def _validate_tool_errors(tool: JsonObject, *, label: str, name: str) -> None:
                 f"{label} tool manifest tool {name!r} repeats error {code!r}"
             )
         codes.add(code)
+
+
+def _job_manifest_document(value: object, *, label: str) -> JsonObject:
+    document = _object(value)
+    if not document:
+        raise ValueError(f"{label} must be a job manifest object")
+    version = document.get("schema_version")
+    if not isinstance(version, int) or isinstance(version, bool) or version <= 0:
+        raise ValueError(f"{label} job manifest must contain a positive schema_version")
+    raw_jobs = document.get("jobs")
+    if not isinstance(raw_jobs, Sequence) or isinstance(raw_jobs, str | bytes):
+        raise ValueError(f"{label} job manifest must contain a jobs array")
+
+    names: set[str] = set()
+    for index, value in enumerate(cast(Sequence[object], raw_jobs)):
+        declared = _object(value)
+        required = {"name", "description", "input_schema"}
+        missing = required - set(declared)
+        if missing:
+            fields = ", ".join(sorted(missing))
+            raise ValueError(
+                f"{label} job manifest jobs[{index}] is missing required fields: "
+                f"{fields}"
+            )
+        name = declared.get("name")
+        if not isinstance(name, str) or _TOOL_NAME.fullmatch(name) is None:
+            raise ValueError(
+                f"{label} job manifest jobs[{index}].name must use dotted snake_case"
+            )
+        if name in names:
+            raise ValueError(f"{label} job manifest repeats job {name!r}")
+        names.add(name)
+        description = declared.get("description")
+        if description is not None and (
+            not isinstance(description, str) or not description.strip()
+        ):
+            raise ValueError(
+                f"{label} job manifest job {name!r} description must be null "
+                "or a non-empty string"
+            )
+        input_schema = declared.get("input_schema")
+        if not isinstance(input_schema, Mapping):
+            raise ValueError(
+                f"{label} job manifest job {name!r} input_schema must be an object"
+            )
+        try:
+            Draft202012Validator.check_schema(_object(cast(object, input_schema)))
+        except SchemaError as exc:
+            raise ValueError(
+                f"{label} job manifest job {name!r} input_schema is not valid "
+                f"JSON Schema: {exc}"
+            ) from exc
+    return document
 
 
 def _evaluation_manifest_document(value: object, *, label: str) -> JsonObject:
@@ -1561,6 +1714,14 @@ def _tools_by_name(document: JsonObject) -> dict[str, JsonObject]:
         cast(str, tool["name"]): tool
         for value in cast(Sequence[object], document["tools"])
         if (tool := _object(value))
+    }
+
+
+def _jobs_by_name(document: JsonObject) -> dict[str, JsonObject]:
+    return {
+        cast(str, job["name"]): job
+        for value in cast(Sequence[object], document["jobs"])
+        if (job := _object(value))
     }
 
 

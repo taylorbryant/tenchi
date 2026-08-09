@@ -9,8 +9,8 @@ Commands are intentionally few and reliable:
   Generators create files and print wiring instructions — they never edit
   existing modules, because dependency wiring stays explicit and app-owned.
 - ``tenchi routes`` prints the application's bound route table.
-- ``tenchi tools`` prints, writes, checks, or compatibility-diffs the
-  application's registered tool manifest.
+- ``tenchi jobs`` and ``tenchi tools`` print, write, check, or compatibility-diff
+  application's durable job-message and tool manifests.
 - ``tenchi map`` builds a source-backed graph of the application.
 - ``tenchi openapi`` prints, writes, checks, or compatibility-diffs the
   application's canonical OpenAPI document.
@@ -23,7 +23,7 @@ Commands are intentionally few and reliable:
 - ``tenchi mcp`` serves the same structured operations to MCP-aware agents.
 - ``tenchi dev`` serves the application with uvicorn and reload.
 
-The ``routes``, ``tools``, ``map``, ``openapi``, ``check``, ``verify``,
+The ``routes``, ``jobs``, ``tools``, ``map``, ``openapi``, ``check``, ``verify``,
 ``preflight``, ``eval``, ``task``, ``mcp``, and ``dev`` commands rely on the
 structural convention that ``app/server/routes.py`` exposes ``routes`` and
 ``api_routes``,
@@ -83,7 +83,11 @@ from ._evaluation_operations import (
     evaluation_run_result,
     load_evaluation_runner,
 )
-from ._job_operations import load_job_group
+from ._job_operations import (
+    compare_job_baseline,
+    job_list_result,
+    load_job_group,
+)
 from ._openapi_operations import (
     OperationError,
     compare_openapi_baseline,
@@ -105,18 +109,22 @@ from ._verify_operations import VerificationResult, verification_result
 from .compatibility import (
     render_compatibility_report,
     render_evaluation_compatibility_report,
+    render_job_compatibility_report,
     render_tool_compatibility_report,
 )
 from .errors import ConfigurationError
 from .evaluations import EvaluationManifest, evaluation_manifest
+from .jobs import JOB_MANIFEST_VERSION, JobManifest, job_manifest
 from .openapi import openapi_schema
 from .routes import RouteGroup
 from .scaffold import app_files
 from .snapshots import (
     describe_openapi_drift,
     evaluation_snapshot_diff,
+    job_snapshot_diff,
     openapi_snapshot_diff,
     render_evaluation_snapshot,
+    render_job_snapshot,
     render_openapi_snapshot,
     render_tool_snapshot,
     tool_snapshot_diff,
@@ -168,6 +176,7 @@ _DEFAULT_TOOLS = "app.server.tools:tools"
 _AGENT_COMMAND_OPERATIONS: dict[str, AgentOperationName] = {
     "make": "make",
     "routes": "routes",
+    "jobs": "jobs",
     "tools": "tools",
     "map": "map",
     "openapi": "openapi",
@@ -262,6 +271,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             snapshot=args.snapshot,
             diff_format=args.diff_format,
         )
+    if args.command == "jobs":
+        return _jobs(
+            args.target,
+            as_json=args.json,
+            write=args.write,
+            check=args.check,
+            diff=args.diff,
+            diff_ref=args.diff_ref,
+            snapshot=args.snapshot,
+            diff_format=args.diff_format,
+            allow_missing_baseline=args.allow_missing_baseline,
+        )
     if args.command == "map":
         return _map_app(
             args.target,
@@ -298,6 +319,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             snapshot=args.snapshot,
             evaluations=args.evaluations,
             evaluation_snapshot=args.evaluation_snapshot,
+            jobs=args.jobs,
+            job_snapshot=args.job_snapshot,
             tools=args.tools,
             tool_snapshot=args.tool_snapshot,
             security_json=args.security,
@@ -316,8 +339,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             version=args.version,
             description=args.description,
             snapshot=args.snapshot,
+            job_snapshot=args.job_snapshot,
             evaluation_snapshot=args.evaluation_snapshot,
             tool_snapshot=args.tool_snapshot,
+            allow_missing_job_baseline=args.allow_missing_job_baseline,
             allow_missing_evaluation_baseline=(args.allow_missing_evaluation_baseline),
             security_json=args.security,
             timeout_seconds=args.timeout,
@@ -376,6 +401,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             tools=args.tools,
             allow_task_runs=args.allow_task_runs,
             allow_evaluation_runs=args.allow_evaluation_runs,
+            job_snapshot=args.job_snapshot,
             tool_snapshot=args.tool_snapshot,
             evaluation_snapshot=args.evaluation_snapshot,
         )
@@ -430,6 +456,64 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Emit the route table as JSON",
+    )
+
+    jobs_parser = subparsers.add_parser(
+        "jobs",
+        help="Print, write, check, or diff the durable job-message manifest",
+    )
+    jobs_parser.add_argument(
+        "--jobs",
+        dest="target",
+        default=_DEFAULT_JOBS,
+        help="module:attribute of the JobGroup (default: %(default)s)",
+    )
+    jobs_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a versioned machine-readable result",
+    )
+    jobs_mode = jobs_parser.add_mutually_exclusive_group()
+    jobs_mode.add_argument(
+        "--write",
+        default=None,
+        metavar="PATH",
+        help="Write the canonical job-message snapshot",
+    )
+    jobs_mode.add_argument(
+        "--check",
+        default=None,
+        metavar="PATH",
+        help="Fail if this snapshot differs from the generated manifest",
+    )
+    jobs_mode.add_argument(
+        "--diff",
+        default=None,
+        metavar="BASELINE",
+        help="Classify changes from a baseline; fail on breaking or unknown changes",
+    )
+    jobs_mode.add_argument(
+        "--diff-ref",
+        default=None,
+        metavar="REF",
+        help="Classify changes from the snapshot committed at a Git ref",
+    )
+    jobs_parser.add_argument(
+        "--snapshot",
+        default=None,
+        metavar="PATH",
+        help="Snapshot path for --diff-ref (default: jobs.json)",
+    )
+    jobs_parser.add_argument(
+        "--diff-format",
+        choices=("text", "json"),
+        default="text",
+        help="Compatibility report format (default: %(default)s)",
+    )
+    jobs_parser.add_argument(
+        "--allow-missing-baseline",
+        action="store_true",
+        help="Allow a missing Git snapshot during explicit first adoption",
     )
 
     tools_parser = subparsers.add_parser(
@@ -670,6 +754,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Evaluation-policy snapshot to check (default: %(default)s)",
     )
     check_parser.add_argument(
+        "--jobs",
+        default=_DEFAULT_JOBS,
+        help="module:attribute of the JobGroup (default: %(default)s)",
+    )
+    check_parser.add_argument(
+        "--job-snapshot",
+        default="jobs.json",
+        help="Background-job snapshot to check (default: %(default)s)",
+    )
+    check_parser.add_argument(
         "--tools",
         default=_DEFAULT_TOOLS,
         help="module:attribute of the ToolGroup (default: %(default)s)",
@@ -700,7 +794,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--base-ref",
         required=True,
         metavar="REF",
-        help="Git ref containing the historical OpenAPI and tool snapshots",
+        help="Git ref containing the historical boundary snapshots",
     )
     verify_parser.add_argument(
         "--routes",
@@ -763,6 +857,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Project-relative OpenAPI snapshot (default: %(default)s)",
     )
     verify_parser.add_argument(
+        "--job-snapshot",
+        default="jobs.json",
+        help="Project-relative background-job snapshot (default: %(default)s)",
+    )
+    verify_parser.add_argument(
         "--tool-snapshot",
         default="tools.json",
         help="Project-relative application-tool snapshot (default: %(default)s)",
@@ -771,6 +870,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--evaluation-snapshot",
         default="evaluations.json",
         help="Project-relative evaluation-policy snapshot (default: %(default)s)",
+    )
+    verify_parser.add_argument(
+        "--allow-missing-job-baseline",
+        action="store_true",
+        help=(
+            "Explicitly allow a missing historical job snapshot during first adoption"
+        ),
     )
     verify_parser.add_argument(
         "--allow-missing-evaluation-baseline",
@@ -1009,6 +1115,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Default project-relative OpenAPI baseline (default: %(default)s)",
     )
     mcp_parser.add_argument(
+        "--job-snapshot",
+        default="jobs.json",
+        help="Default project-relative job baseline (default: %(default)s)",
+    )
+    mcp_parser.add_argument(
         "--tool-snapshot",
         default="tools.json",
         help="Default project-relative tool baseline (default: %(default)s)",
@@ -1151,12 +1262,14 @@ def _check(
     *,
     routes: str,
     evaluations: str,
+    jobs: str,
     tools: str,
     title: str | None,
     version: str | None,
     description: str | None,
     snapshot: str,
     evaluation_snapshot: str,
+    job_snapshot: str,
     tool_snapshot: str,
     security_json: str | None,
     timeout_seconds: float,
@@ -1180,6 +1293,8 @@ def _check(
         snapshot=snapshot,
         evaluations=evaluations,
         evaluation_snapshot=evaluation_snapshot,
+        jobs=jobs,
+        job_snapshot=job_snapshot,
         tools=tools,
         tool_snapshot=tool_snapshot,
         security_json=security_json,
@@ -1233,8 +1348,10 @@ def _verify(
     version: str | None,
     description: str | None,
     snapshot: str,
+    job_snapshot: str,
     evaluation_snapshot: str,
     tool_snapshot: str,
+    allow_missing_job_baseline: bool,
     allow_missing_evaluation_baseline: bool,
     security_json: str | None,
     timeout_seconds: float,
@@ -1253,8 +1370,10 @@ def _verify(
             version=version,
             description=description,
             snapshot=snapshot,
+            job_snapshot=job_snapshot,
             evaluation_snapshot=evaluation_snapshot,
             tool_snapshot=tool_snapshot,
+            allow_missing_job_baseline=allow_missing_job_baseline,
             allow_missing_evaluation_baseline=allow_missing_evaluation_baseline,
             security_json=security_json,
             timeout_seconds=timeout_seconds,
@@ -1304,6 +1423,11 @@ def _render_verification_result(result: VerificationResult) -> None:
             f"[{status}] application-tool compatibility ({result.tools.report.status})"
         )
         for change in result.tools.report.changes:
+            print(f"  [{change.severity}] {change.location}: {change.message}")
+    if result.jobs is not None:
+        status = "passed" if result.jobs.report.compatible else "failed"
+        print(f"[{status}] job compatibility ({result.jobs.report.status})")
+        for change in result.jobs.report.changes:
             print(f"  [{change.severity}] {change.location}: {change.message}")
     if result.evaluations is not None:
         status = "passed" if result.evaluations.report.compatible else "failed"
@@ -1875,6 +1999,256 @@ def _task_run(
     return 0 if result.ok else 1
 
 
+def _jobs(
+    target: str,
+    *,
+    as_json: bool,
+    write: str | None,
+    check: str | None,
+    diff: str | None,
+    diff_ref: str | None,
+    snapshot: str | None,
+    diff_format: str,
+    allow_missing_baseline: bool,
+) -> int:
+    structured = as_json or diff_format == "json"
+    has_snapshot_mode = any(
+        value is not None for value in (write, check, diff, diff_ref)
+    )
+    if as_json and has_snapshot_mode:
+        return _render_operation_error(
+            operation="jobs",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message=(
+                "--json cannot be combined with snapshot write, check, or diff modes."
+            ),
+            details=None,
+            as_json=True,
+            human_message=(
+                "tenchi jobs: --json cannot be combined with snapshot write, "
+                "check, or diff modes"
+            ),
+        )
+    if diff is None and diff_ref is None and diff_format != "text":
+        return _render_operation_error(
+            operation="jobs",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--diff-format requires --diff or --diff-ref.",
+            details=None,
+            as_json=structured,
+            human_message="tenchi jobs: --diff-format requires --diff or --diff-ref",
+        )
+    if snapshot is not None and diff_ref is None:
+        return _render_operation_error(
+            operation="jobs",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--snapshot requires --diff-ref.",
+            details=None,
+            as_json=structured,
+            human_message="tenchi jobs: --snapshot requires --diff-ref",
+        )
+    if allow_missing_baseline and diff_ref is None:
+        return _render_operation_error(
+            operation="jobs",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--allow-missing-baseline requires --diff-ref.",
+            details=None,
+            as_json=structured,
+            human_message=("tenchi jobs: --allow-missing-baseline requires --diff-ref"),
+        )
+
+    try:
+        with redirect_stdout(sys.stderr):
+            group = load_job_group(Path.cwd(), target)
+            manifest = job_manifest(group)
+    except OperationError as exc:
+        return _render_operation_error(
+            operation="jobs",
+            code="TENCHI_CLI_TARGET_LOAD_FAILED",
+            message="Could not load the configured background-job target.",
+            details={"target": target},
+            as_json=structured,
+            human_message=f"tenchi jobs: {exc}",
+        )
+
+    rendered = render_job_snapshot(manifest)
+    if write is not None:
+        try:
+            Path(write).write_text(rendered, encoding="utf-8")
+        except OSError as exc:
+            _fail(f"tenchi jobs: could not write snapshot {write!r}: {exc}")
+            return 1
+        print(f"Wrote {write}")
+        return 0
+    if check is not None:
+        return _check_job_snapshot(Path(check), rendered, manifest)
+    if diff is not None:
+        return _diff_job_snapshot(Path(diff), manifest, output_format=diff_format)
+    if diff_ref is not None:
+        return _diff_job_ref(
+            diff_ref,
+            Path(snapshot or "jobs.json"),
+            manifest,
+            output_format=diff_format,
+            allow_missing_baseline=allow_missing_baseline,
+        )
+    if as_json:
+        _print_agent_json("job_list", job_list_result(Path.cwd(), group).as_dict())
+    else:
+        sys.stdout.write(rendered)
+    return 0
+
+
+def _check_job_snapshot(
+    path: Path,
+    rendered: str,
+    current: JobManifest,
+) -> int:
+    try:
+        expected = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"tenchi jobs: could not read snapshot {str(path)!r}: {exc}")
+        _fail(
+            f"Rerun the same command with --write {path} instead of --check "
+            "to create it."
+        )
+        return 1
+    if expected == rendered:
+        print(f"Job snapshot matches {path}")
+        return 0
+
+    _fail(f"tenchi jobs: snapshot differs: {path}")
+    try:
+        result = compare_job_baseline(
+            Path.cwd(),
+            baseline_text=expected,
+            baseline_label=str(path),
+            current=current,
+        )
+    except OperationError as exc:
+        _fail(f"  - {exc}")
+    else:
+        for change in result.report.changes:
+            _fail(f"  - [{change.severity}] {change.location}: {change.message}")
+    rendered_diff = job_snapshot_diff(expected, rendered, snapshot_path=str(path))
+    if rendered_diff:
+        print(file=sys.stderr)
+        print(
+            rendered_diff,
+            file=sys.stderr,
+            end="" if rendered_diff.endswith("\n") else "\n",
+        )
+    print(file=sys.stderr)
+    _fail(
+        f"Run the same command with --write {path} instead of --check "
+        "to accept this change."
+    )
+    return 1
+
+
+def _diff_job_snapshot(
+    path: Path,
+    current: JobManifest,
+    *,
+    output_format: str,
+) -> int:
+    try:
+        baseline_text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return _render_operation_error(
+            operation="jobs",
+            code="TENCHI_CLI_SNAPSHOT_READ_FAILED",
+            message="Could not read the background-job baseline.",
+            details={"path": str(path)},
+            as_json=output_format == "json",
+            human_message=(
+                f"tenchi jobs: could not read baseline {str(path)!r}: {exc}"
+            ),
+        )
+    return _compare_job_baseline(
+        baseline_text,
+        baseline_label=str(path),
+        current=current,
+        output_format=output_format,
+    )
+
+
+def _diff_job_ref(
+    ref: str,
+    snapshot: Path,
+    current: JobManifest,
+    *,
+    output_format: str,
+    allow_missing_baseline: bool,
+) -> int:
+    try:
+        baseline = read_git_snapshot(
+            Path.cwd(),
+            ref=ref,
+            snapshot=snapshot,
+            missing_text=(
+                render_job_snapshot(
+                    {"schema_version": JOB_MANIFEST_VERSION, "jobs": []}
+                )
+                if allow_missing_baseline
+                else None
+            ),
+        )
+    except OperationError as exc:
+        return _render_operation_error(
+            operation="jobs",
+            code="TENCHI_CLI_OPERATION_FAILED",
+            message="Could not read the background-job baseline from Git.",
+            details=None,
+            as_json=output_format == "json",
+            human_message=f"tenchi jobs: {exc}",
+        )
+    return _compare_job_baseline(
+        baseline.text,
+        baseline_label=baseline.label,
+        current=current,
+        output_format=output_format,
+        baseline_present=baseline.present,
+    )
+
+
+def _compare_job_baseline(
+    baseline_text: str,
+    *,
+    baseline_label: str,
+    current: JobManifest,
+    output_format: str,
+    baseline_present: bool = True,
+) -> int:
+    try:
+        result = compare_job_baseline(
+            Path.cwd(),
+            baseline_text=baseline_text,
+            baseline_label=baseline_label,
+            current=current,
+            baseline_present=baseline_present,
+        )
+    except OperationError as exc:
+        return _render_operation_error(
+            operation="jobs",
+            code="TENCHI_CLI_OPERATION_FAILED",
+            message="Could not compare the background-job baseline.",
+            details=None,
+            as_json=output_format == "json",
+            human_message=f"tenchi jobs: {exc}",
+        )
+    if output_format == "json":
+        _print_agent_json("job_diff", result.as_dict())
+    else:
+        sys.stdout.write(
+            render_job_compatibility_report(
+                result.report,
+                baseline_path=baseline_label,
+            )
+        )
+    return 0 if result.report.compatible else 1
+
+
 def _tools(
     target: str,
     *,
@@ -2383,6 +2757,7 @@ def _mcp(
     allow_task_runs: bool,
     allow_evaluation_runs: bool,
     snapshot: str,
+    job_snapshot: str,
     tool_snapshot: str,
     evaluation_snapshot: str,
     title: str | None,
@@ -2415,6 +2790,7 @@ def _mcp(
                 allow_task_runs=allow_task_runs,
                 allow_evaluation_runs=allow_evaluation_runs,
                 snapshot=snapshot,
+                job_snapshot=job_snapshot,
                 tool_snapshot=tool_snapshot,
                 evaluation_snapshot=evaluation_snapshot,
                 title=title,

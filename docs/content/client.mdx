@@ -134,10 +134,11 @@ The client validates:
 - declared successful headers,
 - declared application error envelopes and sources.
 
-Unexpected statuses, media types, and error envelopes raise
-`UnexpectedResponseError` with the contract name, status, body, and reason.
-Pydantic raises `ValidationError` when a declared success body or header value
-does not validate.
+Any response that violates this boundary raises `UnexpectedResponseError`.
+The exception includes the contract name, HTTP status, and a stable reason, but
+never retains the response body or headers. This includes malformed JSON and
+declared success bodies or headers that fail Pydantic validation, so logs and
+agent output do not accidentally retain dependency payloads.
 
 ## Observe outbound calls
 

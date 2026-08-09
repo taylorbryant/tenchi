@@ -298,11 +298,12 @@ project's configuration.
 
 ## Create the baseline and validate the app
 
-Write the first canonical OpenAPI, application-tool, and evaluation-policy
+Write the first canonical OpenAPI, durable job-message, application-tool, and evaluation-policy
 snapshots, then run the local project gates:
 
 ```shell
 uv run tenchi openapi --write openapi.json
+uv run tenchi jobs --write jobs.json
 uv run tenchi tools --write tools.json
 uv run tenchi eval snapshot --write evaluations.json
 uv run tenchi check
@@ -313,14 +314,18 @@ uv run tenchi task list
 ```
 
 These first snapshots establish the application's compatibility baselines.
-Commit them before using `tenchi verify`: a ref that predates `openapi.json`
-or `tools.json` cannot support a historical compatibility claim, so `verify`
-correctly fails when either baseline is absent. On the next change, compare all
-three boundaries with the committed baseline:
+Commit them before using `tenchi verify`: a ref that predates `openapi.json`,
+`jobs.json`, or `tools.json` cannot support a historical compatibility claim,
+so `verify` correctly fails when a required baseline is absent. On the next
+change, compare all four boundaries with the committed baseline:
 
 ```shell
 uv run tenchi verify --base-ref origin/main
 ```
+
+If `origin/main` predates the first committed `jobs.json`, use
+`--allow-missing-job-baseline` for this one adoption comparison. The receipt
+records the absent historical baseline as metadata; later runs fail closed.
 
 Use `tenchi check` as the CI gate on the adoption change. After the baseline
 commit reaches the target branch, run `tenchi verify` with the pull-request

@@ -7,9 +7,9 @@ from typing import cast
 import httpx
 import pytest
 from _pytest.logging import LogCaptureFixture
-from pydantic import BaseModel, ValidationError, model_validator
+from pydantic import BaseModel, model_validator
 
-from tenchi.client import Client, ClientOutcome
+from tenchi.client import Client, ClientOutcome, UnexpectedResponseError
 from tenchi.contracts import contract
 from tenchi.errors import AppError, ConfigurationError, ErrorDef
 
@@ -159,7 +159,7 @@ async def test_client_observer_reports_invalid_responses_without_payloads() -> N
         transport=httpx.MockTransport(respond),
         observers=(outcomes.append,),
     ) as client:
-        with pytest.raises(ValidationError):
+        with pytest.raises(UnexpectedResponseError):
             await client.call(get_item)
 
     assert len(outcomes) == 1
@@ -168,7 +168,9 @@ async def test_client_observer_reports_invalid_responses_without_payloads() -> N
     assert outcomes[0].error_code is None
 
 
-async def test_response_validator_app_error_is_not_a_remote_app_outcome() -> None:
+async def test_response_validator_app_error_is_normalized_without_remote_payload() -> (
+    None
+):
     outcomes: list[ClientOutcome] = []
     local_validation_error = ErrorDef(
         code="LOCAL_VALIDATION",
@@ -196,10 +198,12 @@ async def test_response_validator_app_error_is_not_a_remote_app_outcome() -> Non
         transport=httpx.MockTransport(respond),
         observers=(outcomes.append,),
     ) as client:
-        with pytest.raises(AppError) as excinfo:
+        with pytest.raises(UnexpectedResponseError) as excinfo:
             await client.call(declared)
 
-    assert excinfo.value.definition == local_validation_error
+    assert excinfo.value.reason == "response body does not match the declared schema"
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
     assert len(outcomes) == 1
     assert outcomes[0].status == "unexpected_response"
     assert outcomes[0].status_code == 200

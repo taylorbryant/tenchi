@@ -835,11 +835,19 @@ def _response_header_fields(  # pyright: ignore[reportUnusedFunction]
                 f"{label} declares header {wire_name!r} more than once"
             )
         property_schema = cast(Mapping[str, Any], raw_schema)
-        if not _is_scalar_header_schema(
-            reference_root or schema, property_schema, seen_refs=set()
-        ):
+        shapes = _parameter_schema_shapes(
+            reference_root or schema,
+            property_schema,
+            seen_refs=set(),
+        )
+        if shapes is None or not shapes or not shapes <= {"scalar", "null"}:
             raise ConfigurationError(
                 f"{label} header {wire_name!r} must be single-valued and scalar"
+            )
+        if raw_name in required and "null" in shapes:
+            raise ConfigurationError(
+                f"{label} header {wire_name!r} is required but accepts null, "
+                "which cannot be represented as an HTTP response header"
             )
         seen.add(normalized)
         fields.append((raw_name, wire_name, property_schema, raw_name in required))
@@ -1375,16 +1383,6 @@ def _local_schema_reference(
             return None
         target = cast(Mapping[object, object], target)[part]
     return cast(Mapping[str, Any], target) if isinstance(target, Mapping) else None
-
-
-def _is_scalar_header_schema(
-    root: Mapping[str, Any],
-    schema: Mapping[str, Any],
-    *,
-    seen_refs: set[str],
-) -> bool:
-    shapes = _parameter_schema_shapes(root, schema, seen_refs=seen_refs)
-    return shapes is not None and bool(shapes) and shapes <= {"scalar", "null"}
 
 
 def _render_response_header_value(  # pyright: ignore[reportUnusedFunction]

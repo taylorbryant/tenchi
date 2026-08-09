@@ -26,6 +26,8 @@ async def main() -> None:
         tools = await client.list_tools()
         routes = await client.call_tool("routes", {})
         application_tools = await client.call_tool("tools", {})
+        jobs = await client.call_tool("jobs", {})
+        jobs_diff = await client.call_tool("jobs_diff", {})
         tools_diff = await client.call_tool("tools_diff", {})
         evaluation_diff = await client.call_tool("evaluation_diff", {})
         preflight = await client.call_tool("preflight", {})
@@ -36,11 +38,13 @@ async def main() -> None:
         "app_map",
         "routes",
         "tools",
+        "jobs",
         "doctor",
         "preflight",
         "evaluation_list",
         "task_list",
         "openapi_diff",
+        "jobs_diff",
         "tools_diff",
         "evaluation_diff",
         "make_preview",
@@ -66,6 +70,16 @@ async def main() -> None:
         raise RuntimeError("tools MCP result is not versioned")
     if application_tools.structured_content.get("manifest", {}).get("tools") != []:
         raise RuntimeError("generated app unexpectedly registered application tools")
+    if jobs.is_error or jobs.structured_content is None:
+        raise RuntimeError("jobs MCP smoke call failed")
+    if jobs.structured_content.get("schema_version") != AGENT_PROTOCOL_VERSION:
+        raise RuntimeError("jobs MCP result is not versioned")
+    if jobs.structured_content.get("manifest", {}).get("jobs") != []:
+        raise RuntimeError("generated app unexpectedly registered background jobs")
+    if jobs_diff.is_error or jobs_diff.structured_content is None:
+        raise RuntimeError("jobs_diff MCP smoke call failed")
+    if jobs_diff.structured_content.get("compatible") is not True:
+        raise RuntimeError("generated app job snapshot is incompatible")
     if tools_diff.is_error or tools_diff.structured_content is None:
         raise RuntimeError("tools_diff MCP smoke call failed")
     if tools_diff.structured_content.get("compatible") is not True:

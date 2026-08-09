@@ -45,6 +45,8 @@ def run_check(
     evaluation_snapshot: str = "evaluations.json",
     tools: str = "app.server.tools:tools",
     tool_snapshot: str = "tools.json",
+    jobs: str = "app.server.jobs:jobs",
+    job_snapshot: str = "jobs.json",
     cancelled: Callable[[], bool] | None = None,
     step_completed: Callable[[int, int, CheckStepResult], None] | None = None,
 ) -> CheckResult:
@@ -78,6 +80,8 @@ def run_check(
         evaluation_snapshot=evaluation_snapshot,
         tools=tools,
         tool_snapshot=tool_snapshot,
+        jobs=jobs,
+        job_snapshot=job_snapshot,
         security_json=security_json,
     )
     results: list[CheckStepResult] = []
@@ -112,6 +116,8 @@ def _check_commands(
     evaluation_snapshot: str,
     tools: str,
     tool_snapshot: str,
+    jobs: str,
+    job_snapshot: str,
     security_json: str | None,
 ) -> tuple[_CheckCommand, ...]:
     openapi = [
@@ -146,6 +152,17 @@ def _check_commands(
                 evaluations,
                 "--check",
                 evaluation_snapshot,
+            ),
+        ),
+        _CheckCommand(
+            "jobs",
+            (
+                "tenchi",
+                "jobs",
+                "--jobs",
+                jobs,
+                "--check",
+                job_snapshot,
             ),
         ),
         _CheckCommand(

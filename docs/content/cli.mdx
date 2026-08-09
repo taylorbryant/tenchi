@@ -19,8 +19,8 @@ uvx tenchi new my_app
 
 Names use `snake_case`. The generated project includes a todos feature,
 SQLite persistence with request-scoped transactions, a memory test adapter,
-strict checks, integration tests, Swagger UI, OpenAPI, application-tool, and
-evaluation-policy snapshots, a concise `AGENTS.md`, project-local
+strict checks, integration tests, Swagger UI, OpenAPI, durable job-message,
+application-tool, and evaluation-policy snapshots, a concise `AGENTS.md`, project-local
 MCP configuration, and GitHub Actions CI.
 
 ## Generate application slices
@@ -84,6 +84,28 @@ relationships. Agents should inspect both before editing and use stable node
 IDs and source locations to choose the files involved in a change. See [coding
 agents](/agents) for the complete workflow across map, make, check, and OpenAPI
 compatibility.
+
+## Manage durable job messages
+
+```shell
+uv run tenchi jobs
+uv run tenchi jobs --json
+uv run tenchi jobs --diff jobs.json
+uv run tenchi jobs --diff-ref origin/main --snapshot jobs.json
+uv run tenchi jobs --check jobs.json
+uv run tenchi jobs --write jobs.json
+```
+
+The default target is `app.server.jobs:jobs`; override it with
+`--jobs module:attribute`. The manifest contains stable names, descriptions,
+and producer-to-consumer input schemas without payloads or handler results.
+`--check` detects exact drift. `--diff` and `--diff-ref` reject removed jobs,
+narrower accepted payloads, and changes the analyzer cannot prove safe. Use
+`--diff-format json` for a versioned compatibility result. See [Background
+jobs](/jobs) for rollout rules around stored messages.
+
+For first adoption only, `--allow-missing-baseline` permits a `--diff-ref`
+whose commit predates `jobs.json` and records that fact as metadata.
 
 ## Manage application-tool contracts
 
@@ -152,8 +174,8 @@ uv run tenchi check --json
 ```
 
 Check runs Ruff format, Ruff lint, Pyright, pytest, doctor, and the exact
-OpenAPI, application-tool, and evaluation-policy snapshot checks. Every step
-runs even when an earlier one fails. Human output shows a compact status list;
+OpenAPI, job-message, application-tool, and evaluation-policy snapshot checks.
+Every step runs even when an earlier one fails. Human output shows a compact status list;
 JSON includes stable step names, commands, exit codes, durations, and bounded
 failure output. Use `--timeout` to change the per-step limit.
 
@@ -163,7 +185,9 @@ the module selected by `--routes`; command flags override them. The route target
 defaults to `app.server.routes:api_routes`, and the snapshot defaults to
 `openapi.json`. The tool target defaults to `app.server.tools:tools`, and its
 snapshot defaults to `tools.json`.
-The evaluation target defaults to `app.server.evaluations:runner`, and its
+The job target defaults to `app.server.jobs:jobs`, and its snapshot defaults to
+`jobs.json`. Override them with `--jobs` and `--job-snapshot`. The evaluation
+target defaults to `app.server.evaluations:runner`, and its
 snapshot defaults to `evaluations.json`. Override them with `--evaluations` and
 `--evaluation-snapshot`.
 
@@ -176,9 +200,10 @@ uv run tenchi verify --base-ref origin/main --json
 
 Verify produces one receipt for the finished source tree. It runs `tenchi
 check`, rejects application-map diagnostics and unresolved relationships, and
-compares the generated OpenAPI document, application-tool manifest, and
-evaluation-policy manifest with the snapshots at the selected Git ref. The
-receipt records the immutable commit resolved from `--base-ref`, so all three
+compares the generated OpenAPI document, durable job-message manifest,
+application-tool manifest, and evaluation-policy manifest with the snapshots at
+the selected Git ref. The receipt records the immutable commit resolved from
+`--base-ref`, so all four
 compatibility reports use the same historical state even if the named ref moves
 later.
 
@@ -188,14 +213,17 @@ change when code and its updated snapshot are committed together. The command
 exits non-zero for a failed check, incomplete architecture evidence, a breaking
 or unknown boundary change, or a baseline that cannot be read.
 
-If the selected ref already contains the OpenAPI and tool snapshots but
-genuinely predates the application's first `evaluations.json`, pass
+If the selected ref genuinely predates the application's first `jobs.json`,
+pass `--allow-missing-job-baseline` once and confirm the job result includes a
+`job manifest baseline` metadata change. If it already contains the OpenAPI,
+job, and tool snapshots but genuinely predates the application's first
+`evaluations.json`, pass
 `--allow-missing-evaluation-baseline` once and confirm the evaluation result
 includes an `evaluation manifest baseline` metadata change. Missing evaluation
 snapshots otherwise fail closed, so a renamed or mistyped path cannot silently
 replace the historical policy.
 
-`--snapshot`, `--tool-snapshot`, `--evaluation-snapshot`, and the route, task,
+`--snapshot`, `--job-snapshot`, `--tool-snapshot`, `--evaluation-snapshot`, and the route, task,
 job, tool, evaluation, and OpenAPI metadata options override the generated
 application conventions. Verify never updates snapshots. Because it runs the
 application's tests and validation commands, those commands retain their normal
@@ -290,7 +318,7 @@ extra. Generated
 applications include it as a development dependency and register the default
 command in `.mcp.json`.
 `--routes`, `--api-routes`, `--preflight`, `--evaluations`, `--tasks`,
-`--jobs`, `--tools`, `--snapshot`, and `--tool-snapshot` override the
+`--jobs`, `--tools`, `--snapshot`, `--job-snapshot`, and `--tool-snapshot` override the
 conventions captured by the server when it starts.
 `--title`, `--version`,
 `--description`, and `--security` override discovered OpenAPI metadata for the

@@ -170,6 +170,11 @@ a permanently red test. Root cause is H8/M-class finding below: bare
   `x-request-id`, no observer) via inherited `redirect_slashes=True`.
   (`server.py:461-469`)
 
+  Resolved after this audit: required nullable response headers now fail at
+  composition; synchronous and asynchronous health checks share validated,
+  redacted timeout behavior; declared presenter/projector errors use the
+  normal honesty boundary; and slash variants return Tenchi's structured 404.
+
 ### Operational surface
 
 - **Job messages have no versioning or compatibility gate** — the one
@@ -178,6 +183,12 @@ a permanently red test. Root cause is H8/M-class finding below: bare
   raw `pydantic.ValidationError` from `dispatch` (`jobs.py:242-274`) with no
   Tenchi-typed signal a queue adapter can classify, and `verify` checks
   OpenAPI/tool/evaluation snapshots but not job schemas.
+
+  Partially resolved after this audit: job groups now publish a versioned,
+  payload-free message manifest, and `jobs`, `check`, `verify`, and coding-agent
+  MCP enforce directional compatibility. Consumer validation still uses
+  Pydantic's typed `ValidationError`, which queue adapters can classify without
+  exposing the rejected payload.
 - **The recommended same-transaction idempotency wiring makes
   `IDEMPOTENCY_IN_PROGRESS`, `Retry-After`, `reservation_ttl`, and
   `abandon` effectively unreachable** — a reserved row is never visible
@@ -246,6 +257,11 @@ a permanently red test. Root cause is H8/M-class finding below: bare
   `UnexpectedResponseError.body` retains the raw body and the client drops
   the envelope's `request_id` when raising `AppError`
   (`client.py:99-102, 999-1010`).
+
+  Partially resolved after this audit: malformed successful bodies, headers,
+  and error envelopes now become payload-safe `UnexpectedResponseError`
+  instances that retain no remote body. Remote application errors still do not
+  expose the envelope's `request_id` on `AppError`.
 - **Application MCP security invariants cover only the Streamable HTTP
   path** (suspicion, surface confirmed): the SDK's inherited
   `sse_app`/`run_sse_async` bypass the stateless enforcement, header

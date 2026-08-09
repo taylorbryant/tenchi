@@ -15,6 +15,7 @@ from pydantic import (
     ValidationError,
     computed_field,
     model_serializer,
+    model_validator,
 )
 from starlette.applications import Starlette
 
@@ -229,11 +230,49 @@ async def test_client_rejects_missing_required_success_header() -> None:
         return httpx.Response(201, json={"name": "milk"})
 
     async with Client(transport=httpx.MockTransport(respond)) as client:
-        with pytest.raises(ValidationError):
+        with pytest.raises(
+            UnexpectedResponseError,
+            match="response headers do not match the declared schema",
+        ) as excinfo:
             await client.call(
                 create_item_contract,
                 request=Item(name="milk"),
             )
+
+    assert excinfo.value.reason == ("response headers do not match the declared schema")
+    assert not hasattr(excinfo.value, "body")
+
+
+async def test_client_redacts_exceptions_from_response_header_validators() -> None:
+    class RejectingHeaders(BaseModel):
+        trace: str = Field(alias="X-Trace")
+
+        @model_validator(mode="after")
+        def reject(self) -> "RejectingHeaders":
+            raise RuntimeError(f"invalid remote header {self.trace}")
+
+    declared = contract(
+        method="GET",
+        path="/rejecting-headers",
+        response=Item,
+        response_headers=RejectingHeaders,
+    )
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"name": "milk"},
+            headers={"X-Trace": "remote-secret"},
+        )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(UnexpectedResponseError) as excinfo:
+            await client.call(declared)
+
+    assert excinfo.value.reason == ("response headers do not match the declared schema")
+    assert "remote-secret" not in str(excinfo.value)
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
 
 
 async def test_client_rejects_non_round_trip_response_header_fields_before_io() -> None:
@@ -608,7 +647,43 @@ async def test_undeclared_error_raises_unexpected_response(
         await client.call(get_item_contract, params=ItemParams(item_id="explode"))
 
     assert excinfo.value.status_code == 500
-    assert excinfo.value.body["code"] == "INTERNAL_SERVER_ERROR"
+    assert excinfo.value.reason is None
+    assert not hasattr(excinfo.value, "body")
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b'{"name":42,"secret":"remote-payload"}',
+        b'{"name":"remote-payload"',
+    ],
+)
+async def test_malformed_success_bodies_raise_payload_safe_unexpected_response(
+    content: bytes,
+) -> None:
+    declared = contract(method="GET", path="/item", response=Item)
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=content,
+            headers={"content-type": "application/json"},
+        )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(
+            UnexpectedResponseError,
+            match="response body does not match the declared schema",
+        ) as excinfo:
+            await client.call(declared)
+
+    assert excinfo.value.contract_name == declared.name
+    assert excinfo.value.status_code == 200
+    assert excinfo.value.reason == "response body does not match the declared schema"
+    assert "remote-payload" not in str(excinfo.value)
+    assert not hasattr(excinfo.value, "body")
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
 
 
 @pytest.mark.parametrize("source", [None, "framework"])
@@ -642,6 +717,7 @@ async def test_matching_non_app_error_envelope_remains_unexpected(
     [
         {"code": "ITEM_MISSING"},
         {"code": "ITEM_MISSING", "message": 42},
+        {"code": 42, "message": "Missing"},
     ],
 )
 async def test_malformed_app_error_envelope_remains_unexpected(
@@ -655,8 +731,35 @@ async def test_malformed_app_error_envelope_remains_unexpected(
         )
 
     async with Client(transport=httpx.MockTransport(respond)) as client:
-        with pytest.raises(UnexpectedResponseError):
+        with pytest.raises(UnexpectedResponseError) as excinfo:
             await client.call(get_item_contract, params=ItemParams(item_id="missing"))
+
+    assert excinfo.value.reason == "error response envelope is invalid"
+    assert not hasattr(excinfo.value, "body")
+
+
+@pytest.mark.parametrize("content", [b"not-json", b"[]"])
+async def test_non_object_error_envelopes_remain_payload_safe(
+    content: bytes,
+) -> None:
+    async def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            content=content,
+            headers={
+                "content-type": "application/json",
+                "x-tenchi-error-source": "app",
+            },
+        )
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(UnexpectedResponseError) as excinfo:
+            await client.call(get_item_contract, params=ItemParams(item_id="missing"))
+
+    assert excinfo.value.reason == "error response envelope is invalid"
+    assert content.decode() not in str(excinfo.value)
+    assert not hasattr(excinfo.value, "body")
+    assert excinfo.value.__context__ is None
 
 
 async def test_call_requires_declared_params_and_request(
@@ -1392,6 +1495,8 @@ async def test_client_rejects_success_with_wrong_response_media_type(
 
     assert excinfo.value.reason is not None
     assert "application/json" in excinfo.value.reason
+    if content_type is not None:
+        assert content_type not in excinfo.value.reason
 
 
 async def test_client_accepts_additional_response_media_type_parameters() -> None:
@@ -1434,11 +1539,11 @@ async def test_client_decodes_text_using_the_wire_charset() -> None:
 @pytest.mark.parametrize(
     ("content", "content_type", "reason"),
     [
-        (b"\xff", "text/plain; charset=ascii", "not valid for charset 'ascii'"),
+        (b"\xff", "text/plain; charset=ascii", "not valid for the declared charset"),
         (
             b"text",
             "text/plain; charset=not-a-codec",
-            "unsupported charset 'not-a-codec'",
+            "an unsupported charset",
         ),
     ],
 )
@@ -1460,8 +1565,12 @@ async def test_client_rejects_text_that_violates_the_wire_charset(
         )
 
     async with Client(transport=httpx.MockTransport(respond)) as client:
-        with pytest.raises(UnexpectedResponseError, match=reason):
+        with pytest.raises(UnexpectedResponseError, match=reason) as excinfo:
             await client.call(declared)
+
+    assert content_type not in str(excinfo.value)
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
 
 
 async def test_client_rejects_error_with_wrong_response_media_type() -> None:

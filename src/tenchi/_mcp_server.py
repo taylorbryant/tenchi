@@ -53,7 +53,13 @@ from ._evaluation_operations import (
     evaluation_run_result,
     load_evaluation_runner,
 )
-from ._job_operations import load_job_group
+from ._job_operations import (
+    JobDiffPayload,
+    JobListPayload,
+    job_diff_result,
+    job_list_result,
+    load_job_group,
+)
 from ._openapi_operations import (
     OpenApiDiffPayload,
     OperationError,
@@ -131,6 +137,7 @@ class McpServerOptions:
     allow_task_runs: bool = False
     allow_evaluation_runs: bool = False
     snapshot: str = "openapi.json"
+    job_snapshot: str = "jobs.json"
     tool_snapshot: str = "tools.json"
     evaluation_snapshot: str = "evaluations.json"
     title: str | None = None
@@ -147,6 +154,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             f"app/ not found under {root}; choose a Tenchi application root"
         )
     project_path(root, options.snapshot)
+    project_path(root, options.job_snapshot)
     project_path(root, options.tool_snapshot)
     project_path(root, options.evaluation_snapshot)
     operation_lock = asyncio.Lock()
@@ -179,7 +187,8 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             "running an explicitly authorized evaluation, and compare OpenAPI before "
             "accepting a changed snapshot. Compare application tools before "
             "accepting a changed tool snapshot. Compare evaluation policy before "
-            "accepting a changed evaluation snapshot. Finish with verify against "
+            "accepting a changed evaluation snapshot. Compare durable job messages "
+            "before accepting a changed job snapshot. Finish with verify against "
             "a historical Git ref. "
             "Tenchi MCP inspection and preview tools do not "
             "write application files; check and verify run project-owned "
@@ -318,6 +327,22 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             lambda: tool_list_result(
                 root,
                 load_tool_group(root, options.tools),
+            ).as_dict()
+        )
+
+    @server.tool(
+        name="jobs",
+        description=(
+            "Return the versioned, payload-free manifest for durable background-job "
+            "messages. Handler results and runtime payloads are not exposed."
+        ),
+        annotations=_READ_ONLY,
+    )
+    async def jobs() -> JobListPayload:  # pyright: ignore[reportUnusedFunction]
+        return await call(
+            lambda: job_list_result(
+                root,
+                load_job_group(root, options.jobs),
             ).as_dict()
         )
 
@@ -525,6 +550,34 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         return await call(operation)
 
     @server.tool(
+        name="jobs_diff",
+        description=(
+            "Compare durable background-job messages with a project snapshot or "
+            "the same snapshot at a Git ref. Breaking and unknown changes are "
+            "incompatible."
+        ),
+        annotations=_READ_ONLY,
+    )
+    async def jobs_diff(  # pyright: ignore[reportUnusedFunction]
+        snapshot: str | None = None,
+        ref: str | None = None,
+        allow_missing_baseline: bool = False,
+    ) -> JobDiffPayload:
+        selected = options.job_snapshot if snapshot is None else snapshot
+
+        def operation() -> JobDiffPayload:
+            project_path(root, selected)
+            return job_diff_result(
+                root,
+                jobs=options.jobs,
+                snapshot=Path(selected),
+                ref=ref,
+                allow_missing_baseline=allow_missing_baseline,
+            ).as_dict()
+
+        return await call(operation)
+
+    @server.tool(
         name="tools_diff",
         description=(
             "Compare registered application tools with a project snapshot or "
@@ -612,8 +665,9 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         description=(
             "Produce one versioned completion receipt by running the project "
             "checks, strict application-map validation, and OpenAPI, "
-            "application-tool, and evaluation-policy compatibility against an "
-            "explicit Git ref. A missing evaluation snapshot requires an explicit "
+            "job-message, application-tool, and evaluation-policy compatibility "
+            "against an explicit Git ref. Missing job or evaluation snapshots "
+            "require explicit "
             "first-adoption override. "
             "Project-owned commands run with their normal side effects; output "
             "is bounded and cancellation stops the active process."
@@ -624,6 +678,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         ctx: Context[dict[str, Any]],
         base_ref: str,
         timeout_seconds: Annotated[float, Field(gt=0, le=3600)] = 600.0,
+        allow_missing_job_baseline: bool = False,
         allow_missing_evaluation_baseline: bool = False,
     ) -> VerificationPayload:
         def operation(
@@ -631,6 +686,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             progress: _CheckProgress,
         ) -> VerificationPayload:
             project_path(root, options.snapshot)
+            project_path(root, options.job_snapshot)
             project_path(root, options.tool_snapshot)
             project_path(root, options.evaluation_snapshot)
             return _isolated_call(
@@ -648,8 +704,10 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
                     version=options.version,
                     description=options.description,
                     snapshot=options.snapshot,
+                    job_snapshot=options.job_snapshot,
                     tool_snapshot=options.tool_snapshot,
                     evaluation_snapshot=options.evaluation_snapshot,
+                    allow_missing_job_baseline=allow_missing_job_baseline,
                     allow_missing_evaluation_baseline=(
                         allow_missing_evaluation_baseline
                     ),
@@ -666,7 +724,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         name="check",
         description=(
             "Run Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI, "
-            "application-tool, and evaluation-policy snapshot checks. "
+            "job-message, application-tool, and evaluation-policy snapshot checks. "
             "Project-owned commands run "
             "with their normal side effects; output is bounded and cancellation "
             "stops the active process."
@@ -682,6 +740,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             progress: _CheckProgress,
         ) -> CheckPayload:
             snapshot_path = project_path(root, options.snapshot)
+            job_snapshot_path = project_path(root, options.job_snapshot)
             tool_snapshot_path = project_path(root, options.tool_snapshot)
             evaluation_snapshot_path = project_path(
                 root,
@@ -705,6 +764,8 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
                     snapshot=str(snapshot_path),
                     evaluations=options.evaluations,
                     evaluation_snapshot=str(evaluation_snapshot_path),
+                    jobs=options.jobs,
+                    job_snapshot=str(job_snapshot_path),
                     tools=options.tools,
                     tool_snapshot=str(tool_snapshot_path),
                     security_json=security_json,
@@ -759,6 +820,7 @@ def run_mcp_server(options: McpServerOptions) -> None:
             allow_task_runs=options.allow_task_runs,
             allow_evaluation_runs=options.allow_evaluation_runs,
             snapshot=options.snapshot,
+            job_snapshot=options.job_snapshot,
             tool_snapshot=options.tool_snapshot,
             evaluation_snapshot=options.evaluation_snapshot,
             title=options.title,
@@ -795,13 +857,14 @@ def _fallback_agent_instructions() -> str:
 5. Run `preflight` only against the intended deployment environment.
 6. Use `evaluation_list` before any separately authorized evaluation run.
 7. Run `openapi_diff` before accepting a changed OpenAPI snapshot.
-8. Run `tools_diff` before accepting a changed application-tool snapshot.
-9. Run `evaluation_diff` before accepting a changed evaluation-policy snapshot.
+8. Run `jobs_diff` before accepting a changed durable job-message snapshot.
+9. Run `tools_diff` before accepting a changed application-tool snapshot.
+10. Run `evaluation_diff` before accepting a changed evaluation-policy snapshot.
    Missing historical snapshots require explicit human authorization for the
    one first-adoption comparison.
-10. Run `verify` against the merge base, previous push, or previous release and
+11. Run `verify` against the merge base, previous push, or previous release and
    report its receipt.
-11. Use `task_list` before any separately authorized operational task run.
+12. Use `task_list` before any separately authorized operational task run.
 
 Full guidance: https://tenchi.io/agents
 """

@@ -9,6 +9,16 @@ versions may change the public API.
 
 ### Added
 
+- Background-job groups now publish a versioned, payload-free durable-message
+  manifest containing stable names, descriptions, and consumer input schemas.
+  `tenchi jobs` prints, writes, checks, and directionally compares `jobs.json`;
+  `tenchi check`, historical `tenchi verify`, and the coding-agent MCP server
+  enforce the same boundary. Removed jobs and narrower accepted inputs are
+  breaking, while queued payloads and process-local handler results never enter
+  discovery output. `job_message()` rejects serialized values that do not
+  satisfy the published schema before they reach a queue. Agent protocol v7
+  adds job discovery, job compatibility, and job evidence to the verification
+  receipt while retaining prior protocol snapshots.
 - Every `--json` command now returns a versioned `operation_error` object when
   invalid arguments, target-loading failures, invalid composition, unknown
   selections, or baseline failures prevent its normal result from being built.
@@ -82,6 +92,22 @@ versions may change the public API.
 
 ### Fixed
 
+- The typed client now normalizes invalid successful bodies and response
+  headers into payload-safe `UnexpectedResponseError` values. The exception
+  retains only the contract, status, and a stable reason; malformed dependency
+  bodies and headers are not attached to it.
+- Required response headers that accept `None` now fail during server, client,
+  and OpenAPI composition instead of disappearing during serialization and
+  producing a runtime 500. Declared `AppError` values raised by response
+  presenters or header projectors now pass through the normal declared-error
+  boundary.
+- `health_route()` now validates check registries and finite positive timeouts
+  at composition, moves synchronous checks off the event loop, bounds them with
+  the same timeout as async checks, and converts non-cancellation
+  `BaseException` failures into redacted unhealthy results.
+- Applications no longer issue Starlette's bare trailing-slash redirects.
+  Contract paths are exact, and a slash variant reaches Tenchi's structured,
+  request-id-bearing framework 404 boundary.
 - Application MCP calls now set the standard MCP `isError` flag whenever their
   structured result has `ok: false`. Generic hosts can recognize invalid input,
   approval failures, application errors, invalid results, and invocation

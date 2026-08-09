@@ -12,6 +12,7 @@ from tenchi._app_map import (
 )
 from tenchi._cli_results import CheckResult
 from tenchi._evaluation_operations import EvaluationDiffResult
+from tenchi._job_operations import JobDiffResult
 from tenchi._openapi_operations import (
     OpenApiDiffResult,
     OperationError,
@@ -49,6 +50,7 @@ def _run_with_map(
 ) -> _verify_operations.VerificationResult:
     (tmp_path / "app").mkdir()
     (tmp_path / "openapi.json").write_text("{}")
+    (tmp_path / "jobs.json").write_text("{}")
     (tmp_path / "tools.json").write_text("{}")
     (tmp_path / "evaluations.json").write_text("{}")
     commit = "a" * 40
@@ -98,6 +100,14 @@ def _run_with_map(
             report=CompatibilityReport(()),
         )
 
+    def fake_job_diff_result(root: Path, **kwargs: object) -> JobDiffResult:
+        del kwargs
+        return JobDiffResult(
+            root=str(root),
+            baseline=f"{commit}:jobs.json",
+            report=CompatibilityReport(()),
+        )
+
     def fake_evaluation_diff_result(
         root: Path, **kwargs: object
     ) -> EvaluationDiffResult:
@@ -108,6 +118,11 @@ def _run_with_map(
             report=CompatibilityReport(()),
         )
 
+    monkeypatch.setattr(
+        _verify_operations,
+        "job_diff_result",
+        fake_job_diff_result,
+    )
     monkeypatch.setattr(
         _verify_operations,
         "resolve_git_commit",
@@ -170,6 +185,7 @@ def _run_with_map(
         version="1.0.0",
         description=None,
         snapshot="openapi.json",
+        job_snapshot="jobs.json",
         tool_snapshot="tools.json",
         evaluation_snapshot="evaluations.json",
         security_json=None,

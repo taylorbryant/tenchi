@@ -91,9 +91,14 @@ health = health_route(
 )
 ```
 
-Asynchronous health checks run concurrently and return `503` when any check is
-unhealthy. The route is public by default; pass `public=False` when
-infrastructure can authenticate probes.
+Health checks run concurrently and return `503` when any check is unhealthy or
+exceeds `check_timeout`. Synchronous checks run in worker threads so blocking
+I/O cannot hold the event loop past the health deadline; the underlying thread
+may finish after the timed-out response, so prefer async clients with their own
+deadlines for readiness checks. An async check that suppresses cancellation may
+also finish in the background, but it cannot delay the health response. Keep
+checks read-only and independently bounded. The route is public by default; pass
+`public=False` when infrastructure can authenticate probes.
 
 ## Limits and deadlines
 
@@ -128,15 +133,16 @@ uv run tenchi verify --base-ref "$BASE_SHA"
 `verify` discovers the literal OpenAPI title, version, description, and
 security configuration from `app.server.routes:api_routes`. It runs the same
 deterministic checks, rejects incomplete application-map evidence, and compares
-OpenAPI, application tools, and evaluation policy with the resolved commit.
+OpenAPI, durable job messages, application tools, and evaluation policy with
+the resolved commit.
 Use its metadata flags only when the application does not keep those values as
 literal route-module declarations.
 
-A missing historical evaluation snapshot fails by default. If that commit
-already contains the OpenAPI and tool baselines but predates only
-`evaluations.json`, add `--allow-missing-evaluation-baseline` once, confirm the
-result records an `evaluation manifest baseline` metadata change, and remove
-the override after the baseline lands.
+Missing historical job or evaluation snapshots fail by default. If that commit
+predates only `jobs.json`, add `--allow-missing-job-baseline` once and confirm
+the result records a `job manifest baseline` metadata change. Use
+`--allow-missing-evaluation-baseline` in the same way for `evaluations.json`.
+Remove either override after its baseline lands.
 
 Then release in this order:
 
@@ -150,9 +156,10 @@ Then release in this order:
 6. For model-backed behavior, run the explicitly budgeted
    [`tenchi eval run`](/evaluations) gate with the provider configuration this
    release will use.
-7. Wait for startup and readiness checks, then shift traffic gradually.
-8. Start or update [background workers](/reliability) that are compatible with
-   both application generations.
+7. Start or update [background workers](/reliability) that can consume messages
+   from both application generations. Deploy compatible consumers before new
+   producers receive traffic.
+8. Wait for startup and readiness checks, then shift traffic gradually.
 9. Smoke-test a public route and an authenticated operation through the
    production edge.
 10. Watch error rate, latency, database saturation, and queue age during the

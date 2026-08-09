@@ -1,0 +1,62 @@
+{
+  "manifest_schema": {
+    "$defs": {
+      "JobManifestEntry": {
+        "additionalProperties": false,
+        "description": "One durable job message contract in a discovery manifest.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "input_schema": {
+            "additionalProperties": true,
+            "title": "Input Schema",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "input_schema"
+        ],
+        "title": "JobManifestEntry",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "Versioned deterministic discovery document for registered jobs.",
+    "properties": {
+      "jobs": {
+        "items": {
+          "$ref": "#/$defs/JobManifestEntry"
+        },
+        "title": "Jobs",
+        "type": "array"
+      },
+      "schema_version": {
+        "const": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "schema_version",
+      "jobs"
+    ],
+    "title": "JobManifest",
+    "type": "object"
+  },
+  "schema_version": 1
+}

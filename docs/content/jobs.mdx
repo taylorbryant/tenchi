@@ -52,7 +52,8 @@ await context.outbox.enqueue(
 ```
 
 `job_message()` validates Python input, emits compact JSON bytes, and confirms
-that the declared consumer type can read those bytes back. A useful queue port
+that the bytes satisfy the schema published in `jobs.json` and can be read back
+strictly by the declared consumer type. A useful queue port
 therefore stays transport-shaped:
 
 ```python
@@ -62,6 +63,10 @@ from typing import Protocol
 class Outbox(Protocol):
     async def enqueue(self, *, job: str, payload_json: bytes) -> None: ...
 ```
+
+If a custom serializer emits a different wire shape, `job_message()` raises
+`JobBindingError` before enqueueing it. Keep custom serialization aligned with
+the JSON Schema generated from the request annotation.
 
 The job payload carries application facts. Delivery metadata such as message
 ids, trace ids, attempt counts, scheduled time, and queue partition belongs in
@@ -104,6 +109,47 @@ async def notify_member_added(
 `job_group()` rejects duplicate names. Put every registered group in
 `app/server/jobs.py`; `tenchi map` then shows job nodes and their handler
 bindings.
+
+## Protect stored messages with a snapshot
+
+Write the canonical manifest after registering a job:
+
+```shell
+uv run tenchi jobs --write jobs.json
+```
+
+The manifest contains stable names, descriptions, and input JSON Schemas. It
+never contains queued payloads or handler results. Commit `jobs.json`, then
+check exact drift locally and in CI:
+
+```shell
+uv run tenchi jobs --check jobs.json
+```
+
+Before accepting a changed snapshot, compare it with the current file or a Git
+baseline:
+
+```shell
+uv run tenchi jobs --diff jobs.json
+uv run tenchi jobs --diff-ref origin/main --snapshot jobs.json
+```
+
+When adopting the manifest for the first time and the selected Git ref truly
+predates `jobs.json`, add `--allow-missing-baseline` to that one `--diff-ref`
+comparison. The report records the missing baseline as metadata. Future
+comparisons fail if the historical file is absent.
+
+Removing a job or narrowing the payloads its consumer accepts is breaking.
+Adding a job or widening accepted payloads is additive; description-only
+changes are metadata. Changes the analyzer cannot prove safe require review.
+If a breaking payload change is intentional, declare a new job name so workers
+can continue consuming messages stored under the old contract during rollout.
+
+Compatibility is directional: it proves that the new consumer accepts messages
+valid under the historical manifest. Deploy that consumer before producers can
+enqueue the new shape. If rollback must restore an older consumer after new
+messages exist, keep the emitted shape acceptable to both versions or use a new
+job name.
 
 ## Dispatch one delivery
 

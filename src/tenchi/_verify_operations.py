@@ -35,7 +35,12 @@ from ._evaluation_operations import (
     evaluation_diff_result,
     load_evaluation_runner,
 )
-from ._job_operations import load_job_group
+from ._job_operations import (
+    JobDiffPayload,
+    JobDiffResult,
+    job_diff_result,
+    load_job_group,
+)
 from ._openapi_operations import (
     OpenApiDiffPayload,
     OpenApiDiffResult,
@@ -57,6 +62,7 @@ type VerificationStage = Literal[
     "baseline",
     "architecture",
     "openapi",
+    "jobs",
     "tools",
     "evaluations",
 ]
@@ -89,6 +95,7 @@ class VerificationPayload(TypedDict):
     check: CheckPayload | None
     architecture: VerificationArchitecturePayload | None
     openapi: OpenApiDiffPayload | None
+    jobs: JobDiffPayload | None
     tools: ToolDiffPayload | None
     evaluations: EvaluationDiffPayload | None
     errors: list[VerificationErrorPayload]
@@ -137,6 +144,7 @@ class VerificationResult:
     check: CheckResult | None
     architecture: VerificationArchitectureResult | None
     openapi: OpenApiDiffResult | None
+    jobs: JobDiffResult | None
     tools: ToolDiffResult | None
     evaluations: EvaluationDiffResult | None
     errors: tuple[VerificationErrorResult, ...]
@@ -153,6 +161,8 @@ class VerificationResult:
             and self.architecture.ok
             and self.openapi is not None
             and self.openapi.report.compatible
+            and self.jobs is not None
+            and self.jobs.report.compatible
             and self.tools is not None
             and self.tools.report.compatible
             and self.evaluations is not None
@@ -175,6 +185,7 @@ class VerificationResult:
                 self.architecture.as_dict() if self.architecture is not None else None
             ),
             "openapi": self.openapi.as_dict() if self.openapi is not None else None,
+            "jobs": self.jobs.as_dict() if self.jobs is not None else None,
             "tools": self.tools.as_dict() if self.tools is not None else None,
             "evaluations": (
                 self.evaluations.as_dict() if self.evaluations is not None else None
@@ -196,10 +207,12 @@ def verification_result(
     version: str | None,
     description: str | None,
     snapshot: str,
+    job_snapshot: str,
     tool_snapshot: str,
     evaluation_snapshot: str,
     security_json: str | None,
     timeout_seconds: float,
+    allow_missing_job_baseline: bool = False,
     allow_missing_evaluation_baseline: bool = False,
     cancelled: Callable[[], bool] | None = None,
     step_completed: Callable[[int, int, CheckStepResult], None] | None = None,
@@ -211,11 +224,13 @@ def verification_result(
     check: CheckResult | None = None
     architecture: VerificationArchitectureResult | None = None
     openapi: OpenApiDiffResult | None = None
+    job_report: JobDiffResult | None = None
     tool_report: ToolDiffResult | None = None
     evaluation_report: EvaluationDiffResult | None = None
 
     try:
         snapshot_path = project_path(resolved_root, snapshot)
+        job_snapshot_path = project_path(resolved_root, job_snapshot)
         tool_snapshot_path = project_path(resolved_root, tool_snapshot)
         evaluation_snapshot_path = project_path(
             resolved_root,
@@ -231,6 +246,7 @@ def verification_result(
             check=None,
             architecture=None,
             openapi=None,
+            jobs=None,
             tools=None,
             evaluations=None,
             errors=(VerificationErrorResult("baseline", str(exc)),),
@@ -256,6 +272,8 @@ def verification_result(
         snapshot=str(snapshot_path),
         evaluations=evaluations,
         evaluation_snapshot=str(evaluation_snapshot_path),
+        jobs=jobs,
+        job_snapshot=str(job_snapshot_path),
         tools=tools,
         tool_snapshot=str(tool_snapshot_path),
         security_json=resolved_security,
@@ -305,6 +323,18 @@ def verification_result(
 
     _raise_if_cancelled(cancelled)
     try:
+        job_report = job_diff_result(
+            resolved_root,
+            jobs=jobs,
+            snapshot=job_snapshot_path,
+            ref=baseline_commit,
+            allow_missing_baseline=allow_missing_job_baseline,
+        )
+    except OperationError as exc:
+        errors.append(VerificationErrorResult("jobs", str(exc)))
+
+    _raise_if_cancelled(cancelled)
+    try:
         tool_report = tool_diff_result(
             resolved_root,
             tools=tools,
@@ -334,6 +364,7 @@ def verification_result(
         check=check,
         architecture=architecture,
         openapi=openapi,
+        jobs=job_report,
         tools=tool_report,
         evaluations=evaluation_report,
         errors=tuple(errors),

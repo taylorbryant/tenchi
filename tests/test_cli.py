@@ -42,7 +42,7 @@ def _assert_operation_error(
     assert result.returncode != 0
     payload = json.loads(result.stdout)
     assert payload == {
-        "schema_version": 6,
+        "schema_version": 7,
         "result": "operation_error",
         "operation": operation,
         "ok": False,
@@ -90,6 +90,35 @@ def _write_tool_module(
         "    read_only=True,\n"
         ")\n"
         "tools = tool_group(tool_handler(search_tool, search))\n",
+        encoding="utf-8",
+    )
+
+
+def _write_job_module(
+    root: Path,
+    *,
+    required: bool = False,
+    description: str = "Deliver mail.",
+) -> None:
+    priority = "priority: int" if required else "priority: int | None = None"
+    (root / "job_app.py").write_text(
+        "from pydantic import BaseModel\n"
+        "from tenchi.jobs import job, job_group, job_handler\n"
+        "\n"
+        "class Delivery(BaseModel):\n"
+        "    message_id: str\n"
+        f"    {priority}\n"
+        "\n"
+        "async def deliver(request: Delivery, context: object) -> None:\n"
+        "    del request, context\n"
+        "\n"
+        "declared = job(\n"
+        '    "mail.deliver",\n'
+        "    request=Delivery,\n"
+        "    result=None,\n"
+        f"    description={description!r},\n"
+        ")\n"
+        "jobs = job_group(job_handler(declared, deliver))\n",
         encoding="utf-8",
     )
 
@@ -161,11 +190,13 @@ def test_new_scaffolds_a_working_app(
     assert (root / "app/server/tasks.py").is_file()
     assert (root / "app/server/tools.py").is_file()
     assert (root / "openapi.json").is_file()
+    assert (root / "jobs.json").is_file()
     assert (root / "tools.json").is_file()
     assert (root / "evaluations.json").is_file()
     assert (root / "AGENTS.md").is_file()
     assert (root / ".mcp.json").is_file()
     assert (root / "tests/test_openapi_snapshot.py").is_file()
+    assert (root / "tests/test_job_snapshot.py").is_file()
     assert (root / "tests/test_tool_snapshot.py").is_file()
     assert (root / "tests/test_evaluation_snapshot.py").is_file()
     assert (root / ".github/workflows/ci.yml").is_file()
@@ -212,7 +243,7 @@ def test_new_scaffolds_a_working_app(
     mapped = _tenchi(root, "map", "--json")
     assert mapped.returncode == 0, mapped.stdout + mapped.stderr
     app_map = json.loads(mapped.stdout)
-    assert app_map["schema_version"] == 6
+    assert app_map["schema_version"] == 7
     assert app_map["summary"] == {
         "features": 1,
         "contracts": 2,
@@ -227,7 +258,7 @@ def test_new_scaffolds_a_working_app(
         "adapters": 2,
         "contexts": 1,
         "entrypoints": 1,
-        "tests": 5,
+        "tests": 6,
         "diagnostics": 0,
         "unresolved": 0,
     }
@@ -235,7 +266,7 @@ def test_new_scaffolds_a_working_app(
     preflight = _tenchi(root, "preflight", "--json")
     assert preflight.returncode == 0, preflight.stdout + preflight.stderr
     preflight_result = json.loads(preflight.stdout)
-    assert preflight_result["schema_version"] == 6
+    assert preflight_result["schema_version"] == 7
     assert preflight_result["ok"] is True
     assert preflight_result["counts"] == {
         "passed": 0,
@@ -249,13 +280,13 @@ def test_new_scaffolds_a_working_app(
         evaluation_list.stdout + evaluation_list.stderr
     )
     listed_evaluations = json.loads(evaluation_list.stdout)
-    assert listed_evaluations["schema_version"] == 6
+    assert listed_evaluations["schema_version"] == 7
     assert listed_evaluations["evaluations"] == []
 
     evaluation_run = _tenchi(root, "eval", "run", "--json")
     assert evaluation_run.returncode == 0, evaluation_run.stdout + evaluation_run.stderr
     evaluation_report = json.loads(evaluation_run.stdout)
-    assert evaluation_report["schema_version"] == 6
+    assert evaluation_report["schema_version"] == 7
     assert evaluation_report["ok"] is True
     assert evaluation_report["counts"] == {
         "completed": 0,
@@ -479,7 +510,7 @@ def test_eval_snapshot_cli_writes_checks_and_classifies_policy_changes(
 
     assert changed.returncode == 1
     report = json.loads(changed.stdout)
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 7
     assert report["compatible"] is False
     assert report["changes"][0]["message"].startswith("threshold decreased")
     assert "private prompt" not in changed.stdout + changed.stderr
@@ -591,6 +622,88 @@ def test_eval_snapshot_missing_baseline_override_requires_a_git_diff(
     assert "--allow-missing-baseline requires --diff-ref" in result.stderr
 
 
+def test_jobs_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> None:
+    _write_job_module(tmp_path)
+    target = "job_app:jobs"
+
+    listed = _tenchi(tmp_path, "jobs", "--jobs", target)
+    assert listed.returncode == 0, listed.stderr
+    manifest = json.loads(listed.stdout)
+    assert manifest["schema_version"] == 1
+    assert [item["name"] for item in manifest["jobs"]] == ["mail.deliver"]
+
+    agent_result = _tenchi(tmp_path, "jobs", "--jobs", target, "--json")
+    assert agent_result.returncode == 0, agent_result.stderr
+    listed_result = json.loads(agent_result.stdout)
+    assert listed_result["schema_version"] == 7
+    assert listed_result["manifest"] == manifest
+
+    written = _tenchi(tmp_path, "jobs", "--jobs", target, "--write", "jobs.json")
+    assert written.returncode == 0, written.stderr
+    checked = _tenchi(tmp_path, "jobs", "--jobs", target, "--check", "jobs.json")
+    assert checked.returncode == 0, checked.stderr
+
+    _write_job_module(tmp_path, required=True, description="Deliver queued mail.")
+    diff = _tenchi(
+        tmp_path,
+        "jobs",
+        "--jobs",
+        target,
+        "--diff",
+        "jobs.json",
+        "--diff-format",
+        "json",
+    )
+    assert diff.returncode == 1
+    report = json.loads(diff.stdout)
+    assert report["status"] == "incompatible"
+    assert report["counts"]["breaking"] >= 1
+    assert report["counts"]["metadata"] == 1
+
+    drift = _tenchi(tmp_path, "jobs", "--jobs", target, "--check", "jobs.json")
+    assert drift.returncode == 1
+    assert "[breaking]" in drift.stderr
+    assert "generated jobs" in drift.stderr
+
+
+def test_jobs_diff_ref_requires_explicit_first_adoption(tmp_path: Path) -> None:
+    _write_job_module(tmp_path)
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+    _git(tmp_path, "add", "job_app.py")
+    _git(tmp_path, "commit", "-qm", "before job snapshots")
+
+    rejected = _tenchi(
+        tmp_path,
+        "jobs",
+        "--jobs",
+        "job_app:jobs",
+        "--diff-ref",
+        "HEAD",
+        "--diff-format",
+        "json",
+    )
+    assert rejected.returncode == 1
+    assert json.loads(rejected.stdout)["operation"] == "jobs"
+
+    allowed = _tenchi(
+        tmp_path,
+        "jobs",
+        "--jobs",
+        "job_app:jobs",
+        "--diff-ref",
+        "HEAD",
+        "--allow-missing-baseline",
+        "--diff-format",
+        "json",
+    )
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+    report = json.loads(allowed.stdout)
+    assert report["counts"]["additive"] == 1
+    assert report["counts"]["metadata"] == 1
+
+
 def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> None:
     _write_tool_module(tmp_path)
     target = "tool_app:tools"
@@ -604,7 +717,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     agent_result = _tenchi(tmp_path, "tools", "--tools", target, "--json")
     assert agent_result.returncode == 0, agent_result.stderr
     listed_result = json.loads(agent_result.stdout)
-    assert listed_result["schema_version"] == 6
+    assert listed_result["schema_version"] == 7
     assert listed_result["root"] == str(tmp_path)
     assert listed_result["manifest"] == manifest
 
@@ -640,7 +753,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     )
     assert diff.returncode == 1
     report = json.loads(diff.stdout)
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 7
     assert report["status"] == "incompatible"
     assert report["counts"]["breaking"] == 1
     assert report["counts"]["metadata"] == 1
@@ -747,7 +860,7 @@ def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> Non
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 6
+    assert payload["schema_version"] == 7
     assert payload["target"] == target
     assert payload["ok"] is False
     assert payload["counts"] == {
@@ -942,7 +1055,7 @@ def test_task_cli_lists_runs_and_reports_validation_as_versioned_json(
     listed = _tenchi(tmp_path, "task", "list", "--tasks", target, "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     listing = json.loads(listed.stdout)
-    assert listing["schema_version"] == 6
+    assert listing["schema_version"] == 7
     assert listing["target"] == target
     assert listing["tasks"][0]["name"] == "records.repair"
     assert listing["tasks"][0]["input_required"] is True
@@ -994,9 +1107,9 @@ def test_generated_app_checks_pass(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 7
     assert report["ok"] is True
-    assert report["counts"] == {"passed": 8, "failed": 0, "total": 8}
+    assert report["counts"] == {"passed": 9, "failed": 0, "total": 9}
     assert [step["name"] for step in report["steps"]] == [
         "ruff format",
         "ruff",
@@ -1005,6 +1118,7 @@ def test_generated_app_checks_pass(
         "doctor",
         "openapi",
         "evaluations",
+        "jobs",
         "tools",
     ]
 
@@ -1032,7 +1146,7 @@ def test_verify_produces_one_receipt_against_an_immutable_baseline(
 
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads(result.stdout)
-    assert receipt["schema_version"] == 6
+    assert receipt["schema_version"] == 7
     assert receipt["tenchi_version"]
     assert receipt["ok"] is True
     assert receipt["baseline"] == {"ref": "HEAD", "commit": commit}
@@ -1042,6 +1156,8 @@ def test_verify_produces_one_receipt_against_an_immutable_baseline(
     assert receipt["architecture"]["unresolved"] == []
     assert receipt["openapi"]["compatible"] is True
     assert receipt["openapi"]["baseline"].startswith(f"{commit}:")
+    assert receipt["jobs"]["compatible"] is True
+    assert receipt["jobs"]["baseline"].startswith(f"{commit}:")
     assert receipt["tools"]["compatible"] is True
     assert receipt["tools"]["baseline"].startswith(f"{commit}:")
     assert receipt["evaluations"]["compatible"] is True
@@ -1103,6 +1219,55 @@ def test_verify_requires_an_explicit_first_adoption_override(
     assert allowed_receipt["evaluations"]["changes"][-1]["location"] == (
         "evaluation manifest baseline"
     )
+
+
+def test_verify_requires_explicit_job_manifest_first_adoption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline at the original job path")
+    policy = root / "policy"
+    policy.mkdir()
+    (policy / "jobs.json").write_text(
+        (root / "jobs.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    rejected = _tenchi(
+        root,
+        "verify",
+        "--base-ref",
+        "HEAD",
+        "--job-snapshot",
+        "policy/jobs.json",
+        "--json",
+    )
+    assert rejected.returncode == 1
+    rejected_receipt = json.loads(rejected.stdout)
+    assert rejected_receipt["jobs"] is None
+    assert any(error["stage"] == "jobs" for error in rejected_receipt["errors"])
+
+    allowed = _tenchi(
+        root,
+        "verify",
+        "--base-ref",
+        "HEAD",
+        "--job-snapshot",
+        "policy/jobs.json",
+        "--allow-missing-job-baseline",
+        "--json",
+    )
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+    receipt = json.loads(allowed.stdout)
+    assert receipt["jobs"]["counts"]["metadata"] == 1
+    assert receipt["jobs"]["changes"][-1]["location"] == "job manifest baseline"
 
 
 def test_verify_catches_a_breaking_snapshot_change_after_the_snapshot_is_replaced(
@@ -1219,6 +1384,7 @@ def test_verify_returns_a_structured_failure_for_an_unresolvable_baseline(
     assert receipt["check"] is None
     assert receipt["architecture"] is None
     assert receipt["openapi"] is None
+    assert receipt["jobs"] is None
     assert receipt["tools"] is None
     assert receipt["errors"][0]["stage"] == "baseline"
 
@@ -1256,7 +1422,7 @@ def test_check_discovers_an_openapi_description(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    openapi_step = report["steps"][-3]
+    openapi_step = report["steps"][-4]
     assert openapi_step["status"] == "passed"
     assert openapi_step["command"][8:10] == ["--description", "Generated API"]
 
@@ -1300,7 +1466,7 @@ def test_openapi_diff_ref_reads_the_snapshot_from_git(
     )
     assert compatible_result.returncode == 0, compatible_result.stderr
     compatible = json.loads(compatible_result.stdout)
-    assert compatible["schema_version"] == 6
+    assert compatible["schema_version"] == 7
     assert compatible["root"] == str(root)
     assert compatible["baseline"] == "HEAD:openapi.json"
     assert compatible["compatible"] is True
@@ -1477,7 +1643,7 @@ def test_make_dry_run_and_json_share_a_versioned_result(
     assert main(["make", "feature", "notes", "--dry-run", "--json"]) == 0
     planned = json.loads(capsys.readouterr().out)
 
-    assert planned["schema_version"] == 6
+    assert planned["schema_version"] == 7
     assert planned["ok"] is True
     assert planned["dry_run"] is True
     assert planned["artifact"] == "feature"
@@ -1525,7 +1691,7 @@ def test_make_json_reports_errors_without_writing(
     assert main(["make", "feature", "notes", "--json"]) == 1
 
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == 6
+    assert result["schema_version"] == 7
     assert result["ok"] is False
     assert result["files"] == []
     assert "app/features/ not found" in result["error"]
@@ -2189,7 +2355,7 @@ def test_routes_json_emits_a_machine_readable_map(
     assert main(["routes", "--json"]) == 0
 
     result = cast(dict[str, Any], json.loads(capsys.readouterr().out))
-    assert result["schema_version"] == 6
+    assert result["schema_version"] == 7
     assert result["root"] == str(EXAMPLE_DIR)
     entries = cast(list[dict[str, Any]], result["routes"])
     assert entries

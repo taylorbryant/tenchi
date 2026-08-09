@@ -36,11 +36,14 @@ IDEMPOTENCY_IN_PROGRESS = ErrorDef(code='IDEMPOTENCY_IN_PROGRESS', status=409, m
 IdempotencyResultError (re-export of tenchi.idempotency.IdempotencyResultError)
 IdempotencyStore (re-export of tenchi.idempotency.IdempotencyStore)
 IdempotencyStoreError (re-export of tenchi.idempotency.IdempotencyStoreError)
+JOB_MANIFEST_VERSION = 1
 Job (re-export of tenchi.jobs.Job)
 JobBindingError (re-export of tenchi.jobs.JobBindingError)
 JobDispatcher (re-export of tenchi.jobs.JobDispatcher)
 JobGroup (re-export of tenchi.jobs.JobGroup)
 JobHandler (re-export of tenchi.jobs.JobHandler)
+JobManifest (re-export of tenchi.jobs.JobManifest)
+JobManifestEntry (re-export of tenchi.jobs.JobManifestEntry)
 JobMessage (re-export of tenchi.jobs.JobMessage)
 JobNotFoundError (re-export of tenchi.jobs.JobNotFoundError)
 JobResultError (re-export of tenchi.jobs.JobResultError)
@@ -111,6 +114,7 @@ health_route (re-export of tenchi.health.health_route)
 job (re-export of tenchi.jobs.job)
 job_group (re-export of tenchi.jobs.job_group)
 job_handler (re-export of tenchi.jobs.job_handler)
+job_manifest (re-export of tenchi.jobs.job_manifest)
 job_message (re-export of tenchi.jobs.job_message)
 openapi_route (re-export of tenchi.openapi.openapi_route)
 openapi_schema (re-export of tenchi.openapi.openapi_schema)
@@ -169,7 +173,7 @@ class ClientResponse(Generic)
     definition: ResponseDef[Any, Any] | None = None
     def __init__(self, body: 'BodyT', headers: 'HeadersT', http_response: 'httpx.Response', definition: 'ResponseDef[Any, Any] | None' = None) -> None
 class UnexpectedResponseError(TenchiError)
-    def __init__(self, *, contract_name: 'str', status_code: 'int', body: 'Any', reason: 'str | None' = None) -> 'None'
+    def __init__(self, *, contract_name: 'str', status_code: 'int', reason: 'str | None' = None) -> 'None'
 
 # tenchi.compatibility
 class CompatibilityChange
@@ -185,10 +189,12 @@ class CompatibilityReport
     def count(self, severity: 'ChangeSeverity') -> 'int'
     property status(self) -> 'CompatibilityStatus'
 def analyze_evaluation_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
+def analyze_job_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
 def analyze_openapi_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
 def analyze_tool_compatibility(baseline: 'object', current: 'object') -> 'CompatibilityReport'
 def render_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
 def render_evaluation_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
+def render_job_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
 def render_tool_compatibility_report(report: 'CompatibilityReport', *, baseline_path: 'str') -> 'str'
 
 # tenchi.contracts
@@ -394,6 +400,7 @@ def fingerprint(value: 'Any', *, annotation: 'Any' = UNSET) -> 'str'
 def run_idempotently(store: 'IdempotencyStore', *, namespace: 'str', scope: 'str', key: 'str', fingerprint: 'str', result_type: 'Any', operation: 'Callable[[], Awaitable[ResultT]]', completed_ttl: 'float | None' = None, reservation_ttl: 'float' = 300.0) -> 'ResultT'
 
 # tenchi.jobs
+JOB_MANIFEST_VERSION = 1
 class Job(Generic)
     name: str
     description: str | None
@@ -413,6 +420,8 @@ class JobHandler(Generic)
     job: Job[RequestT, ResultT]
     use_case: Callable[..., Awaitable[ResultT]]
     def __init__(self, job: 'Job[RequestT, ResultT]', use_case: 'Callable[..., Awaitable[ResultT]]') -> None
+class JobManifest(dict)
+class JobManifestEntry(dict)
 class JobMessage
     name: str
     payload_json: bytes
@@ -423,6 +432,7 @@ def create_job_dispatcher(*, jobs: 'JobGroup', use_case_observers: 'Sequence[Use
 def job(name: 'str', *, request: 'type[Any] | UnionType', result: 'type[Any] | UnionType | None', description: 'str | None' = None) -> 'Job[Any, Any]'
 def job_group(*items: 'JobHandler[Any, Any] | JobGroup | Sequence[JobHandler[Any, Any]]') -> 'JobGroup'
 def job_handler(declaration: 'Job[RequestT, ResultT]', use_case: 'Callable[..., Awaitable[ResultT]]') -> 'JobHandler[RequestT, ResultT]'
+def job_manifest(jobs: 'JobGroup') -> 'JobManifest'
 def job_message(declaration: 'Job[RequestT, ResultT]', request: 'RequestT') -> 'JobMessage'
 
 # tenchi.mcp

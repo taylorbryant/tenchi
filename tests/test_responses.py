@@ -1,17 +1,17 @@
 """Named response variants and controlled response passthrough."""
 
 from dataclasses import dataclass
-from typing import assert_type
+from typing import assert_type, cast
 
 import httpx
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from starlette.responses import Response, StreamingResponse
 
 from tenchi.cli import route_map
 from tenchi.client import Client, ClientResponse, UnexpectedResponseError
 from tenchi.contracts import Contract, contract
-from tenchi.errors import ERROR_SOURCE_HEADER, ConfigurationError
+from tenchi.errors import ERROR_SOURCE_HEADER, AppError, ConfigurationError, ErrorDef
 from tenchi.openapi import openapi_schema
 from tenchi.responses import PresentedResponse, ResponseDef, present, response
 from tenchi.routes import RouteBindingError, route, route_group
@@ -571,6 +571,145 @@ def test_route_requires_a_typed_synchronous_presenter() -> None:
             save_item,
             present=async_presenter,  # type: ignore[arg-type]
         )
+
+
+async def test_declared_app_error_from_presenter_uses_the_normal_error_boundary() -> (
+    None
+):
+    presentation_failed = ErrorDef(
+        code="PRESENTATION_FAILED",
+        status=409,
+        message="Presentation failed",
+    )
+    selected = response(Item, status=200)
+    declared = contract(
+        method="GET",
+        path="/presented-error",
+        responses=(selected,),
+        errors=(presentation_failed,),
+    )
+
+    async def read(context: object) -> Item:
+        return Item(name="private")
+
+    def fail(result: Item) -> PresentedResponse:
+        raise AppError(presentation_failed)
+
+    app = create_app(
+        routes=route_group(route(declared, read, present=fail)),
+        context_factory=object,
+    )
+    async with open_http(app) as http:
+        result = await http.get("/presented-error")
+
+    assert result.status_code == 409
+    assert result.headers[ERROR_SOURCE_HEADER] == "app"
+    assert result.json()["code"] == "PRESENTATION_FAILED"
+
+
+async def test_declared_app_error_from_header_projector_uses_error_boundary() -> None:
+    projection_failed = ErrorDef(
+        code="PROJECTION_FAILED",
+        status=409,
+        message="Projection failed",
+    )
+    declared = contract(
+        method="GET",
+        path="/projected-error",
+        response=Item,
+        response_headers=CreatedHeaders,
+        errors=(projection_failed,),
+    )
+
+    async def read(context: object) -> Item:
+        return Item(name="private")
+
+    def fail(result: Item) -> CreatedHeaders:
+        raise AppError(projection_failed)
+
+    app = create_app(
+        routes=route_group(route(declared, read, response_headers=fail)),
+        context_factory=object,
+    )
+    async with open_http(app) as http:
+        result = await http.get("/projected-error")
+
+    assert result.status_code == 409
+    assert result.headers[ERROR_SOURCE_HEADER] == "app"
+    assert result.json()["code"] == "PROJECTION_FAILED"
+
+
+async def test_undeclared_app_error_from_presenter_remains_framework_owned() -> None:
+    presentation_failed = ErrorDef(
+        code="PRESENTATION_FAILED",
+        status=409,
+        message="Presentation failed",
+    )
+    selected = response(Item, status=200)
+    declared = contract(
+        method="GET",
+        path="/undeclared-presented-error",
+        responses=(selected,),
+    )
+
+    async def read(context: object) -> Item:
+        return Item(name="private")
+
+    def fail(result: Item) -> PresentedResponse:
+        raise AppError(presentation_failed)
+
+    app = create_app(
+        routes=route_group(route(declared, read, present=fail)),
+        context_factory=object,
+    )
+    async with open_http(app) as http:
+        result = await http.get("/undeclared-presented-error")
+
+    assert result.status_code == 500
+    assert result.headers[ERROR_SOURCE_HEADER] == "framework"
+    assert result.json()["code"] == "INTERNAL_SERVER_ERROR"
+
+
+async def test_app_error_from_response_validation_is_a_contract_violation() -> None:
+    validation_failed = ErrorDef(
+        code="VALIDATION_FAILED",
+        status=409,
+        message="Validation failed",
+    )
+
+    class ValidatedItem(BaseModel):
+        name: str
+
+        @model_validator(mode="after")
+        def reject(self) -> "ValidatedItem":
+            raise AppError(validation_failed)
+
+    declared = contract(
+        method="GET",
+        path="/invalid-presented-response",
+        responses=(response(ValidatedItem, status=200),),
+        errors=(validation_failed,),
+    )
+
+    async def read(context: object) -> Item:
+        return Item(name="private")
+
+    def present_invalid(result: Item) -> PresentedResponse:
+        return present(
+            cast(ResponseDef[ValidatedItem, None], declared.responses[0]),
+            cast(ValidatedItem, {"name": result.name}),
+        )
+
+    app = create_app(
+        routes=route_group(route(declared, read, present=present_invalid)),
+        context_factory=object,
+    )
+    async with open_http(app) as http:
+        result = await http.get("/invalid-presented-response")
+
+    assert result.status_code == 500
+    assert result.headers[ERROR_SOURCE_HEADER] == "framework"
+    assert result.json()["code"] == "INTERNAL_SERVER_ERROR"
 
 
 def test_present_rejects_wrong_channels_at_construction() -> None:

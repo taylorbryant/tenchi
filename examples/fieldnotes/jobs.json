@@ -1,0 +1,22 @@
+{
+  "jobs": [
+    {
+      "description": "Split one saved source into searchable passages.",
+      "input_schema": {
+        "properties": {
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "title": "IndexSource",
+        "type": "object"
+      },
+      "name": "knowledge.index_source"
+    }
+  ],
+  "schema_version": 1
+}

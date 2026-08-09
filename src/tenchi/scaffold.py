@@ -62,6 +62,9 @@ uv run tenchi eval snapshot --diff evaluations.json
 uv run tenchi eval snapshot --check evaluations.json
 uv run tenchi eval snapshot --write evaluations.json
 uv run tenchi task list # discover operational tasks
+uv run tenchi jobs --diff jobs.json
+uv run tenchi jobs --check jobs.json
+uv run tenchi jobs --write jobs.json
 uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
 uv run tenchi tools --diff tools.json
 uv run tenchi tools --check tools.json
@@ -77,7 +80,8 @@ CI, the generated workflow uses `--diff-ref` to compare against the pull
 request's base commit rather than the snapshot committed in the same change.
 Use the same diff-before-write workflow for `tools.json`; it protects the
 machine-facing names, schemas, errors, and safety annotations exposed by the
-application. Use that workflow for `evaluations.json` too; it protects the
+application. Use it for `jobs.json` to protect durable producer-to-consumer
+message schemas. Use that workflow for `evaluations.json` too; it protects the
 payload-free cases, metrics, thresholds, timeouts, budgets, and suite kinds
 without running evaluators. After accepting any snapshot updates, run `tenchi
 verify --base-ref <ref>` to rerun the checks and record architecture plus all
@@ -122,23 +126,24 @@ Framework agent workflow: https://tenchi.io/agents
    check, architecture diagnostic, unresolved relationship, or incompatible
    boundary as unfinished work.
 
-Use `--json` with `tenchi map`, `tenchi routes`, `tenchi tools`, `tenchi
-preflight`, `tenchi eval list|run`, `tenchi task`, `tenchi doctor`, `tenchi
-check`, `tenchi verify`, and `tenchi make ...` when structured output is more
-useful than terminal text. On an expected failure before the command can build
-its normal result, parse the versioned `operation_error` object from stdout and
-branch on its stable `code`; the process still exits nonzero.
+Use `--json` with `tenchi map`, `tenchi routes`, `tenchi jobs`, `tenchi tools`,
+`tenchi preflight`, `tenchi eval list|run`, `tenchi task`, `tenchi doctor`,
+`tenchi check`, `tenchi verify`, and `tenchi make ...` when structured output is
+more useful than terminal text. On an expected failure before the command can
+build its normal result, parse the versioned `operation_error` object from
+stdout and branch on its stable `code`; the process still exits nonzero.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
-`app_map`, `routes`, `tools`, `preflight`, `evaluation_list`, `task_list`,
-`doctor`, `openapi_diff`, `tools_diff`, `evaluation_diff`, `make_preview`,
-`check`, and `verify` tools return the same versioned results. Inspection and
-preview tools never write application files; `check` and `verify` run the
-project's normal validation commands. Run `preflight` only against the intended
-environment. Task execution is not exposed unless an operator starts the
-server with `--allow-task-runs`. Evaluation execution is not exposed unless an
-operator deliberately starts the server with `--allow-evaluation-runs`. The
-agent still makes ordinary, reviewable source edits.
+`app_map`, `routes`, `jobs`, `tools`, `preflight`, `evaluation_list`,
+`task_list`, `doctor`, `openapi_diff`, `jobs_diff`, `tools_diff`,
+`evaluation_diff`, `make_preview`, `check`, and `verify` tools return the same
+versioned results. Inspection and preview tools never write application files;
+`check` and `verify` run the project's normal validation commands. Run
+`preflight` only against the intended environment. Task execution is not
+exposed unless an operator starts the server with `--allow-task-runs`.
+Evaluation execution is not exposed unless an operator deliberately starts the
+server with `--allow-evaluation-runs`. The agent still makes ordinary,
+reviewable source edits.
 
 ## Placement and dependency direction
 
@@ -215,6 +220,13 @@ explicitly because it may call providers and incur cost.
   declarations in that module.
 - Run `tenchi tools --diff tools.json` before replacing the application-tool
   snapshot with `tenchi tools --write tools.json`.
+- Run `tenchi jobs --diff jobs.json` before replacing the durable job-message
+  snapshot with `tenchi jobs --write jobs.json`; use a new job name when an
+  existing consumer cannot read both old and new queued payloads.
+- Treat a missing historical job snapshot as an error. Only during first
+  adoption, explicitly pass `--allow-missing-baseline` to `jobs --diff-ref` and
+  confirm the result records a `job manifest baseline` metadata change. Use
+  `--allow-missing-job-baseline` with `verify` only for that adoption.
 - Run `tenchi eval snapshot --diff evaluations.json` before replacing the
   evaluation-policy snapshot with `tenchi eval snapshot --write
   evaluations.json`.
@@ -222,7 +234,7 @@ explicitly because it may call providers and incur cost.
   first adoption, explicitly pass `--allow-missing-baseline` to `eval snapshot`
   and confirm the result records an `evaluation manifest baseline` metadata
   change. Use `--allow-missing-evaluation-baseline` with `verify` only when the
-  selected ref already contains the OpenAPI and tool snapshots.
+  selected ref already contains the OpenAPI, job, and tool snapshots.
 - After accepting snapshot changes, run `tenchi verify --base-ref <ref>` with a
   historical ref and retain its complete pass/fail receipt.
 - Do not hand-edit generated files into a different application structure to
@@ -709,6 +721,14 @@ def test_tool_snapshot_is_current() -> None:
     assert main(["tools", "--check", "tools.json"]) == 0
 """
 
+_JOBS_TEST = """\
+from tenchi.cli import main
+
+
+def test_job_snapshot_is_current() -> None:
+    assert main(["jobs", "--check", "jobs.json"]) == 0
+"""
+
 _EVALUATIONS_TEST = """\
 from tenchi.cli import main
 
@@ -752,6 +772,13 @@ _TOOLS_SNAPSHOT = """\
 {
   "schema_version": 1,
   "tools": []
+}
+"""
+
+_JOBS_SNAPSHOT = """\
+{
+  "jobs": [],
+  "schema_version": 1
 }
 """
 
@@ -1115,6 +1142,7 @@ _FILES: dict[str, str] = {
     ".gitignore": _GITIGNORE,
     ".github/workflows/ci.yml": _CI_WORKFLOW,
     "openapi.json": _OPENAPI_SNAPSHOT,
+    "jobs.json": _JOBS_SNAPSHOT,
     "tools.json": _TOOLS_SNAPSHOT,
     "evaluations.json": _EVALUATIONS_SNAPSHOT,
     "app/__init__.py": "",
@@ -1152,6 +1180,7 @@ _FILES: dict[str, str] = {
     "app/shared/errors.py": _SHARED_ERRORS,
     "tests/test_http.py": _HTTP_TEST,
     "tests/test_openapi_snapshot.py": _OPENAPI_TEST,
+    "tests/test_job_snapshot.py": _JOBS_TEST,
     "tests/test_evaluation_snapshot.py": _EVALUATIONS_TEST,
     "tests/test_tool_snapshot.py": _TOOLS_TEST,
 }

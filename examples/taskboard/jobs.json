@@ -1,0 +1,33 @@
+{
+  "jobs": [
+    {
+      "description": "Notify a user after project membership is committed.",
+      "input_schema": {
+        "description": "Payload of the ``projects.member_added`` outbox job.\n\nThe job declaration is shared by the producer and consumer. The payload\nis self-contained, so delivery does not re-read state that may have\nchanged (or vanished) since enqueue time.",
+        "properties": {
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "user_id"
+        ],
+        "title": "MemberAdded",
+        "type": "object"
+      },
+      "name": "projects.member_added"
+    }
+  ],
+  "schema_version": 1
+}

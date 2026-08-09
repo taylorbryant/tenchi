@@ -3,8 +3,8 @@ import { Callout } from "@/components/callout";
 # Connect an MCP-aware coding agent
 
 Tenchi's MCP server gives a coding agent structured access to the application
-map, route table, registered application-tool contract, architecture
-diagnostics, generator previews, OpenAPI, tool, and evaluation-policy
+map, route table, registered job and application-tool contracts, architecture
+diagnostics, generator previews, OpenAPI, job, tool, and evaluation-policy
 compatibility, deployment preflight, evaluation discovery, operational-task
 discovery, and the complete validation loop.
 Inspection and preview tools do not edit application files; `check` runs the
@@ -54,7 +54,7 @@ resource supplies a short fallback workflow and a link to the full coding-agent
 guide.
 
 The server captures one application root when it starts. Every tool operates
-inside that root, and OpenAPI, application-tool, and evaluation-policy snapshot
+inside that root, and OpenAPI, job-message, application-tool, and evaluation-policy snapshot
 paths cannot escape it. Inspection tools reload the application's source for
 each call, so a server that stays open sees edits made during the agent session.
 
@@ -65,16 +65,18 @@ each call, so a server that stays open sees edits made during the agent session.
 | `app_map` | Versioned nodes, relationships, evidence, diagnostics, and unresolved references; accepts feature and node-kind projections |
 | `routes` | The composed route table with use cases, responses, errors, access metadata, and runtime limits |
 | `tools` | The registered application-tool manifest with input/output schemas, declared errors, and safety annotations |
+| `jobs` | The registered durable job-message manifest with names and input schemas but no queued payloads |
 | `doctor` | Source-anchored architecture and dependency diagnostics |
 | `preflight` | Read-only, timeout-bounded observations of the target deployment environment with redacted results |
 | `evaluation_list` | Evaluation names, case names and schemas, metric thresholds, timeouts, and budgets without case inputs |
 | `task_list` | Registered operational tasks with validated input and output JSON Schemas |
 | `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true` |
 | `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
+| `jobs_diff` | A directional compatibility report against `jobs.json`, another project snapshot, or that snapshot at a Git ref |
 | `tools_diff` | A directional compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
 | `evaluation_diff` | A payload-free compatibility report against `evaluations.json`, another project snapshot, or that snapshot at a Git ref; missing Git snapshots fail unless first adoption is explicit, and evaluators never run |
-| `verify` | One completion receipt containing checks, strict architecture evidence, and all three compatibility reports against a required Git ref |
-| `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI, tool, and evaluation-policy snapshot checks |
+| `verify` | One completion receipt containing checks, strict architecture evidence, and all four compatibility reports against a required Git ref |
+| `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI, job, tool, and evaluation-policy snapshot checks |
 
 `task_run` is absent by default. Start the server with
 `--allow-task-runs` to expose it:
@@ -107,7 +109,7 @@ credentials. See [deployment preflight](/preflight) for the application-side
 contract and redaction boundary.
 
 Every tool returns structured content with a `schema_version`. A doctor
-finding, failed check, generator conflict, or incompatible API, tool, or
+finding, failed check, generator conflict, or incompatible API, job, tool, or
 evaluation policy is a valid result with `ok: false` or `compatible: false`;
 malformed arguments and unreadable or unsafe paths are MCP errors. Tenchi
 snapshots every tool's input and output schema in CI; breaking or unknown
@@ -131,9 +133,10 @@ For a feature change, give the agent this sequence:
 4. Edit ordinary Python files through the agent's normal filesystem tools.
 5. Call `check` and resolve every failed step.
 6. Call `openapi_diff` before accepting a changed OpenAPI snapshot.
-7. Call `tools_diff` before accepting a changed application-tool snapshot.
-8. Call `evaluation_diff` before accepting a changed evaluation-policy snapshot.
-9. Call `verify` with the pull request base, previous push, or previous release
+7. Call `jobs_diff` before accepting a changed durable job-message snapshot.
+8. Call `tools_diff` before accepting a changed application-tool snapshot.
+9. Call `evaluation_diff` before accepting a changed evaluation-policy snapshot.
+10. Call `verify` with the pull request base, previous push, or previous release
    and retain its completion receipt.
 
 The agent must still make route and infrastructure wiring explicit in the
@@ -156,6 +159,7 @@ uv run tenchi mcp \
   --jobs my_app.server.jobs:jobs \
   --tools my_app.server.tools:tools \
   --snapshot api/openapi.json \
+  --job-snapshot api/jobs.json \
   --tool-snapshot api/tools.json \
   --evaluation-snapshot api/evaluations.json \
   --title "My API" \
@@ -164,18 +168,23 @@ uv run tenchi mcp \
 
 `routes` uses `--routes`. The map, OpenAPI diff, `check`, and `verify` tools use
 `--api-routes`; `preflight` uses `--preflight`; the task tools use `--tasks`.
+The map loads registered background jobs through `--jobs` and registered
+application tools through `--tools`. Tool discovery and compatibility also use
+`--tools`; `tools_diff`, `check`, and `verify` use `--tool-snapshot`.
+Job discovery and compatibility use `--jobs`; `jobs_diff`, `check`, and
+`verify` use `--job-snapshot`.
+Both `jobs_diff` and `verify` reject a missing historical job snapshot by
+default. Use `allow_missing_baseline` on `jobs_diff`, or
+`allow_missing_job_baseline` on `verify`, for the one first-adoption comparison.
 The evaluation tools use `--evaluations`; `evaluation_diff`, `check`, and
 `verify` use `--evaluation-snapshot`.
 Both `evaluation_diff` and `verify` reject a missing historical evaluation
 snapshot by default. A human may set `allow_missing_baseline` on
 `evaluation_diff`, or `allow_missing_evaluation_baseline` on `verify`, for the
 one first-adoption comparison. The `verify` override applies only when the
-selected ref already contains the OpenAPI and tool snapshots. The returned
+selected ref already contains the OpenAPI, job, and tool snapshots. The returned
 policy result records an `evaluation manifest baseline` metadata change; do
 not authorize this for a renamed or mistyped path.
-The map loads registered background jobs through `--jobs` and registered
-application tools through `--tools`. Tool discovery and compatibility also use
-`--tools`; `tools_diff`, `check`, and `verify` use `--tool-snapshot`.
 OpenAPI title, version,
 description, and security defaults come from the same literal route-module
 declarations used by `tenchi check`.

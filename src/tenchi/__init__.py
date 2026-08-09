@@ -62,11 +62,14 @@ from .idempotency import (
     run_idempotently,
 )
 from .jobs import (
+    JOB_MANIFEST_VERSION,
     Job,
     JobBindingError,
     JobDispatcher,
     JobGroup,
     JobHandler,
+    JobManifest,
+    JobManifestEntry,
     JobMessage,
     JobNotFoundError,
     JobResultError,
@@ -74,6 +77,7 @@ from .jobs import (
     job,
     job_group,
     job_handler,
+    job_manifest,
     job_message,
 )
 from .openapi import openapi_route, openapi_schema, swagger_ui_route
@@ -137,12 +141,13 @@ from .webhooks import (
     webhook,
 )
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 __all__ = [
     "EVALUATION_MANIFEST_VERSION",
     "IDEMPOTENCY_CONFLICT",
     "IDEMPOTENCY_IN_PROGRESS",
+    "JOB_MANIFEST_VERSION",
     "MAX_EVALUATION_TOKENS",
     "RATE_LIMITED",
     "TOOL_MANIFEST_VERSION",
@@ -185,6 +190,8 @@ __all__ = [
     "JobDispatcher",
     "JobGroup",
     "JobHandler",
+    "JobManifest",
+    "JobManifestEntry",
     "JobMessage",
     "JobNotFoundError",
     "JobResultError",
@@ -253,6 +260,7 @@ __all__ = [
     "job",
     "job_group",
     "job_handler",
+    "job_manifest",
     "job_message",
     "openapi_route",
     "openapi_schema",

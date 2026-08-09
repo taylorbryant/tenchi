@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from email.utils import format_datetime
 from time import perf_counter
 from types import MappingProxyType
-from typing import Any, Literal, cast, overload
+from typing import Any, Literal, Never, cast, overload
 from uuid import uuid4
 
 from pydantic import TypeAdapter, ValidationError
@@ -149,6 +149,20 @@ class _ResponseContractViolation(Exception):
     back, exactly as for any other internal error, before the 500 is
     built.
     """
+
+
+def _raise_response_contract_violation(
+    contract: Contract[Any, Any],
+    request_id: str,
+    exc: BaseException,
+) -> Never:
+    logger.exception(
+        "Response from %s does not match its declared successful response "
+        "[request_id=%s]",
+        contract.name,
+        request_id,
+    )
+    raise _ResponseContractViolation from exc
 
 
 class _BodyTooLarge(Exception):
@@ -461,7 +475,7 @@ def create_app(
     for runtime_route in runtime_routes:
         runtime_route.bind_peers(runtime_routes)
 
-    return Starlette(
+    application = Starlette(
         routes=runtime_routes,
         middleware=list(middleware),
         lifespan=_starlette_lifespan(lifespan, state) if lifespan else None,
@@ -470,6 +484,11 @@ def create_app(
             Exception: _handle_unexpected_exception,
         },
     )
+    # Contract paths are exact. Starlette's implicit slash redirects bypass
+    # Tenchi's error envelope and request-id boundary, so unmatched variants
+    # must flow through the normal framework-owned 404 handler instead.
+    application.router.redirect_slashes = False
+    return application
 
 
 def _context_factory_takes_state(context_factory: ContextFactory) -> bool:
@@ -1267,34 +1286,55 @@ def _make_endpoint(
             if use_case_call is None
             else await use_case_call.invoke(**kwargs)
         )
-        try:
-            if bound.responses:
-                presenter = bound.route.presenter
-                assert presenter is not None
+        if bound.responses:
+            presenter = bound.route.presenter
+            assert presenter is not None
+            try:
+                presented = presenter(result)
+            except AppError:
+                raise
+            except Exception as exc:
+                _raise_response_contract_violation(contract, request_id, exc)
+            try:
                 return _presented_response(
                     bound,
-                    presenter(result),
+                    presented,
                     request_id=request_id,
                 )
+            except Exception as exc:
+                _raise_response_contract_violation(contract, request_id, exc)
 
+        try:
             validated, payload = _validated_payload(
                 bound.response_adapter,
                 result,
                 media_type=contract.response_media_type,
             )
-            response_headers: dict[str, str] = {REQUEST_ID_HEADER: request_id}
-            if bound.response_headers_adapter is not None:
-                projector = bound.route.response_headers
-                assert projector is not None
+        except Exception as exc:
+            _raise_response_contract_violation(contract, request_id, exc)
+        response_headers: dict[str, str] = {REQUEST_ID_HEADER: request_id}
+        if bound.response_headers_adapter is not None:
+            projector = bound.route.response_headers
+            assert projector is not None
+            try:
+                projected_headers = projector(validated)
+            except AppError:
+                raise
+            except Exception as exc:
+                _raise_response_contract_violation(contract, request_id, exc)
+            try:
                 response_headers.update(
                     _validated_response_headers(
                         bound.response_headers_adapter,
                         bound.response_header_names,
                         bound.required_response_headers,
-                        projector(validated),
+                        projected_headers,
                         label=f"route {contract.name!r}",
                     )
                 )
+            except Exception as exc:
+                _raise_response_contract_violation(contract, request_id, exc)
+        try:
             return _response_from_payload(
                 payload,
                 status=contract.status,
@@ -1302,13 +1342,7 @@ def _make_endpoint(
                 headers=response_headers,
             )
         except Exception as exc:
-            logger.exception(
-                "Response from %s does not match its declared successful response "
-                "[request_id=%s]",
-                contract.name,
-                request_id,
-            )
-            raise _ResponseContractViolation from exc
+            _raise_response_contract_violation(contract, request_id, exc)
 
     async def endpoint(request: Request) -> Response:
         started = perf_counter()

@@ -55,7 +55,7 @@ framework code, the CLI, docs, or the example apps.
   - `retries.py` — explicit bounded retry policies for transport failures,
     declared error codes, and selected raw HTTP statuses.
   - `jobs.py` — queue-neutral job declarations, messages, handler bindings,
-    and validated dispatch.
+    validated dispatch, and versioned durable-message manifests.
   - `tools.py` — transport-neutral application-tool declarations, explicit
     use-case bindings, lifecycle-aware execution, and deterministic manifests.
   - `evaluations.py` — provider-neutral typed evaluation cases, metrics,
@@ -66,12 +66,13 @@ framework code, the CLI, docs, or the example apps.
     function; `openapi_route` serves it and `swagger_ui_route` serves an
     optional interactive UI through Tenchi's own machinery).
   - `compatibility.py` — conservative compatibility analysis for
-    Tenchi-generated OpenAPI documents, application-tool manifests, and
-    evaluation-policy manifests.
+    Tenchi-generated OpenAPI documents, job-message manifests, application-tool
+    manifests, and evaluation-policy manifests.
   - `_schema_compatibility.py` — directional JSON Schema comparison used by
     the compatibility analyzer.
-  - `snapshots.py` — canonical OpenAPI, application-tool, and evaluation-policy
-    snapshot rendering and readable drift diagnostics used by the CLI.
+  - `snapshots.py` — canonical OpenAPI, job-message, application-tool, and
+    evaluation-policy snapshot rendering and readable drift diagnostics used
+    by the CLI.
   - `doctor.py` — dependency-direction and structure checks.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
   - `_agent_protocol.py` — the authoritative result-name adapters used for
@@ -344,6 +345,15 @@ snapshot; breaking or unknown changes require a version bump and a new snapshot.
 `tools --diff-ref` use one canonical manifest format. Checked-in example and
 generated-app snapshots must be reproducible; compare against a historical
 baseline before replacing the snapshot.
+Job-message manifests have their own `JOB_MANIFEST_VERSION` and retained
+versioned schema snapshots. `jobs --write`, `jobs --check`, `jobs --diff`, and
+Git-backed `jobs --diff-ref` use one canonical, payload-free manifest. Removing
+a job or narrowing its accepted input is breaking because durable queues may
+still contain older messages. `check` performs exact drift checking and
+`verify` compares the manifest with the historical Git baseline. Every
+`job_message()` serialization must satisfy the published input schema and pass
+strict consumer revalidation. Compatibility proves that the new consumer can
+read historical messages; deploy compatible consumers before new producers.
 The public `tenchi.mcp` module is a separate adapter for an application's own
 `ToolGroup`. Its MCP schemas and structured result envelope have their own
 version and immutable snapshots; the coding-agent protocol version does not
@@ -376,10 +386,12 @@ idempotency-key guarantee is breaking; adding one is additive only when its
 required header already exists compatibly.
 `verify --base-ref <ref>` resolves the ref once, runs `check`, requires an
 application map with no diagnostics or unresolved relationships, and compares
-OpenAPI, application-tool, and evaluation-policy snapshots with that immutable
-commit. It never writes snapshots. A missing evaluation snapshot requires the
-explicit `--allow-missing-evaluation-baseline` first-adoption override. The CLI
-and coding-agent MCP tool return the same versioned receipt and propagate
+OpenAPI, job-message, application-tool, and evaluation-policy snapshots with
+that immutable commit. It never writes snapshots. A missing job snapshot
+requires the explicit `--allow-missing-job-baseline` first-adoption override. A
+missing evaluation snapshot requires the explicit
+`--allow-missing-evaluation-baseline` first-adoption override. The CLI and
+coding-agent MCP tool return the same versioned receipt and propagate
 cancellation to the active check subprocess.
 
 ## Testing conventions
@@ -454,3 +466,9 @@ additive change, regenerate with `TENCHI_UPDATE_EVALUATION_MANIFEST_SNAPSHOT=1
 uv run pytest tests/test_evaluations.py` and review the canonical JSON Schema
 diff. Breaking or unknown changes require bumping `EVALUATION_MANIFEST_VERSION`
 and creating a new snapshot; retain earlier versions.
+
+Job-manifest schema changes fail `tests/test_jobs.py`. For an additive change,
+regenerate with `TENCHI_UPDATE_JOB_MANIFEST_SNAPSHOT=1 uv run pytest
+tests/test_jobs.py` and review the canonical JSON Schema diff. Breaking or
+unknown changes require bumping `JOB_MANIFEST_VERSION`, creating a new
+snapshot, and retaining earlier versions.

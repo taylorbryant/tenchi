@@ -37,7 +37,13 @@ route(
 
 The synchronous header projector keeps HTTP metadata out of the use case.
 Tenchi checks that its return annotation and fixed scalar fields match the
-contract at composition time.
+contract at composition time. A required response-header field cannot accept
+`None`, because a null value has no HTTP header representation. Make the field
+optional when omitting the header is valid.
+
+Presenters and header projectors may raise a declared `AppError`. It uses the
+same application-error response as an error raised by the use case; undeclared
+errors remain framework-owned 500 responses.
 
 ## Status-dependent responses
 

@@ -4,7 +4,7 @@ import asyncio
 
 import httpx
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from tenchi.client import (
     Client,
@@ -376,7 +376,7 @@ async def test_retries_transport_errors_but_not_invalid_responses() -> None:
         return httpx.Response(200, json={"wrong": "shape"})
 
     async with Client(transport=httpx.MockTransport(invalid)) as client:
-        with pytest.raises(ValidationError):
+        with pytest.raises(UnexpectedResponseError):
             await client.call(get_item, retry=policy)
     assert requests == 1
 

@@ -25,6 +25,11 @@ def render_tool_snapshot(manifest: Mapping[str, object]) -> str:
     return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
 
 
+def render_job_snapshot(manifest: Mapping[str, object]) -> str:
+    """Render a durable job-message manifest in its canonical format."""
+    return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+
+
 def render_evaluation_snapshot(manifest: Mapping[str, object]) -> str:
     """Render an evaluation-policy manifest in its canonical snapshot format."""
     return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
@@ -129,6 +134,18 @@ def tool_snapshot_diff(expected: str, actual: str, *, snapshot_path: str) -> str
             actual.splitlines(keepends=True),
             fromfile=snapshot_path,
             tofile="generated tools",
+        )
+    )
+
+
+def job_snapshot_diff(expected: str, actual: str, *, snapshot_path: str) -> str:
+    """Return a unified diff between stored and generated job snapshots."""
+    return "".join(
+        unified_diff(
+            expected.splitlines(keepends=True),
+            actual.splitlines(keepends=True),
+            fromfile=snapshot_path,
+            tofile="generated jobs",
         )
     )
 

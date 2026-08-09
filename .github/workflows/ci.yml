@@ -26,6 +26,9 @@ jobs:
       - name: Run tests
         env:
           TENCHI_AGENT_PROTOCOL_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          TENCHI_EVALUATION_MANIFEST_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          TENCHI_JOB_MANIFEST_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          TENCHI_TOOL_MANIFEST_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: uv run pytest
       - name: Verify todos source, architecture, and compatibility
         env:
@@ -35,8 +38,12 @@ jobs:
           if ! git cat-file -e "${BASE_SHA}:examples/todos/evaluations.json" 2>/dev/null; then
             evaluation_args+=(--allow-missing-evaluation-baseline)
           fi
+          job_args=()
+          if ! git cat-file -e "${BASE_SHA}:examples/todos/jobs.json" 2>/dev/null; then
+            job_args+=(--allow-missing-job-baseline)
+          fi
           uv run --directory examples/todos tenchi verify \
-            --base-ref "${BASE_SHA}" "${evaluation_args[@]}"
+            --base-ref "${BASE_SHA}" "${job_args[@]}" "${evaluation_args[@]}"
       # The taskboard example is a standalone project consuming tenchi as
       # a path dependency; it gets its own environment and checks.
       - name: Verify taskboard source, architecture, and compatibility
@@ -47,8 +54,12 @@ jobs:
           if ! git cat-file -e "${BASE_SHA}:examples/taskboard/evaluations.json" 2>/dev/null; then
             evaluation_args+=(--allow-missing-evaluation-baseline)
           fi
+          job_args=()
+          if ! git cat-file -e "${BASE_SHA}:examples/taskboard/jobs.json" 2>/dev/null; then
+            job_args+=(--allow-missing-job-baseline)
+          fi
           uv run --directory examples/taskboard tenchi verify \
-            --base-ref "${BASE_SHA}" "${evaluation_args[@]}"
+            --base-ref "${BASE_SHA}" "${job_args[@]}" "${evaluation_args[@]}"
       - name: Verify Fieldnotes source, architecture, and compatibility
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
@@ -63,5 +74,9 @@ jobs:
           if ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/evaluations.json" 2>/dev/null; then
             evaluation_args+=(--allow-missing-evaluation-baseline)
           fi
+          job_args=()
+          if ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/jobs.json" 2>/dev/null; then
+            job_args+=(--allow-missing-job-baseline)
+          fi
           uv run --directory examples/fieldnotes tenchi verify \
-            --base-ref "${BASE_SHA}" "${evaluation_args[@]}"
+            --base-ref "${BASE_SHA}" "${job_args[@]}" "${evaluation_args[@]}"

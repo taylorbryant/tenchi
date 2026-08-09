@@ -14,6 +14,7 @@ from tenchi import (
     EVALUATION_MANIFEST_VERSION,
     IDEMPOTENCY_CONFLICT,
     IDEMPOTENCY_IN_PROGRESS,
+    JOB_MANIFEST_VERSION,
     MAX_EVALUATION_TOKENS,
     RATE_LIMITED,
     TOOL_MANIFEST_VERSION,
@@ -56,6 +57,8 @@ from tenchi import (
     JobDispatcher,
     JobGroup,
     JobHandler,
+    JobManifest,
+    JobManifestEntry,
     JobMessage,
     JobNotFoundError,
     JobResultError,
@@ -124,6 +127,7 @@ from tenchi import (
     job,
     job_group,
     job_handler,
+    job_manifest,
     job_message,
     openapi_route,
     openapi_schema,
@@ -171,7 +175,7 @@ expected application failures.
 | `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver`, `ContextFactory`, `Lifespan`, `DEFAULT_MAX_REQUEST_BYTES`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER` |
 | `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `UseCaseOutcome`, `UseCaseObserver` |
 | `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `MemoryIdempotencyStore`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
-| `tenchi.jobs` | `Job`, `JobMessage`, `JobHandler`, `JobGroup`, `JobDispatcher`, `JobBindingError`, `JobNotFoundError`, `JobResultError`, `job()`, `job_message()`, `job_handler()`, `job_group()`, `create_job_dispatcher()` |
+| `tenchi.jobs` | `Job`, `JobMessage`, `JobManifest`, `JobManifestEntry`, `JOB_MANIFEST_VERSION`, `JobHandler`, `JobGroup`, `JobDispatcher`, `JobBindingError`, `JobNotFoundError`, `JobResultError`, `job()`, `job_message()`, `job_handler()`, `job_group()`, `job_manifest()`, `create_job_dispatcher()` |
 | `tenchi.evaluations` | `EVALUATION_MANIFEST_VERSION`, `EvaluationManifest`, `EvaluationManifestEntry`, `EvaluationMetricManifest`, `Evaluation`, `EvaluationCase`, `EvaluationMetric`, `EvaluationMeasurement`, `EvaluationGroup`, `EvaluationRunner`, `EvaluationCaseOutcome`, `EvaluationCaseStatus`, `EvaluationMetricOutcome`, `EvaluationBudgetOutcome`, `EvaluationBudgetStatus`, `EvaluationKind`, `EvaluationOutcome`, `EvaluationReport`, `EvaluationBindingError`, `EvaluationNotFoundError`, `EvaluationResultError`, `MAX_EVALUATION_TOKENS`, `evaluation()`, `evaluation_case()`, `evaluation_metric()`, `evaluation_result()`, `evaluation_group()`, `evaluation_manifest()`, `create_evaluation_runner()` |
 | `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
 | `tenchi.rate_limits` | `RateLimitStore`, `RateLimitPermit`, `RateLimitExceeded`, `RateLimitDecision`, `RateLimitStoreError`, `MemoryRateLimitStore`, `RATE_LIMITED`, `enforce_rate_limit()` |
@@ -215,13 +219,13 @@ does not create an SDK, exporter, background worker, or shutdown lifecycle.
 | Module | Public names |
 | --- | --- |
 | `tenchi.openapi` | `openapi_schema()`, `openapi_route()`, `swagger_ui_route()` |
-| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `analyze_tool_compatibility()`, `analyze_evaluation_compatibility()`, `render_compatibility_report()`, `render_tool_compatibility_report()`, `render_evaluation_compatibility_report()` |
+| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `analyze_job_compatibility()`, `analyze_tool_compatibility()`, `analyze_evaluation_compatibility()`, `render_compatibility_report()`, `render_job_compatibility_report()`, `render_tool_compatibility_report()`, `render_evaluation_compatibility_report()` |
 | `tenchi.pagination` | `Page`, `PageQuery`, `page()` |
 | `tenchi.health` | `HealthCheck`, `HealthReport`, `health_route()` |
 
 Use the [`tenchi` CLI](/cli) for scaffolding, application inspection,
-architecture diagnostics, project checks, verification receipts, and OpenAPI
-application-tool, and evaluation-policy snapshots. Modules such as `tenchi.cli`,
+architecture diagnostics, project checks, verification receipts, and OpenAPI,
+job-message, application-tool, and evaluation-policy snapshots. Modules such as `tenchi.cli`,
 `tenchi.doctor`, `tenchi.scaffold`, and `tenchi.snapshots` implement that
 command surface; they are not supported application imports.
 
