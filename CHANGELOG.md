@@ -7,6 +7,14 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Changed
+
+- The public documentation now teaches one complete historical verification
+  loop, includes durable job manifests in agent, testing, and upgrade
+  workflows, distinguishes runtime settings from `tenchi.toml`, and uses one
+  description of Tenchi as a framework for production backends that humans and
+  coding agents can build and verify.
+
 ## [0.13.0] - 2026-08-09
 
 ### Added

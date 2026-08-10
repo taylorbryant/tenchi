@@ -7,6 +7,13 @@ application accepts traffic, and pass the resulting values into resource
 factories. Use cases and adapters should not read environment variables
 directly.
 
+<Callout title="Runtime settings and verification policy are separate">
+  This page covers values the running application consumes. The repository's
+  `tenchi.toml` does not hold runtime settings or secrets; it declares which
+  evidence [`tenchi verify`](/cli#verify-a-completed-change) must produce before
+  a change is complete.
+</Callout>
+
 ## Define a validated settings model
 
 Pydantic is already a Tenchi dependency, so a small application can validate

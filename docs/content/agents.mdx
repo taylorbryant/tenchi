@@ -22,12 +22,17 @@ prompt:
 Read AGENTS.md before editing. Run `uv run tenchi map` for the affected feature
 and inspect its diagnostics and unresolved references. Explain the intended
 files and relationships before changing them. Preview any generated structure
-with `uv run tenchi make --dry-run`. Implement the change without hiding
-explicit wiring, then run `uv run tenchi check`. If a contract changed, run the
-OpenAPI compatibility diff before updating its snapshot. If an application
-tool changed, run the tool compatibility diff before updating `tools.json`.
-If an evaluation policy changed, run the evaluation compatibility diff before
-updating `evaluations.json`.
+with the applicable command:
+`uv run tenchi make feature <name> --dry-run --json`
+`uv run tenchi make use-case <feature> <name> --dry-run --json`
+Implement the change without hiding explicit wiring, then run
+`uv run tenchi check`.
+If a contract changed, run the OpenAPI compatibility diff before updating its
+snapshot. If a durable job changed, run the job compatibility diff before
+updating `jobs.json`. If an application tool changed, run the tool
+compatibility diff before updating `tools.json`. If an evaluation policy
+changed, run the evaluation compatibility diff before updating
+`evaluations.json`.
 Finish with `uv run tenchi verify --base-ref <historical-ref> --json` and report
 the receipt with the files changed. Do not weaken `tenchi.toml` to make a
 failing requirement disappear.
@@ -48,7 +53,7 @@ complete application graph.
 | `tenchi map --json` | A versioned graph with stable node IDs, source locations, registration state, and relationship evidence |
 | `tenchi task list --json` | Validated operational task names and their input/output JSON Schemas |
 | `tenchi eval list --json` | Evaluation names, case names and schemas, thresholds, timeouts, and budgets without case inputs |
-| `tenchi make --dry-run --json` | A mutation preview with the files and follow-up wiring steps before anything is written |
+| `tenchi make <artifact> ... --dry-run --json` | A mutation preview with the files and follow-up wiring steps before anything is written |
 | `tenchi doctor --json` | Stable diagnostic codes and source locations for architectural violations |
 | `tenchi tools --json` | Registered machine-facing names, schemas, errors, and safety annotations |
 | `tenchi jobs --json` | Registered durable job names and payload schemas without queued values |
@@ -56,6 +61,7 @@ complete application graph.
 | `tenchi verify --base-ref <ref> --json` | One completion receipt tied to an immutable commit, including protected policy requirements, checks, strict architecture evidence, and all four compatibility reports |
 | `tenchi preflight --json` | Redacted, timeout-bounded evidence that the selected deployment environment is ready |
 | OpenAPI compatibility commands | A historical contract baseline that an agent cannot accidentally replace and then compare to itself |
+| Job compatibility commands | Directional proof that a new consumer still accepts durable messages created under the historical job contract |
 | Tool compatibility commands | Directional proof that machine-facing input, output, errors, and safety did not break existing callers |
 | Evaluation compatibility commands | Payload-free proof that cases, metrics, thresholds, timeouts, budgets, and suite kinds did not silently weaken the release gate |
 

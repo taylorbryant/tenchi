@@ -132,7 +132,7 @@ for behavior outside that contract: transaction rollback with application
 writes, migrations, cleanup, backend clock configuration, and coordination
 across the processes or hosts you deploy.
 
-## Keep OpenAPI reproducible
+## Keep boundary snapshots reproducible
 
 Generated applications include a test that runs:
 
@@ -146,6 +146,21 @@ def test_openapi_snapshot_is_current() -> None:
 
 This checks exact drift. Compatibility belongs in CI against a historical
 baseline; see [OpenAPI and compatibility](/openapi).
+
+Keep the durable job-message contract current too:
+
+```python
+from tenchi.cli import main
+
+
+def test_job_snapshot_is_current() -> None:
+    assert main(["jobs", "--check", "jobs.json"]) == 0
+```
+
+Run `tenchi jobs --diff jobs.json` before replacing the snapshot. The
+directional report proves that a new consumer can still read messages accepted
+under the historical manifest. See [Background jobs](/jobs) for the complete
+producer, consumer, and rollout workflow.
 
 Generated applications also keep the machine-facing tool contract current:
 

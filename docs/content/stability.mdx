@@ -8,23 +8,24 @@ shape.
 
 ## What is protected today
 
-Every change on `main` runs formatting, linting, strict Pyright, framework
-tests, standalone application tests, architecture checks, exact OpenAPI,
-job-message, application-tool, and evaluation-policy snapshots, and
-compatibility analysis against historical baselines.
+Tenchi gives each public surface an explicit compatibility boundary:
 
-The repository also snapshots public module signatures. An accidental API
-change fails CI; an intentional one must update the snapshot and changelog.
+- Public Python signatures are checked as part of every release. Intentional
+  changes appear in the changelog so you can identify required application
+  updates before upgrading.
+- OpenAPI, durable job messages, application tools, and evaluation policy have
+  directional compatibility reports you can run against your own historical
+  snapshots.
+- Structured CLI results and the coding-agent MCP server share one versioned
+  schema. Application-tool manifests and application MCP results use separate
+  versioned schemas. A breaking wire-format change receives a new version
+  rather than silently changing an existing one.
+- `tenchi.toml` protects the evidence your repository requires before a change
+  is complete. `tenchi verify` rejects a change that weakens a requirement
+  relative to the selected historical commit.
 
-Agent-facing JSON has explicit compatibility boundaries. Structured CLI results
-and the coding-agent MCP server share one versioned schema, and CI verifies
-that their schemas remain identical. Application-tool manifests and the
-application MCP adapter each use their own version and retained schema
-snapshots. Breaking or unknown changes require a new versioned snapshot while
-the previous baseline remains unchanged.
-
-These checks make change deliberate. They do not promise that every pre-1.0
-release is source-compatible.
+These guarantees make changes visible and reviewable. They do not promise that
+every pre-1.0 release is source-compatible.
 
 ## Upgrade safely
 
@@ -42,13 +43,15 @@ release is source-compatible.
 
    The command discovers the route module's literal `OPENAPI_*` declarations;
    pass explicit metadata flags only when overriding that convention.
-5. Run `tenchi tools --diff tools.json` against the pre-upgrade snapshot.
-6. Run `tenchi eval snapshot --diff evaluations.json` against the pre-upgrade
+5. Run `tenchi jobs --diff jobs.json` against the pre-upgrade snapshot.
+6. Run `tenchi tools --diff tools.json` against the pre-upgrade snapshot.
+7. Run `tenchi eval snapshot --diff evaluations.json` against the pre-upgrade
    snapshot.
-7. Review application wiring and generated-code convention changes.
-8. Update snapshots only after accepting all compatibility reports.
-9. Rerun `tenchi check` with the accepted snapshots.
-10. Run `tenchi verify --base-ref <pre-upgrade-ref>` to produce one final
+8. Review application wiring, `tenchi.toml`, and generated-code convention
+   changes. Do not weaken verification requirements to make the upgrade pass.
+9. Update snapshots only after accepting all compatibility reports.
+10. Rerun `tenchi check` with the accepted snapshots.
+11. Run `tenchi verify --base-ref <pre-upgrade-ref>` to produce one final
    receipt against the pre-upgrade commit.
 
 Pin a compatible minor range or an exact version according to the application's

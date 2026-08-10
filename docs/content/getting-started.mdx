@@ -2,13 +2,14 @@ import { Callout } from "@/components/callout";
 
 # Quickstart
 
-Create a Tenchi application, run its checks, and make one contract change that
-you can observe at every boundary.
+Create a Tenchi application, run it, make one contract change, and produce a
+verification receipt against the unchanged starting point.
 
 ## Requirements
 
 Tenchi requires Python 3.12 or newer. The examples use
-[uv](https://docs.astral.sh/uv/) to create environments and run commands.
+[uv](https://docs.astral.sh/uv/) to create environments and run commands and
+Git to preserve the historical verification baseline.
 
 ## Create the application
 
@@ -37,6 +38,7 @@ single route. Its important files are:
 | `app/server/tools.py` | Registered machine-facing tool composition |
 | `app/server/asgi.py` | Composition root and ASGI application |
 | `openapi.json`, `jobs.json`, `tools.json`, and `evaluations.json` | Version-controlled HTTP, job-message, tool, and evaluation-policy contracts |
+| `tenchi.toml` | Repository-owned requirements for the completion receipt |
 | `AGENTS.md` | Placement rules and the complete agent validation loop |
 | `.mcp.json` | Project-local registration for MCP-aware coding agents |
 | `.github/workflows/ci.yml` | Checks and historical boundary compatibility gates |
@@ -60,6 +62,17 @@ OpenAPI, job-message, application-tool, and evaluation-policy snapshot checks. I
 step even after a failure so one pass reports the complete repair list.
 Generated code passes untouched. Use-case tests run without an HTTP server;
 integration tests exercise the composed ASGI application.
+
+Record that passing starting point before making the tutorial change:
+
+```shell
+git init
+git add .
+git commit -m "Create Tenchi application"
+```
+
+The commit gives compatibility checks an immutable copy of the original
+snapshots and verification policy.
 
 ## Start the server
 
@@ -123,12 +136,20 @@ reviewing it, update the snapshot:
 ```shell
 uv run tenchi openapi --write openapi.json
 uv run tenchi check
+uv run tenchi verify --base-ref HEAD
 ```
 
+`verify` reruns the local checks, requires a complete application map, compares
+all four boundary snapshots with the starting commit, and confirms that
+`tenchi.toml` was not weakened. The optional field is additive, so the receipt
+passes. Treat a failed receipt as unfinished work and commit the change only
+after it succeeds.
+
 <Callout title="Keep the baseline historical">
-  Run `--diff` before replacing the snapshot. The generated CI runs
-  `--diff-ref` against the pull request's base commit, so committing an updated
-  snapshot cannot hide an incompatible contract change.
+  In this tutorial, `HEAD` still names the original generated application. In
+  normal work, use the pull-request base, previous push, or previous release.
+  Run `--diff` before replacing a snapshot; generated CI uses the pull-request
+  base, so committing an updated snapshot cannot hide an incompatible change.
 </Callout>
 
 ## Add another feature

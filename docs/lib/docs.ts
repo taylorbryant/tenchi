@@ -1,7 +1,7 @@
 export const siteName = "Tenchi";
 
 export const siteDescription =
-  "A contract-first, Python-native framework for typed JSON APIs and AI-facing tools that stay coherent as they grow.";
+  "A contract-first framework for production Python backends that humans and coding agents can build and verify.";
 
 export const defaultSiteUrl = "https://tenchi.io";
 

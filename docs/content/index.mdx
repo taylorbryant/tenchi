@@ -12,13 +12,14 @@ import { LogoMark } from "@/components/logo-mark";
   releases](/stability) before adopting it for a long-lived service.
 </Callout>
 
-A contract-first, Python-native framework for typed JSON APIs and AI-facing
-tools that stay coherent as they grow.
+A contract-first framework for production Python backends that humans and
+coding agents can build and verify.
 
-Tenchi gives the HTTP boundary, application tools, use cases, a typed Python
-client, OpenAPI, compatibility checks, and structural tooling one shared
-model. Contracts describe what crosses the wire. Plain async functions own
-behavior. Protocols and frozen dataclasses keep dependencies explicit.
+Tenchi brings HTTP contracts, AI-facing application tools, use cases, a typed
+Python client, OpenAPI, evaluation gates, compatibility checks, and structural
+tooling into one shared model. Contracts describe what crosses a boundary.
+Plain async functions own behavior. Protocols and frozen dataclasses keep
+dependencies explicit.
 
 ## Start an application
 
@@ -32,8 +33,8 @@ uv run tenchi dev
 
 The generated application includes a working todos feature, SQLite runtime
 persistence, a memory test adapter, Swagger UI, strict Pyright configuration,
-OpenAPI, job-message, application-tool, and evaluation-policy snapshots, an agent guide,
-and CI. The
+OpenAPI, job-message, application-tool, and evaluation-policy snapshots, a
+protected `tenchi.toml` verification policy, an agent guide, and CI. The
 [quickstart](/getting-started) follows its first development loop.
 
 ## What makes it different

@@ -1,9 +1,9 @@
 # Tenchi
 
-Tenchi is a small, contract-first Python framework for building typed
-backends. HTTP contracts and application tools define validated boundaries,
-plain async functions implement use cases, and frozen dataclasses carry
-explicitly wired dependencies.
+Tenchi is a contract-first framework for production Python backends that
+humans and coding agents can build and verify. HTTP contracts and AI-facing
+application tools define validated boundaries, plain async functions implement
+use cases, and frozen dataclasses carry explicitly wired dependencies.
 
 Tenchi uses Pydantic for validation, Starlette for ASGI, and httpx for its typed
 client. It requires Python 3.12 or newer and is currently pre-1.0.
@@ -26,10 +26,10 @@ uv run tenchi dev
 ```
 
 The generated app includes a todos feature, SQLite persistence, memory-backed
-unit tests, Swagger UI, health and OpenAPI routes, an agent guide, and a CI
-compatibility gate. It also includes `.mcp.json`, so MCP-aware coding agents can
-use Tenchi's structured inspection and validation tools after `uv sync`. With
-the server running, open
+unit tests, Swagger UI, health and OpenAPI routes, a protected `tenchi.toml`
+verification policy, an agent guide, and a CI compatibility gate. It also
+includes `.mcp.json`, so MCP-aware coding agents can use Tenchi's structured
+inspection and validation tools after `uv sync`. With the server running, open
 `http://127.0.0.1:8000/docs` or call it directly:
 
 ```sh
