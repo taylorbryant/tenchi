@@ -391,6 +391,9 @@ tenchi new my_app
 tenchi make feature notes --dry-run
 tenchi make feature notes --json
 tenchi make use-case notes create_note --dry-run
+tenchi make use-case notes create_note \
+  --from-contract app.features.notes.contracts:create_note_contract \
+  --dry-run --json
 tenchi routes
 tenchi map
 tenchi map --feature notes --kind route,tool,use-case,port --json

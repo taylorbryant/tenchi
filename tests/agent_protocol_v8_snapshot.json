@@ -5430,6 +5430,18 @@
             "default": null,
             "title": "Feature"
           },
+          "from_contract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "From Contract"
+          },
           "name": {
             "title": "Name",
             "type": "string"

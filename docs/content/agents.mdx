@@ -121,11 +121,22 @@ new version and preserve the older baseline.
 ```shell
 uv run tenchi make feature notes --dry-run --json
 uv run tenchi make use-case notes create_note --dry-run --json
+uv run tenchi make use-case notes create_note \
+  --from-contract app.features.notes.contracts:create_note_contract \
+  --dry-run --json
 ```
 
 Dry runs perform the same naming and conflict validation as a real generation
 without writing files. The result lists every planned path and the explicit
 wiring steps that remain app-owned.
+
+When a contract exists, prefer `--from-contract`. The preview derives the
+boundary parameters and return type from the loaded declaration, so an agent
+does not have to transcribe the contract into a second signature. It also
+rejects declarations that cannot be bound as routes or represented in OpenAPI.
+After generation, `# tenchi: incomplete` markers and the generated failing test
+keep `check` red until the agent implements and tests the behavior. Remove the
+markers only when their placeholders have been replaced.
 
 After accepting the preview, run the command without `--dry-run`. Generators
 create files but do not rewrite route or infrastructure modules. The agent must

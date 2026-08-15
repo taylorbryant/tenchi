@@ -128,7 +128,11 @@ Framework agent workflow: https://tenchi.io/agents
    schemas, contracts, routes, use cases, ports, and tests before changing it.
 2. Prefer `uv run tenchi make feature <name> --dry-run` and
    `uv run tenchi make use-case <feature> <name> --dry-run` before creating
-   framework-shaped files manually.
+   framework-shaped files manually. When a contract exists, pass
+   `--from-contract app.features.<feature>.contracts:<contract_name>` to derive
+   the exact use-case boundary. Implement the generated behavior, replace its
+   failing test, and remove both `# tenchi: incomplete` markers before treating
+   the change as complete.
 3. Keep explicit wiring visible in `app/server/routes.py`,
    `app/server/jobs.py`, `app/server/preflight.py`,
    `app/server/evaluations.py`, `app/server/tasks.py`, `app/server/runtime.py`,

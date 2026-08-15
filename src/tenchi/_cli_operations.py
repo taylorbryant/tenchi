@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import ast
+import importlib
+import inspect
 import json
 import keyword
 import re
+import sys
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import cast
+from typing import Any, cast, get_origin
+
+from pydantic import BaseModel
 
 from ._cli_results import (
     DiagnosticResult,
@@ -19,11 +24,18 @@ from ._cli_results import (
     RouteEntryResult,
     RoutesResult,
 )
+from ._generation import GenerationConfigurationError, contract_use_case_plan
+from .contracts import Contract
 from .doctor import run_doctor
-from .routes import RouteGroup
+from .openapi import openapi_schema
+from .routes import RouteGroup, route, route_group
 from .scaffold import feature_files, use_case_files
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+class ContractLoadError(RuntimeError):
+    """The requested generator source could not be loaded as a contract."""
 
 
 def valid_name(name: str) -> bool:
@@ -155,6 +167,10 @@ def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
             f"Declare ports in {relative_root}/ports.py",
             f"Declare contracts in {relative_root}/contracts.py",
             f"Generate use cases: tenchi make use-case {name} <use_case_name>",
+            (
+                "Derive a boundary signature with --from-contract "
+                f"app.features.{name}.contracts:<contract_name>"
+            ),
             f"Compose app.features.{name}.routes in app/server/routes.py",
             f"Compose app.features.{name}.jobs in app/server/jobs.py",
             f"Compose app.features.{name}.tasks in app/server/tasks.py",
@@ -165,7 +181,12 @@ def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
 
 
 def make_use_case_result(
-    root: Path, *, feature: str, name: str, dry_run: bool
+    root: Path,
+    *,
+    feature: str,
+    name: str,
+    dry_run: bool,
+    from_contract: str | None = None,
 ) -> MakeResult:
     """Plan or create a use case without choosing a result renderer."""
     resolved_root = root.resolve()
@@ -218,8 +239,11 @@ def make_use_case_result(
             ),
         )
 
-    files = use_case_files(feature, name)
-    existing = [path for path in files if (feature_root / path).exists()]
+    output_paths = (
+        f"use_cases/{name}.py",
+        f"tests/test_{name}.py",
+    )
+    existing = [path for path in output_paths if (feature_root / path).exists()]
     if existing:
         existing_path = (feature_root / existing[0]).relative_to(resolved_root)
         return MakeResult(
@@ -233,6 +257,65 @@ def make_use_case_result(
             next_steps=(),
             error=f"tenchi make use-case: {existing_path} already exists",
         )
+
+    plan = None
+    if from_contract is not None:
+        module_name, separator, attribute = from_contract.partition(":")
+        expected_module = f"app.features.{feature}.contracts"
+        if not separator or not module_name or not attribute:
+            return MakeResult(
+                root=str(resolved_root),
+                artifact="use-case",
+                name=name,
+                feature=feature,
+                dry_run=dry_run,
+                ok=False,
+                files=(),
+                next_steps=(),
+                error=(
+                    "tenchi make use-case: --from-contract must be a "
+                    "module:attribute target"
+                ),
+            )
+        if module_name != expected_module:
+            return MakeResult(
+                root=str(resolved_root),
+                artifact="use-case",
+                name=name,
+                feature=feature,
+                dry_run=dry_run,
+                ok=False,
+                files=(),
+                next_steps=(),
+                error=(
+                    "tenchi make use-case: --from-contract must target "
+                    f"{expected_module}:<contract> for feature {feature!r}"
+                ),
+            )
+        declared = _load_contract(resolved_root, module_name, attribute)
+        try:
+            plan = contract_use_case_plan(
+                declared,
+                feature=feature,
+                name=name,
+                named_annotations=_named_contract_annotations(resolved_root, feature),
+            )
+        except GenerationConfigurationError as exc:
+            return MakeResult(
+                root=str(resolved_root),
+                artifact="use-case",
+                name=name,
+                feature=feature,
+                dry_run=dry_run,
+                ok=False,
+                files=(),
+                next_steps=(),
+                error=f"tenchi make use-case: {exc.safe_message}",
+            )
+        _validate_contract_generation_source(declared)
+        files = plan.files
+    else:
+        files = use_case_files(feature, name)
 
     if not dry_run:
         write_error = _write_files_transactionally(feature_root, files)
@@ -249,6 +332,27 @@ def make_use_case_result(
                 error=f"tenchi make use-case: could not create files: {write_error}",
             )
     relative_root = feature_root.relative_to(resolved_root)
+    if plan is None:
+        next_steps = (
+            f"Implement {name} and its test",
+            f"Bind it to a contract in {relative_root}/routes.py",
+        )
+    else:
+        next_steps_list = [
+            f"Implement {plan.signature}",
+            (
+                "Replace the failing generated test and remove "
+                "'# tenchi: incomplete' from both generated files"
+            ),
+            (f"Bind {from_contract} to {name} in {relative_root}/routes.py"),
+        ]
+        if plan.needs_response_headers_projector:
+            next_steps_list.append(
+                "Add the contract's synchronous response_headers projector at "
+                "the route boundary"
+            )
+        next_steps_list.append("Run tenchi check")
+        next_steps = tuple(next_steps_list)
     return MakeResult(
         root=str(resolved_root),
         artifact="use-case",
@@ -257,11 +361,145 @@ def make_use_case_result(
         dry_run=dry_run,
         ok=True,
         files=tuple((relative_root / path).as_posix() for path in files),
-        next_steps=(
-            f"Implement {name} and its test",
-            f"Bind it to a contract in {relative_root}/routes.py",
-        ),
+        next_steps=next_steps,
     )
+
+
+def _load_contract(
+    root: Path, module_name: str, attribute: str
+) -> Contract[object, object]:
+    original_path = sys.path.copy()
+    root_string = str(root)
+    if root_string in sys.path:
+        sys.path.remove(root_string)
+    sys.path.insert(0, root_string)
+    try:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as exc:
+            raise ContractLoadError(f"could not import {module_name!r}: {exc}") from exc
+        try:
+            declared = getattr(module, attribute)
+        except AttributeError as exc:
+            raise ContractLoadError(
+                f"module {module_name!r} has no attribute {attribute!r}"
+            ) from exc
+        except Exception as exc:
+            raise ContractLoadError(
+                f"could not load {module_name}:{attribute}: {exc}"
+            ) from exc
+        if not isinstance(declared, Contract):
+            raise ContractLoadError(
+                f"{module_name}:{attribute} is not a tenchi Contract "
+                f"(got {type(declared).__name__})"
+            )
+        return cast(Contract[object, object], declared)
+    finally:
+        sys.path[:] = original_path
+
+
+def _named_contract_annotations(
+    root: Path, feature: str
+) -> dict[int, tuple[object, str, str]]:
+    allowed_modules = (
+        f"app.features.{feature}.schemas",
+        f"app.features.{feature}.domain",
+        "app.shared",
+    )
+    aliases: dict[int, tuple[object, str, str]] = {}
+    for module_name, module in sorted(sys.modules.items()):
+        if not any(
+            module_name == allowed or module_name.startswith(f"{allowed}.")
+            for allowed in allowed_modules
+        ):
+            continue
+        module_file = getattr(module, "__file__", None)
+        if not isinstance(module_file, str):
+            continue
+        try:
+            Path(module_file).resolve().relative_to(root)
+        except (OSError, ValueError):
+            continue
+        for symbol, value in sorted(vars(module).items()):
+            if (
+                symbol.startswith("_")
+                or not symbol.isidentifier()
+                or keyword.iskeyword(symbol)
+            ):
+                continue
+            if (
+                getattr(value, "__module__", None) != module_name
+                and get_origin(value) is None
+                and not _is_pydantic_generic_specialization(value)
+            ):
+                continue
+            aliases.setdefault(id(value), (value, module_name, symbol))
+    return aliases
+
+
+def _validate_contract_generation_source(
+    declared: Contract[object, object],
+) -> None:
+    """Prove the declaration can be wired and described before generating."""
+
+    async def generated_use_case() -> None:
+        raise AssertionError("generation validation never invokes the use case")
+
+    parameters = [
+        inspect.Parameter(
+            parameter_name,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=annotation,
+        )
+        for parameter_name in ("params", "query", "headers", "request")
+        if (annotation := getattr(declared, parameter_name)) is not None
+    ]
+    parameters.append(
+        inspect.Parameter(
+            "context",
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=object,
+        )
+    )
+    cast(Any, generated_use_case).__signature__ = inspect.Signature(
+        parameters,
+        return_annotation=declared.response,
+    )
+
+    projector = None
+    if declared.response_headers is not None:
+
+        def response_headers_projector(_: object) -> object:
+            raise AssertionError("generation validation never invokes the projector")
+
+        cast(Any, response_headers_projector).__signature__ = inspect.Signature(
+            [
+                inspect.Parameter(
+                    "result",
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    annotation=declared.response,
+                )
+            ],
+            return_annotation=declared.response_headers,
+        )
+        projector = response_headers_projector
+
+    bound = route(declared, generated_use_case, response_headers=projector)
+    openapi_schema(
+        route_group(bound),
+        title="Tenchi generation validation",
+        version="0",
+    )
+
+
+def _is_pydantic_generic_specialization(value: object) -> bool:
+    if not isinstance(value, type) or not issubclass(value, BaseModel):
+        return False
+    metadata = getattr(value, "__pydantic_generic_metadata__", None)
+    if not isinstance(metadata, dict):
+        return False
+    generic_metadata = cast(Mapping[str, object], metadata)
+    return generic_metadata.get("origin") is not None
 
 
 def doctor_result(root: Path) -> DoctorResult:

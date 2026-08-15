@@ -70,7 +70,7 @@ each call, so a server that stays open sees edits made during the agent session.
 | `preflight` | Read-only, timeout-bounded observations of the target deployment environment with redacted results |
 | `evaluation_list` | Evaluation names, case names and schemas, metric thresholds, timeouts, and budgets without case inputs |
 | `task_list` | Registered operational tasks with validated input and output JSON Schemas |
-| `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true` |
+| `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true`; use-case previews accept `from_contract` to derive an exact boundary signature |
 | `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
 | `jobs_diff` | A directional compatibility report against `jobs.json`, another project snapshot, or that snapshot at a Git ref |
 | `tools_diff` | A directional compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
@@ -129,7 +129,9 @@ For a feature change, give the agent this sequence:
 1. Read `tenchi://project/agents`.
 2. Call `app_map` with the feature name and inspect diagnostics and unresolved
    relationships.
-3. Call `make_preview` when new framework-shaped files are needed.
+3. Call `make_preview` when new framework-shaped files are needed. When a use
+   case's HTTP contract already exists, pass its `module:attribute` target as
+   `from_contract` so the preview derives the exact boundary signature.
 4. Edit ordinary Python files through the agent's normal filesystem tools.
 5. Call `check` and resolve every failed step.
 6. Call `openapi_diff` before accepting a changed OpenAPI snapshot.

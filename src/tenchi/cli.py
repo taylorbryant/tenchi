@@ -59,6 +59,7 @@ from ._app_map import (
 )
 from ._checks import run_check
 from ._cli_operations import (
+    ContractLoadError,
     doctor_result,
     make_feature_result,
     make_use_case_result,
@@ -92,6 +93,7 @@ from ._job_operations import (
 from ._openapi_operations import (
     OperationError,
     compare_openapi_baseline,
+    isolated_project_imports,
     load_route_group,
     read_git_snapshot,
 )
@@ -256,6 +258,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _make_use_case(
             args.feature,
             args.name,
+            from_contract=args.from_contract,
             dry_run=args.dry_run,
             as_json=args.json,
         )
@@ -428,10 +431,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     feature_parser.add_argument("name", help="Feature name, in snake_case")
     use_case_parser = make_subparsers.add_parser(
-        "use-case", help="Generate a use-case stub and test in a feature"
+        "use-case",
+        help="Generate a use-case stub and test, optionally from a contract",
     )
     use_case_parser.add_argument("feature", help="Existing feature name")
     use_case_parser.add_argument("name", help="Use case name, in snake_case")
+    use_case_parser.add_argument(
+        "--from-contract",
+        help=(
+            "module:attribute of a contract in the feature's contracts module; "
+            "generate its exact boundary signature"
+        ),
+    )
     for generator_parser in (feature_parser, use_case_parser):
         generator_parser.add_argument(
             "--dry-run",
@@ -1203,10 +1214,54 @@ def _make_feature(name: str, *, dry_run: bool, as_json: bool) -> int:
     return _render_make_result(result, as_json=as_json)
 
 
-def _make_use_case(feature: str, name: str, *, dry_run: bool, as_json: bool) -> int:
-    result = make_use_case_result(
-        Path.cwd(), feature=feature, name=name, dry_run=dry_run
-    )
+def _make_use_case(
+    feature: str,
+    name: str,
+    *,
+    from_contract: str | None,
+    dry_run: bool,
+    as_json: bool,
+) -> int:
+    root = Path.cwd()
+    try:
+        if from_contract is None:
+            result = make_use_case_result(
+                root,
+                feature=feature,
+                name=name,
+                dry_run=dry_run,
+            )
+        else:
+            contract_module = f"app.features.{feature}.contracts"
+            with (
+                isolated_project_imports(root, module_names=(contract_module,)),
+                redirect_stdout(sys.stderr if as_json else sys.stdout),
+            ):
+                result = make_use_case_result(
+                    root,
+                    feature=feature,
+                    name=name,
+                    dry_run=dry_run,
+                    from_contract=from_contract,
+                )
+    except ContractLoadError as exc:
+        return _render_operation_error(
+            operation="make",
+            code="TENCHI_CLI_TARGET_LOAD_FAILED",
+            message="Could not load the requested contract.",
+            details={"target": from_contract or ""},
+            as_json=as_json,
+            human_message=f"tenchi make use-case: {exc}",
+        )
+    except ConfigurationError as exc:
+        return _render_operation_error(
+            operation="make",
+            code="TENCHI_CLI_CONFIGURATION_INVALID",
+            message="The requested contract cannot drive use-case generation.",
+            details={"target": from_contract or ""},
+            as_json=as_json,
+            human_message=f"tenchi make use-case: {exc}",
+        )
     return _render_make_result(result, as_json=as_json)
 
 

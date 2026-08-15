@@ -2,6 +2,8 @@ import json
 import subprocess
 import sys
 import tomllib
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -213,6 +215,8 @@ def test_new_scaffolds_a_working_app(
     assert (root / ".github/workflows/ci.yml").is_file()
     assert "uv run tenchi check" in (root / "AGENTS.md").read_text()
     assert "https://tenchi.io/agents" in (root / "AGENTS.md").read_text()
+    assert "--from-contract" in (root / "AGENTS.md").read_text()
+    assert "# tenchi: incomplete" in (root / "AGENTS.md").read_text()
     assert (
         "uv run tenchi map --feature <name> --json" in (root / "AGENTS.md").read_text()
     )
@@ -1979,6 +1983,370 @@ def test_make_use_case_scaffolds_stub_and_test(
     # Generating again refuses to overwrite.
     assert main(["make", "use-case", "notes", "create_note"]) == 1
     assert "already exists" in capsys.readouterr().err
+
+
+def test_make_use_case_from_contract_generates_exact_incomplete_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+    assert main(["make", "feature", "projects"]) == 0
+    capsys.readouterr()
+
+    feature = root / "app/features/projects"
+    (feature / "schemas.py").write_text(
+        """\
+from pydantic import BaseModel
+from tenchi.pagination import Page
+
+
+class ProjectParams(BaseModel):
+    project_id: str
+
+
+class ProjectQuery(BaseModel):
+    include_archived: bool = False
+
+
+class ProjectHeaders(BaseModel):
+    request_token: str
+
+
+class CreateProject(BaseModel):
+    name: str
+
+
+class Project(BaseModel):
+    id: str
+    name: str
+
+
+ProjectList = Page[Project]
+""",
+        encoding="utf-8",
+    )
+    (feature / "contracts.py").write_text(
+        """\
+from tenchi.contracts import contract
+
+from .schemas import (
+    CreateProject,
+    ProjectHeaders,
+    ProjectList,
+    ProjectParams,
+    ProjectQuery,
+)
+
+print("contract import output")
+
+create_project_contract = contract(
+    method="POST",
+    path="/projects/{project_id}",
+    params=ProjectParams,
+    query=ProjectQuery,
+    headers=ProjectHeaders,
+    request=CreateProject,
+    response=ProjectList,
+)
+""",
+        encoding="utf-8",
+    )
+    target = "app.features.projects.contracts:create_project_contract"
+
+    preview = _tenchi(
+        root,
+        "make",
+        "use-case",
+        "projects",
+        "create_project",
+        "--from-contract",
+        target,
+        "--dry-run",
+        "--json",
+    )
+
+    assert preview.returncode == 0, preview.stdout + preview.stderr
+    planned = json.loads(preview.stdout)
+    assert planned["ok"] is True
+    assert planned["dry_run"] is True
+    assert planned["files"] == [
+        "app/features/projects/use_cases/create_project.py",
+        "app/features/projects/tests/test_create_project.py",
+    ]
+    assert any(
+        "async def create_project(params: ProjectParams, query: ProjectQuery, "
+        "headers: ProjectHeaders, request: CreateProject, context: AppContext) "
+        "-> ProjectList" in step
+        for step in planned["next_steps"]
+    )
+    assert "contract import output" not in preview.stdout
+    assert "contract import output" in preview.stderr
+    assert not (feature / "use_cases/create_project.py").exists()
+
+    created = _tenchi(
+        root,
+        "make",
+        "use-case",
+        "projects",
+        "create_project",
+        "--from-contract",
+        target,
+        "--json",
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    use_case = (feature / "use_cases/create_project.py").read_text(encoding="utf-8")
+    assert "# tenchi: incomplete" in use_case
+    assert "params: ProjectParams" in use_case
+    assert "query: ProjectQuery" in use_case
+    assert "headers: ProjectHeaders" in use_case
+    assert "request: CreateProject" in use_case
+    assert "context: AppContext" in use_case
+    assert ") -> ProjectList:" in use_case
+    assert "from ..schemas import (" in use_case
+    assert "from app.server.context import AppContext" in use_case
+    generated_test = (feature / "tests/test_create_project.py").read_text(
+        encoding="utf-8"
+    )
+    assert "pytestmark" not in generated_test
+    assert "pytest.fail" in generated_test
+    assert "# tenchi: incomplete" in generated_test
+
+    (feature / "routes.py").write_text(
+        """\
+from tenchi.routes import route, route_group
+
+from .contracts import create_project_contract
+from .use_cases.create_project import create_project
+
+routes = route_group(route(create_project_contract, create_project))
+""",
+        encoding="utf-8",
+    )
+    imported = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from app.features.projects.routes import routes; print(len(routes))",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    assert imported.returncode == 0, imported.stdout + imported.stderr
+    assert imported.stdout.strip().endswith("1")
+
+    checked = _tenchi(root, "check", "--json")
+    assert checked.returncode == 1
+    report = json.loads(checked.stdout)
+    statuses = {step["name"]: step["status"] for step in report["steps"]}
+    assert statuses["ruff format"] == "passed"
+    assert statuses["ruff"] == "passed"
+    assert statuses["pyright"] == "passed"
+    assert statuses["pytest"] == "failed"
+    assert statuses["doctor"] == "failed"
+    doctor_output = next(
+        step["stdout"] for step in report["steps"] if step["name"] == "doctor"
+    )
+    assert doctor_output.count("generated placeholder remains") == 2
+
+
+def test_make_use_case_from_contract_reports_redacted_target_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+    assert main(["make", "feature", "projects"]) == 0
+    capsys.readouterr()
+    (root / "app/features/projects/contracts.py").write_text(
+        'raise RuntimeError("private import detail")\n', encoding="utf-8"
+    )
+    target = "app.features.projects.contracts:create_project_contract"
+
+    result = _tenchi(
+        root,
+        "make",
+        "use-case",
+        "projects",
+        "create_project",
+        "--from-contract",
+        target,
+        "--dry-run",
+        "--json",
+    )
+
+    payload = _assert_operation_error(
+        result,
+        operation="make",
+        code="TENCHI_CLI_TARGET_LOAD_FAILED",
+    )
+    assert payload["message"] == "Could not load the requested contract."
+    assert payload["details"] == {"target": target}
+    assert "private import detail" not in result.stdout
+
+
+def test_make_use_case_from_contract_rejects_unusable_boundaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+    assert main(["make", "feature", "projects"]) == 0
+    capsys.readouterr()
+    feature = root / "app/features/projects"
+    (feature / "contracts.py").write_text(
+        """\
+from tenchi.contracts import contract
+
+scalar_query_contract = contract(
+    method="GET",
+    path="/projects",
+    query=str,
+    response=str,
+)
+missing_params_contract = contract(
+    method="GET",
+    path="/projects/{project_id}",
+    response=str,
+)
+""",
+        encoding="utf-8",
+    )
+
+    for name, contract_name in (
+        ("list_projects", "scalar_query_contract"),
+        ("read_project", "missing_params_contract"),
+    ):
+        target = f"app.features.projects.contracts:{contract_name}"
+        result = _tenchi(
+            root,
+            "make",
+            "use-case",
+            "projects",
+            name,
+            "--from-contract",
+            target,
+            "--dry-run",
+            "--json",
+        )
+
+        payload = _assert_operation_error(
+            result,
+            operation="make",
+            code="TENCHI_CLI_CONFIGURATION_INVALID",
+        )
+        assert payload["message"] == (
+            "The requested contract cannot drive use-case generation."
+        )
+        assert payload["details"] == {"target": target}
+        assert not (feature / f"use_cases/{name}.py").exists()
+
+
+def test_make_use_case_from_contract_rejects_multi_response_presenters(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+    assert main(["make", "feature", "projects"]) == 0
+    capsys.readouterr()
+    (root / "app/features/projects/contracts.py").write_text(
+        """\
+from tenchi.contracts import contract
+from tenchi.responses import response
+
+created = response(str, status=201)
+existing = response(str, status=200)
+create_project_contract = contract(
+    method="POST",
+    path="/projects",
+    request=str,
+    responses=(created, existing),
+)
+""",
+        encoding="utf-8",
+    )
+    target = "app.features.projects.contracts:create_project_contract"
+
+    result = _tenchi(
+        root,
+        "make",
+        "use-case",
+        "projects",
+        "create_project",
+        "--from-contract",
+        target,
+        "--dry-run",
+        "--json",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 8
+    assert payload["artifact"] == "use-case"
+    assert payload["ok"] is False
+    assert payload["files"] == []
+    assert payload["error"] == (
+        "tenchi make use-case: The contract uses response definitions. Create "
+        "this use case manually because its presenter input is application-owned."
+    )
+
+
+def test_make_use_case_isolates_only_the_expected_contract_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+    assert main(["make", "feature", "projects"]) == 0
+    capsys.readouterr()
+    isolated_modules: list[tuple[str, ...]] = []
+
+    @contextmanager
+    def capture_isolation(
+        _root: Path, *, module_names: tuple[str, ...]
+    ) -> Generator[None]:
+        isolated_modules.append(module_names)
+        yield
+
+    monkeypatch.setattr("tenchi.cli.isolated_project_imports", capture_isolation)
+    system_module = sys.modules["sys"]
+
+    assert (
+        main(
+            [
+                "make",
+                "use-case",
+                "projects",
+                "create_project",
+                "--from-contract",
+                "sys:version",
+                "--dry-run",
+                "--json",
+            ]
+        )
+        == 1
+    )
+
+    assert isolated_modules == [("app.features.projects.contracts",)]
+    assert sys.modules["sys"] is system_module
 
 
 def test_make_use_case_requires_existing_feature(

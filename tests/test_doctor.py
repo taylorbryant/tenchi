@@ -30,6 +30,33 @@ def test_fresh_scaffold_is_clean(app_root: Path) -> None:
     assert run_doctor(app_root) == []
 
 
+def test_generated_incomplete_comments_block_source_and_tests(app_root: Path) -> None:
+    use_case = app_root / "app/features/todos/use_cases/create_todo.py"
+    use_case.write_text(
+        "# tenchi: incomplete\n" + use_case.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    generated_test = app_root / "app/features/todos/tests/test_generated.py"
+    generated_test.write_text(
+        'NOTICE = "# tenchi: incomplete"\n# tenchi: incomplete\n',
+        encoding="utf-8",
+    )
+
+    findings = [
+        finding
+        for finding in run_doctor(app_root)
+        if finding.code == "TENCHI_DOCTOR_GENERATED_INCOMPLETE"
+    ]
+
+    assert [(finding.path, finding.line) for finding in findings] == [
+        ("app/features/todos/tests/test_generated.py", 2),
+        ("app/features/todos/use_cases/create_todo.py", 1),
+    ]
+    assert all(
+        "generated placeholder remains" in finding.message for finding in findings
+    )
+
+
 def test_use_case_importing_infra_is_flagged(app_root: Path) -> None:
     use_case = app_root / "app/features/todos/use_cases/create_todo.py"
     use_case.write_text(

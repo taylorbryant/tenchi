@@ -31,6 +31,9 @@ uv run tenchi make feature notes
 uv run tenchi make feature notes --dry-run
 uv run tenchi make use-case notes create_note
 uv run tenchi make use-case notes create_note --json
+uv run tenchi make use-case notes create_note \
+  --from-contract app.features.notes.contracts:create_note_contract \
+  --dry-run --json
 ```
 
 Generators create files and print explicit wiring instructions. They never
@@ -38,6 +41,31 @@ rewrite route or infrastructure modules. `--dry-run` validates the operation
 and lists every file without writing it. `--json` emits the same result as a
 versioned object with the app root, artifact identity, files, follow-up steps,
 and any error.
+
+When the contract already exists, pass its `module:attribute` target through
+`--from-contract`. Tenchi imports that declaration and derives the use case's
+exact `params`, `query`, `headers`, `request`, context, and response
+annotations in route-call order. Before planning files, it also proves that the
+contract can be bound as a route and represented in OpenAPI, catching invalid
+path parameters or unsupported boundary shapes at preview time. The target must
+live in the selected feature's `contracts.py` module. Named boundary aliases
+should live in that feature's `schemas.py` or `domain.py`, or under
+`app.shared`, so the generated use case can import them without reversing the
+application's dependency direction.
+Name deeply nested boundary types there too; Tenchi fails early rather than
+emit an inline annotation that would not pass the generated app's formatter.
+Previewing from a contract imports that module to inspect its runtime types, so
+keep contract modules declarative and free of startup I/O.
+
+Contract-driven generation writes a `# tenchi: incomplete` marker in the use
+case and its generated failing test. Ruff and Pyright can validate the boundary
+immediately, while pytest and `tenchi doctor` keep `tenchi check` red until you
+implement the behavior, replace the placeholder test, and remove both markers.
+Contracts that use response definitions need an app-owned presenter result, so
+Tenchi reports a structured configuration error instead of guessing that
+return type. A contract with `response_headers` keeps its response type, and
+the generated follow-up steps call out the required synchronous header
+projector.
 
 ## Inspect routes
 

@@ -163,6 +163,10 @@ uv run tenchi map --feature notes
 Generators create files and print the wiring steps. They do not edit existing
 composition modules, keeping dependency wiring visible and app-owned.
 Add `--dry-run` to preview every file or `--json` for a versioned result.
+If you declare the HTTP contract first, add `--from-contract
+app.features.notes.contracts:<contract_name>` to generate the exact boundary
+signature. That use case and its test deliberately fail `tenchi check` until
+you replace the generated placeholders and remove their incomplete markers.
 The map shows the new declarations before they are wired. Runtime-bound
 contracts, use cases, and adapters become registered after you follow the
 printed composition steps. Use

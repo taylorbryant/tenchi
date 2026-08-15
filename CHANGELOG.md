@@ -7,6 +7,22 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- `tenchi make use-case` accepts `--from-contract
+  app.features.<feature>.contracts:<name>` to generate an async use-case
+  signature from the contract's path-parameter, query, header, request, and
+  response types plus the canonical `AppContext`. Dry runs and the coding-agent
+  `make_preview` tool expose the same planned files and exact signature.
+  Generated contract-driven files carry explicit incomplete markers and a
+  failing test, so `tenchi check` cannot report success until the behavior and
+  its test replace the placeholders. Presenter-driven response definitions fail
+  with a structured configuration error because their use-case result is
+  application-owned; annotations that cannot be emitted as formatter-clean
+  Python fail early with guidance to declare a named schema alias. Contract
+  previews also validate route binding and OpenAPI boundary shapes before
+  reporting a successful plan.
+
 ### Changed
 
 - The public documentation now teaches one complete historical verification

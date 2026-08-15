@@ -187,6 +187,15 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
         preview = await session.call_tool(
             "make_preview", {"artifact": "feature", "name": "notes"}
         )
+        contract_preview = await session.call_tool(
+            "make_preview",
+            {
+                "artifact": "use-case",
+                "feature": "todos",
+                "name": "create_todo_from_contract",
+                "from_contract": ("app.features.todos.contracts:create_todo_contract"),
+            },
+        )
         conflict = await session.call_tool(
             "make_preview", {"artifact": "feature", "name": "todos"}
         )
@@ -245,6 +254,21 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
     assert preview.structured_content["ok"] is True
     assert preview.structured_content["dry_run"] is True
     assert not (EXAMPLE_ROOT / "app/features/notes").exists()
+
+    assert contract_preview.is_error is False
+    assert contract_preview.structured_content is not None
+    assert contract_preview.structured_content["ok"] is True
+    assert any(
+        "request: CreateTodo" in step
+        for step in contract_preview.structured_content["next_steps"]
+    )
+    assert any(
+        "response_headers projector" in step
+        for step in contract_preview.structured_content["next_steps"]
+    )
+    assert not (
+        EXAMPLE_ROOT / "app/features/todos/use_cases/create_todo_from_contract.py"
+    ).exists()
 
     assert conflict.is_error is False
     assert conflict.structured_content is not None
@@ -490,6 +514,14 @@ async def test_mcp_returns_tool_errors_for_invalid_boundaries() -> None:
             "make_preview",
             {"artifact": "use-case", "name": "create_note"},
         )
+        invalid_feature_source = await session.call_tool(
+            "make_preview",
+            {
+                "artifact": "feature",
+                "name": "notes",
+                "from_contract": "app.features.todos.contracts:create_todo_contract",
+            },
+        )
 
     assert unknown.is_error is True
     assert escaped.is_error is True
@@ -500,6 +532,71 @@ async def test_mcp_returns_tool_errors_for_invalid_boundaries() -> None:
     assert empty_evaluations.is_error is True
     assert misplaced_evaluation_override.is_error is True
     assert invalid_preview.is_error is True
+    assert invalid_feature_source.is_error is True
+
+
+async def test_mcp_redacts_contract_import_failures(tmp_path: Path) -> None:
+    feature = tmp_path / "app/features/projects"
+    feature.mkdir(parents=True)
+    for package in (tmp_path / "app", tmp_path / "app/features", feature):
+        (package / "__init__.py").write_text("", encoding="utf-8")
+    (feature / "contracts.py").write_text(
+        'raise RuntimeError("private import detail")\n', encoding="utf-8"
+    )
+    server = build_mcp_server(McpServerOptions(tmp_path))
+
+    async with Client(server) as session:
+        result = await session.call_tool(
+            "make_preview",
+            {
+                "artifact": "use-case",
+                "feature": "projects",
+                "name": "create_project",
+                "from_contract": (
+                    "app.features.projects.contracts:create_project_contract"
+                ),
+            },
+        )
+        (feature / "contracts.py").write_text(
+            """\
+from tenchi.contracts import contract
+from tenchi.responses import response
+
+created = response(str, status=201)
+create_project_contract = contract(
+    method="POST",
+    path="/projects",
+    responses=(created,),
+    name="private contract detail",
+)
+""",
+            encoding="utf-8",
+        )
+        invalid = await session.call_tool(
+            "make_preview",
+            {
+                "artifact": "use-case",
+                "feature": "projects",
+                "name": "create_project",
+                "from_contract": (
+                    "app.features.projects.contracts:create_project_contract"
+                ),
+            },
+        )
+
+    assert result.is_error is True
+    assert result.content
+    assert result.content[0].type == "text"
+    assert result.content[0].text.endswith("could not load the requested contract")
+    assert "private import detail" not in str(result.content)
+    assert invalid.is_error is False
+    assert invalid.structured_content is not None
+    assert invalid.structured_content["ok"] is False
+    assert invalid.structured_content["error"] == (
+        "tenchi make use-case: The contract uses response definitions. Create "
+        "this use case manually because its presenter input is application-owned."
+    )
+    assert "private contract detail" not in str(invalid.content)
 
 
 async def test_mcp_exposes_project_agent_instructions(tmp_path: Path) -> None:
@@ -521,6 +618,7 @@ async def test_mcp_exposes_project_agent_instructions(tmp_path: Path) -> None:
 
     fallback_content = cast(TextResourceContents, fallback.contents[0])
     assert "Run `app_map`" in fallback_content.text
+    assert "pass `from_contract`" in fallback_content.text
 
 
 async def test_mcp_rejects_agent_instructions_outside_the_root(

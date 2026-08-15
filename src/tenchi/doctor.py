@@ -34,6 +34,8 @@ import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 
+from ._generation import GENERATED_INCOMPLETE_PRAGMA
+
 Category = str
 
 _STRUCTURE = (
@@ -307,6 +309,7 @@ class Finding:
 def run_doctor(root: Path) -> list[Finding]:
     """Check the application at ``root`` and return all findings."""
     findings = _structure_findings(root)
+    findings.extend(_generated_incomplete_findings(root))
 
     for path in sorted((root / "app").rglob("*.py")):
         relative = path.relative_to(root)
@@ -347,6 +350,34 @@ def run_doctor(root: Path) -> list[Finding]:
             findings.extend(_import_findings(tree, relative, rules))
 
     findings.extend(_authorization_findings(root))
+    return findings
+
+
+def _generated_incomplete_findings(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    for path in sorted((root / "app").rglob("*.py")):
+        relative = path.relative_to(root)
+        try:
+            source = path.read_text(encoding="utf-8")
+            tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+            for token in tokens:
+                if (
+                    token.type == tokenize.COMMENT
+                    and token.string.strip() == GENERATED_INCOMPLETE_PRAGMA
+                ):
+                    findings.append(
+                        Finding(
+                            path=relative.as_posix(),
+                            line=token.start[0],
+                            message=(
+                                "generated placeholder remains; implement this "
+                                "file and remove '# tenchi: incomplete'"
+                            ),
+                            code="TENCHI_DOCTOR_GENERATED_INCOMPLETE",
+                        )
+                    )
+        except (OSError, UnicodeError, tokenize.TokenError, SyntaxError):
+            continue  # source and syntax failures are reported by the normal pass
     return findings
 
 

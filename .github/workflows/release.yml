@@ -88,6 +88,9 @@ jobs:
           uv add "$wheel"
           uv run tenchi make feature notes
           uv run tenchi make use-case notes create_note
+          uv run tenchi make use-case todos preview_create_todo \
+            --from-contract app.features.todos.contracts:create_todo_contract \
+            --dry-run --json
           uv run tenchi check
           uv run python "$GITHUB_WORKSPACE/.github/scripts/mcp_smoke.py" .
       - run: uv publish --trusted-publishing always

@@ -75,6 +75,8 @@ framework code, the CLI, docs, or the example apps.
     by the CLI.
   - `doctor.py` — dependency-direction and structure checks.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
+  - `_generation.py` — contract-driven source rendering and the explicit
+    incomplete marker enforced by doctor.
   - `_agent_protocol.py` — the authoritative result-name adapters used for
     CLI validation and canonical agent-facing JSON Schema generation.
   - `_verify_operations.py` — the unified check, architecture, and historical
@@ -278,10 +280,16 @@ API shape:
 
 ## CLI expectations
 
-The CLI is product surface. Generated code must pass Ruff, Ruff format,
-Pyright strict, pytest, and `tenchi doctor` untouched — CI-grade, as
-generated. Generators create files and print wiring instructions; they
-never edit existing modules. `routes`, `map`, `tools`, `openapi`, `check`,
+The CLI is product surface. New applications and structural generator output
+must pass Ruff, Ruff format, Pyright strict, pytest, and `tenchi doctor`
+untouched — CI-grade, as generated. Contract-driven use-case generation is the
+deliberate exception: its boundary source passes formatting, lint, and typing,
+while an exact `# tenchi: incomplete` marker and failing test must keep pytest,
+doctor, and therefore `check` red until behavior and tests replace the
+placeholders. Before planning files, `--from-contract` validates that the
+declaration can bind as a route and produce OpenAPI. Generators create files and
+print wiring instructions; they never edit existing modules. `routes`, `map`,
+`tools`, `openapi`, `check`,
 `verify`, `preflight`, `eval`, `mcp`, and `dev` rely on the structural conventions
 (`app.server.routes:routes`, `app.server.routes:api_routes`,
 `app.server.jobs:jobs`, `app.server.tools:tools`,

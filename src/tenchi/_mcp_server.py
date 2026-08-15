@@ -26,6 +26,7 @@ from ._app_map import (
 )
 from ._checks import CheckCancelled, run_check
 from ._cli_operations import (
+    ContractLoadError,
     doctor_result,
     make_feature_result,
     make_use_case_result,
@@ -86,6 +87,7 @@ from ._tool_operations import (
     tool_list_result,
 )
 from ._verify_operations import VerificationPayload, verification_result
+from .errors import ConfigurationError
 
 _READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 _CHECK_ANNOTATIONS = ToolAnnotations(
@@ -207,6 +209,10 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
                     module_names,
                     operation,
                 )
+            except ContractLoadError as exc:
+                raise ToolError("could not load the requested contract") from exc
+            except ConfigurationError as exc:
+                raise ToolError("project configuration is invalid") from exc
             except OperationError as exc:
                 raise ToolError(str(exc)) from exc
 
@@ -637,7 +643,9 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         name="make_preview",
         description=(
             "Preview a Tenchi feature or use-case generator. The result performs "
-            "normal validation and lists files and wiring steps but never writes."
+            "normal validation and lists files and wiring steps but never writes. "
+            "For a use case, from_contract derives its exact boundary signature "
+            "from a contract in the selected feature."
         ),
         annotations=_READ_ONLY,
     )
@@ -645,10 +653,15 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         artifact: GeneratedArtifact,
         name: str,
         feature: str | None = None,
+        from_contract: str | None = None,
     ) -> MakePayload:
         if artifact == "feature":
             if feature is not None:
                 raise ToolError("feature must be omitted when artifact is 'feature'")
+            if from_contract is not None:
+                raise ToolError(
+                    "from_contract must be omitted when artifact is 'feature'"
+                )
             return await call(
                 lambda: make_feature_result(root, name=name, dry_run=True).as_dict()
             )
@@ -656,7 +669,11 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             raise ToolError("feature is required when artifact is 'use-case'")
         return await call(
             lambda: make_use_case_result(
-                root, feature=feature, name=name, dry_run=True
+                root,
+                feature=feature,
+                name=name,
+                dry_run=True,
+                from_contract=from_contract,
             ).as_dict()
         )
 
@@ -851,7 +868,8 @@ def _fallback_agent_instructions() -> str:
 
 1. Run `app_map` for the affected feature and inspect diagnostics and unresolved
    relationships before editing.
-2. Use `make_preview` before creating framework-shaped files.
+2. Use `make_preview` before creating framework-shaped files. When a use-case
+   contract exists, pass `from_contract` to derive its boundary signature.
 3. Keep contracts at the boundary, behavior in async use cases, infrastructure
    behind protocols, and wiring explicit in the server composition root.
 4. Run `check` after a coherent change.
