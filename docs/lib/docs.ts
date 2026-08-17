@@ -272,6 +272,14 @@ export const docsSections = [
         priority: 0.86,
       },
       {
+        path: "/change-plans",
+        title: "Verify a generated change",
+        navLabel: "Change plans",
+        description:
+          "Tie contract-driven generation to a content-addressed plan and verify its structural postconditions against one Git baseline.",
+        priority: 0.86,
+      },
+      {
         path: "/cli",
         title: "CLI",
         description:

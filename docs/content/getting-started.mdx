@@ -167,6 +167,9 @@ If you declare the HTTP contract first, add `--from-contract
 app.features.notes.contracts:<contract_name>` to generate the exact boundary
 signature. That use case and its test deliberately fail `tenchi check` until
 you replace the generated placeholders and remove their incomplete markers.
+Add `--plan .tenchi/changes/<name>.json --base-ref <historical-ref>` when the
+final receipt should prove that exact generated structure; follow [verify a
+generated change](/change-plans) for the complete workflow.
 The map shows the new declarations before they are wired. Runtime-bound
 contracts, use cases, and adapters become registered after you follow the
 printed composition steps. Use

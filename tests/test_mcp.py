@@ -167,7 +167,7 @@ async def test_coding_agent_mcp_supports_legacy_protocol_clients() -> None:
 
     assert any(tool.name == "routes" for tool in listed.tools)
     assert routes.structured_content is not None
-    assert routes.structured_content["schema_version"] == 8
+    assert routes.structured_content["schema_version"] == 9
 
 
 async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> None:
@@ -194,6 +194,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
                 "feature": "todos",
                 "name": "create_todo_from_contract",
                 "from_contract": ("app.features.todos.contracts:create_todo_contract"),
+                "base_ref": "HEAD",
             },
         )
         conflict = await session.call_tool(
@@ -206,13 +207,13 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert routes.is_error is False
     assert routes.structured_content is not None
-    assert routes.structured_content["schema_version"] == 8
+    assert routes.structured_content["schema_version"] == 9
     assert routes.structured_content["root"] == str(EXAMPLE_ROOT)
     assert any(item["path"] == "/todos" for item in routes.structured_content["routes"])
 
     assert tools.is_error is False
     assert tools.structured_content is not None
-    assert tools.structured_content["schema_version"] == 8
+    assert tools.structured_content["schema_version"] == 9
     assert tools.structured_content["manifest"]["schema_version"] == 1
     assert tools.structured_content["manifest"]["tools"] == []
 
@@ -231,33 +232,41 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert doctor.is_error is False
     assert doctor.structured_content is not None
-    assert doctor.structured_content["schema_version"] == 8
+    assert doctor.structured_content["schema_version"] == 9
 
     assert preflight.is_error is False
     assert preflight.structured_content is not None
-    assert preflight.structured_content["schema_version"] == 8
+    assert preflight.structured_content["schema_version"] == 9
     assert preflight.structured_content["ok"] is True
     assert preflight.structured_content["checks"] == []
 
     assert evaluations.is_error is False
     assert evaluations.structured_content is not None
-    assert evaluations.structured_content["schema_version"] == 8
+    assert evaluations.structured_content["schema_version"] == 9
     assert evaluations.structured_content["evaluations"] == []
 
     assert tasks.is_error is False
     assert tasks.structured_content is not None
-    assert tasks.structured_content["schema_version"] == 8
+    assert tasks.structured_content["schema_version"] == 9
     assert tasks.structured_content["tasks"] == []
 
     assert preview.is_error is False
     assert preview.structured_content is not None
     assert preview.structured_content["ok"] is True
     assert preview.structured_content["dry_run"] is True
+    assert preview.structured_content["change_plan"] is None
     assert not (EXAMPLE_ROOT / "app/features/notes").exists()
 
     assert contract_preview.is_error is False
     assert contract_preview.structured_content is not None
     assert contract_preview.structured_content["ok"] is True
+    assert contract_preview.structured_content["change_plan_path"] is None
+    assert contract_preview.structured_content["change_plan"]["baseline"]["ref"] == (
+        "HEAD"
+    )
+    assert contract_preview.structured_content["change_plan"]["plan_id"].startswith(
+        "sha256:"
+    )
     assert any(
         "request: CreateTodo" in step
         for step in contract_preview.structured_content["next_steps"]
@@ -276,12 +285,12 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert diff.is_error is False
     assert diff.structured_content is not None
-    assert diff.structured_content["schema_version"] == 8
+    assert diff.structured_content["schema_version"] == 9
     assert diff.structured_content["compatible"] is True
 
     assert tool_diff.is_error is False
     assert tool_diff.structured_content is not None
-    assert tool_diff.structured_content["schema_version"] == 8
+    assert tool_diff.structured_content["schema_version"] == 9
     assert tool_diff.structured_content["compatible"] is True
     assert job_diff.is_error is False
     assert job_diff.structured_content is not None
@@ -289,7 +298,7 @@ async def test_mcp_inspection_and_preview_tools_return_versioned_results() -> No
 
     assert evaluation_diff.is_error is False
     assert evaluation_diff.structured_content is not None
-    assert evaluation_diff.structured_content["schema_version"] == 8
+    assert evaluation_diff.structured_content["schema_version"] == 9
     assert evaluation_diff.structured_content["compatible"] is True
 
 
@@ -754,7 +763,7 @@ async def test_mcp_verify_returns_the_shared_receipt(
 
     assert result.is_error is False
     assert result.structured_content is not None
-    assert result.structured_content["schema_version"] == 8
+    assert result.structured_content["schema_version"] == 9
     assert result.structured_content["tenchi_version"] == __version__
     assert result.structured_content["ok"] is False
     assert result.structured_content["baseline"] == {
@@ -901,7 +910,7 @@ async def test_mcp_cli_serves_tools_over_stdio() -> None:
     assert server_info.version == __version__
     assert routes.is_error is False
     assert routes.structured_content is not None
-    assert routes.structured_content["schema_version"] == 8
+    assert routes.structured_content["schema_version"] == 9
     assert diff.is_error is False
     assert diff.structured_content is not None
     assert diff.structured_content["counts"]["metadata"] == 1

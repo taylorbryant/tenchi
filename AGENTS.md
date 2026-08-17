@@ -77,6 +77,8 @@ framework code, the CLI, docs, or the example apps.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
   - `_generation.py` — contract-driven source rendering and the explicit
     incomplete marker enforced by doctor.
+  - `_change_plans.py` — versioned, content-addressed structural intent for
+    contract-driven generation.
   - `_agent_protocol.py` — the authoritative result-name adapters used for
     CLI validation and canonical agent-facing JSON Schema generation.
   - `_verify_operations.py` — the unified check, architecture, and historical
@@ -407,6 +409,18 @@ missing evaluation snapshot requires the explicit
 `--allow-missing-evaluation-baseline` first-adoption override. The CLI and
 coding-agent MCP tool return the same versioned receipt and propagate
 cancellation to the active check subprocess.
+Contract-driven use-case generation can write a versioned change plan in the
+same filesystem transaction as its generated files. The plan records a
+content-derived identity, immutable Git baseline, exact contract and use-case
+identity, generated paths, and fixed structural postconditions. `--dry-run`
+returns the prospective plan without writing it. `verify --change-plan <path>`
+requires the same baseline commit, both files without incomplete markers,
+registered contract and use case, the current contract-derived signature, exact
+route bindings, and a direct dependency from a top-level `test_*` feature-test
+function. It reads the plan before and after project-owned commands to detect
+mutation. Change-plan evidence proves structural completion, not business
+correctness; preserve the accepted plan ID outside the edited worktree when
+exact intent needs independent review.
 
 ## Testing conventions
 
@@ -468,6 +482,12 @@ tests/test_agent_protocol.py` and review the canonical JSON Schema diff. The
 updater refuses breaking or unknown changes at the current version; bump
 `AGENT_PROTOCOL_VERSION`, update the embedded result version, and create a new
 versioned snapshot instead. Never replace an earlier protocol snapshot.
+
+Change-plan schema changes fail `tests/test_change_plans.py`. For an additive
+change, regenerate with `TENCHI_UPDATE_CHANGE_PLAN_SNAPSHOT=1 uv run pytest
+tests/test_change_plans.py` and review the canonical JSON Schema diff. Breaking
+or unknown changes require bumping `CHANGE_PLAN_SCHEMA_VERSION`, creating a new
+snapshot, and retaining earlier versions.
 
 Application MCP schema changes fail `tests/test_tool_mcp.py`. Generate the
 first snapshot for a new `TOOL_MCP_PROTOCOL_VERSION` with

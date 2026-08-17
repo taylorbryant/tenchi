@@ -12,13 +12,22 @@ from typing_extensions import TypedDict
 
 from . import __version__
 from ._app_map import (
+    AppMapResult,
     AppMapSummaryPayload,
     AppMapUnresolvedPayload,
     AppMapUnresolvedReference,
     map_app,
 )
+from ._change_plans import (
+    ChangePlan,
+    ChangePlanError,
+    ChangePlanId,
+    ChangePlanKind,
+    ChangePlanSchemaVersion,
+    load_change_plan,
+)
 from ._checks import CheckCancelled, run_check
-from ._cli_operations import openapi_defaults
+from ._cli_operations import ContractLoadError, load_contract, openapi_defaults
 from ._cli_results import (
     AGENT_PROTOCOL_VERSION,
     AgentProtocolVersion,
@@ -34,6 +43,12 @@ from ._evaluation_operations import (
     discard_evaluation_output,
     evaluation_diff_result,
     load_evaluation_runner,
+)
+from ._generation import (
+    GENERATED_INCOMPLETE_PRAGMA,
+    GenerationConfigurationError,
+    contract_use_case_plan,
+    named_contract_annotations,
 )
 from ._job_operations import (
     JobDiffPayload,
@@ -78,6 +93,7 @@ type VerificationStage = Literal[
     "jobs",
     "tools",
     "evaluations",
+    "change_plan",
 ]
 type VerificationEvidenceStatus = Literal[
     "passed",
@@ -130,6 +146,32 @@ class VerificationErrorPayload(TypedDict):
     message: str
 
 
+type ChangePlanCheckCode = Literal[
+    "baseline_matches",
+    "file_exists",
+    "incomplete_marker_removed",
+    "node_registered",
+    "test_present",
+    "edge_present",
+]
+
+
+class ChangePlanCheckPayload(TypedDict):
+    code: ChangePlanCheckCode
+    subject: str
+    ok: bool
+    message: str
+
+
+class ChangePlanVerificationPayload(TypedDict):
+    path: str
+    schema_version: ChangePlanSchemaVersion
+    plan_id: ChangePlanId
+    kind: ChangePlanKind
+    ok: bool
+    checks: list[ChangePlanCheckPayload]
+
+
 class VerificationPayload(TypedDict):
     schema_version: AgentProtocolVersion
     tenchi_version: str
@@ -144,6 +186,7 @@ class VerificationPayload(TypedDict):
     jobs: JobDiffPayload | None
     tools: ToolDiffPayload | None
     evaluations: EvaluationDiffPayload | None
+    change_plan: ChangePlanVerificationPayload | None
     errors: list[VerificationErrorPayload]
 
 
@@ -239,6 +282,47 @@ class VerificationErrorResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ChangePlanCheckResult:
+    """One fixed structural postcondition from a change plan."""
+
+    code: ChangePlanCheckCode
+    subject: str
+    ok: bool
+    message: str
+
+    def as_dict(self) -> ChangePlanCheckPayload:
+        return {
+            "code": self.code,
+            "subject": self.subject,
+            "ok": self.ok,
+            "message": self.message,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ChangePlanVerificationResult:
+    """Structural intent evidence tied to one content-addressed plan."""
+
+    path: str
+    plan: ChangePlan
+    checks: tuple[ChangePlanCheckResult, ...]
+
+    @property
+    def ok(self) -> bool:
+        return all(check.ok for check in self.checks)
+
+    def as_dict(self) -> ChangePlanVerificationPayload:
+        return {
+            "path": self.path,
+            "schema_version": self.plan.schema_version,
+            "plan_id": self.plan.plan_id,
+            "kind": self.plan.kind,
+            "ok": self.ok,
+            "checks": [check.as_dict() for check in self.checks],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class VerificationResult:
     """Versioned, rerunnable evidence for one source-tree state."""
 
@@ -254,12 +338,18 @@ class VerificationResult:
     evaluations: EvaluationDiffResult | None
     errors: tuple[VerificationErrorResult, ...]
     policy: VerificationPolicyResult | None = None
+    change_plan: ChangePlanVerificationResult | None = None
     schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
     tenchi_version: str = __version__
 
     @property
     def ok(self) -> bool:
-        return not self.errors and self.policy is not None and self.policy.ok
+        return (
+            not self.errors
+            and self.policy is not None
+            and self.policy.ok
+            and (self.change_plan is None or self.change_plan.ok)
+        )
 
     def as_dict(self) -> VerificationPayload:
         return {
@@ -282,6 +372,9 @@ class VerificationResult:
             "tools": self.tools.as_dict() if self.tools is not None else None,
             "evaluations": (
                 self.evaluations.as_dict() if self.evaluations is not None else None
+            ),
+            "change_plan": (
+                self.change_plan.as_dict() if self.change_plan is not None else None
             ),
             "errors": [error.as_dict() for error in self.errors],
         }
@@ -307,6 +400,7 @@ def verification_result(
     timeout_seconds: float,
     allow_missing_job_baseline: bool = False,
     allow_missing_evaluation_baseline: bool = False,
+    change_plan: str | None = None,
     cancelled: Callable[[], bool] | None = None,
     step_completed: Callable[[int, int, CheckStepResult], None] | None = None,
 ) -> VerificationResult:
@@ -320,6 +414,10 @@ def verification_result(
     job_report: JobDiffResult | None = None
     tool_report: ToolDiffResult | None = None
     evaluation_report: EvaluationDiffResult | None = None
+    change_plan_report: ChangePlanVerificationResult | None = None
+    initial_change_plan: ChangePlan | None = None
+    change_plan_path: Path | None = None
+    app_map: AppMapResult | None = None
     policy_comparison: VerificationPolicyComparison | None = None
     policy_error: str | None = None
 
@@ -346,6 +444,24 @@ def verification_result(
             evaluations=None,
             errors=(VerificationErrorResult("baseline", str(exc)),),
         )
+
+    if change_plan is not None:
+        try:
+            change_plan_path = project_path(
+                resolved_root,
+                change_plan,
+                label="change plan",
+            )
+            initial_change_plan = _read_change_plan(change_plan_path)
+        except OperationError as exc:
+            errors.append(VerificationErrorResult("change_plan", str(exc)))
+        except ChangePlanError as exc:
+            errors.append(
+                VerificationErrorResult(
+                    "change_plan",
+                    f"change plan {change_plan!r} is invalid: {exc}",
+                )
+            )
 
     _raise_if_cancelled(cancelled)
     try:
@@ -414,7 +530,7 @@ def verification_result(
         )
 
     _raise_if_cancelled(cancelled)
-    if enforced("architecture"):
+    if enforced("architecture") or initial_change_plan is not None:
         try:
             route_group = load_route_group(resolved_root, routes)
             with discard_evaluation_output():
@@ -430,13 +546,30 @@ def verification_result(
                 tool_group,
                 evaluation_runner.evaluations,
             )
-            architecture = VerificationArchitectureResult(
-                summary=app_map.summary.as_dict(),
-                diagnostics=app_map.diagnostics,
-                unresolved=app_map.unresolved,
-            )
+            if enforced("architecture"):
+                architecture = VerificationArchitectureResult(
+                    summary=app_map.summary.as_dict(),
+                    diagnostics=app_map.diagnostics,
+                    unresolved=app_map.unresolved,
+                )
         except OperationError as exc:
-            errors.append(VerificationErrorResult("architecture", str(exc)))
+            if enforced("architecture"):
+                errors.append(VerificationErrorResult("architecture", str(exc)))
+            if initial_change_plan is not None:
+                errors.append(VerificationErrorResult("change_plan", str(exc)))
+
+    if (
+        initial_change_plan is not None
+        and change_plan_path is not None
+        and app_map is not None
+    ):
+        change_plan_report = _verify_change_plan(
+            resolved_root,
+            path=change_plan_path.relative_to(resolved_root).as_posix(),
+            plan=initial_change_plan,
+            baseline_commit=baseline_commit,
+            app_map=app_map,
+        )
 
     _raise_if_cancelled(cancelled)
     if enforced("openapi") and openapi_ready:
@@ -517,6 +650,27 @@ def verification_result(
             )
         policy_comparison = final_policy_comparison
 
+    if initial_change_plan is not None and change_plan_path is not None:
+        try:
+            final_change_plan = _read_change_plan(change_plan_path)
+        except ChangePlanError as exc:
+            errors.append(
+                VerificationErrorResult(
+                    "change_plan",
+                    f"change plan changed or became invalid while verification "
+                    f"was running: {exc}",
+                )
+            )
+        else:
+            if final_change_plan != initial_change_plan:
+                errors.append(
+                    VerificationErrorResult(
+                        "change_plan",
+                        "change plan changed while verification was running; "
+                        "rerun verify against the finished tree",
+                    )
+                )
+
     policy = _policy_result(
         policy_comparison,
         check=check,
@@ -540,7 +694,191 @@ def verification_result(
         evaluations=evaluation_report,
         errors=tuple(errors),
         policy=policy,
+        change_plan=change_plan_report,
     )
+
+
+def _read_change_plan(path: Path) -> ChangePlan:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ChangePlanError("change plan could not be read as UTF-8") from exc
+    return load_change_plan(text)
+
+
+def _verify_change_plan(
+    root: Path,
+    *,
+    path: str,
+    plan: ChangePlan,
+    baseline_commit: str,
+    app_map: AppMapResult,
+) -> ChangePlanVerificationResult:
+    checks: list[ChangePlanCheckResult] = []
+
+    def record(
+        code: ChangePlanCheckCode,
+        subject: str,
+        ok: bool,
+        passed: str,
+        failed: str,
+    ) -> None:
+        checks.append(
+            ChangePlanCheckResult(
+                code=code,
+                subject=subject,
+                ok=ok,
+                message=passed if ok else failed,
+            )
+        )
+
+    record(
+        "baseline_matches",
+        plan.baseline_ref,
+        plan.baseline_commit == baseline_commit,
+        "change plan and verification use the same immutable commit",
+        "change plan baseline does not match the verification baseline",
+    )
+
+    for source in (plan.use_case_source, plan.test_source):
+        try:
+            source_path = project_path(root, source, label="generated file")
+        except OperationError:
+            source_path = None
+        exists = source_path is not None and source_path.is_file()
+        record(
+            "file_exists",
+            source,
+            exists,
+            "required generated file exists",
+            "required generated file is missing",
+        )
+        marker_removed = False
+        if exists and source_path is not None:
+            try:
+                marker_removed = (
+                    GENERATED_INCOMPLETE_PRAGMA
+                    not in source_path.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeError):
+                marker_removed = False
+        record(
+            "incomplete_marker_removed",
+            source,
+            marker_removed,
+            "generated incomplete marker was removed",
+            "generated incomplete marker remains or the file is unreadable",
+        )
+
+    contract_symbol = plan.contract_target.partition(":")[2]
+    contract_id = f"contract:{plan.feature}.{contract_symbol}"
+    use_case_id = f"use-case:{plan.feature}.{plan.use_case_name}"
+    route_id = f"route:{plan.contract_method} {plan.contract_path}"
+    test_id = f"test:{plan.test_source}"
+    nodes = {node.id: node for node in app_map.nodes}
+
+    contract_node = nodes.get(contract_id)
+    contract_details = dict(contract_node.details) if contract_node is not None else {}
+    current_signature = _current_contract_signature(root, plan)
+    contract_registered = (
+        contract_node is not None
+        and contract_node.kind == "contract"
+        and contract_node.status == "registered"
+        and contract_node.name == plan.contract_name
+        and contract_node.source.symbol == contract_symbol
+        and contract_details.get("method") == plan.contract_method
+        and contract_details.get("path") == plan.contract_path
+        and current_signature == plan.use_case_signature
+    )
+    record(
+        "node_registered",
+        contract_id,
+        contract_registered,
+        "planned contract is registered with the accepted boundary signature",
+        "planned contract is not registered with the accepted boundary signature",
+    )
+
+    use_case_node = nodes.get(use_case_id)
+    use_case_registered = (
+        use_case_node is not None
+        and use_case_node.kind == "use-case"
+        and use_case_node.status == "registered"
+        and use_case_node.source.path == plan.use_case_source
+        and use_case_node.source.symbol == plan.use_case_name
+    )
+    record(
+        "node_registered",
+        use_case_id,
+        use_case_registered,
+        "planned use case is registered from the generated source",
+        "planned use case is not registered from the generated source",
+    )
+
+    test_node = nodes.get(test_id)
+    test_present = (
+        test_node is not None
+        and test_node.kind == "test"
+        and test_node.source.path == plan.test_source
+    )
+    record(
+        "test_present",
+        test_id,
+        test_present,
+        "generated feature test is present in the application map",
+        "generated feature test is missing from the application map",
+    )
+
+    edges = {
+        (edge.kind, edge.source, edge.target, edge.confidence) for edge in app_map.edges
+    }
+    for subject, expected, passed, failed in (
+        (
+            f"{route_id} -> {contract_id}",
+            ("binds", route_id, contract_id, "exact"),
+            "registered route binds the planned contract exactly",
+            "no registered route binds the planned contract exactly",
+        ),
+        (
+            f"{route_id} -> {use_case_id}",
+            ("binds", route_id, use_case_id, "exact"),
+            "registered route binds the planned use case exactly",
+            "no registered route binds the planned use case exactly",
+        ),
+        (
+            f"{test_id} -> {use_case_id}",
+            ("depends-on", test_id, use_case_id, "exact"),
+            "generated feature test references the planned use case directly",
+            "generated feature test does not reference the planned use case directly",
+        ),
+    ):
+        record(
+            "edge_present",
+            subject,
+            expected in edges,
+            passed,
+            failed,
+        )
+
+    return ChangePlanVerificationResult(
+        path=path,
+        plan=plan,
+        checks=tuple(checks),
+    )
+
+
+def _current_contract_signature(root: Path, plan: ChangePlan) -> str | None:
+    module_name, _, attribute = plan.contract_target.partition(":")
+    try:
+        declared = load_contract(root, module_name, attribute)
+        generated = contract_use_case_plan(
+            declared,
+            feature=plan.feature,
+            name=plan.use_case_name,
+            named_annotations=named_contract_annotations(root, plan.feature),
+        )
+    except (ContractLoadError, GenerationConfigurationError):
+        return None
+    return generated.signature
 
 
 def _policy_result(

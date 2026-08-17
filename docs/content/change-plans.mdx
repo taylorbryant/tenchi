@@ -1,0 +1,107 @@
+import { Callout } from "@/components/callout";
+
+# Verify a generated change
+
+A change plan connects a contract-driven generator request to the final
+`tenchi verify` receipt. Use one when a human or coding agent should prove that
+the generated use case was implemented, tested, and wired to the intended HTTP
+contract.
+
+Change-plan version 1 supports use cases generated with `--from-contract`.
+Plans are JSON files with a content-derived `plan_id`, the immutable Git
+baseline, the contract and use-case identities, generated paths, and a fixed
+set of structural postconditions.
+
+## Preview the generation
+
+Start from a committed baseline, then preview the files and boundary Tenchi
+would generate:
+
+```shell
+uv run tenchi make use-case projects create_project \
+  --from-contract app.features.projects.contracts:create_project_contract \
+  --dry-run --json
+```
+
+The preview does not write application files. Review its derived signature and
+planned paths before accepting the generation.
+
+## Create the files and plan together
+
+Run the generator without `--dry-run` and provide a project-relative plan path:
+
+```shell
+uv run tenchi make use-case projects create_project \
+  --from-contract app.features.projects.contracts:create_project_contract \
+  --plan .tenchi/changes/create-project.json \
+  --base-ref origin/main \
+  --json
+```
+
+Tenchi resolves `origin/main` to an immutable commit before writing anything.
+The generated use-case file, failing test, and plan are created as one
+filesystem operation; if any write fails, Tenchi removes the files created by
+that operation.
+
+The JSON result contains the complete plan, its destination, and a `plan_id`
+such as `sha256:…`. Keep that ID in the task description, review record, or
+orchestrator state. Any plan-content change produces a different ID, and the
+final verification receipt reports the ID it actually checked.
+
+<Callout type="note" title="Dry runs remain read-only">
+  Combining `--plan PATH` with `--dry-run` includes the prospective plan and
+  path in the result but writes neither the generated files nor the plan.
+</Callout>
+
+## Implement the behavior
+
+Replace the generated `NotImplementedError` and failing test. Remove both
+`# tenchi: incomplete` markers only after the behavior and its direct test are
+implemented. Bind the contract and use case explicitly in the feature's
+`routes.py`; the generator does not rewrite composition modules.
+
+Run the normal validation loop while working:
+
+```shell
+uv run tenchi check --json
+```
+
+## Verify the requested structure
+
+Use the same baseline named in the plan:
+
+```shell
+uv run tenchi verify \
+  --base-ref origin/main \
+  --change-plan .tenchi/changes/create-project.json \
+  --json
+```
+
+The change-plan section passes only when:
+
+- the plan and verification resolve to the same immutable commit;
+- both generated files exist and contain no incomplete marker;
+- the exact contract and use case are registered, and the current contract still
+  produces the accepted use-case signature;
+- one registered route binds that contract and use case through exact
+  application-map evidence; and
+- a top-level `test_*` function in the generated feature-test file directly
+  references the use case.
+
+Tenchi reads the plan before running project-owned validation commands and
+again before returning the receipt. If a test or import mutates the plan during
+verification, the receipt fails.
+
+## Understand the proof boundary
+
+A passing plan proves structural completion, not business correctness. It does
+not decide whether the implementation satisfies the product requirement or
+whether the assertions are strong enough. Review the use case, policy, ports,
+and test behavior as usual; `tenchi check` and the historical compatibility
+stages remain part of the same final receipt.
+
+The plan file is repository-owned data, not a signed instruction. Tenchi
+validates its content-derived identity and refuses weakened fixed
+postconditions, but someone who can edit the repository can replace the whole
+plan and receive a new ID. Preserve the initially accepted `plan_id` outside
+the edited worktree when the exact requested intent needs independent review.

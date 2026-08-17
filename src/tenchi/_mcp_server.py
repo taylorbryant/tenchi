@@ -68,6 +68,7 @@ from ._openapi_operations import (
     load_route_group,
     openapi_diff_result,
     project_path,
+    resolve_git_commit,
 )
 from ._preflight_operations import (
     discard_preflight_output,
@@ -191,7 +192,9 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             "accepting a changed tool snapshot. Compare evaluation policy before "
             "accepting a changed evaluation snapshot. Compare durable job messages "
             "before accepting a changed job snapshot. Finish with verify against "
-            "a historical Git ref. "
+            "a historical Git ref. When contract-driven generation needs intent "
+            "evidence, retain the previewed change-plan ID and pass its persisted "
+            "path to verify. "
             "Tenchi MCP inspection and preview tools do not "
             "write application files; check and verify run project-owned "
             "validation commands."
@@ -645,7 +648,8 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             "Preview a Tenchi feature or use-case generator. The result performs "
             "normal validation and lists files and wiring steps but never writes. "
             "For a use case, from_contract derives its exact boundary signature "
-            "from a contract in the selected feature."
+            "from a contract in the selected feature. Pass base_ref to include a "
+            "content-addressed structural change plan in the result."
         ),
         annotations=_READ_ONLY,
     )
@@ -654,6 +658,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         name: str,
         feature: str | None = None,
         from_contract: str | None = None,
+        base_ref: str | None = None,
     ) -> MakePayload:
         if artifact == "feature":
             if feature is not None:
@@ -662,20 +667,31 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
                 raise ToolError(
                     "from_contract must be omitted when artifact is 'feature'"
                 )
+            if base_ref is not None:
+                raise ToolError("base_ref must be omitted when artifact is 'feature'")
             return await call(
                 lambda: make_feature_result(root, name=name, dry_run=True).as_dict()
             )
         if feature is None:
             raise ToolError("feature is required when artifact is 'use-case'")
-        return await call(
-            lambda: make_use_case_result(
+        if base_ref is not None and from_contract is None:
+            raise ToolError("base_ref requires from_contract")
+
+        def operation() -> MakePayload:
+            baseline_commit = (
+                resolve_git_commit(root, base_ref) if base_ref is not None else None
+            )
+            return make_use_case_result(
                 root,
                 feature=feature,
                 name=name,
                 dry_run=True,
                 from_contract=from_contract,
+                change_plan_baseline_ref=base_ref,
+                change_plan_baseline_commit=baseline_commit,
             ).as_dict()
-        )
+
+        return await call(operation)
 
     @server.tool(
         name="verify",
@@ -698,6 +714,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         timeout_seconds: Annotated[float, Field(gt=0, le=3600)] = 600.0,
         allow_missing_job_baseline: bool = False,
         allow_missing_evaluation_baseline: bool = False,
+        change_plan: str | None = None,
     ) -> VerificationPayload:
         def operation(
             cancelled: Callable[[], bool],
@@ -707,6 +724,8 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             project_path(root, options.job_snapshot)
             project_path(root, options.tool_snapshot)
             project_path(root, options.evaluation_snapshot)
+            if change_plan is not None:
+                project_path(root, change_plan, label="change plan")
             return _isolated_call(
                 root,
                 module_names,
@@ -729,6 +748,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
                     allow_missing_evaluation_baseline=(
                         allow_missing_evaluation_baseline
                     ),
+                    change_plan=change_plan,
                     security_json=options.security_json,
                     timeout_seconds=timeout_seconds,
                     cancelled=cancelled,
@@ -869,7 +889,9 @@ def _fallback_agent_instructions() -> str:
 1. Run `app_map` for the affected feature and inspect diagnostics and unresolved
    relationships before editing.
 2. Use `make_preview` before creating framework-shaped files. When a use-case
-   contract exists, pass `from_contract` to derive its boundary signature.
+   contract exists, pass `from_contract` to derive its boundary signature. Pass
+   `base_ref` when the result should include a change plan, then retain its
+   `plan_id` outside the edited worktree.
 3. Keep contracts at the boundary, behavior in async use cases, infrastructure
    behind protocols, and wiring explicit in the server composition root.
 4. Run `check` after a coherent change.
@@ -881,9 +903,10 @@ def _fallback_agent_instructions() -> str:
 10. Run `evaluation_diff` before accepting a changed evaluation-policy snapshot.
    Missing historical snapshots require explicit human authorization for the
    one first-adoption comparison.
-11. Run `verify` against the merge base, previous push, or previous release and
-   report its receipt. Resolve `tenchi.toml` policy failures instead of
-   disabling a requirement to make the receipt pass.
+11. Run `verify` against the merge base, previous push, or previous release,
+   passing the persisted `change_plan` path when one was accepted, and report
+   its receipt. Resolve `tenchi.toml` policy failures instead of disabling a
+   requirement to make the receipt pass.
 12. Use `task_list` before any separately authorized operational task run.
 
 Full guidance: https://tenchi.io/agents

@@ -34,6 +34,10 @@ uv run tenchi make use-case notes create_note --json
 uv run tenchi make use-case notes create_note \
   --from-contract app.features.notes.contracts:create_note_contract \
   --dry-run --json
+uv run tenchi make use-case notes create_note \
+  --from-contract app.features.notes.contracts:create_note_contract \
+  --plan .tenchi/changes/create-note.json \
+  --base-ref origin/main --json
 ```
 
 Generators create files and print explicit wiring instructions. They never
@@ -66,6 +70,13 @@ Tenchi reports a structured configuration error instead of guessing that
 return type. A contract with `response_headers` keeps its response type, and
 the generated follow-up steps call out the required synchronous header
 projector.
+
+`--plan PATH` is available with `--from-contract`. It resolves `--base-ref`
+(default `HEAD`) to an immutable commit and writes a versioned structural plan
+in the same transaction as the generated use case and test. The result includes
+the content-derived plan ID. With `--dry-run`, Tenchi returns the prospective
+plan but writes neither the plan nor application files. See [verify a generated
+change](/change-plans) for the complete workflow and proof boundary.
 
 ## Inspect routes
 
@@ -225,6 +236,8 @@ snapshot defaults to `evaluations.json`. Override them with `--evaluations` and
 ```shell
 uv run tenchi verify --base-ref origin/main
 uv run tenchi verify --base-ref origin/main --json
+uv run tenchi verify --base-ref origin/main \
+  --change-plan .tenchi/changes/create-note.json --json
 ```
 
 Verify produces one receipt for the finished source tree. It runs `tenchi
@@ -235,6 +248,14 @@ the selected Git ref. The receipt records the immutable commit resolved from
 `--base-ref`, so all four
 compatibility reports use the same historical state even if the named ref moves
 later.
+
+When `--change-plan PATH` is present, the receipt also verifies the plan's
+baseline, generated files, incomplete markers, exact contract and use-case
+registration, the accepted contract-derived signature, route bindings, and a
+direct dependency from a top-level `test_*` feature-test function. The plan is
+read before and after project-owned commands so a mid-verification mutation
+fails. Change-plan evidence supplements the normal checks and compatibility
+reports; it does not evaluate business semantics or test quality.
 
 The application root may contain a repository-owned `tenchi.toml`:
 

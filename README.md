@@ -522,6 +522,15 @@ payload-safe result. Evaluation execution remains separate from `check` and
 `verify` because it may be nondeterministic, contact external systems, and
 incur cost; those commands verify only the declared policy.
 
+Contract-driven use-case generation can write a versioned, content-addressed
+change plan with `--plan <path> --base-ref <ref>`. Pass that path to `tenchi
+verify --change-plan` to require the generated files, removed incomplete
+markers, registered contract and use case, the accepted contract-derived
+signature, exact route bindings, and a direct dependency from a
+top-level `test_*` feature-test function in the final receipt. The plan and
+verification must resolve to the same immutable commit. A dry run can return
+the prospective plan without writing either it or the generated files.
+
 Generator `--dry-run` output lists every file without writing it. `make`,
 `routes`, `map`, `jobs`, `tools`, `preflight`, `eval list|run`, `task list|run`,
 `doctor`, `check`, and `verify` accept `--json` and return versioned results for

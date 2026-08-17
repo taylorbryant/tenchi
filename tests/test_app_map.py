@@ -39,7 +39,7 @@ def test_app_map_is_deterministic_and_versioned() -> None:
     second = map_app(EXAMPLE_DIR, api_routes)
 
     assert first.as_dict() == second.as_dict()
-    assert first.schema_version == 8
+    assert first.schema_version == 9
     assert first.summary.features == 1
     assert first.summary.contracts == 3
     assert first.summary.routes == 3
@@ -50,7 +50,7 @@ def test_app_map_is_deterministic_and_versioned() -> None:
     assert first.diagnostics == ()
     assert first.unresolved == ()
     assert len({node.id for node in first.nodes}) == len(first.nodes)
-    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 8
+    assert json.loads(json.dumps(first.as_dict()))["schema_version"] == 9
 
 
 def test_app_map_json_wire_format_matches_snapshot() -> None:
@@ -191,6 +191,11 @@ def test_app_map_connects_routes_ports_adapters_and_tests() -> None:
         "feature:todos",
         "test:app/features/todos/tests/test_create_todo.py",
     ) in edges
+    assert (
+        "depends-on",
+        "test:app/features/todos/tests/test_create_todo.py",
+        "use-case:todos.create_todo",
+    ) in edges
 
     route = next(node for node in result.nodes if node.id == "route:POST /todos")
     assert route.status == "registered"
@@ -203,6 +208,60 @@ def test_app_map_connects_routes_ports_adapters_and_tests() -> None:
         "MemoryTodoRepository": "declared",
         "SqliteTodoRepository": "registered",
     }
+
+
+def test_app_map_attributes_function_local_imports_to_the_test_file(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "app"
+    shutil.copytree(EXAMPLE_DIR, root)
+    test_path = root / "app/features/todos/tests/test_local_import.py"
+    test_path.write_text(
+        "def test_create_todo_is_available() -> None:\n"
+        "    from ..use_cases.create_todo import create_todo\n\n"
+        "    assert callable(create_todo)\n",
+        encoding="utf-8",
+    )
+
+    result = map_app(root, api_routes)
+
+    assert (
+        "depends-on",
+        "test:app/features/todos/tests/test_local_import.py",
+        "use-case:todos.create_todo",
+    ) in {(edge.kind, edge.source, edge.target) for edge in result.edges}
+
+
+def test_app_map_ignores_use_case_references_outside_collectible_tests(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "app"
+    shutil.copytree(EXAMPLE_DIR, root)
+    test_path = root / "app/features/todos/tests/test_not_collected.py"
+    test_path.write_text(
+        "from ..use_cases.create_todo import create_todo\n\n"
+        "module_reference = create_todo\n\n"
+        "def helper() -> object:\n"
+        "    return create_todo\n\n"
+        "def check_create_todo_is_available() -> None:\n"
+        "    assert callable(create_todo)\n\n"
+        "class TestNotCollected:\n"
+        "    def __init__(self) -> None:\n"
+        "        pass\n\n"
+        "    def test_is_available(self) -> None:\n"
+        "        assert callable(create_todo)\n\n"
+        "def test_unrelated() -> None:\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    result = map_app(root, api_routes)
+
+    assert (
+        "depends-on",
+        "test:app/features/todos/tests/test_not_collected.py",
+        "use-case:todos.create_todo",
+    ) not in {(edge.kind, edge.source, edge.target) for edge in result.edges}
 
 
 def test_app_map_connects_registered_tools_to_use_cases(tmp_path: Path) -> None:
@@ -697,7 +756,7 @@ def test_map_cli_supports_json_human_and_projections() -> None:
     complete = _tenchi("map", "--json")
     assert complete.returncode == 0, complete.stderr
     payload = json.loads(complete.stdout)
-    assert payload["schema_version"] == 8
+    assert payload["schema_version"] == 9
     assert payload["summary"]["routes"] == 3
 
     projected = _tenchi(

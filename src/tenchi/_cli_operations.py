@@ -13,10 +13,13 @@ from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, cast, get_origin
+from typing import Any, cast
 
-from pydantic import BaseModel
-
+from ._change_plans import (
+    ChangePlan,
+    create_contract_use_case_change_plan,
+    render_change_plan,
+)
 from ._cli_results import (
     DiagnosticResult,
     DoctorResult,
@@ -24,7 +27,11 @@ from ._cli_results import (
     RouteEntryResult,
     RoutesResult,
 )
-from ._generation import GenerationConfigurationError, contract_use_case_plan
+from ._generation import (
+    GenerationConfigurationError,
+    contract_use_case_plan,
+    named_contract_annotations,
+)
 from .contracts import Contract
 from .doctor import run_doctor
 from .openapi import openapi_schema
@@ -187,6 +194,9 @@ def make_use_case_result(
     name: str,
     dry_run: bool,
     from_contract: str | None = None,
+    change_plan_path: str | None = None,
+    change_plan_baseline_ref: str | None = None,
+    change_plan_baseline_commit: str | None = None,
 ) -> MakeResult:
     """Plan or create a use case without choosing a result renderer."""
     resolved_root = root.resolve()
@@ -259,6 +269,75 @@ def make_use_case_result(
         )
 
     plan = None
+    change_plan: ChangePlan | None = None
+    normalized_change_plan_path: str | None = None
+    if change_plan_path is not None:
+        try:
+            normalized_change_plan_path = _project_relative_output_path(
+                resolved_root,
+                change_plan_path,
+            )
+        except ValueError as exc:
+            return MakeResult(
+                root=str(resolved_root),
+                artifact="use-case",
+                name=name,
+                feature=feature,
+                dry_run=dry_run,
+                ok=False,
+                files=(),
+                next_steps=(),
+                error=f"tenchi make use-case: {exc}",
+            )
+        if (resolved_root / normalized_change_plan_path).exists():
+            return MakeResult(
+                root=str(resolved_root),
+                artifact="use-case",
+                name=name,
+                feature=feature,
+                dry_run=dry_run,
+                ok=False,
+                files=(),
+                next_steps=(),
+                error=(
+                    "tenchi make use-case: change plan "
+                    f"{normalized_change_plan_path} already exists"
+                ),
+            )
+    baseline_values = (
+        change_plan_baseline_ref,
+        change_plan_baseline_commit,
+    )
+    if (baseline_values[0] is None) != (baseline_values[1] is None):
+        return MakeResult(
+            root=str(resolved_root),
+            artifact="use-case",
+            name=name,
+            feature=feature,
+            dry_run=dry_run,
+            ok=False,
+            files=(),
+            next_steps=(),
+            error=(
+                "tenchi make use-case: change-plan baseline ref and commit "
+                "must be provided together"
+            ),
+        )
+    if normalized_change_plan_path is not None and baseline_values[0] is None:
+        return MakeResult(
+            root=str(resolved_root),
+            artifact="use-case",
+            name=name,
+            feature=feature,
+            dry_run=dry_run,
+            ok=False,
+            files=(),
+            next_steps=(),
+            error=(
+                "tenchi make use-case: a persisted change plan requires an "
+                "immutable baseline"
+            ),
+        )
     if from_contract is not None:
         module_name, separator, attribute = from_contract.partition(":")
         expected_module = f"app.features.{feature}.contracts"
@@ -292,13 +371,13 @@ def make_use_case_result(
                     f"{expected_module}:<contract> for feature {feature!r}"
                 ),
             )
-        declared = _load_contract(resolved_root, module_name, attribute)
+        declared = load_contract(resolved_root, module_name, attribute)
         try:
             plan = contract_use_case_plan(
                 declared,
                 feature=feature,
                 name=name,
-                named_annotations=_named_contract_annotations(resolved_root, feature),
+                named_annotations=named_contract_annotations(resolved_root, feature),
             )
         except GenerationConfigurationError as exc:
             return MakeResult(
@@ -314,11 +393,59 @@ def make_use_case_result(
             )
         _validate_contract_generation_source(declared)
         files = plan.files
+        if change_plan_baseline_ref is not None:
+            assert change_plan_baseline_commit is not None
+            change_plan = create_contract_use_case_change_plan(
+                baseline_ref=change_plan_baseline_ref,
+                baseline_commit=change_plan_baseline_commit,
+                feature=feature,
+                contract_target=from_contract,
+                contract_name=declared.name,
+                contract_method=declared.method,
+                contract_path=declared.path,
+                use_case_name=name,
+                use_case_signature=plan.signature,
+            )
     else:
+        if normalized_change_plan_path is not None or baseline_values[0] is not None:
+            return MakeResult(
+                root=str(resolved_root),
+                artifact="use-case",
+                name=name,
+                feature=feature,
+                dry_run=dry_run,
+                ok=False,
+                files=(),
+                next_steps=(),
+                error=("tenchi make use-case: change plans require --from-contract"),
+            )
         files = use_case_files(feature, name)
 
+    relative_root = feature_root.relative_to(resolved_root)
+    writes: dict[str, str] = {}
     if not dry_run:
-        write_error = _write_files_transactionally(feature_root, files)
+        writes.update(
+            ((relative_root / relative_path).as_posix(), content)
+            for relative_path, content in files.items()
+        )
+    if normalized_change_plan_path is not None and not dry_run:
+        assert change_plan is not None
+        if normalized_change_plan_path in writes:
+            return MakeResult(
+                root=str(resolved_root),
+                artifact="use-case",
+                name=name,
+                feature=feature,
+                dry_run=dry_run,
+                ok=False,
+                files=(),
+                next_steps=(),
+                error="tenchi make use-case: change plan path conflicts with output",
+            )
+        writes[normalized_change_plan_path] = render_change_plan(change_plan)
+
+    if writes:
+        write_error = _write_files_transactionally(resolved_root, writes)
         if write_error is not None:
             return MakeResult(
                 root=str(resolved_root),
@@ -331,7 +458,6 @@ def make_use_case_result(
                 next_steps=(),
                 error=f"tenchi make use-case: could not create files: {write_error}",
             )
-    relative_root = feature_root.relative_to(resolved_root)
     if plan is None:
         next_steps = (
             f"Implement {name} and its test",
@@ -352,6 +478,13 @@ def make_use_case_result(
                 "the route boundary"
             )
         next_steps_list.append("Run tenchi check")
+        if normalized_change_plan_path is not None:
+            assert change_plan_baseline_ref is not None
+            next_steps_list.append(
+                "Run tenchi verify --base-ref "
+                f"{change_plan_baseline_ref} --change-plan "
+                f"{normalized_change_plan_path}"
+            )
         next_steps = tuple(next_steps_list)
     return MakeResult(
         root=str(resolved_root),
@@ -362,10 +495,30 @@ def make_use_case_result(
         ok=True,
         files=tuple((relative_root / path).as_posix() for path in files),
         next_steps=next_steps,
+        change_plan=change_plan,
+        change_plan_path=normalized_change_plan_path,
     )
 
 
-def _load_contract(
+def _project_relative_output_path(root: Path, value: str) -> str:
+    if not value.strip():
+        raise ValueError("change plan path must not be empty")
+    candidate = Path(value)
+    if candidate.is_absolute():
+        raise ValueError("change plan path must be relative to the application root")
+    resolved = (root / candidate).resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            "change plan path must stay inside the application root"
+        ) from exc
+    if relative == Path("."):
+        raise ValueError("change plan path must name a file")
+    return relative.as_posix()
+
+
+def load_contract(
     root: Path, module_name: str, attribute: str
 ) -> Contract[object, object]:
     original_path = sys.path.copy()
@@ -396,45 +549,6 @@ def _load_contract(
         return cast(Contract[object, object], declared)
     finally:
         sys.path[:] = original_path
-
-
-def _named_contract_annotations(
-    root: Path, feature: str
-) -> dict[int, tuple[object, str, str]]:
-    allowed_modules = (
-        f"app.features.{feature}.schemas",
-        f"app.features.{feature}.domain",
-        "app.shared",
-    )
-    aliases: dict[int, tuple[object, str, str]] = {}
-    for module_name, module in sorted(sys.modules.items()):
-        if not any(
-            module_name == allowed or module_name.startswith(f"{allowed}.")
-            for allowed in allowed_modules
-        ):
-            continue
-        module_file = getattr(module, "__file__", None)
-        if not isinstance(module_file, str):
-            continue
-        try:
-            Path(module_file).resolve().relative_to(root)
-        except (OSError, ValueError):
-            continue
-        for symbol, value in sorted(vars(module).items()):
-            if (
-                symbol.startswith("_")
-                or not symbol.isidentifier()
-                or keyword.iskeyword(symbol)
-            ):
-                continue
-            if (
-                getattr(value, "__module__", None) != module_name
-                and get_origin(value) is None
-                and not _is_pydantic_generic_specialization(value)
-            ):
-                continue
-            aliases.setdefault(id(value), (value, module_name, symbol))
-    return aliases
 
 
 def _validate_contract_generation_source(
@@ -490,16 +604,6 @@ def _validate_contract_generation_source(
         title="Tenchi generation validation",
         version="0",
     )
-
-
-def _is_pydantic_generic_specialization(value: object) -> bool:
-    if not isinstance(value, type) or not issubclass(value, BaseModel):
-        return False
-    metadata = getattr(value, "__pydantic_generic_metadata__", None)
-    if not isinstance(metadata, dict):
-        return False
-    generic_metadata = cast(Mapping[str, object], metadata)
-    return generic_metadata.get("origin") is not None
 
 
 def doctor_result(root: Path) -> DoctorResult:

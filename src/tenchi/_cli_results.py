@@ -13,6 +13,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 from typing_extensions import TypedDict
 
+from ._change_plans import ChangePlan, ChangePlanPayload
 from .evaluations import MAX_EVALUATION_TOKENS, EvaluationBudgetStatus
 
 type DiagnosticSeverity = Literal["error", "warning", "hint"]
@@ -65,9 +66,9 @@ type AgentOperationErrorCode = Literal[
 ]
 type AgentOperationErrorDetail = str | int | bool | list[str]
 type AgentOperationErrorDetails = dict[str, AgentOperationErrorDetail]
-type AgentProtocolVersion = Literal[8]
+type AgentProtocolVersion = Literal[9]
 
-AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 8
+AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 9
 
 
 class AgentOperationErrorPayload(TypedDict):
@@ -129,6 +130,8 @@ class MakePayload(TypedDict):
     ok: bool
     files: list[str]
     next_steps: list[str]
+    change_plan: ChangePlanPayload | None
+    change_plan_path: str | None
     error: str | None
 
 
@@ -389,6 +392,8 @@ class MakeResult:
     ok: bool
     files: tuple[str, ...]
     next_steps: tuple[str, ...]
+    change_plan: ChangePlan | None = None
+    change_plan_path: str | None = None
     error: str | None = None
     schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
 
@@ -403,6 +408,10 @@ class MakeResult:
             "ok": self.ok,
             "files": list(self.files),
             "next_steps": list(self.next_steps),
+            "change_plan": (
+                self.change_plan.as_dict() if self.change_plan is not None else None
+            ),
+            "change_plan_path": self.change_plan_path,
             "error": self.error,
         }
 

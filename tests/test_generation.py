@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from tenchi._cli_operations import ContractLoadError, make_use_case_result
 from tenchi._generation import GenerationConfigurationError, contract_use_case_plan
+from tenchi._openapi_operations import isolated_project_imports
 from tenchi.contracts import contract
 from tenchi.errors import ConfigurationError
 from tenchi.pagination import Page
@@ -39,7 +40,13 @@ def test_contract_loader_restores_sys_path_after_failure(tmp_path: Path) -> None
     (tmp_path / "app/features/projects").mkdir(parents=True)
     original_path = sys.path.copy()
 
-    with pytest.raises(ContractLoadError):
+    with (
+        pytest.raises(ContractLoadError),
+        isolated_project_imports(
+            tmp_path,
+            module_names=("app.features.projects.contracts",),
+        ),
+    ):
         make_use_case_result(
             tmp_path,
             feature="projects",
@@ -49,6 +56,75 @@ def test_contract_loader_restores_sys_path_after_failure(tmp_path: Path) -> None
         )
 
     assert sys.path == original_path
+
+
+def test_contract_generation_rolls_back_files_and_change_plan_together(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature = tmp_path / "app/features/projects"
+    feature.mkdir(parents=True)
+    for package in (tmp_path / "app", tmp_path / "app/features", feature):
+        (package / "__init__.py").write_text("", encoding="utf-8")
+    (feature / "contracts.py").write_text(
+        "from tenchi.contracts import contract\n\n"
+        "create_project_contract = contract(\n"
+        '    method="POST",\n'
+        '    path="/projects",\n'
+        "    request=str,\n"
+        "    response=str,\n"
+        ")\n",
+        encoding="utf-8",
+    )
+    original_replace = Path.replace
+    calls = 0
+
+    def fail_plan_write(source: Path, target: Path) -> Path:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise OSError("simulated plan write failure")
+        return original_replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", fail_plan_write)
+    with isolated_project_imports(
+        tmp_path,
+        module_names=("app.features.projects.contracts",),
+    ):
+        result = make_use_case_result(
+            tmp_path,
+            feature="projects",
+            name="create_project",
+            dry_run=False,
+            from_contract=("app.features.projects.contracts:create_project_contract"),
+            change_plan_path=".tenchi/changes/create-project.json",
+            change_plan_baseline_ref="HEAD",
+            change_plan_baseline_commit="a" * 40,
+        )
+
+    assert result.ok is False
+    assert result.error is not None and "simulated plan write failure" in result.error
+    assert not (feature / "use_cases/create_project.py").exists()
+    assert not (feature / "tests/test_create_project.py").exists()
+    assert not (tmp_path / ".tenchi").exists()
+
+
+def test_contract_generation_reports_incomplete_change_plan_configuration(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app/features/projects").mkdir(parents=True)
+
+    result = make_use_case_result(
+        tmp_path,
+        feature="projects",
+        name="create_project",
+        dry_run=True,
+        change_plan_baseline_ref="HEAD",
+    )
+
+    assert result.ok is False
+    assert result.error is not None
+    assert "baseline ref and commit must be provided together" in result.error
 
 
 def test_contract_use_case_plan_preserves_empty_tuple_annotations() -> None:

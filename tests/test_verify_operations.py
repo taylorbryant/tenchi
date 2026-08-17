@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -5,10 +6,16 @@ import pytest
 
 from tenchi import _verify_operations
 from tenchi._app_map import (
+    AppMapEdge,
+    AppMapNode,
     AppMapResult,
     AppMapSource,
     AppMapSummary,
     AppMapUnresolvedReference,
+)
+from tenchi._change_plans import (
+    create_contract_use_case_change_plan,
+    render_change_plan,
 )
 from tenchi._cli_results import CheckResult
 from tenchi._evaluation_operations import EvaluationDiffResult
@@ -26,6 +33,10 @@ from tenchi._verification_policy import (
     default_verification_policy,
 )
 from tenchi.compatibility import CompatibilityReport
+
+_CHANGE_PLAN_SIGNATURE = (
+    "async def create_project(request: CreateProject, context: AppContext) -> Project"
+)
 
 
 def _summary(*, unresolved: int = 0) -> AppMapSummary:
@@ -56,8 +67,11 @@ def _run_with_map(
     *,
     policy: VerificationPolicyComparison | None = None,
     final_policy: VerificationPolicyComparison | None = None,
+    change_plan: str | None = None,
+    current_contract_signature: str = _CHANGE_PLAN_SIGNATURE,
+    during_verification: Callable[[], None] | None = None,
 ) -> _verify_operations.VerificationResult:
-    (tmp_path / "app").mkdir()
+    (tmp_path / "app").mkdir(exist_ok=True)
     (tmp_path / "openapi.json").write_text("{}")
     (tmp_path / "jobs.json").write_text("{}")
     (tmp_path / "tools.json").write_text("{}")
@@ -121,8 +135,17 @@ def _run_with_map(
         del args, kwargs
         return app_map
 
+    def fake_current_contract_signature(
+        root: Path,
+        plan: object,
+    ) -> str:
+        del root, plan
+        return current_contract_signature
+
     def fake_tool_diff_result(root: Path, **kwargs: object) -> ToolDiffResult:
         del kwargs
+        if during_verification is not None:
+            during_verification()
         return ToolDiffResult(
             root=str(root),
             baseline=f"{commit}:tools.json",
@@ -199,6 +222,11 @@ def _run_with_map(
     )
     monkeypatch.setattr(
         _verify_operations,
+        "_current_contract_signature",
+        fake_current_contract_signature,
+    )
+    monkeypatch.setattr(
+        _verify_operations,
         "tool_diff_result",
         fake_tool_diff_result,
     )
@@ -224,6 +252,255 @@ def _run_with_map(
         evaluation_snapshot="evaluations.json",
         security_json=None,
         timeout_seconds=10,
+        change_plan=change_plan,
+    )
+
+
+def _change_plan_app_map(
+    tmp_path: Path, *, include_test_edge: bool = True
+) -> AppMapResult:
+    contract_source = AppMapSource(
+        path="app/features/projects/contracts.py",
+        line=4,
+        symbol="create_project_contract",
+    )
+    use_case_source = AppMapSource(
+        path="app/features/projects/use_cases/create_project.py",
+        line=4,
+        symbol="create_project",
+    )
+    route_source = AppMapSource(
+        path="app/features/projects/routes.py",
+        line=6,
+    )
+    test_source = AppMapSource(
+        path="app/features/projects/tests/test_create_project.py",
+        line=1,
+    )
+    nodes = (
+        AppMapNode(
+            id="contract:projects.create_project_contract",
+            kind="contract",
+            name="create_project_contract",
+            source=contract_source,
+            status="registered",
+            feature="projects",
+            details=(("method", "POST"), ("path", "/projects")),
+        ),
+        AppMapNode(
+            id="use-case:projects.create_project",
+            kind="use-case",
+            name="create_project",
+            source=use_case_source,
+            status="registered",
+            feature="projects",
+        ),
+        AppMapNode(
+            id="route:POST /projects",
+            kind="route",
+            name="POST /projects",
+            source=route_source,
+            status="registered",
+            feature="projects",
+        ),
+        AppMapNode(
+            id="test:app/features/projects/tests/test_create_project.py",
+            kind="test",
+            name="test_create_project.py",
+            source=test_source,
+            status="declared",
+            feature="projects",
+        ),
+    )
+    edges = [
+        AppMapEdge(
+            kind="binds",
+            source="route:POST /projects",
+            target="contract:projects.create_project_contract",
+            evidence=route_source,
+            confidence="exact",
+        ),
+        AppMapEdge(
+            kind="binds",
+            source="route:POST /projects",
+            target="use-case:projects.create_project",
+            evidence=route_source,
+            confidence="exact",
+        ),
+    ]
+    if include_test_edge:
+        edges.append(
+            AppMapEdge(
+                kind="depends-on",
+                source="test:app/features/projects/tests/test_create_project.py",
+                target="use-case:projects.create_project",
+                evidence=test_source,
+                confidence="exact",
+            )
+        )
+    return AppMapResult(
+        root=str(tmp_path),
+        summary=_summary(),
+        nodes=nodes,
+        edges=tuple(edges),
+        diagnostics=(),
+        unresolved=(),
+    )
+
+
+def _write_change_plan_fixture(tmp_path: Path) -> str:
+    for relative in (
+        "app/features/projects/use_cases/create_project.py",
+        "app/features/projects/tests/test_create_project.py",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# implemented\n", encoding="utf-8")
+    plan = create_contract_use_case_change_plan(
+        baseline_ref="base",
+        baseline_commit="a" * 40,
+        feature="projects",
+        contract_target=("app.features.projects.contracts:create_project_contract"),
+        contract_name="create_project_contract",
+        contract_method="POST",
+        contract_path="/projects",
+        use_case_name="create_project",
+        use_case_signature=_CHANGE_PLAN_SIGNATURE,
+    )
+    relative = ".tenchi/changes/create-project.json"
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_text(render_change_plan(plan), encoding="utf-8")
+    return relative
+
+
+def _stub_passing_openapi(monkeypatch: pytest.MonkeyPatch) -> None:
+    def passing(root: Path, **kwargs: object) -> OpenApiDiffResult:
+        del kwargs
+        return OpenApiDiffResult(
+            root=str(root),
+            baseline=f"{'a' * 40}:openapi.json",
+            report=CompatibilityReport(()),
+        )
+
+    monkeypatch.setattr(_verify_operations, "openapi_diff_result", passing)
+
+
+def test_verification_proves_change_plan_postconditions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write_change_plan_fixture(tmp_path)
+    _stub_passing_openapi(monkeypatch)
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        _change_plan_app_map(tmp_path),
+        change_plan=path,
+    )
+
+    assert result.ok is True
+    assert result.change_plan is not None
+    assert result.change_plan.ok is True
+    assert all(check.ok for check in result.change_plan.checks)
+    assert result.change_plan.path == path
+
+
+def test_verification_fails_when_a_change_plan_relationship_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write_change_plan_fixture(tmp_path)
+    _stub_passing_openapi(monkeypatch)
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        _change_plan_app_map(tmp_path, include_test_edge=False),
+        change_plan=path,
+    )
+
+    assert result.ok is False
+    assert result.change_plan is not None
+    assert result.change_plan.ok is False
+    failed = [check for check in result.change_plan.checks if not check.ok]
+    assert [(check.code, check.subject) for check in failed] == [
+        (
+            "edge_present",
+            "test:app/features/projects/tests/test_create_project.py -> "
+            "use-case:projects.create_project",
+        )
+    ]
+
+
+def test_verification_fails_when_contract_signature_drifted_from_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write_change_plan_fixture(tmp_path)
+    _stub_passing_openapi(monkeypatch)
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        _change_plan_app_map(tmp_path),
+        change_plan=path,
+        current_contract_signature=(
+            "async def create_project(query: ProjectQuery, request: CreateProject, "
+            "context: AppContext) -> Project"
+        ),
+    )
+
+    assert result.ok is False
+    assert result.change_plan is not None
+    failed = [check for check in result.change_plan.checks if not check.ok]
+    assert [(check.code, check.subject) for check in failed] == [
+        (
+            "node_registered",
+            "contract:projects.create_project_contract",
+        )
+    ]
+
+
+def test_verification_fails_if_the_change_plan_changes_during_the_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    relative = _write_change_plan_fixture(tmp_path)
+    path = tmp_path / relative
+    _stub_passing_openapi(monkeypatch)
+
+    def replace_plan() -> None:
+        replacement = create_contract_use_case_change_plan(
+            baseline_ref="base",
+            baseline_commit="a" * 40,
+            feature="projects",
+            contract_target=("app.features.projects.contracts:create_project_contract"),
+            contract_name="create_project_contract",
+            contract_method="POST",
+            contract_path="/projects/renamed",
+            use_case_name="create_project",
+            use_case_signature=(
+                "async def create_project(request: CreateProject, "
+                "context: AppContext) -> Project"
+            ),
+        )
+        path.write_text(render_change_plan(replacement), encoding="utf-8")
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        _change_plan_app_map(tmp_path),
+        change_plan=relative,
+        during_verification=replace_plan,
+    )
+
+    assert result.ok is False
+    assert any(
+        error.stage == "change_plan"
+        and "changed while verification was running" in error.message
+        for error in result.errors
     )
 
 

@@ -9,6 +9,21 @@ versions may change the public API.
 
 ### Added
 
+- Contract-driven use-case generation can write a versioned,
+  content-addressed structural change plan with `--plan <path> --base-ref
+  <ref>`. The generated files and plan are written transactionally; dry runs
+  return the prospective plan without writing it. `tenchi verify --change-plan`
+  requires the plan and receipt to use the same immutable commit, both generated
+  files without incomplete markers, the exact registered contract and use case,
+  the current contract-derived signature, exact route bindings, and a direct
+  dependency from a top-level `test_*` feature-test function. Plans are read
+  before and after project-owned verification commands to detect mutation.
+  Coding-agent `make_preview` accepts `base_ref` to return the same plan inline,
+  and MCP `verify` accepts a persisted project-relative plan. Change-plan schema
+  v1 and agent protocol v9 snapshot these new contracts while retaining all
+  earlier protocol snapshots. Application maps now retain exact use-case
+  dependencies used inside test functions so this evidence is independently
+  inspectable.
 - `tenchi make use-case` accepts `--from-contract
   app.features.<feature>.contracts:<name>` to generate an async use-case
   signature from the contract's path-parameter, query, header, request, and

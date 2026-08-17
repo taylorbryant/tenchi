@@ -1234,7 +1234,12 @@ def _add_import_edges(modules: Sequence[_ModuleInfo], builder: _GraphBuilder) ->
             scope = _definition_scope(info.tree, origin)
             if scope is None:
                 continue
-            for reference, line in _used_import_references(info, scope):
+            references = (
+                _test_import_references(info)
+                if origin.kind == "test"
+                else _used_import_references(info, scope)
+            )
+            for reference, line in references:
                 if reference.symbol is None:
                     continue
                 target_id = builder.symbol_nodes.get(
@@ -2466,7 +2471,8 @@ def _expression_reference(value: ast.expr, info: _ModuleInfo) -> _SymbolRef | No
 
 
 def _used_import_references(
-    info: _ModuleInfo, scope: ast.AST
+    info: _ModuleInfo,
+    scope: ast.AST,
 ) -> tuple[tuple[_SymbolRef, int], ...]:
     imports = _imports_for_scope(info, scope)
     references: dict[tuple[str, str | None], int] = {}
@@ -2487,6 +2493,28 @@ def _used_import_references(
             continue
         key = (reference.module, reference.symbol)
         references[key] = min(references.get(key, sys.maxsize), imports[chain[0]].line)
+    return tuple(
+        (_SymbolRef(module=module, symbol=symbol), line)
+        for (module, symbol), line in sorted(
+            references.items(),
+            key=lambda item: (item[0][0], item[0][1] or "", item[1]),
+        )
+    )
+
+
+def _test_import_references(info: _ModuleInfo) -> tuple[tuple[_SymbolRef, int], ...]:
+    """Attribute imports used by top-level pytest test functions to the file."""
+    scopes = [
+        statement
+        for statement in info.tree.body
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and statement.name.startswith("test_")
+    ]
+    references: dict[tuple[str, str | None], int] = {}
+    for scope in scopes:
+        for reference, line in _used_import_references(info, scope):
+            key = (reference.module, reference.symbol)
+            references[key] = min(references.get(key, sys.maxsize), line)
     return tuple(
         (_SymbolRef(module=module, symbol=symbol), line)
         for (module, symbol), line in sorted(

@@ -17,6 +17,7 @@ export const MAX_RESULTS = 12;
 
 const DEFAULT_ROUTES = [
   "/getting-started",
+  "/change-plans",
   "/concepts",
   "/contracts",
   "/server",

@@ -33,9 +33,11 @@ updating `jobs.json`. If an application tool changed, run the tool
 compatibility diff before updating `tools.json`. If an evaluation policy
 changed, run the evaluation compatibility diff before updating
 `evaluations.json`.
-Finish with `uv run tenchi verify --base-ref <historical-ref> --json` and report
-the receipt with the files changed. Do not weaken `tenchi.toml` to make a
-failing requirement disappear.
+For a contract-driven generated use case, create a change plan with `--plan`
+and retain its reported `plan_id`. Finish with `uv run tenchi verify --base-ref
+<historical-ref> --change-plan <path> --json` and report the receipt with the
+files changed. Do not weaken `tenchi.toml` to make a failing requirement
+disappear.
 ```
 
 If you already know the feature, include its name in the task so the agent can
@@ -53,7 +55,8 @@ complete application graph.
 | `tenchi map --json` | A versioned graph with stable node IDs, source locations, registration state, and relationship evidence |
 | `tenchi task list --json` | Validated operational task names and their input/output JSON Schemas |
 | `tenchi eval list --json` | Evaluation names, case names and schemas, thresholds, timeouts, and budgets without case inputs |
-| `tenchi make <artifact> ... --dry-run --json` | A mutation preview with the files and follow-up wiring steps before anything is written |
+| `tenchi make <artifact> ... --dry-run --json` | A mutation preview with the files and follow-up wiring steps before anything is written; contract-driven previews can include a prospective change plan |
+| Contract-driven change plans | A content-addressed record of the requested use case, immutable baseline, generated paths, and fixed structural postconditions |
 | `tenchi doctor --json` | Stable diagnostic codes and source locations for architectural violations |
 | `tenchi tools --json` | Registered machine-facing names, schemas, errors, and safety annotations |
 | `tenchi jobs --json` | Registered durable job names and payload schemas without queued values |
@@ -142,6 +145,21 @@ After accepting the preview, run the command without `--dry-run`. Generators
 create files but do not rewrite route or infrastructure modules. The agent must
 make those composition changes in the application files, where you can review
 them.
+
+For a change that needs explicit intent evidence, create the files and plan
+together:
+
+```shell
+uv run tenchi make use-case notes create_note \
+  --from-contract app.features.notes.contracts:create_note_contract \
+  --plan .tenchi/changes/create-note.json \
+  --base-ref origin/main --json
+```
+
+Retain the returned `plan_id` outside the edited worktree, such as in the task
+or orchestrator state. The final receipt reports the ID it verified. See
+[verify a generated change](/change-plans) for the exact postconditions and the
+limits of this proof.
 
 ### 4. Edit through the application boundaries
 
@@ -245,6 +263,8 @@ against the same historical point:
 
 ```shell
 uv run tenchi verify --base-ref origin/main --json
+uv run tenchi verify --base-ref origin/main \
+  --change-plan .tenchi/changes/create-note.json --json
 ```
 
 The receipt contains the resolved commit, current and historical
@@ -253,6 +273,12 @@ diagnostics, unresolved relationships, and all four compatibility reports. It
 passes only when the policy was not weakened, every enforced requirement
 passes, the map has no diagnostics or unresolved relationships, and none of
 the four boundaries contains a breaking or unknown change.
+
+When a change plan is supplied, the receipt additionally requires the planned
+files, removed incomplete markers, exact registered contract and use case,
+the accepted contract-derived signature, exact route bindings, and a direct
+dependency from a top-level `test_*` feature-test function. It also requires the
+plan's immutable commit to match the verification baseline.
 
 If an agent disables or removes a required stage in `tenchi.toml`, Tenchi
 retains the historical requirement for that run and reports the policy change
@@ -271,10 +297,10 @@ release instead of the branch's current commit.
 | Command | Structured result |
 | --- | --- |
 | `tenchi map --json` | Root, summary, nodes, edges, diagnostics, and unresolved references |
-| `tenchi make ... --json` | Artifact identity, dry-run state, files, next steps, and structured failure |
+| `tenchi make ... --json` | Artifact identity, dry-run state, files, next steps, optional change plan and destination, and structured failure |
 | `tenchi doctor --json` | Overall status and source-anchored diagnostics with stable codes |
 | `tenchi check --json` | Overall status, counts, duration, and every validation step |
-| `tenchi verify --base-ref <ref> --json` | Resolved baseline commit, protected verification requirements and statuses, checks, strict architecture evidence, and OpenAPI, job, tool, and evaluation-policy compatibility |
+| `tenchi verify --base-ref <ref> --json` | Resolved baseline commit, optional change-plan evidence, protected verification requirements and statuses, checks, strict architecture evidence, and OpenAPI, job, tool, and evaluation-policy compatibility |
 | `tenchi preflight --json` | Deployment-environment status, counts, durations, and stable failure codes without dependency details |
 | `tenchi eval list --json` | Evaluation discovery without evaluated inputs or provider calls |
 | `tenchi eval run [name] --json` | Payload-safe scores, usage, thresholds, budgets, statuses, and failure codes for an explicitly authorized AI evaluation run |
@@ -296,7 +322,7 @@ object to stdout and exits nonzero:
 
 ```json
 {
-  "schema_version": 8,
+  "schema_version": 9,
   "result": "operation_error",
   "operation": "routes",
   "ok": false,
@@ -324,6 +350,11 @@ ones.
 The map also does not prove business correctness. An agent still needs to read
 the relevant contract, use case, policy, port, and tests, then rely on the full
 validation loop.
+
+A change plan narrows that limitation but does not remove it. It proves that
+the requested generated structure was completed and connected; it cannot prove
+that the implementation satisfies the product requirement or that its test
+assertions are meaningful.
 
 Model evaluation execution is intentionally outside `check` and `verify`.
 Those commands still check and compare the payload-free policy. Let an agent

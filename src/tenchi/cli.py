@@ -95,7 +95,9 @@ from ._openapi_operations import (
     compare_openapi_baseline,
     isolated_project_imports,
     load_route_group,
+    project_path,
     read_git_snapshot,
+    resolve_git_commit,
 )
 from ._preflight_operations import (
     discard_preflight_output,
@@ -259,6 +261,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.feature,
             args.name,
             from_contract=args.from_contract,
+            change_plan_path=args.plan,
+            change_plan_base_ref=args.base_ref,
             dry_run=args.dry_run,
             as_json=args.json,
         )
@@ -348,6 +352,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             tool_snapshot=args.tool_snapshot,
             allow_missing_job_baseline=args.allow_missing_job_baseline,
             allow_missing_evaluation_baseline=(args.allow_missing_evaluation_baseline),
+            change_plan=args.change_plan,
             security_json=args.security,
             timeout_seconds=args.timeout,
             as_json=args.json,
@@ -442,6 +447,17 @@ def _build_parser() -> argparse.ArgumentParser:
             "module:attribute of a contract in the feature's contracts module; "
             "generate its exact boundary signature"
         ),
+    )
+    use_case_parser.add_argument(
+        "--plan",
+        metavar="PATH",
+        help="Write a structural change plan; requires --from-contract",
+    )
+    use_case_parser.add_argument(
+        "--base-ref",
+        default=None,
+        metavar="REF",
+        help="Git baseline captured by --plan (default: HEAD)",
     )
     for generator_parser in (feature_parser, use_case_parser):
         generator_parser.add_argument(
@@ -810,6 +826,12 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="REF",
         help="Git ref containing the historical boundary snapshots",
+    )
+    verify_parser.add_argument(
+        "--change-plan",
+        default=None,
+        metavar="PATH",
+        help="Project-relative change plan whose structural intent must pass",
     )
     verify_parser.add_argument(
         "--routes",
@@ -1219,10 +1241,58 @@ def _make_use_case(
     name: str,
     *,
     from_contract: str | None,
+    change_plan_path: str | None,
+    change_plan_base_ref: str | None,
     dry_run: bool,
     as_json: bool,
 ) -> int:
     root = Path.cwd()
+    change_plan_commit: str | None = None
+    resolved_change_plan_base_ref: str | None = None
+    normalized_change_plan_path: str | None = None
+    if change_plan_path is None and change_plan_base_ref is not None:
+        return _render_operation_error(
+            operation="make",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="A generation baseline requires a change plan.",
+            details=None,
+            as_json=as_json,
+            human_message="tenchi make use-case: --base-ref requires --plan",
+        )
+    if change_plan_path is not None:
+        if from_contract is None:
+            return _render_operation_error(
+                operation="make",
+                code="TENCHI_CLI_INVALID_ARGUMENTS",
+                message="Change plans require contract-driven generation.",
+                details=None,
+                as_json=as_json,
+                human_message="tenchi make use-case: --plan requires --from-contract",
+            )
+        try:
+            resolved_change_plan_base_ref = change_plan_base_ref or "HEAD"
+            normalized_change_plan_path = (
+                project_path(
+                    root,
+                    change_plan_path,
+                    label="change plan",
+                )
+                .relative_to(root.resolve())
+                .as_posix()
+            )
+            change_plan_commit = resolve_git_commit(root, resolved_change_plan_base_ref)
+        except OperationError as exc:
+            return _render_operation_error(
+                operation="make",
+                code="TENCHI_CLI_OPERATION_FAILED",
+                message="Could not prepare the requested change plan.",
+                details={
+                    "path": change_plan_path,
+                    "base_ref": resolved_change_plan_base_ref or "HEAD",
+                },
+                as_json=as_json,
+                human_message=f"tenchi make use-case: {exc}",
+            )
     try:
         if from_contract is None:
             result = make_use_case_result(
@@ -1243,6 +1313,13 @@ def _make_use_case(
                     name=name,
                     dry_run=dry_run,
                     from_contract=from_contract,
+                    change_plan_path=normalized_change_plan_path,
+                    change_plan_baseline_ref=(
+                        resolved_change_plan_base_ref
+                        if change_plan_commit is not None
+                        else None
+                    ),
+                    change_plan_baseline_commit=change_plan_commit,
                 )
     except ContractLoadError as exc:
         return _render_operation_error(
@@ -1281,6 +1358,11 @@ def _render_make_result(result: MakeResult, *, as_json: bool) -> int:
     else:
         for path in result.files:
             print(f"Created {path}")
+    if result.change_plan_path is not None:
+        action = "Would write" if result.dry_run else "Wrote"
+        print(f"{action} change plan {result.change_plan_path}")
+    if result.change_plan is not None:
+        print(f"Change plan: {result.change_plan.plan_id}")
     print()
     print("Next steps:")
     for index, step in enumerate(result.next_steps, start=1):
@@ -1412,6 +1494,7 @@ def _verify(
     tool_snapshot: str,
     allow_missing_job_baseline: bool,
     allow_missing_evaluation_baseline: bool,
+    change_plan: str | None,
     security_json: str | None,
     timeout_seconds: float,
     as_json: bool,
@@ -1434,6 +1517,7 @@ def _verify(
             tool_snapshot=tool_snapshot,
             allow_missing_job_baseline=allow_missing_job_baseline,
             allow_missing_evaluation_baseline=allow_missing_evaluation_baseline,
+            change_plan=change_plan,
             security_json=security_json,
             timeout_seconds=timeout_seconds,
         )
@@ -1515,6 +1599,16 @@ def _render_verification_result(result: VerificationResult) -> None:
         )
         for change in result.evaluations.report.changes:
             print(f"  [{change.severity}] {change.location}: {change.message}")
+    if result.change_plan is not None:
+        status = "passed" if result.change_plan.ok else "failed"
+        print(
+            f"[{status}] change plan {result.change_plan.plan.plan_id} "
+            f"({result.change_plan.path})"
+        )
+        for check in result.change_plan.checks:
+            if check.ok:
+                continue
+            print(f"  [{check.code}] {check.subject}: {check.message}")
     for error in result.errors:
         print(f"[failed] {error.stage}: {error.message}")
     summary = "passed" if result.ok else "failed"

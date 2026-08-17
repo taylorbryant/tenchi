@@ -18,8 +18,9 @@ Tenchi gives each public surface an explicit compatibility boundary:
   snapshots.
 - Structured CLI results and the coding-agent MCP server share one versioned
   schema. Application-tool manifests and application MCP results use separate
-  versioned schemas. A breaking wire-format change receives a new version
-  rather than silently changing an existing one.
+  versioned schemas. Contract-driven change plans also carry their own schema
+  version and content identity. A breaking wire-format change receives a new
+  version rather than silently changing an existing one.
 - `tenchi.toml` protects the evidence your repository requires before a change
   is complete. `tenchi verify` rejects a change that weakens a requirement
   relative to the selected historical commit.

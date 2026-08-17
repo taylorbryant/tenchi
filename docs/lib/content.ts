@@ -3,6 +3,7 @@ import Agents from "@/content/agents.mdx";
 import Application from "@/content/application.mdx";
 import Architecture from "@/content/architecture.mdx";
 import Authentication from "@/content/authentication.mdx";
+import ChangePlans from "@/content/change-plans.mdx";
 import Cli from "@/content/cli.mdx";
 import Client from "@/content/client.mdx";
 import Comparisons from "@/content/comparisons.mdx";
@@ -73,6 +74,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/preflight": Preflight,
   "/deployment": Deployment,
   "/openapi": OpenApi,
+  "/change-plans": ChangePlans,
   "/cli": Cli,
   "/agents": Agents,
   "/mcp": Mcp,

@@ -432,19 +432,19 @@ def parse_security_json(
     return cast(Mapping[str, Mapping[str, Any]], parsed)
 
 
-def project_path(root: Path, value: str) -> Path:
-    """Resolve a project-relative path and reject escapes from *root*."""
+def project_path(root: Path, value: str, *, label: str = "snapshot") -> Path:
+    """Resolve a labeled project-relative path and reject escapes from *root*."""
     if not value.strip():
-        raise OperationError("snapshot path must not be empty")
+        raise OperationError(f"{label} path must not be empty")
     candidate = Path(value)
     if candidate.is_absolute():
-        raise OperationError("snapshot path must be relative to the application root")
+        raise OperationError(f"{label} path must be relative to the application root")
     resolved_root = root.resolve()
     resolved = (resolved_root / candidate).resolve()
     try:
         resolved.relative_to(resolved_root)
     except ValueError as exc:
         raise OperationError(
-            "snapshot path must stay inside the application root"
+            f"{label} path must stay inside the application root"
         ) from exc
     return resolved

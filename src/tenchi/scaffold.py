@@ -98,6 +98,12 @@ payload-free cases, metrics, thresholds, timeouts, budgets, and suite kinds
 without running evaluators. After accepting any snapshot updates, run `tenchi
 verify --base-ref <ref>` to rerun the checks and record architecture plus all
 compatibility reports against one immutable commit.
+For a contract-driven generated use case, add `--plan
+.tenchi/changes/<name>.json --base-ref <ref>` when creating the files, then pass
+that path to `verify --change-plan`. The receipt proves the generated files,
+removed incomplete markers, the accepted contract-derived signature, exact
+route bindings, and a direct dependency from a top-level `test_*` feature-test
+function against the same commit.
 
 `tenchi.toml` is the repository-owned definition of required verification
 evidence. `verify` compares it with the selected Git baseline before enforcing
@@ -132,7 +138,9 @@ Framework agent workflow: https://tenchi.io/agents
    `--from-contract app.features.<feature>.contracts:<contract_name>` to derive
    the exact use-case boundary. Implement the generated behavior, replace its
    failing test, and remove both `# tenchi: incomplete` markers before treating
-   the change as complete.
+   the change as complete. When the requested structure needs its own evidence,
+   create it with `--plan .tenchi/changes/<name>.json --base-ref <ref>` and
+   retain the returned `plan_id` outside the edited worktree.
 3. Keep explicit wiring visible in `app/server/routes.py`,
    `app/server/jobs.py`, `app/server/preflight.py`,
    `app/server/evaluations.py`, `app/server/tasks.py`, `app/server/runtime.py`,
@@ -142,9 +150,10 @@ Framework agent workflow: https://tenchi.io/agents
    `app/infra/port_wiring.py`, and `app/server/asgi.py`.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
-5. Finish with `uv run tenchi verify --base-ref <ref> --json`, using the pull
-   request base, previous push, or previous release as `<ref>`. Treat a failed
-   check, weakened `tenchi.toml`, architecture diagnostic, unresolved
+5. Finish with `uv run tenchi verify --base-ref <ref> --json`, adding
+   `--change-plan <path>` when one was created, and using the pull request base,
+   previous push, or previous release as `<ref>`. Treat a failed check, change
+   plan, weakened `tenchi.toml`, architecture diagnostic, unresolved
    relationship, or incompatible boundary as unfinished work.
 
 Use `--json` with `tenchi map`, `tenchi routes`, `tenchi jobs`, `tenchi tools`,
@@ -158,7 +167,9 @@ For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
 `app_map`, `routes`, `jobs`, `tools`, `preflight`, `evaluation_list`,
 `task_list`, `doctor`, `openapi_diff`, `jobs_diff`, `tools_diff`,
 `evaluation_diff`, `make_preview`, `check`, and `verify` tools return the same
-versioned results. Inspection and preview tools never write application files;
+versioned results. A contract-driven `make_preview` accepts `base_ref` to return
+an inline change plan; `verify` accepts its persisted project-relative path.
+Inspection and preview tools never write application files;
 `check` and `verify` run the project's normal validation commands. Run
 `preflight` only against the intended environment. Task execution is not
 exposed unless an operator starts the server with `--allow-task-runs`.

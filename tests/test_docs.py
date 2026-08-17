@@ -84,6 +84,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "rate-limits",
         "deployment",
         "openapi",
+        "change-plans",
         "cli",
         "agents",
         "mcp",

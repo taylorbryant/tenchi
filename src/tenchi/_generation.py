@@ -10,6 +10,7 @@ import typing
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, cast, get_args, get_origin
 
 from pydantic import BaseModel
@@ -128,6 +129,57 @@ def test_{name}_requires_implementation() -> None:
         ),
         needs_response_headers_projector=declared.response_headers is not None,
     )
+
+
+def named_contract_annotations(
+    root: Path,
+    feature: str,
+) -> dict[int, tuple[object, str, str]]:
+    """Find stable application-owned names for imported contract annotations."""
+    allowed_modules = (
+        f"app.features.{feature}.schemas",
+        f"app.features.{feature}.domain",
+        "app.shared",
+    )
+    aliases: dict[int, tuple[object, str, str]] = {}
+    for module_name, module in sorted(sys.modules.items()):
+        if not any(
+            module_name == allowed or module_name.startswith(f"{allowed}.")
+            for allowed in allowed_modules
+        ):
+            continue
+        module_file = getattr(module, "__file__", None)
+        if not isinstance(module_file, str):
+            continue
+        try:
+            Path(module_file).resolve().relative_to(root)
+        except (OSError, ValueError):
+            continue
+        for symbol, value in sorted(vars(module).items()):
+            if (
+                symbol.startswith("_")
+                or not symbol.isidentifier()
+                or keyword.iskeyword(symbol)
+            ):
+                continue
+            if (
+                getattr(value, "__module__", None) != module_name
+                and get_origin(value) is None
+                and not _is_pydantic_generic_specialization(value)
+            ):
+                continue
+            aliases.setdefault(id(value), (value, module_name, symbol))
+    return aliases
+
+
+def _is_pydantic_generic_specialization(value: object) -> bool:
+    if not isinstance(value, type) or not issubclass(value, BaseModel):
+        return False
+    metadata = getattr(value, "__pydantic_generic_metadata__", None)
+    if not isinstance(metadata, dict):
+        return False
+    generic_metadata = cast(Mapping[str, object], metadata)
+    return generic_metadata.get("origin") is not None
 
 
 class _AnnotationRenderer:
@@ -425,4 +477,5 @@ __all__ = [
     "ContractUseCasePlan",
     "GenerationConfigurationError",
     "contract_use_case_plan",
+    "named_contract_annotations",
 ]
