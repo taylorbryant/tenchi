@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-17
+
 ### Added
 
 - `tenchi verify` receipts now identify the exact Git-visible application
@@ -19,10 +21,10 @@ versions may change the public API.
   isolates Git repository selection and command-scoped configuration from
   inherited environment overrides, and stops its Git process on cancellation.
   Index flags that can hide worktree changes cannot produce a clean receipt.
-  Ignored runtime artifacts remain
-  outside the receipt. Agent protocol v10 records the source identity while
-  retaining all earlier protocol snapshots. Existing applications should
-  ignore expected local artifacts such as `.ruff_cache/`, `.coverage*`, logs,
+  Ignored runtime artifacts remain outside the receipt. Agent protocol v10
+  records the source identity while retaining all earlier protocol snapshots.
+  Existing applications should ignore expected local artifacts such as
+  `.ruff_cache/`, `.coverage*`, logs,
   and development databases before adopting source-bound receipts; new
   scaffolds include those defaults.
 - Contract-driven use-case generation can write a versioned,
