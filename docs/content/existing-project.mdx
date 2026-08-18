@@ -321,6 +321,25 @@ current run, and rejects a removed or weakened policy.
 
 ## Create the baseline and validate the app
 
+Before running verification, make expected local artifacts invisible to Git.
+Tenchi's source digest deliberately includes every nonignored untracked path,
+so a cache or development database created during a check otherwise invalidates
+the receipt. Keep source, snapshots, lockfiles, and configuration visible; add
+only reproducible or environment-local artifacts to `.gitignore`. For example:
+
+```gitignore
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+*.log
+*.db
+*.db-shm
+*.db-wal
+```
+
 Write the first canonical OpenAPI, durable job-message, application-tool, and evaluation-policy
 snapshots, then run the local project gates:
 

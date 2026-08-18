@@ -249,6 +249,17 @@ the selected Git ref. The receipt records the immutable commit resolved from
 compatibility reports use the same historical state even if the named ref moves
 later.
 
+The receipt also records `source.head_commit`, `source.tree_digest`, and
+`source.dirty` for the application root. The digest covers tracked files,
+executable modes, symlink targets, tracked deletions, and nonignored untracked
+files. Tenchi captures it before application-owned checks or imports, rechecks
+it after every such stage, and fails with a `source` error if the tree remains
+changed at a checkpoint. This prevents one receipt from combining checks run
+against different source states. Git environment variables cannot redirect
+capture to another checkout. Ignored runtime files do not affect the digest;
+ignore local caches, databases, and logs that application commands are expected
+to create.
+
 When `--change-plan PATH` is present, the receipt also verifies the plan's
 baseline, generated files, incomplete markers, exact contract and use-case
 registration, the accepted contract-derived signature, route bindings, and a

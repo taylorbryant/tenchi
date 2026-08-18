@@ -75,7 +75,7 @@ each call, so a server that stays open sees edits made during the agent session.
 | `jobs_diff` | A directional compatibility report against `jobs.json`, another project snapshot, or that snapshot at a Git ref |
 | `tools_diff` | A directional compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
 | `evaluation_diff` | A payload-free compatibility report against `evaluations.json`, another project snapshot, or that snapshot at a Git ref; missing Git snapshots fail unless first adoption is explicit, and evaluators never run |
-| `verify` | One completion receipt containing optional change-plan evidence, protected `tenchi.toml` requirements, checks, strict architecture evidence, and all four compatibility reports against a required Git ref |
+| `verify` | One completion receipt containing the exact current source digest, optional change-plan evidence, protected `tenchi.toml` requirements, checks, strict architecture evidence, and all four compatibility reports against a required Git ref |
 | `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI, job, tool, and evaluation-policy snapshot checks |
 
 `task_run` is absent by default. Start the server with

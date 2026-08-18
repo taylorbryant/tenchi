@@ -9,6 +9,22 @@ versions may change the public API.
 
 ### Added
 
+- `tenchi verify` receipts now identify the exact Git-visible application
+  source they checked with the current `HEAD` commit, a canonical SHA-256 tree
+  digest, and a clean-or-dirty flag. The digest covers tracked files,
+  executable modes, symlink targets, tracked deletions, and nonignored
+  untracked files below the application root. Verification rechecks that
+  identity after every project-owned validation or import stage and fails with
+  a stable `source` error if the tree changes. Capture rechecks file identities,
+  isolates Git repository selection and command-scoped configuration from
+  inherited environment overrides, and stops its Git process on cancellation.
+  Index flags that can hide worktree changes cannot produce a clean receipt.
+  Ignored runtime artifacts remain
+  outside the receipt. Agent protocol v10 records the source identity while
+  retaining all earlier protocol snapshots. Existing applications should
+  ignore expected local artifacts such as `.ruff_cache/`, `.coverage*`, logs,
+  and development databases before adopting source-bound receipts; new
+  scaffolds include those defaults.
 - Contract-driven use-case generation can write a versioned,
   content-addressed structural change plan with `--plan <path> --base-ref
   <ref>`. The generated files and plan are written transactionally; dry runs

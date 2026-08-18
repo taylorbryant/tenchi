@@ -31,7 +31,10 @@ every pre-1.0 release is source-compatible.
 ## Upgrade safely
 
 1. Read the release entry in `CHANGELOG.md`.
-2. Upgrade Tenchi in a branch and refresh the lockfile.
+2. Upgrade Tenchi in a branch and refresh the lockfile. Before adopting a
+   source-bound verification receipt, update `.gitignore` for caches, logs,
+   coverage output, and local databases that project commands are expected to
+   create. Do not ignore source, snapshots, lockfiles, or configuration.
 3. Run `tenchi check` to verify formatting, lint, types, tests, architecture,
    and the current OpenAPI, job-message, application-tool, and
    evaluation-policy snapshots.

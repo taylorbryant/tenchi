@@ -1,4 +1,6 @@
+import subprocess
 from collections.abc import Callable
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,8 +25,10 @@ from tenchi._job_operations import JobDiffResult
 from tenchi._openapi_operations import (
     OpenApiDiffResult,
     OperationError,
+    read_git_snapshot,
     resolve_git_commit,
 )
+from tenchi._source_identity import SourceIdentityError, VerificationSource
 from tenchi._tool_operations import ToolDiffResult
 from tenchi._verification_policy import (
     VerificationPolicy,
@@ -70,6 +74,7 @@ def _run_with_map(
     change_plan: str | None = None,
     current_contract_signature: str = _CHANGE_PLAN_SIGNATURE,
     during_verification: Callable[[], None] | None = None,
+    source_error: str | None = None,
 ) -> _verify_operations.VerificationResult:
     (tmp_path / "app").mkdir(exist_ok=True)
     (tmp_path / "openapi.json").write_text("{}")
@@ -81,6 +86,29 @@ def _run_with_map(
     def fake_resolve_git_commit(root: Path, ref: str) -> str:
         del root, ref
         return commit
+
+    def fake_source_identity(
+        root: Path,
+        *,
+        checkpoint: Callable[[], None] | None = None,
+    ) -> VerificationSource:
+        if source_error is not None:
+            raise SourceIdentityError(source_error)
+        digest = sha256()
+        for path in sorted(root.rglob("*")):
+            if checkpoint is not None:
+                checkpoint()
+            relative = path.relative_to(root).as_posix().encode()
+            digest.update(relative)
+            if path.is_symlink():
+                digest.update(path.readlink().as_posix().encode())
+            elif path.is_file():
+                digest.update(path.read_bytes())
+        return VerificationSource(
+            head_commit="b" * 40,
+            tree_digest=f"sha256:{digest.hexdigest()}",
+            dirty=True,
+        )
 
     def fake_run_check(root: Path, **kwargs: object) -> CheckResult:
         del kwargs
@@ -179,6 +207,11 @@ def _run_with_map(
         _verify_operations,
         "resolve_git_commit",
         fake_resolve_git_commit,
+    )
+    monkeypatch.setattr(
+        _verify_operations,
+        "source_identity",
+        fake_source_identity,
     )
     monkeypatch.setattr(
         _verify_operations,
@@ -504,6 +537,61 @@ def test_verification_fails_if_the_change_plan_changes_during_the_run(
     )
 
 
+def test_verification_fails_if_source_changes_during_the_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_passing_openapi(monkeypatch)
+
+    def mutate_source() -> None:
+        (tmp_path / "app/generated.py").write_text("changed = True\n")
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        _change_plan_app_map(tmp_path),
+        during_verification=mutate_source,
+    )
+
+    assert result.ok is False
+    assert result.source is not None
+    assert result.source.head_commit == "b" * 40
+    assert result.source.dirty is True
+    assert result.source.tree_digest.startswith("sha256:")
+    assert any(
+        error.stage == "source"
+        and error.message
+        == (
+            "source changed while verification was running; rerun verify against "
+            "the finished tree"
+        )
+        for error in result.errors
+    )
+
+
+def test_verification_fails_before_project_code_when_source_cannot_be_identified(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        _change_plan_app_map(tmp_path),
+        source_error="could not inspect the source worktree",
+    )
+
+    assert result.ok is False
+    assert result.source is None
+    assert result.check is None
+    assert result.architecture is None
+    assert result.errors == (
+        _verify_operations.VerificationErrorResult(
+            stage="source",
+            message="could not inspect the source worktree",
+        ),
+    )
+
+
 def test_verification_preserves_other_evidence_when_one_stage_cannot_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -748,3 +836,45 @@ def test_git_ref_validation_rejects_control_characters_before_running_git(
 ) -> None:
     with pytest.raises(OperationError, match="control characters"):
         resolve_git_commit(tmp_path, ref)
+
+
+def test_git_baselines_ignore_repository_environment_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    local = tmp_path / "local"
+    local.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    for root, value in ((local, "local\n"), (other, "other\n")):
+        (root / "openapi.json").write_text(value, encoding="utf-8")
+        subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Tenchi Tests",
+                "-c",
+                "user.email=tests@tenchi.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "initial",
+            ],
+            cwd=root,
+            check=True,
+        )
+    local_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=local,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+
+    assert resolve_git_commit(local, "HEAD") == local_commit
+    baseline = read_git_snapshot(local, ref="HEAD", snapshot=Path("openapi.json"))
+    assert baseline.text == "local\n"

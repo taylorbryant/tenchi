@@ -136,7 +136,10 @@ deterministic checks, rejects incomplete application-map evidence, and compares
 OpenAPI, durable job messages, application tools, and evaluation policy with
 the resolved commit. It also compares `tenchi.toml` with that commit and keeps
 the stronger current-or-deployed requirement active, so a release cannot avoid
-a gate by weakening it in the same change.
+a gate by weakening it in the same change. Retain the complete receipt before
+making another edit: its source commit and tree digest identify the exact
+application state that passed, and verification fails if that state changes
+while the command is running.
 Use its metadata flags only when the application does not keep those values as
 literal route-module declarations.
 

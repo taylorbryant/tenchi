@@ -83,6 +83,8 @@ framework code, the CLI, docs, or the example apps.
     CLI validation and canonical agent-facing JSON Schema generation.
   - `_verify_operations.py` — the unified check, architecture, and historical
     compatibility receipt shared by the CLI and coding-agent MCP server.
+  - `_source_identity.py` + `_git.py` — exact Git-visible worktree identity and
+    isolated Git process configuration for source-bound verification receipts.
   - `_mcp_server.py` — optional stdio MCP adapter over the CLI result
     operations for coding agents; it is loaded only when the `mcp` extra is
     installed and is separate from the public application adapter.
@@ -403,12 +405,18 @@ enforces the stronger current-or-historical requirement, so a gate cannot skip
 itself while being weakened. Missing policy files retain Tenchi's strict
 built-in requirements; malformed or removed repository policies fail closed.
 The receipt distinguishes passed, failed, skipped, not-configured, and
-not-verifiable evidence. It never writes snapshots. A missing job snapshot
+not-verifiable evidence. It records the current HEAD, dirty state, and a
+canonical digest of tracked and nonignored untracked paths below the application
+root. Git repository-selection environment variables cannot redirect the
+receipt to another checkout. Recheck that identity after every project-owned
+execution or import and at the end; any observed persistent change fails the
+receipt as a source error. It never writes
+snapshots. A missing job snapshot
 requires the explicit `--allow-missing-job-baseline` first-adoption override. A
 missing evaluation snapshot requires the explicit
 `--allow-missing-evaluation-baseline` first-adoption override. The CLI and
 coding-agent MCP tool return the same versioned receipt and propagate
-cancellation to the active check subprocess.
+cancellation through source capture and the active check subprocess.
 Contract-driven use-case generation can write a versioned change plan in the
 same filesystem transaction as its generated files. The plan records a
 content-derived identity, immutable Git baseline, exact contract and use-case

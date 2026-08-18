@@ -61,7 +61,7 @@ complete application graph.
 | `tenchi tools --json` | Registered machine-facing names, schemas, errors, and safety annotations |
 | `tenchi jobs --json` | Registered durable job names and payload schemas without queued values |
 | `tenchi check --json` | One bounded, complete result for formatting, linting, types, tests, architecture, and boundary snapshot drift |
-| `tenchi verify --base-ref <ref> --json` | One completion receipt tied to an immutable commit, including protected policy requirements, checks, strict architecture evidence, and all four compatibility reports |
+| `tenchi verify --base-ref <ref> --json` | One completion receipt tied to the exact current source digest and an immutable historical commit, including protected policy requirements, checks, strict architecture evidence, and all four compatibility reports |
 | `tenchi preflight --json` | Redacted, timeout-bounded evidence that the selected deployment environment is ready |
 | OpenAPI compatibility commands | A historical contract baseline that an agent cannot accidentally replace and then compare to itself |
 | Job compatibility commands | Directional proof that a new consumer still accepts durable messages created under the historical job contract |
@@ -274,6 +274,15 @@ passes only when the policy was not weakened, every enforced requirement
 passes, the map has no diagnostics or unresolved relationships, and none of
 the four boundaries contains a breaking or unknown change.
 
+The `source` field identifies the exact application tree with its current
+`HEAD`, SHA-256 digest, and clean-or-dirty state. Tenchi includes tracked and
+nonignored untracked paths below the application root, then rechecks the
+identity after each application-owned stage. If an agent, test, import, or
+concurrent process leaves that tree changed at a verification checkpoint, the
+receipt fails and must be rerun after the edits stop. Git environment variables
+cannot redirect capture to another checkout. Ignored runtime artifacts stay
+outside the identity.
+
 When a change plan is supplied, the receipt additionally requires the planned
 files, removed incomplete markers, exact registered contract and use case,
 the accepted contract-derived signature, exact route bindings, and a direct
@@ -300,7 +309,7 @@ release instead of the branch's current commit.
 | `tenchi make ... --json` | Artifact identity, dry-run state, files, next steps, optional change plan and destination, and structured failure |
 | `tenchi doctor --json` | Overall status and source-anchored diagnostics with stable codes |
 | `tenchi check --json` | Overall status, counts, duration, and every validation step |
-| `tenchi verify --base-ref <ref> --json` | Resolved baseline commit, optional change-plan evidence, protected verification requirements and statuses, checks, strict architecture evidence, and OpenAPI, job, tool, and evaluation-policy compatibility |
+| `tenchi verify --base-ref <ref> --json` | Exact source commit and tree digest, resolved baseline commit, optional change-plan evidence, protected verification requirements and statuses, checks, strict architecture evidence, and OpenAPI, job, tool, and evaluation-policy compatibility |
 | `tenchi preflight --json` | Deployment-environment status, counts, durations, and stable failure codes without dependency details |
 | `tenchi eval list --json` | Evaluation discovery without evaluated inputs or provider calls |
 | `tenchi eval run [name] --json` | Payload-safe scores, usage, thresholds, budgets, statuses, and failure codes for an explicitly authorized AI evaluation run |
@@ -322,7 +331,7 @@ object to stdout and exits nonzero:
 
 ```json
 {
-  "schema_version": 9,
+  "schema_version": 10,
   "result": "operation_error",
   "operation": "routes",
   "ok": false,

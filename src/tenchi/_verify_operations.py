@@ -65,6 +65,12 @@ from ._openapi_operations import (
     project_path,
     resolve_git_commit,
 )
+from ._source_identity import (
+    SourceIdentityError,
+    VerificationSource,
+    VerificationSourcePayload,
+    source_identity,
+)
 from ._task_operations import load_task_runner
 from ._tool_operations import (
     ToolDiffPayload,
@@ -86,6 +92,7 @@ from ._verification_policy import (
 
 type VerificationStage = Literal[
     "baseline",
+    "source",
     "policy",
     "check",
     "architecture",
@@ -178,6 +185,7 @@ class VerificationPayload(TypedDict):
     root: str
     ok: bool
     baseline: VerificationBaselinePayload
+    source: VerificationSourcePayload | None
     duration_seconds: float
     policy: VerificationPolicyPayload | None
     check: CheckPayload | None
@@ -337,6 +345,7 @@ class VerificationResult:
     tools: ToolDiffResult | None
     evaluations: EvaluationDiffResult | None
     errors: tuple[VerificationErrorResult, ...]
+    source: VerificationSource | None = None
     policy: VerificationPolicyResult | None = None
     change_plan: ChangePlanVerificationResult | None = None
     schema_version: AgentProtocolVersion = AGENT_PROTOCOL_VERSION
@@ -346,6 +355,7 @@ class VerificationResult:
     def ok(self) -> bool:
         return (
             not self.errors
+            and self.source is not None
             and self.policy is not None
             and self.policy.ok
             and (self.change_plan is None or self.change_plan.ok)
@@ -361,6 +371,7 @@ class VerificationResult:
                 "ref": self.baseline_ref,
                 "commit": self.baseline_commit,
             },
+            "source": self.source.as_dict() if self.source is not None else None,
             "duration_seconds": self.duration_seconds,
             "policy": self.policy.as_dict() if self.policy is not None else None,
             "check": self.check.as_dict() if self.check is not None else None,
@@ -420,7 +431,6 @@ def verification_result(
     app_map: AppMapResult | None = None
     policy_comparison: VerificationPolicyComparison | None = None
     policy_error: str | None = None
-
     try:
         snapshot_path = project_path(resolved_root, snapshot)
         job_snapshot_path = project_path(resolved_root, job_snapshot)
@@ -444,6 +454,50 @@ def verification_result(
             evaluations=None,
             errors=(VerificationErrorResult("baseline", str(exc)),),
         )
+
+    try:
+        initial_source = source_identity(
+            resolved_root,
+            checkpoint=lambda: _raise_if_cancelled(cancelled),
+        )
+    except SourceIdentityError as exc:
+        return VerificationResult(
+            root=str(resolved_root),
+            baseline_ref=base_ref,
+            baseline_commit=baseline_commit,
+            duration_seconds=_seconds_since(started),
+            check=None,
+            architecture=None,
+            openapi=None,
+            jobs=None,
+            tools=None,
+            evaluations=None,
+            errors=(VerificationErrorResult("source", str(exc)),),
+        )
+
+    source_error_recorded = False
+
+    def verify_source_unchanged() -> None:
+        nonlocal source_error_recorded
+        try:
+            current_source = source_identity(
+                resolved_root,
+                checkpoint=lambda: _raise_if_cancelled(cancelled),
+            )
+        except SourceIdentityError as exc:
+            if not source_error_recorded:
+                errors.append(VerificationErrorResult("source", str(exc)))
+                source_error_recorded = True
+        else:
+            if current_source != initial_source and not source_error_recorded:
+                errors.append(
+                    VerificationErrorResult(
+                        "source",
+                        "source changed while verification was running; rerun "
+                        "verify against the finished tree",
+                    )
+                )
+                source_error_recorded = True
 
     if change_plan is not None:
         try:
@@ -528,6 +582,7 @@ def verification_result(
             cancelled=cancelled,
             step_completed=step_completed,
         )
+        verify_source_unchanged()
 
     _raise_if_cancelled(cancelled)
     if enforced("architecture") or initial_change_plan is not None:
@@ -557,6 +612,7 @@ def verification_result(
                 errors.append(VerificationErrorResult("architecture", str(exc)))
             if initial_change_plan is not None:
                 errors.append(VerificationErrorResult("change_plan", str(exc)))
+        verify_source_unchanged()
 
     if (
         initial_change_plan is not None
@@ -570,6 +626,7 @@ def verification_result(
             baseline_commit=baseline_commit,
             app_map=app_map,
         )
+        verify_source_unchanged()
 
     _raise_if_cancelled(cancelled)
     if enforced("openapi") and openapi_ready:
@@ -586,6 +643,7 @@ def verification_result(
             )
         except OperationError as exc:
             errors.append(VerificationErrorResult("openapi", str(exc)))
+        verify_source_unchanged()
 
     _raise_if_cancelled(cancelled)
     if enforced("jobs"):
@@ -599,6 +657,7 @@ def verification_result(
             )
         except OperationError as exc:
             errors.append(VerificationErrorResult("jobs", str(exc)))
+        verify_source_unchanged()
 
     _raise_if_cancelled(cancelled)
     if enforced("tools"):
@@ -611,6 +670,7 @@ def verification_result(
             )
         except OperationError as exc:
             errors.append(VerificationErrorResult("tools", str(exc)))
+        verify_source_unchanged()
 
     _raise_if_cancelled(cancelled)
     if enforced("evaluations"):
@@ -624,6 +684,7 @@ def verification_result(
             )
         except OperationError as exc:
             errors.append(VerificationErrorResult("evaluations", str(exc)))
+        verify_source_unchanged()
 
     _raise_if_cancelled(cancelled)
     try:
@@ -671,6 +732,8 @@ def verification_result(
                     )
                 )
 
+    verify_source_unchanged()
+
     policy = _policy_result(
         policy_comparison,
         check=check,
@@ -693,6 +756,7 @@ def verification_result(
         tools=tool_report,
         evaluations=evaluation_report,
         errors=tuple(errors),
+        source=initial_source,
         policy=policy,
         change_plan=change_plan_report,
     )

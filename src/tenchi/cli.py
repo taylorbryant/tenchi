@@ -1531,6 +1531,12 @@ def _verify(
 def _render_verification_result(result: VerificationResult) -> None:
     commit = result.baseline_commit or "unresolved"
     print(f"Baseline: {result.baseline_ref} -> {commit}")
+    if result.source is not None:
+        state = "dirty" if result.source.dirty else "clean"
+        print(
+            f"Source: {result.source.head_commit} @ {result.source.tree_digest} "
+            f"({state})"
+        )
     if result.policy is not None:
         status = "passed" if result.policy.ok else "failed"
         source = (

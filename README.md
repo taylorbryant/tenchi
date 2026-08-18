@@ -472,6 +472,16 @@ finished tree. It resolves the historical ref to an immutable commit, runs
 `tenchi check`, requires an application map without diagnostics or unresolved
 relationships, and compares the OpenAPI, durable job-message, application-tool,
 and evaluation-policy boundaries with their snapshots at that commit.
+Before running application-owned checks or imports, verification records the
+current `HEAD`, whether the application tree is dirty, and a SHA-256 digest of
+every tracked or nonignored untracked path below the application root. It
+rechecks that identity after each application-owned stage and at the end. If a
+test, import, or concurrent edit leaves the tree changed at a checkpoint, the
+receipt fails with a `source` error instead of combining evidence from different
+source states. Git environment variables cannot redirect capture to another
+checkout.
+Ignored caches, databases, and other runtime artifacts do not affect the
+digest; add generated artifacts that should remain local to `.gitignore`.
 Generated applications also commit a repository-owned `tenchi.toml`:
 
 ```toml

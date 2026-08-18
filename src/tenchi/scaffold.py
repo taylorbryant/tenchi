@@ -155,6 +155,9 @@ Framework agent workflow: https://tenchi.io/agents
    previous push, or previous release as `<ref>`. Treat a failed check, change
    plan, weakened `tenchi.toml`, architecture diagnostic, unresolved
    relationship, or incompatible boundary as unfinished work.
+   The receipt records the exact Git-visible source-tree digest and fails if
+   project-owned checks or imports leave that tree changed at a verification
+   checkpoint.
 
 Use `--json` with `tenchi map`, `tenchi routes`, `tenchi jobs`, `tenchi tools`,
 `tenchi preflight`, `tenchi eval list|run`, `tenchi task`, `tenchi doctor`,
@@ -278,6 +281,10 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+*.log
 *.db
 *.db-shm
 *.db-wal

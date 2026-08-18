@@ -18,6 +18,7 @@ from typing_extensions import TypedDict
 
 from ._cli_operations import openapi_defaults
 from ._cli_results import AGENT_PROTOCOL_VERSION, AgentProtocolVersion
+from ._git import git_command, git_environment
 from ._schema_compatibility import ChangeSeverity
 from .compatibility import (
     CompatibilityReport,
@@ -293,12 +294,13 @@ def read_git_snapshot(
     _validate_git_ref(ref)
     try:
         root_result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
+            git_command("rev-parse", "--show-toplevel"),
             cwd=root,
             capture_output=True,
             text=True,
             encoding="utf-8",
             check=False,
+            env=git_environment(),
         )
     except FileNotFoundError as exc:
         raise OperationError("could not run git; install Git to compare a ref") from exc
@@ -325,20 +327,20 @@ def read_git_snapshot(
     if missing_text is not None:
         try:
             tree_result = subprocess.run(
-                [
-                    "git",
+                git_command(
                     "ls-tree",
                     "--full-tree",
                     "-z",
                     commit,
                     "--",
                     relative_snapshot,
-                ],
+                ),
                 cwd=root,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 check=False,
+                env=git_environment(),
             )
         except (OSError, UnicodeError) as exc:
             raise OperationError(
@@ -358,12 +360,13 @@ def read_git_snapshot(
 
     try:
         show_result = subprocess.run(
-            ["git", "show", f"{commit}:{relative_snapshot}"],
+            git_command("show", f"{commit}:{relative_snapshot}"),
             cwd=root,
             capture_output=True,
             text=True,
             encoding="utf-8",
             check=False,
+            env=git_environment(),
         )
     except (OSError, UnicodeError) as exc:
         raise OperationError(
@@ -384,12 +387,13 @@ def resolve_git_commit(root: Path, ref: str) -> str:
     _validate_git_ref(ref)
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+            git_command("rev-parse", "--verify", f"{ref}^{{commit}}"),
             cwd=root,
             capture_output=True,
             text=True,
             encoding="utf-8",
             check=False,
+            env=git_environment(),
         )
     except FileNotFoundError as exc:
         raise OperationError("could not run git; install Git to compare a ref") from exc
