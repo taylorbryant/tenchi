@@ -20,10 +20,10 @@ from pydantic import (
 )
 from typing_extensions import TypedDict
 
-CHANGE_PLAN_SCHEMA_VERSION = 1
+CHANGE_PLAN_SCHEMA_VERSION = 2
 _PYTHON_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
-type ChangePlanSchemaVersion = Literal[1]
+type ChangePlanSchemaVersion = Literal[2]
 type ChangePlanKind = Literal["contract-use-case"]
 type ChangePlanId = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
 type ChangePlanCommit = Annotated[
@@ -38,6 +38,7 @@ type ChangePlanPostcondition = Literal[
     "route_binds_contract",
     "route_binds_use_case",
     "test_imports_use_case",
+    "test_executes",
 ]
 
 REQUIRED_CHANGE_PLAN_POSTCONDITIONS: tuple[ChangePlanPostcondition, ...] = (
@@ -48,18 +49,19 @@ REQUIRED_CHANGE_PLAN_POSTCONDITIONS: tuple[ChangePlanPostcondition, ...] = (
     "route_binds_contract",
     "route_binds_use_case",
     "test_imports_use_case",
+    "test_executes",
 )
 type ChangePlanPostconditions = Annotated[
     list[ChangePlanPostcondition],
-    Field(min_length=7, max_length=7),
+    Field(min_length=8, max_length=8),
     WithJsonSchema(
         {
             "type": "array",
             "prefixItems": [
                 {"const": value} for value in REQUIRED_CHANGE_PLAN_POSTCONDITIONS
             ],
-            "minItems": 7,
-            "maxItems": 7,
+            "minItems": 8,
+            "maxItems": 8,
         }
     ),
 ]
@@ -84,7 +86,12 @@ class ChangePlanUseCasePayload(TypedDict):
     name: str
     signature: str
     source: str
-    test: str
+
+
+@with_config(ConfigDict(extra="forbid"))
+class ChangePlanTestPayload(TypedDict):
+    source: str
+    target: str
 
 
 @with_config(ConfigDict(extra="forbid"))
@@ -96,6 +103,7 @@ class ChangePlanPayload(TypedDict):
     feature: str
     contract: ChangePlanContractPayload
     use_case: ChangePlanUseCasePayload
+    test: ChangePlanTestPayload
     required_postconditions: ChangePlanPostconditions
 
 
@@ -122,6 +130,7 @@ class ChangePlan:
     use_case_signature: str
     use_case_source: str
     test_source: str
+    test_target: str
     schema_version: ChangePlanSchemaVersion = CHANGE_PLAN_SCHEMA_VERSION
     kind: ChangePlanKind = "contract-use-case"
 
@@ -145,7 +154,10 @@ class ChangePlan:
                 "name": self.use_case_name,
                 "signature": self.use_case_signature,
                 "source": self.use_case_source,
-                "test": self.test_source,
+            },
+            "test": {
+                "source": self.test_source,
+                "target": self.test_target,
             },
             "required_postconditions": list(REQUIRED_CHANGE_PLAN_POSTCONDITIONS),
         }
@@ -166,6 +178,7 @@ def create_contract_use_case_change_plan(
     """Create the canonical plan for one contract-driven use case."""
     use_case_source = f"app/features/{feature}/use_cases/{use_case_name}.py"
     test_source = f"app/features/{feature}/tests/test_{use_case_name}.py"
+    test_target = f"{test_source}::test_{use_case_name}"
     values = {
         "schema_version": CHANGE_PLAN_SCHEMA_VERSION,
         "kind": "contract-use-case",
@@ -181,8 +194,8 @@ def create_contract_use_case_change_plan(
             "name": use_case_name,
             "signature": use_case_signature,
             "source": use_case_source,
-            "test": test_source,
         },
+        "test": {"source": test_source, "target": test_target},
         "required_postconditions": list(REQUIRED_CHANGE_PLAN_POSTCONDITIONS),
     }
     plan_id = _plan_id(values)
@@ -199,6 +212,7 @@ def create_contract_use_case_change_plan(
         use_case_signature=use_case_signature,
         use_case_source=use_case_source,
         test_source=test_source,
+        test_target=test_target,
     )
     _validate_semantics(plan)
     _validate_exact_payload(plan.as_dict())
@@ -242,7 +256,7 @@ def render_change_plan(plan: ChangePlan) -> str:
 
 
 def change_plan_schema() -> dict[str, object]:
-    """Return the serialization schema for change-plan version 1."""
+    """Return the serialization schema for the current change-plan version."""
     return cast(
         dict[str, object],
         _CHANGE_PLAN_ADAPTER.json_schema(mode="serialization"),
@@ -251,10 +265,17 @@ def change_plan_schema() -> dict[str, object]:
 
 def _validate_exact_payload(value: Mapping[str, object]) -> ChangePlanPayload:
     raw = dict(value)
+    version = raw.get("schema_version")
+    if version != CHANGE_PLAN_SCHEMA_VERSION:
+        raise ChangePlanError(
+            f"unsupported change plan schema version {version!r}; regenerate the plan"
+        )
     try:
         validated = _CHANGE_PLAN_ADAPTER.validate_python(raw, strict=True)
     except ValidationError as exc:
-        raise ChangePlanError("change plan does not match schema version 1") from exc
+        raise ChangePlanError(
+            f"change plan does not match schema version {CHANGE_PLAN_SCHEMA_VERSION}"
+        ) from exc
     if validated != raw:
         raise ChangePlanError("change plan contains unsupported fields or values")
     return validated
@@ -292,6 +313,11 @@ def _validate_semantics(plan: ChangePlan) -> None:
     ):
         if not value:
             raise ChangePlanError(f"change plan {label} must not be empty")
+    expected_test_target = f"{plan.test_source}::test_{plan.use_case_name}"
+    if plan.test_target != expected_test_target:
+        raise ChangePlanError(
+            "change plan test target does not match the generated test function"
+        )
 
 
 def _plan_id(value: object) -> str:

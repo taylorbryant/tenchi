@@ -66,9 +66,9 @@ type AgentOperationErrorCode = Literal[
 ]
 type AgentOperationErrorDetail = str | int | bool | list[str]
 type AgentOperationErrorDetails = dict[str, AgentOperationErrorDetail]
-type AgentProtocolVersion = Literal[10]
+type AgentProtocolVersion = Literal[11]
 
-AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 10
+AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 11
 
 
 class AgentOperationErrorPayload(TypedDict):

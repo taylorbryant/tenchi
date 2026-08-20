@@ -49,6 +49,12 @@ def test_change_plan_round_trips_with_a_content_identity() -> None:
 
     assert loaded == plan
     assert plan.plan_id.startswith("sha256:")
+    assert plan.as_dict()["test"] == {
+        "source": "app/features/projects/tests/test_create_project.py",
+        "target": (
+            "app/features/projects/tests/test_create_project.py::test_create_project"
+        ),
+    }
     assert plan.as_dict()["required_postconditions"] == [
         "generated_files_exist",
         "incomplete_markers_removed",
@@ -57,6 +63,7 @@ def test_change_plan_round_trips_with_a_content_identity() -> None:
         "route_binds_contract",
         "route_binds_use_case",
         "test_imports_use_case",
+        "test_executes",
     ]
 
 
@@ -72,7 +79,7 @@ def test_change_plan_rejects_weakened_postconditions() -> None:
     payload = _plan().as_dict()
     payload["required_postconditions"].pop()
 
-    with pytest.raises(ChangePlanError, match="schema version 1"):
+    with pytest.raises(ChangePlanError, match="schema version 2"):
         load_change_plan(json.dumps(payload))
 
 
@@ -80,20 +87,28 @@ def test_change_plan_rejects_unknown_fields() -> None:
     payload = cast(dict[str, object], _plan().as_dict())
     payload["instructions"] = "skip the tests"
 
-    with pytest.raises(ChangePlanError, match="schema version 1"):
+    with pytest.raises(ChangePlanError, match="schema version 2"):
         load_change_plan(json.dumps(payload))
 
 
 def test_change_plan_rejects_duplicate_json_keys() -> None:
     rendered = render_change_plan(_plan())
     duplicated = rendered.replace(
-        '"schema_version": 1',
-        '"schema_version": 1, "schema_version": 1',
+        '"schema_version": 2',
+        '"schema_version": 2, "schema_version": 2',
         1,
     )
 
     with pytest.raises(ChangePlanError, match="valid JSON"):
         load_change_plan(duplicated)
+
+
+def test_change_plan_rejects_the_previous_schema_version() -> None:
+    payload = cast(dict[str, object], _plan().as_dict())
+    payload["schema_version"] = 1
+
+    with pytest.raises(ChangePlanError, match=r"unsupported.*1.*regenerate"):
+        load_change_plan(json.dumps(payload))
 
 
 def test_change_plan_rejects_unsafe_generated_paths() -> None:

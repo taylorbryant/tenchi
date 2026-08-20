@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,7 +27,7 @@ from ._change_plans import (
     ChangePlanSchemaVersion,
     load_change_plan,
 )
-from ._checks import CheckCancelled, run_check
+from ._checks import CheckCancelled, run_check, run_test_execution
 from ._cli_operations import ContractLoadError, load_contract, openapi_defaults
 from ._cli_results import (
     AGENT_PROTOCOL_VERSION,
@@ -64,6 +65,12 @@ from ._openapi_operations import (
     openapi_diff_result,
     project_path,
     resolve_git_commit,
+)
+from ._pytest_evidence import (
+    TestDefinitionIdentity,
+    TestExecutionEvidence,
+    TestExecutionEvidencePayload,
+    unavailable_test_execution_evidence,
 )
 from ._source_identity import (
     SourceIdentityError,
@@ -160,6 +167,7 @@ type ChangePlanCheckCode = Literal[
     "node_registered",
     "test_present",
     "edge_present",
+    "test_executed",
 ]
 
 
@@ -176,6 +184,7 @@ class ChangePlanVerificationPayload(TypedDict):
     plan_id: ChangePlanId
     kind: ChangePlanKind
     ok: bool
+    test_execution: TestExecutionEvidencePayload
     checks: list[ChangePlanCheckPayload]
 
 
@@ -313,6 +322,7 @@ class ChangePlanVerificationResult:
 
     path: str
     plan: ChangePlan
+    test_execution: TestExecutionEvidence
     checks: tuple[ChangePlanCheckResult, ...]
 
     @property
@@ -326,6 +336,7 @@ class ChangePlanVerificationResult:
             "plan_id": self.plan.plan_id,
             "kind": self.plan.kind,
             "ok": self.ok,
+            "test_execution": self.test_execution.as_dict(),
             "checks": [check.as_dict() for check in self.checks],
         }
 
@@ -428,6 +439,9 @@ def verification_result(
     change_plan_report: ChangePlanVerificationResult | None = None
     initial_change_plan: ChangePlan | None = None
     change_plan_path: Path | None = None
+    test_execution: TestExecutionEvidence | None = None
+    test_identity: TestDefinitionIdentity | None = None
+    check_attempted = False
     app_map: AppMapResult | None = None
     policy_comparison: VerificationPolicyComparison | None = None
     policy_error: str | None = None
@@ -507,6 +521,10 @@ def verification_result(
                 label="change plan",
             )
             initial_change_plan = _read_change_plan(change_plan_path)
+            test_identity = _planned_test_identity(
+                resolved_root,
+                initial_change_plan,
+            )
         except OperationError as exc:
             errors.append(VerificationErrorResult("change_plan", str(exc)))
         except ChangePlanError as exc:
@@ -564,6 +582,12 @@ def verification_result(
             openapi_ready = True
 
     if enforced("check") and openapi_ready:
+        check_attempted = True
+
+        def capture_test_execution(evidence: TestExecutionEvidence) -> None:
+            nonlocal test_execution
+            test_execution = evidence
+
         check = run_check(
             resolved_root,
             routes=routes,
@@ -581,8 +605,33 @@ def verification_result(
             timeout_seconds=timeout_seconds,
             cancelled=cancelled,
             step_completed=step_completed,
+            test_target=(
+                initial_change_plan.test_target
+                if initial_change_plan is not None
+                else None
+            ),
+            test_identity=test_identity,
+            test_execution_completed=(
+                capture_test_execution if initial_change_plan is not None else None
+            ),
         )
         verify_source_unchanged()
+
+    if initial_change_plan is not None and test_execution is None:
+        if check_attempted:
+            test_execution = unavailable_test_execution_evidence(
+                initial_change_plan.test_target,
+                "receipt_missing",
+            )
+        else:
+            test_execution = run_test_execution(
+                resolved_root,
+                target=initial_change_plan.test_target,
+                identity=test_identity,
+                timeout_seconds=timeout_seconds,
+                cancelled=cancelled,
+            )
+            verify_source_unchanged()
 
     _raise_if_cancelled(cancelled)
     if enforced("architecture") or initial_change_plan is not None:
@@ -618,6 +667,7 @@ def verification_result(
         initial_change_plan is not None
         and change_plan_path is not None
         and app_map is not None
+        and test_execution is not None
     ):
         change_plan_report = _verify_change_plan(
             resolved_root,
@@ -625,6 +675,8 @@ def verification_result(
             plan=initial_change_plan,
             baseline_commit=baseline_commit,
             app_map=app_map,
+            test_execution=test_execution,
+            test_identity=test_identity,
         )
         verify_source_unchanged()
 
@@ -777,6 +829,8 @@ def _verify_change_plan(
     plan: ChangePlan,
     baseline_commit: str,
     app_map: AppMapResult,
+    test_execution: TestExecutionEvidence,
+    test_identity: TestDefinitionIdentity | None,
 ) -> ChangePlanVerificationResult:
     checks: list[ChangePlanCheckResult] = []
 
@@ -908,12 +962,6 @@ def _verify_change_plan(
             "registered route binds the planned use case exactly",
             "no registered route binds the planned use case exactly",
         ),
-        (
-            f"{test_id} -> {use_case_id}",
-            ("depends-on", test_id, use_case_id, "exact"),
-            "generated feature test references the planned use case directly",
-            "generated feature test does not reference the planned use case directly",
-        ),
     ):
         record(
             "edge_present",
@@ -923,11 +971,224 @@ def _verify_change_plan(
             failed,
         )
 
+    test_dependency_subject = f"{plan.test_target} -> {use_case_id}"
+    record(
+        "edge_present",
+        test_dependency_subject,
+        test_identity is not None,
+        "planned test function references the planned use case through an "
+        "unshadowed import",
+        "planned test target does not resolve to one function with an unshadowed "
+        "direct use-case import",
+    )
+
+    record(
+        "test_executed",
+        plan.test_target,
+        test_execution.ok,
+        "every collected invocation of the planned test passed",
+        _test_execution_failure_message(test_execution),
+    )
+
     return ChangePlanVerificationResult(
         path=path,
         plan=plan,
+        test_execution=test_execution,
         checks=tuple(checks),
     )
+
+
+def _planned_test_identity(
+    root: Path,
+    plan: ChangePlan,
+) -> TestDefinitionIdentity | None:
+    try:
+        source_path = project_path(root, plan.test_source, label="generated test")
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    except (OperationError, OSError, UnicodeError, SyntaxError):
+        return None
+
+    _, separator, test_name = plan.test_target.rpartition("::")
+    if not separator:
+        return None
+    functions = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.name == test_name
+    ]
+    if len(functions) != 1:
+        return None
+    function = functions[0]
+
+    expected_module = f"app.features.{plan.feature}.use_cases.{plan.use_case_name}"
+    test_module = plan.test_source.removesuffix(".py").replace("/", ".")
+    imports: list[tuple[ast.ImportFrom, str]] = []
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        imported_module = _absolute_import_from(test_module, node)
+        if imported_module != expected_module:
+            continue
+        for alias in node.names:
+            if alias.name == plan.use_case_name:
+                imports.append((node, alias.asname or alias.name))
+    if len(imports) != 1:
+        return None
+    import_node, local_name = imports[0]
+    module_bindings = _scope_bindings(tree.body, local_name)
+    if len(module_bindings) != 1 or module_bindings[0] is not import_node:
+        return None
+
+    function_reference = _FunctionReference(local_name)
+    function_reference.record_arguments(function.args)
+    for statement in function.body:
+        function_reference.visit(statement)
+    if function_reference.bound or not function_reference.loaded:
+        return None
+
+    first_line = min(
+        [function.lineno, *(item.lineno for item in function.decorator_list)]
+    )
+    return TestDefinitionIdentity(source=source_path, first_line=first_line)
+
+
+def _scope_bindings(statements: list[ast.stmt], name: str) -> list[ast.AST]:
+    reference = _FunctionReference(name)
+    for statement in statements:
+        reference.visit(statement)
+    return reference.bindings
+
+
+class _FunctionReference(ast.NodeVisitor):
+    """Resolve one name within a module or function scope without nested scopes."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.bindings: list[ast.AST] = []
+        self.loaded = False
+
+    @property
+    def bound(self) -> bool:
+        return bool(self.bindings)
+
+    def record_arguments(self, arguments: ast.arguments) -> None:
+        positional = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]
+        for argument in positional:
+            if argument.arg == self.name:
+                self.bindings.append(argument)
+        for argument in (arguments.vararg, arguments.kwarg):
+            if argument is not None and argument.arg == self.name:
+                self.bindings.append(argument)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id != self.name:
+            return
+        if isinstance(node.ctx, ast.Load):
+            self.loaded = True
+        else:
+            self.bindings.append(node)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            bound_name = alias.asname or alias.name.partition(".")[0]
+            if bound_name == self.name:
+                self.bindings.append(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if any((alias.asname or alias.name) == self.name for alias in node.names):
+            self.bindings.append(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_definition(node)
+
+    def visit_AsyncFunctionDef(
+        self,
+        node: ast.AsyncFunctionDef,
+    ) -> None:
+        self._visit_definition(node)
+
+    def _visit_definition(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        if node.name == self.name:
+            self.bindings.append(node)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        self._visit_argument_defaults(node.args)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        if node.name == self.name:
+            self.bindings.append(node)
+        for expression in [*node.decorator_list, *node.bases]:
+            self.visit(expression)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._visit_argument_defaults(node.args)
+
+    def _visit_argument_defaults(self, arguments: ast.arguments) -> None:
+        for default in arguments.defaults:
+            self.visit(default)
+        for default in arguments.kw_defaults:
+            if default is not None:
+                self.visit(default)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name == self.name:
+            self.bindings.append(node)
+        self.generic_visit(node)
+
+    def visit_Global(self, node: ast.Global) -> None:
+        if self.name in node.names:
+            self.bindings.append(node)
+
+    def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
+        if self.name in node.names:
+            self.bindings.append(node)
+
+    def visit_MatchAs(self, node: ast.MatchAs) -> None:
+        if node.name == self.name:
+            self.bindings.append(node)
+        self.generic_visit(node)
+
+    def visit_MatchStar(self, node: ast.MatchStar) -> None:
+        if node.name == self.name:
+            self.bindings.append(node)
+
+    def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
+        if node.rest == self.name:
+            self.bindings.append(node)
+        self.generic_visit(node)
+
+
+def _absolute_import_from(test_module: str, node: ast.ImportFrom) -> str | None:
+    if node.level == 0:
+        return node.module
+    package = test_module.rpartition(".")[0]
+    parts = package.split(".") if package else []
+    parents = node.level - 1
+    if parents > len(parts):
+        return None
+    base = parts[: len(parts) - parents]
+    if node.module is not None:
+        base.extend(node.module.split("."))
+    return ".".join(base)
+
+
+def _test_execution_failure_message(evidence: TestExecutionEvidence) -> str:
+    return {
+        "not_collected": "planned test was not collected by pytest",
+        "deselected": "one or more planned test invocations were deselected",
+        "skipped": "one or more planned test invocations were skipped",
+        "xfailed": "one or more planned test invocations were expected failures",
+        "xpassed": "one or more planned test invocations unexpectedly passed",
+        "failed": "one or more planned test invocations failed",
+        "errored": "planned test setup or teardown errored",
+        "ambiguous": "planned test execution produced ambiguous lifecycle reports",
+        "receipt_missing": "pytest did not produce planned-test execution evidence",
+        "receipt_invalid": "pytest produced invalid planned-test execution evidence",
+        "passed": "every collected invocation of the planned test passed",
+    }[evidence.status]
 
 
 def _current_contract_signature(root: Path, plan: ChangePlan) -> str | None:

@@ -110,7 +110,7 @@ from ..use_cases.{name} import {name}
 
 
 {GENERATED_INCOMPLETE_PRAGMA}
-def test_{name}_requires_implementation() -> None:
+def test_{name}() -> None:
     assert callable({name})
     pytest.fail("Implement {name} and replace this generated test")
 """

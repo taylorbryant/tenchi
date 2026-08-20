@@ -136,6 +136,16 @@ def test_contract_use_case_plan_preserves_empty_tuple_annotations() -> None:
     compile(plan.files["use_cases/read_ready.py"], "read_ready.py", "exec")
 
 
+def test_contract_use_case_plan_uses_a_stable_test_target_name() -> None:
+    declared = contract(method="POST", path="/projects", response=str)
+
+    plan = contract_use_case_plan(declared, feature="projects", name="create_project")
+
+    test_source = plan.files["tests/test_create_project.py"]
+    assert "def test_create_project() -> None:" in test_source
+    assert "pytest.fail" in test_source
+
+
 def test_contract_use_case_plan_distinguishes_null_body_from_no_body() -> None:
     null_body = contract(method="GET", path="/nullable", response=type(None))
     no_body = contract(method="DELETE", path="/items/1", response=None, status=204)

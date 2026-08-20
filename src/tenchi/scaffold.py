@@ -102,8 +102,9 @@ For a contract-driven generated use case, add `--plan
 .tenchi/changes/<name>.json --base-ref <ref>` when creating the files, then pass
 that path to `verify --change-plan`. The receipt proves the generated files,
 removed incomplete markers, the accepted contract-derived signature, exact
-route bindings, and a direct dependency from a top-level `test_*` feature-test
-function against the same commit.
+route bindings, a direct dependency from the exact generated test function,
+and successful execution of every invocation of that pytest target against the
+same commit. Keep the generated test function name when replacing its body.
 
 `tenchi.toml` is the repository-owned definition of required verification
 evidence. `verify` compares it with the selected Git baseline before enforcing
@@ -137,8 +138,9 @@ Framework agent workflow: https://tenchi.io/agents
    framework-shaped files manually. When a contract exists, pass
    `--from-contract app.features.<feature>.contracts:<contract_name>` to derive
    the exact use-case boundary. Implement the generated behavior, replace its
-   failing test, and remove both `# tenchi: incomplete` markers before treating
-   the change as complete. When the requested structure needs its own evidence,
+   failing test without renaming the test function, and remove both
+   `# tenchi: incomplete` markers before treating the change as complete. When
+   the requested structure needs its own evidence,
    create it with `--plan .tenchi/changes/<name>.json --base-ref <ref>` and
    retain the returned `plan_id` outside the edited worktree.
 3. Keep explicit wiring visible in `app/server/routes.py`,
@@ -158,6 +160,8 @@ Framework agent workflow: https://tenchi.io/agents
    The receipt records the exact Git-visible source-tree digest and fails if
    project-owned checks or imports leave that tree changed at a verification
    checkpoint.
+   A change plan also requires pytest to collect the exact generated test and
+   report every invocation as passed; do not rename, skip, or xfail that test.
 
 Use `--json` with `tenchi map`, `tenchi routes`, `tenchi jobs`, `tenchi tools`,
 `tenchi preflight`, `tenchi eval list|run`, `tenchi task`, `tenchi doctor`,

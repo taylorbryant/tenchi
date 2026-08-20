@@ -6,16 +6,22 @@ import os
 import signal
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from pathlib import Path
-from tempfile import TemporaryFile
+from tempfile import TemporaryDirectory, TemporaryFile
 from time import perf_counter, sleep
 from typing import BinaryIO
 
 from ._cli_results import CheckResult, CheckStepResult
+from ._pytest_evidence import (
+    TestDefinitionIdentity,
+    TestExecutionEvidence,
+    evidence_environment,
+    read_test_execution_evidence,
+)
 
 _MAX_OUTPUT_BYTES = 65_536
 _POLL_SECONDS = 0.05
@@ -49,6 +55,9 @@ def run_check(
     job_snapshot: str = "jobs.json",
     cancelled: Callable[[], bool] | None = None,
     step_completed: Callable[[int, int, CheckStepResult], None] | None = None,
+    test_target: str | None = None,
+    test_identity: TestDefinitionIdentity | None = None,
+    test_execution_completed: Callable[[TestExecutionEvidence], None] | None = None,
 ) -> CheckResult:
     """Run every validation step and retain bounded output for failures."""
     resolved_root = root.resolve()
@@ -88,12 +97,24 @@ def run_check(
     for index, command in enumerate(commands, start=1):
         if cancelled is not None and cancelled():
             raise CheckCancelled
-        result = _run_step(
-            command,
-            root=resolved_root,
-            timeout_seconds=timeout_seconds,
-            cancelled=cancelled,
-        )
+        if command.name == "pytest" and test_target is not None:
+            result, evidence = _run_pytest_with_evidence(
+                command,
+                root=resolved_root,
+                target=test_target,
+                identity=test_identity,
+                timeout_seconds=timeout_seconds,
+                cancelled=cancelled,
+            )
+            if test_execution_completed is not None:
+                test_execution_completed(evidence)
+        else:
+            result = _run_step(
+                command,
+                root=resolved_root,
+                timeout_seconds=timeout_seconds,
+                cancelled=cancelled,
+            )
         results.append(result)
         if step_completed is not None:
             step_completed(index, len(commands), result)
@@ -103,6 +124,38 @@ def run_check(
         steps=tuple(results),
         duration_seconds=_seconds_since(started),
     )
+
+
+def run_test_execution(
+    root: Path,
+    *,
+    target: str,
+    identity: TestDefinitionIdentity | None,
+    timeout_seconds: float,
+    cancelled: Callable[[], bool] | None = None,
+) -> TestExecutionEvidence:
+    """Run one exact pytest target when the general check stage is disabled."""
+    command = _CheckCommand(
+        "pytest",
+        ("pytest", "-p", "tenchi._pytest_evidence", target),
+    )
+    result, evidence = _run_pytest_with_evidence(
+        command,
+        root=root.resolve(),
+        target=target,
+        identity=identity,
+        timeout_seconds=timeout_seconds,
+        cancelled=cancelled,
+        add_plugin=False,
+    )
+    if result.status != "passed" and evidence.ok:
+        return replace(
+            evidence,
+            status="ambiguous",
+            passed=0,
+            ambiguous=evidence.collected,
+        )
+    return evidence
 
 
 def _check_commands(
@@ -179,12 +232,42 @@ def _check_commands(
     )
 
 
+def _run_pytest_with_evidence(
+    step: _CheckCommand,
+    *,
+    root: Path,
+    target: str,
+    identity: TestDefinitionIdentity | None,
+    timeout_seconds: float,
+    cancelled: Callable[[], bool] | None,
+    add_plugin: bool = True,
+) -> tuple[CheckStepResult, TestExecutionEvidence]:
+    with TemporaryDirectory(prefix="tenchi-pytest-") as directory:
+        evidence_path = Path(directory) / "receipt.json"
+        command = step
+        if add_plugin:
+            command = _CheckCommand(
+                step.name,
+                (*step.command, "-p", "tenchi._pytest_evidence"),
+            )
+        result = _run_step(
+            command,
+            root=root,
+            timeout_seconds=timeout_seconds,
+            cancelled=cancelled,
+            environment=evidence_environment(evidence_path, target, identity),
+        )
+        evidence = read_test_execution_evidence(evidence_path, target)
+    return result, evidence
+
+
 def _run_step(
     step: _CheckCommand,
     *,
     root: Path,
     timeout_seconds: float,
     cancelled: Callable[[], bool] | None,
+    environment: Mapping[str, str] | None = None,
 ) -> CheckStepResult:
     started = perf_counter()
     process: subprocess.Popen[bytes] | None = None
@@ -198,6 +281,7 @@ def _run_step(
                 root=root,
                 stdout_file=stdout_file,
                 stderr_file=stderr_file,
+                environment=environment,
             )
             deadline = perf_counter() + timeout_seconds
             timed_out = False
@@ -274,6 +358,7 @@ def _start_process(
     root: Path,
     stdout_file: BinaryIO,
     stderr_file: BinaryIO,
+    environment: Mapping[str, str] | None = None,
 ) -> subprocess.Popen[bytes]:
     if os.name == "posix":
         return subprocess.Popen(
@@ -281,7 +366,7 @@ def _start_process(
             cwd=root,
             stdout=stdout_file,
             stderr=stderr_file,
-            env=_child_environment(),
+            env=_child_environment(environment),
             start_new_session=True,
         )
     return subprocess.Popen(
@@ -289,7 +374,7 @@ def _start_process(
         cwd=root,
         stdout=stdout_file,
         stderr=stderr_file,
-        env=_child_environment(),
+        env=_child_environment(environment),
     )
 
 
@@ -328,7 +413,9 @@ def _execution_command(command: tuple[str, ...]) -> list[str]:
     return [sys.executable, "-m", module, *command[1:]]
 
 
-def _child_environment() -> dict[str, str]:
+def _child_environment(
+    overrides: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     environment = dict(os.environ)
     executable_directory = str(Path(sys.executable).parent)
     path_entries = environment.get("PATH", "").split(os.pathsep)
@@ -337,6 +424,8 @@ def _child_environment() -> dict[str, str]:
     )
     if sys.prefix != sys.base_prefix:
         environment["VIRTUAL_ENV"] = sys.prefix
+    if overrides is not None:
+        environment.update(overrides)
     return environment
 
 

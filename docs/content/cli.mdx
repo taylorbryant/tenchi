@@ -263,10 +263,14 @@ to create.
 When `--change-plan PATH` is present, the receipt also verifies the plan's
 baseline, generated files, incomplete markers, exact contract and use-case
 registration, the accepted contract-derived signature, route bindings, and a
-direct dependency from a top-level `test_*` feature-test function. The plan is
-read before and after project-owned commands so a mid-verification mutation
-fails. Change-plan evidence supplements the normal checks and compatibility
-reports; it does not evaluate business semantics or test quality.
+direct dependency from the exact generated test function. Keep that function's
+name when replacing its failing body. Verification requires pytest to collect
+at least one invocation and report every invocation as passed; skipped,
+xfailed, xpassed, deselected, failed, errored, uncollected, or ambiguous results
+fail the receipt. The plan is read before and after project-owned commands so a
+mid-verification mutation fails. Change-plan evidence supplements the normal
+checks and compatibility reports; it does not evaluate business semantics or
+test quality.
 
 The application root may contain a repository-owned `tenchi.toml`:
 

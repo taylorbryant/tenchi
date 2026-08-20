@@ -891,7 +891,8 @@ def _fallback_agent_instructions() -> str:
 2. Use `make_preview` before creating framework-shaped files. When a use-case
    contract exists, pass `from_contract` to derive its boundary signature. Pass
    `base_ref` when the result should include a change plan, then retain its
-   `plan_id` outside the edited worktree.
+   `plan_id` outside the edited worktree. Keep the generated test function name
+   when replacing its body; the plan binds execution evidence to that target.
 3. Keep contracts at the boundary, behavior in async use cases, infrastructure
    behind protocols, and wiring explicit in the server composition root.
 4. Run `check` after a coherent change.

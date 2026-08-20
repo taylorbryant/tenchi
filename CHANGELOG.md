@@ -7,6 +7,24 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- Contract-driven change plans now bind completion evidence to one exact pytest
+  target. `tenchi verify --change-plan` counts invocations without exposing
+  parameter values and requires successful setup, call, and teardown for all of
+  them; skipped, xfailed, xpassed, deselected, failed, errored, uncollected, and
+  ambiguous targets fail the receipt. Verification reuses the normal full
+  pytest run when project checks are enabled and runs only the planned target
+  when they are disabled. The exact test function must also directly reference
+  the planned use case, avoiding evidence from an unrelated test in the same
+  file. Verification rejects duplicate target definitions, shadowed or rebound
+  use-case imports, and collected callables whose source identity differs from
+  the validated function, so a replacing decorator cannot turn a no-op into
+  passing evidence. Change-plan schema v2 and agent protocol v11 publish the new
+  target and payload-safe execution counts. Earlier plan files are rejected
+  with guidance to regenerate them, and generated tests now use the stable
+  `test_<use_case>` name that implementations must retain.
+
 ## [0.14.0] - 2026-08-17
 
 ### Added

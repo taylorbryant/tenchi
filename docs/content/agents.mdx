@@ -286,8 +286,14 @@ outside the identity.
 When a change plan is supplied, the receipt additionally requires the planned
 files, removed incomplete markers, exact registered contract and use case,
 the accepted contract-derived signature, exact route bindings, and a direct
-dependency from a top-level `test_*` feature-test function. It also requires the
-plan's immutable commit to match the verification baseline.
+dependency from the exact generated test function. Keep that function's name
+when replacing its failing body, retain its direct imported use-case binding,
+and avoid decorators that replace the function. The plan also requires the
+callable pytest collects to match that source definition, then requires at least
+one invocation whose setup, call, and teardown all pass; skipped, xfailed,
+xpassed, deselected, failed, errored, uncollected, or ambiguous results fail the
+receipt. It also requires the plan's immutable commit to match the verification
+baseline.
 
 If an agent disables or removes a required stage in `tenchi.toml`, Tenchi
 retains the historical requirement for that run and reports the policy change

@@ -7,10 +7,10 @@ A change plan connects a contract-driven generator request to the final
 the generated use case was implemented, tested, and wired to the intended HTTP
 contract.
 
-Change-plan version 1 supports use cases generated with `--from-contract`.
+Change-plan version 2 supports use cases generated with `--from-contract`.
 Plans are JSON files with a content-derived `plan_id`, the immutable Git
-baseline, the contract and use-case identities, generated paths, and a fixed
-set of structural postconditions.
+baseline, the contract and use-case identities, generated paths, one exact
+pytest target, and a fixed set of completion postconditions.
 
 ## Preview the generation
 
@@ -57,8 +57,10 @@ final verification receipt reports the ID it actually checked.
 
 Replace the generated `NotImplementedError` and failing test. Remove both
 `# tenchi: incomplete` markers only after the behavior and its direct test are
-implemented. Bind the contract and use case explicitly in the feature's
-`routes.py`; the generator does not rewrite composition modules.
+implemented. Keep the generated test function name—`test_create_project` in
+this example—because the plan binds completion evidence to that exact pytest
+target. Bind the contract and use case explicitly in the feature's `routes.py`;
+the generator does not rewrite composition modules.
 
 Run the normal validation loop while working:
 
@@ -85,8 +87,20 @@ The change-plan section passes only when:
   produces the accepted use-case signature;
 - one registered route binds that contract and use case through exact
   application-map evidence; and
-- a top-level `test_*` function in the generated feature-test file directly
-  references the use case.
+- exactly one top-level test function matches the target, directly references
+  the imported use case, and neither the module nor function rebinds that
+  imported name;
+- the callable collected by pytest comes from that exact source definition, so
+  a decorator that replaces or wraps the function fails as ambiguous; and
+- pytest collects at least one invocation of that function, and every setup,
+  call, and teardown reports success. Skipped, expected-failure, unexpected
+  pass, deselected, failed, errored, uncollected, and ambiguous invocations all
+  fail the plan.
+
+Tenchi normally records this evidence during the pytest step of `tenchi check`.
+If the repository's current and historical verification policies both disable
+the general check stage, Tenchi runs only the planned pytest target so the plan
+cannot waive its own execution requirement.
 
 Tenchi reads the plan before running project-owned validation commands and
 again before returning the receipt. If a test or import mutates the plan during
@@ -94,11 +108,20 @@ verification, the receipt fails.
 
 ## Understand the proof boundary
 
-A passing plan proves structural completion, not business correctness. It does
-not decide whether the implementation satisfies the product requirement or
-whether the assertions are strong enough. Review the use case, policy, ports,
-and test behavior as usual; `tenchi check` and the historical compatibility
-stages remain part of the same final receipt.
+A passing plan proves structural completion and that its source-bound test ran
+successfully, not business correctness. It does not prove that the test called
+the use case, that its assertions are strong enough, or that the implementation
+satisfies the product requirement. Review the use case, policy, ports, and test
+behavior as usual; `tenchi check` and the historical compatibility stages
+remain part of the same final receipt.
+
+Pytest marks such as `@pytest.mark.parametrize` remain suitable because they
+preserve the test function's source identity. A custom decorator that returns a
+different callable cannot provide plan-bound execution evidence.
+
+Plans created before schema version 2 are not accepted. Generate a new plan
+with the current Tenchi version before editing its files; do not hand-edit an
+older plan into the new shape.
 
 The plan file is repository-owned data, not a signed instruction. Tenchi
 validates its content-derived identity and refuses weakened fixed

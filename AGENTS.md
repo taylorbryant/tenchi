@@ -425,10 +425,17 @@ returns the prospective plan without writing it. `verify --change-plan <path>`
 requires the same baseline commit, both files without incomplete markers,
 registered contract and use case, the current contract-derived signature, exact
 route bindings, and a direct dependency from a top-level `test_*` feature-test
-function. It reads the plan before and after project-owned commands to detect
-mutation. Change-plan evidence proves structural completion, not business
-correctness; preserve the accepted plan ID outside the edited worktree when
-exact intent needs independent review.
+function identified by an exact pytest target. It requires at least one
+collected invocation and successful setup, call, and teardown for every
+invocation; skipped, xfailed, xpassed, deselected, failed, errored, uncollected,
+or ambiguous targets fail. The target must resolve to exactly one top-level
+definition with an unshadowed, unrebound direct use-case import, and the callable
+collected by pytest must retain that definition's source identity; wrapping
+decorators therefore fail closed. It reads the plan before and after
+project-owned commands to detect mutation. Change-plan evidence proves
+structural completion and test execution, not business correctness or assertion
+quality; preserve the accepted plan ID outside the edited worktree when exact
+intent needs independent review.
 
 ## Testing conventions
 

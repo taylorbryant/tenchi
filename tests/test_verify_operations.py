@@ -28,6 +28,10 @@ from tenchi._openapi_operations import (
     read_git_snapshot,
     resolve_git_commit,
 )
+from tenchi._pytest_evidence import (
+    TestDefinitionIdentity as _TestDefinitionIdentity,
+)
+from tenchi._pytest_evidence import TestExecutionEvidence as _TestExecutionEvidence
 from tenchi._source_identity import SourceIdentityError, VerificationSource
 from tenchi._tool_operations import ToolDiffResult
 from tenchi._verification_policy import (
@@ -73,6 +77,7 @@ def _run_with_map(
     final_policy: VerificationPolicyComparison | None = None,
     change_plan: str | None = None,
     current_contract_signature: str = _CHANGE_PLAN_SIGNATURE,
+    planned_test_evidence: _TestExecutionEvidence | None = None,
     during_verification: Callable[[], None] | None = None,
     source_error: str | None = None,
 ) -> _verify_operations.VerificationResult:
@@ -111,7 +116,25 @@ def _run_with_map(
         )
 
     def fake_run_check(root: Path, **kwargs: object) -> CheckResult:
-        del kwargs
+        target = kwargs.get("test_target")
+        completed = kwargs.get("test_execution_completed")
+        if isinstance(target, str) and callable(completed):
+            completed(
+                planned_test_evidence
+                or _TestExecutionEvidence(
+                    target=target,
+                    status="passed",
+                    collected=1,
+                    passed=1,
+                    skipped=0,
+                    xfailed=0,
+                    xpassed=0,
+                    failed=0,
+                    errored=0,
+                    deselected=0,
+                    ambiguous=0,
+                )
+            )
         return CheckResult(
             root=str(root),
             ok=True,
@@ -289,9 +312,7 @@ def _run_with_map(
     )
 
 
-def _change_plan_app_map(
-    tmp_path: Path, *, include_test_edge: bool = True
-) -> AppMapResult:
+def _change_plan_app_map(tmp_path: Path) -> AppMapResult:
     contract_source = AppMapSource(
         path="app/features/projects/contracts.py",
         line=4,
@@ -361,16 +382,15 @@ def _change_plan_app_map(
             confidence="exact",
         ),
     ]
-    if include_test_edge:
-        edges.append(
-            AppMapEdge(
-                kind="depends-on",
-                source="test:app/features/projects/tests/test_create_project.py",
-                target="use-case:projects.create_project",
-                evidence=test_source,
-                confidence="exact",
-            )
+    edges.append(
+        AppMapEdge(
+            kind="depends-on",
+            source="test:app/features/projects/tests/test_create_project.py",
+            target="use-case:projects.create_project",
+            evidence=test_source,
+            confidence="exact",
         )
+    )
     return AppMapResult(
         root=str(tmp_path),
         summary=_summary(),
@@ -382,13 +402,21 @@ def _change_plan_app_map(
 
 
 def _write_change_plan_fixture(tmp_path: Path) -> str:
-    for relative in (
-        "app/features/projects/use_cases/create_project.py",
-        "app/features/projects/tests/test_create_project.py",
-    ):
-        path = tmp_path / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("# implemented\n", encoding="utf-8")
+    use_case_path = tmp_path / "app/features/projects/use_cases/create_project.py"
+    use_case_path.parent.mkdir(parents=True, exist_ok=True)
+    use_case_path.write_text("# implemented\n", encoding="utf-8")
+    test_path = tmp_path / "app/features/projects/tests/test_create_project.py"
+    test_path.parent.mkdir(parents=True, exist_ok=True)
+    test_path.write_text(
+        """\
+from ..use_cases.create_project import create_project
+
+
+def test_create_project() -> None:
+    assert callable(create_project)
+""",
+        encoding="utf-8",
+    )
     plan = create_contract_use_case_change_plan(
         baseline_ref="base",
         baseline_commit="a" * 40,
@@ -445,12 +473,26 @@ def test_verification_fails_when_a_change_plan_relationship_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _write_change_plan_fixture(tmp_path)
+    (tmp_path / "app/features/projects/tests/test_create_project.py").write_text(
+        """\
+from ..use_cases.create_project import create_project
+
+
+def test_create_project() -> None:
+    assert True
+
+
+def test_unrelated() -> None:
+    assert callable(create_project)
+""",
+        encoding="utf-8",
+    )
     _stub_passing_openapi(monkeypatch)
 
     result = _run_with_map(
         tmp_path,
         monkeypatch,
-        _change_plan_app_map(tmp_path, include_test_edge=False),
+        _change_plan_app_map(tmp_path),
         change_plan=path,
     )
 
@@ -461,8 +503,185 @@ def test_verification_fails_when_a_change_plan_relationship_is_missing(
     assert [(check.code, check.subject) for check in failed] == [
         (
             "edge_present",
-            "test:app/features/projects/tests/test_create_project.py -> "
+            "app/features/projects/tests/test_create_project.py::"
+            "test_create_project -> "
             "use-case:projects.create_project",
+        )
+    ]
+
+
+def test_verification_fails_when_the_planned_test_is_skipped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write_change_plan_fixture(tmp_path)
+    _stub_passing_openapi(monkeypatch)
+    target = "app/features/projects/tests/test_create_project.py::test_create_project"
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        _change_plan_app_map(tmp_path),
+        change_plan=path,
+        planned_test_evidence=_TestExecutionEvidence(
+            target=target,
+            status="skipped",
+            collected=1,
+            passed=0,
+            skipped=1,
+            xfailed=0,
+            xpassed=0,
+            failed=0,
+            errored=0,
+            deselected=0,
+            ambiguous=0,
+        ),
+    )
+
+    assert result.ok is False
+    assert result.change_plan is not None
+    assert result.change_plan.test_execution.status == "skipped"
+    failed = [check for check in result.change_plan.checks if not check.ok]
+    assert [(check.code, check.subject, check.message) for check in failed] == [
+        (
+            "test_executed",
+            target,
+            "one or more planned test invocations were skipped",
+        )
+    ]
+
+
+def test_change_plan_runs_its_exact_test_when_general_checks_are_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write_change_plan_fixture(tmp_path)
+    strict = default_verification_policy()
+    disabled = VerificationPolicy(
+        source="repository",
+        requirements=tuple((stage, "disabled") for stage, _ in strict.requirements),
+    )
+    policy = VerificationPolicyComparison(
+        path="tenchi.toml",
+        baseline=f"{'a' * 40}:tenchi.toml",
+        current=disabled,
+        historical=disabled,
+        changes=(),
+    )
+    targets: list[str] = []
+    identities: list[_TestDefinitionIdentity | None] = []
+
+    def run_exact_test(
+        root: Path,
+        *,
+        target: str,
+        identity: _TestDefinitionIdentity | None,
+        timeout_seconds: float,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> _TestExecutionEvidence:
+        del root, timeout_seconds, cancelled
+        targets.append(target)
+        identities.append(identity)
+        return _TestExecutionEvidence(
+            target=target,
+            status="passed",
+            collected=1,
+            passed=1,
+            skipped=0,
+            xfailed=0,
+            xpassed=0,
+            failed=0,
+            errored=0,
+            deselected=0,
+            ambiguous=0,
+        )
+
+    monkeypatch.setattr(_verify_operations, "run_test_execution", run_exact_test)
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        _change_plan_app_map(tmp_path),
+        policy=policy,
+        change_plan=path,
+    )
+
+    assert result.ok is True
+    assert result.check is None
+    assert targets == [
+        "app/features/projects/tests/test_create_project.py::test_create_project"
+    ]
+    assert identities == [
+        _TestDefinitionIdentity(
+            source=(
+                tmp_path / "app/features/projects/tests/test_create_project.py"
+            ).resolve(),
+            first_line=4,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """\
+from ..use_cases.create_project import create_project
+
+
+def test_create_project() -> None:
+    create_project = lambda: None
+    assert create_project() is None
+""",
+        """\
+from ..use_cases.create_project import create_project
+
+create_project = lambda: None
+
+
+def test_create_project() -> None:
+    assert create_project() is None
+""",
+        """\
+from ..use_cases.create_project import create_project
+
+
+def test_create_project() -> None:
+    assert callable(create_project)
+
+
+def test_create_project() -> None:
+    assert True
+""",
+    ],
+    ids=("local-shadow", "module-rebinding", "duplicate-definition"),
+)
+def test_verification_rejects_an_ambiguous_planned_test_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+) -> None:
+    path = _write_change_plan_fixture(tmp_path)
+    (tmp_path / "app/features/projects/tests/test_create_project.py").write_text(
+        source,
+        encoding="utf-8",
+    )
+    _stub_passing_openapi(monkeypatch)
+
+    result = _run_with_map(
+        tmp_path,
+        monkeypatch,
+        _change_plan_app_map(tmp_path),
+        change_plan=path,
+    )
+
+    assert result.ok is False
+    assert result.change_plan is not None
+    failed = [check for check in result.change_plan.checks if not check.ok]
+    assert [(check.code, check.subject) for check in failed] == [
+        (
+            "edge_present",
+            "app/features/projects/tests/test_create_project.py::"
+            "test_create_project -> use-case:projects.create_project",
         )
     ]
 

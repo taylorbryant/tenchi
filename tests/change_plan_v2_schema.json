@@ -1,0 +1,185 @@
+{
+  "$defs": {
+    "ChangePlanBaselinePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "$ref": "#/$defs/ChangePlanCommit"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "commit"
+      ],
+      "title": "ChangePlanBaselinePayload",
+      "type": "object"
+    },
+    "ChangePlanCommit": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "type": "string"
+    },
+    "ChangePlanContractPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "name",
+        "method",
+        "path"
+      ],
+      "title": "ChangePlanContractPayload",
+      "type": "object"
+    },
+    "ChangePlanId": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "ChangePlanKind": {
+      "const": "contract-use-case",
+      "type": "string"
+    },
+    "ChangePlanPostconditions": {
+      "maxItems": 8,
+      "minItems": 8,
+      "prefixItems": [
+        {
+          "const": "generated_files_exist"
+        },
+        {
+          "const": "incomplete_markers_removed"
+        },
+        {
+          "const": "contract_registered"
+        },
+        {
+          "const": "use_case_registered"
+        },
+        {
+          "const": "route_binds_contract"
+        },
+        {
+          "const": "route_binds_use_case"
+        },
+        {
+          "const": "test_imports_use_case"
+        },
+        {
+          "const": "test_executes"
+        }
+      ],
+      "type": "array"
+    },
+    "ChangePlanSchemaVersion": {
+      "const": 2,
+      "type": "integer"
+    },
+    "ChangePlanTestPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "title": "ChangePlanTestPayload",
+      "type": "object"
+    },
+    "ChangePlanUseCasePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "signature": {
+          "title": "Signature",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "signature",
+        "source"
+      ],
+      "title": "ChangePlanUseCasePayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "baseline": {
+      "$ref": "#/$defs/ChangePlanBaselinePayload"
+    },
+    "contract": {
+      "$ref": "#/$defs/ChangePlanContractPayload"
+    },
+    "feature": {
+      "title": "Feature",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/ChangePlanKind"
+    },
+    "plan_id": {
+      "$ref": "#/$defs/ChangePlanId"
+    },
+    "required_postconditions": {
+      "$ref": "#/$defs/ChangePlanPostconditions"
+    },
+    "schema_version": {
+      "$ref": "#/$defs/ChangePlanSchemaVersion"
+    },
+    "test": {
+      "$ref": "#/$defs/ChangePlanTestPayload"
+    },
+    "use_case": {
+      "$ref": "#/$defs/ChangePlanUseCasePayload"
+    }
+  },
+  "required": [
+    "schema_version",
+    "plan_id",
+    "kind",
+    "baseline",
+    "feature",
+    "contract",
+    "use_case",
+    "test",
+    "required_postconditions"
+  ],
+  "title": "ChangePlanPayload",
+  "type": "object"
+}
