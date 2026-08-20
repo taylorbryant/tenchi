@@ -166,8 +166,9 @@ storage; follow [Make operations safe to retry](/idempotency) for that work.
 
 - `max_request_bytes=` overrides the application's request-body limit for one
   operation.
-- `timeout=` cooperatively cancels overdue work, waits for request-scope
-  cleanup, and returns a framework-owned `504`.
+- `timeout=` cooperatively cancels overdue HTTP work, waits for request-scope
+  cleanup, and returns a framework-owned `504`. It does not follow the use case
+  into tools, jobs, tasks, or direct execution.
 - `errors=` declares the application failures callers are allowed to observe.
 - `responses=` declares status-dependent successful outcomes.
 - Singular successful statuses must be between 200 and 399.

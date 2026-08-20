@@ -101,7 +101,9 @@ each request owns its own commit-or-rollback transaction.
 
 Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) to inspect and call
 the same contracts through Swagger UI. The underlying document is served at
-`/openapi.json`, and `/health` exposes the starter's liveness route.
+`/openapi.json`, and `/health` exposes the starter's dependency-free liveness
+route. Add a separate readiness route before deployment when serving traffic
+depends on a database or another external system.
 
 ## Make the first contract change
 
@@ -177,6 +179,11 @@ printed composition steps. Use
 the graph. See [coding agents](/agents) for the complete inspect, preview, edit,
 and validate loop, or [connect the coding-agent MCP server](/mcp) to expose
 those operations as agent tools.
+
+To practice the complete path on the generated application, follow [build a
+feature end to end](/build-a-feature). It changes a contract, use case, port,
+both persistence adapters, route composition, tests, and the OpenAPI snapshot
+as one reviewable operation.
 
 Next, read the [mental model](/concepts), then follow [app
 architecture](/architecture) when deciding where new code belongs.

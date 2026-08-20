@@ -175,6 +175,13 @@ If you pass an async context manager or factory, result validation happens
 before its successful exit, so an invalid result can still roll back the unit
 of work. Passing a ready context leaves commit and rollback with the caller.
 
+`JobDispatcher` does not choose an execution timeout. The worker should apply a
+bounded delivery deadline, while a use case that needs the same limit in every
+entrypoint should enforce an [entrypoint-neutral application
+deadline](/execution#set-an-entrypoint-neutral-deadline). Cancellation must
+still reach the dispatcher so the context can roll back before the worker
+releases or retries the claim.
+
 | Failure | Typical worker decision |
 | --- | --- |
 | `JobNotFoundError` | Dead-letter; deploying the correct consumer may make a later replay possible |

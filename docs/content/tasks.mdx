@@ -130,6 +130,11 @@ cancelled process or MCP call can therefore roll back the same way as another
 failure, provided the database adapter follows the documented context-manager
 pattern.
 
+`TaskRunner` does not impose an execution timeout. Let the operator environment
+set an outer process deadline, and put an [entrypoint-neutral application
+deadline](/execution#set-an-entrypoint-neutral-deadline) inside behavior that
+must remain bounded when called through HTTP, tools, jobs, and tasks alike.
+
 Use-case observers receive `entrypoint="task"` so task telemetry stays
 distinguishable from HTTP and direct `execute()` calls.
 

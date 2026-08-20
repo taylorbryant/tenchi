@@ -1,0 +1,323 @@
+import { Callout } from "@/components/callout";
+
+# Build a feature end to end
+
+Add a `PATCH /todos/{todo_id}/complete` operation to the generated application.
+The finished change crosses every layer involved in persisted behavior: the
+HTTP contract, generated use-case boundary, repository port, memory and SQLite
+adapters, route composition, direct behavior test, HTTP integration test, and
+OpenAPI snapshot.
+
+## Start from a committed application
+
+Follow the [quickstart](/getting-started) through the initial commit under “Run
+the checks,” then stop before its first contract change. Run this tutorial from
+the generated application root. `HEAD` must still identify the unchanged
+starting point so Tenchi can compare the finished change with an immutable
+baseline.
+
+Inspect the existing feature before editing it:
+
+```shell
+uv run tenchi map --feature todos
+```
+
+The map shows the two existing contracts, their route bindings and use cases,
+the `TodoRepository` port, both adapters, and the feature tests. The new
+operation will extend those same relationships.
+
+## Declare the input and HTTP operation
+
+Add the path model to `app/features/todos/schemas.py`:
+
+```python
+class CompleteTodoParams(BaseModel):
+    todo_id: str
+```
+
+Replace the imports in `app/features/todos/contracts.py` with:
+
+```python
+from pydantic import BaseModel, Field
+from tenchi.contracts import contract
+
+from app.shared.errors import todo_not_found
+
+from .schemas import CompleteTodoParams, CreateTodo, Todo
+```
+
+Add the operation beneath the existing contracts:
+
+```python
+complete_todo_contract = contract(
+    method="PATCH",
+    path="/todos/{todo_id}/complete",
+    params=CompleteTodoParams,
+    response=Todo,
+    errors=(todo_not_found,),
+    summary="Complete a todo",
+    tags=("todos",),
+)
+```
+
+The contract says that the operation accepts one validated path parameter,
+returns a `Todo`, and may expose the existing `TODO_NOT_FOUND` application
+error. It does not yet implement or register the operation.
+
+## Generate the use-case boundary
+
+Preview the files and signature derived from the contract:
+
+```shell
+uv run tenchi make use-case todos complete_todo \
+  --from-contract app.features.todos.contracts:complete_todo_contract \
+  --dry-run --json
+```
+
+After confirming the preview, generate the use case, its direct test, and a
+change plan together:
+
+```shell
+uv run tenchi make use-case todos complete_todo \
+  --from-contract app.features.todos.contracts:complete_todo_contract \
+  --plan .tenchi/changes/complete-todo.json \
+  --base-ref HEAD \
+  --json
+```
+
+Keep the returned `plan_id` with the work item or review. The generated files
+contain deliberate incomplete markers, so `tenchi check` remains red until the
+next sections replace both placeholders.
+
+## Extend the repository port
+
+Add the new capability to `TodoRepository` in
+`app/features/todos/ports.py`:
+
+```python
+class TodoRepository(Protocol):
+    async def create(self, *, title: str) -> Todo: ...
+
+    async def list(self) -> list[Todo]: ...
+
+    async def complete(self, todo_id: str) -> Todo | None: ...
+```
+
+Returning `None` keeps storage concerns out of the public error model. The use
+case will translate that result into the declared application error.
+
+## Implement both adapters
+
+Add this method to `MemoryTodoRepository` in
+`app/infra/memory_todo_repository.py`:
+
+```python
+async def complete(self, todo_id: str) -> Todo | None:
+    todo = self._todos.get(todo_id)
+    if todo is None:
+        return None
+
+    completed = todo.model_copy(update={"completed": True})
+    self._todos[todo_id] = completed
+    return completed
+```
+
+The memory adapter gives direct tests a deterministic implementation without a
+database.
+
+Add the corresponding method to `SqliteTodoRepository` in
+`app/infra/sqlite_todo_repository.py`:
+
+```python
+async def complete(self, todo_id: str) -> Todo | None:
+    await self._connection.execute(
+        "UPDATE todos SET completed = 1 WHERE id = ?",
+        (todo_id,),
+    )
+    cursor = await self._connection.execute(
+        "SELECT id, title, completed FROM todos WHERE id = ?",
+        (todo_id,),
+    )
+    row = await cursor.fetchone()
+    return _row_to_todo(row) if row is not None else None
+```
+
+The existing request-scoped context commits this update only after the use case
+and response validation succeed. A failure rolls the transaction back.
+
+## Implement the use case
+
+Replace the generated contents of
+`app/features/todos/use_cases/complete_todo.py` with:
+
+```python
+from tenchi.errors import AppError
+
+from app.server.context import AppContext
+from app.shared.errors import todo_not_found
+
+from ..schemas import CompleteTodoParams, Todo
+
+
+async def complete_todo(
+    params: CompleteTodoParams,
+    context: AppContext,
+) -> Todo:
+    todo = await context.todos.complete(params.todo_id)
+    if todo is None:
+        raise AppError(todo_not_found, details={"todo_id": params.todo_id})
+    return todo
+```
+
+The use case knows the application error but not its HTTP status or envelope.
+The same function can later run from a tool, task, or another entrypoint.
+
+## Keep authorization honest
+
+The generated starter can require one process-configured API key at the HTTP
+boundary, but it does not put a user or tenant identity in `AppContext`.
+Consequently, this operation has no subject-level authorization policy to
+apply: every authenticated caller has the same capability.
+
+Do not infer ownership from `todo_id` or add a policy that lacks an
+authenticated subject. When your application gains users or tenants, enrich
+the context in the authentication hook and derive an owner scope from that
+identity. Use owner-scoped repository methods for ownership boundaries; when a
+decision depends on subject state, fetch the subject and ask a pure feature
+policy before calling `complete()`. The [authentication and authorization
+guide](/authentication) shows that complete flow.
+
+## Replace the generated test
+
+Keep the generated `test_complete_todo` function name because the change plan
+binds its execution evidence to that exact pytest target. Replace
+`app/features/todos/tests/test_complete_todo.py` with:
+
+```python
+from app.features.todos.schemas import CompleteTodoParams, CreateTodo
+from app.features.todos.use_cases.complete_todo import complete_todo
+from app.features.todos.use_cases.create_todo import create_todo
+from app.infra.memory_todo_repository import MemoryTodoRepository
+from app.server.context import AppContext
+
+
+async def test_complete_todo() -> None:
+    context = AppContext(todos=MemoryTodoRepository())
+    created = await create_todo(CreateTodo(title="Buy milk"), context)
+
+    completed = await complete_todo(
+        CompleteTodoParams(todo_id=created.id),
+        context,
+    )
+
+    assert completed.id == created.id
+    assert completed.completed is True
+```
+
+Both incomplete markers are now gone, and the test exercises the use case
+directly through the feature-owned port.
+
+## Bind the route
+
+In `app/features/todos/routes.py`, add `complete_todo_contract` to the contract
+imports and `complete_todo` to the use-case imports:
+
+```python
+from .contracts import (
+    CreatedTodoHeaders,
+    complete_todo_contract,
+    create_todo_contract,
+    list_todos_contract,
+)
+from .use_cases.complete_todo import complete_todo
+```
+
+Then add the binding to the existing `route_group()`:
+
+```python
+routes = route_group(
+    route(
+        create_todo_contract,
+        create_todo,
+        response_headers=create_todo_headers,
+    ),
+    route(list_todos_contract, list_todos),
+    route(complete_todo_contract, complete_todo),
+)
+```
+
+Importing the module now proves that the derived `params`, `context`, and
+return annotations still match the contract.
+
+## Exercise the HTTP boundary
+
+In `tests/test_http.py`, add the new contract and parameter model to the
+existing imports:
+
+```python
+from app.features.todos.contracts import (
+    complete_todo_contract,
+    create_todo_contract,
+)
+from app.features.todos.schemas import CompleteTodoParams, CreateTodo
+```
+
+Then add an integration test that uses the SQLite-backed application:
+
+```python
+async def test_complete_todo_persists(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with open_client(build_app(database_path)) as client:
+        created = await client.call(
+            create_todo_contract,
+            request=CreateTodo(title="Buy milk"),
+        )
+        completed = await client.call(
+            complete_todo_contract,
+            params=CompleteTodoParams(todo_id=created.id),
+        )
+
+    async with open_http(build_app(database_path)) as http:
+        listed = await http.get("/todos")
+
+    assert completed.id == created.id
+    assert completed.completed is True
+    assert listed.json() == [completed.model_dump()]
+```
+
+This test crosses route dispatch, request validation, the SQLite adapter,
+transaction commit, result validation, and HTTP serialization. The direct test
+remains the faster place for application behavior and failure cases.
+
+## Review and verify the finished change
+
+Adding a new operation should be additive. Confirm that classification before
+replacing the OpenAPI snapshot:
+
+```shell
+uv run tenchi openapi --diff openapi.json
+uv run tenchi openapi --write openapi.json
+uv run tenchi check
+uv run tenchi map --feature todos
+uv run tenchi verify \
+  --base-ref HEAD \
+  --change-plan .tenchi/changes/complete-todo.json \
+  --json
+```
+
+The final receipt should report a passing check, complete application-map
+evidence, an additive OpenAPI change, and passing change-plan evidence for the
+exact generated test. Compare its `plan_id` with the ID retained when the plan
+was created.
+
+<Callout title="The receipt does not replace behavior review">
+  The plan proves that the generated structure was completed, registered, and
+  exercised by its source-bound test. Your assertions and code review still
+  decide whether completing a todo has the intended product behavior.
+</Callout>
+
+Run `uv run tenchi dev`, create a todo, and call
+`PATCH /todos/&lt;todo-id&gt;/complete` to inspect the result yourself. Continue
+with [authentication and authorization](/authentication) when the operation
+must act for a verified user, or [databases and transactions](/database) when
+adapting this pattern to another datastore.

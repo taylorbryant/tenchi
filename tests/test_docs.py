@@ -53,6 +53,7 @@ def test_docs_cover_the_framework_workflow() -> None:
     expected_pages = {
         "index",
         "getting-started",
+        "build-a-feature",
         "idempotency",
         "existing-project",
         "fieldnotes",

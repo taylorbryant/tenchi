@@ -25,6 +25,37 @@ async def handle_job(payload: bytes, context: AppContext) -> Todo:
 requires HTTP-specific `params`, `query`, or `headers` is not portable to this
 entrypoint and fails with `ExecutionError`.
 
+## Set an entrypoint-neutral deadline
+
+An HTTP contract's `timeout=` applies only while that contract runs through a
+route. It does not limit the same use case when a tool, job, task, script, or
+direct caller invokes it. Put a deadline around latency-sensitive application
+work when every entrypoint needs the same bound:
+
+```python
+import asyncio
+
+from tenchi.errors import AppError
+
+
+async def answer_question(
+    request: AnswerQuestion,
+    context: AppContext,
+) -> Answer:
+    try:
+        async with asyncio.timeout(25):
+            return await context.answers.generate(question=request.question)
+    except TimeoutError as exc:
+        raise AppError(answer_provider_unavailable) from exc
+```
+
+Declare `answer_provider_unavailable` on every HTTP contract or application
+tool that may expose it. Configure the provider SDK's own connection and
+request timeout below the application deadline so it can close network
+resources before the application maps the failure. A caller may still impose a
+shorter outer deadline, and cancellation must continue to propagate through the
+use case and its cleanup scopes.
+
 ## Open a context explicitly
 
 ```python

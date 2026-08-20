@@ -47,9 +47,11 @@ async def evaluate_answer(
     context: EvaluationContext,
 ) -> EvaluationMeasurement:
     answer = await context.answers.generate(question=case.question)
-    grounded = case.required_fact.casefold() in answer.text.casefold()
+    required_fact_present = (
+        case.required_fact.casefold() in answer.text.casefold()
+    )
     return evaluation_result(
-        scores={"groundedness": float(grounded)},
+        scores={"required_fact_present": float(required_fact_present)},
         tokens=answer.tokens,
         cost_usd=answer.cost_usd,
     )
@@ -69,14 +71,14 @@ answer_quality = evaluation(
     ),
     metrics=(
         evaluation_metric(
-            "groundedness",
+            "required_fact_present",
             threshold=0.9,
             description="Required policy facts appear in the answer.",
         ),
     ),
     evaluator=evaluate_answer,
     kind="model",
-    description="Measure support-answer grounding.",
+    description="Measure whether required policy facts remain in support answers.",
     timeout=20,
     max_tokens=20_000,
     max_cost_usd=2.0,
@@ -102,7 +104,7 @@ evaluation independent of server composition while allowing the concrete
 ```python
 return evaluation_result(
     scores={
-        "groundedness": groundedness,
+        "required_fact_present": required_fact_present,
         "citation_quality": citation_quality,
     },
     tokens=usage.input_tokens + usage.output_tokens,
@@ -129,6 +131,11 @@ Run-specific reports contain:
 
 Reports never contain case inputs, prompts, model outputs, context values, or
 exception messages.
+
+Name each metric after the property its scorer actually proves. A substring
+check can establish that a required phrase is present; it cannot establish that
+every generated claim is grounded in supplied evidence. Use a stronger name
+such as `groundedness` only when the evaluator verifies that stronger property.
 
 <Callout type="warning" title="Your provider and logs remain application-owned">
   The CLI and coding-agent MCP server discard direct standard output and

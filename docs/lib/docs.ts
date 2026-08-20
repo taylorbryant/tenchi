@@ -24,6 +24,14 @@ export const docsSections = [
         priority: 0.95,
       },
       {
+        path: "/build-a-feature",
+        title: "Build a feature end to end",
+        navLabel: "Build a feature",
+        description:
+          "Carry one persisted operation through its contract, generated use case, repository port, adapters, route, tests, and verification receipt.",
+        priority: 0.95,
+      },
+      {
         path: "/existing-project",
         title: "Add to an existing project",
         navLabel: "Existing project",

@@ -126,6 +126,11 @@ validation happens inside the context scope, so a result-contract violation
 can roll back transactional writes. Cancellation passes through the use case
 and both cleanup scopes.
 
+`ToolRunner` does not add a per-call timeout, and an HTTP contract's timeout
+does not apply here. Put a shared application deadline in the use case or its
+provider adapter when the operation must be bounded through HTTP, tools, and
+MCP. See [set an entrypoint-neutral deadline](/execution#set-an-entrypoint-neutral-deadline).
+
 Pass `use_case_observers=` to `create_tool_runner()` to receive the normal
 payload-safe `UseCaseOutcome` with `entrypoint="tool"`.
 

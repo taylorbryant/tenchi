@@ -3,6 +3,7 @@ import Agents from "@/content/agents.mdx";
 import Application from "@/content/application.mdx";
 import Architecture from "@/content/architecture.mdx";
 import Authentication from "@/content/authentication.mdx";
+import BuildAFeature from "@/content/build-a-feature.mdx";
 import ChangePlans from "@/content/change-plans.mdx";
 import Cli from "@/content/cli.mdx";
 import Client from "@/content/client.mdx";
@@ -43,6 +44,7 @@ import type { DocsPath } from "@/lib/docs";
 export const docsContent: Record<DocsPath, ComponentType> = {
   "/": Overview,
   "/getting-started": GettingStarted,
+  "/build-a-feature": BuildAFeature,
   "/existing-project": ExistingProject,
   "/concepts": Concepts,
   "/architecture": Architecture,

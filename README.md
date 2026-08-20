@@ -282,9 +282,12 @@ Nested unions retain their ordinary spelling, such as
 fixed object-shaped header schema; differing header shapes belong in separate
 definitions.
 
-`timeout=` cooperatively cancels overdue work, lets request-scope cleanup and
-rollback finish, then returns the framework's 504 even if application code
-catches the injected cancellation. `create_app(observers=...)` delivers an
+`timeout=` applies to this HTTP route: it cooperatively cancels overdue work,
+lets request-scope cleanup and rollback finish, then returns the framework's
+504 even if application code catches the injected cancellation. It does not
+follow the use case into tools, jobs, tasks, or direct execution; put a shared
+deadline in application or provider code when every entrypoint needs the same
+bound. `create_app(observers=...)` delivers an
 immutable `RequestOutcome`, including a read-only header mapping, after each
 matched route has finalized. Observer failures are logged and never change the
 response. `create_app(use_case_observers=...)` and
