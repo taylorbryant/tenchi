@@ -1,0 +1,8 @@
+schema_version = 1
+id = "complete_todo"
+title = "Add a persisted completion operation"
+description = "Carry one state-changing HTTP operation through the contract, use case, port, adapters, route, tests, and OpenAPI snapshot."
+prompt = "prompt.md"
+hidden_tests = ["hidden/test_complete_todo.py.tmpl"]
+agent_timeout_seconds = 1200
+evaluation_timeout_seconds = 300

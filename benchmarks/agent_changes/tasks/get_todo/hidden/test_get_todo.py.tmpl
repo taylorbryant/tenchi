@@ -1,0 +1,40 @@
+from pathlib import Path
+
+from tenchi.testing import open_http
+
+from app.infra.memory_todo_repository import MemoryTodoRepository
+from app.server.asgi import build_app
+
+
+async def test_get_todo_persists_and_documents_the_declared_error(
+    tmp_path: Path,
+) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with open_http(build_app(database_path)) as http:
+        created = await http.post("/todos", json={"title": "Find me"})
+        todo_id = created.json()["id"]
+
+    async with open_http(build_app(database_path)) as http:
+        found = await http.get(f"/todos/{todo_id}")
+        missing = await http.get("/todos/missing")
+        document = (await http.get("/openapi.json")).json()
+
+    assert found.status_code == 200
+    assert found.json() == created.json()
+    assert missing.status_code == 404
+    assert missing.headers["x-tenchi-error-source"] == "app"
+    assert missing.json()["code"] == "TODO_NOT_FOUND"
+
+    operation = document["paths"]["/todos/{todo_id}"]["get"]
+    error_schema = operation["responses"]["404"]["content"]["application/json"][
+        "schema"
+    ]
+    assert "TODO_NOT_FOUND" in str(error_schema)
+
+
+async def test_memory_repository_finds_created_todos_and_rejects_unknown_ids() -> None:
+    repository = MemoryTodoRepository()
+    created = await repository.create(title="Memory")
+
+    assert await repository.get(created.id) == created
+    assert await repository.get("missing") is None

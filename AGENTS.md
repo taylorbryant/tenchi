@@ -105,6 +105,10 @@ framework code, the CLI, docs, or the example apps.
   application tools and MCP, cited answers behind a provider port, operational
   reindexing, preflight, and evaluation gates without requiring model
   credentials in CI.
+- `benchmarks/agent_changes/` — a vendor-neutral development benchmark that
+  renders fresh generated applications, withholds repository-owned acceptance
+  tests until evaluation, and records payload-safe agent and `verify` results.
+  Normal CI validates the harness but never invokes a model.
 - `CHANGELOG.md` — Keep a Changelog format; maintain an `[Unreleased]`
   section during a development cycle.
 - `.github/workflows/ci.yml` — checks for the root project and separate

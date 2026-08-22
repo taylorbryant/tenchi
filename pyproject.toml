@@ -77,11 +77,11 @@ packages = ["src/tenchi"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests", "examples/todos"]
-pythonpath = ["examples/todos"]
+pythonpath = [".", "examples/todos"]
 
 [tool.ruff]
 line-length = 88
-src = ["src", "tests", "examples/todos", "examples/taskboard"]
+src = ["src", "tests", "benchmarks", "examples/todos", "examples/taskboard"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
@@ -90,7 +90,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # The taskboard example is a standalone project (its own `app` package
 # would collide with the todos example); it is checked by its own pyright
 # run in CI.
-include = ["src", "tests", "examples/todos"]
+include = ["src", "tests", "benchmarks", "examples/todos"]
 extraPaths = ["examples/todos"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"

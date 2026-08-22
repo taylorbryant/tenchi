@@ -1,0 +1,46 @@
+from pathlib import Path
+
+from tenchi.testing import open_http
+from tenchi.tools import create_tool_runner, tool_manifest
+
+from app.features.todos.use_cases.list_todos import list_todos
+from app.server.asgi import build_app
+from app.server.runtime import create_context, create_lifespan
+from app.server.tools import tools
+
+
+async def test_list_todos_tool_reuses_persisted_application_behavior(
+    tmp_path: Path,
+) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with open_http(build_app(database_path)) as http:
+        created = await http.post("/todos", json={"title": "Use a tool"})
+
+    runner = create_tool_runner(
+        tools=tools,
+        context_factory=create_context,
+        lifespan=create_lifespan(database_path),
+    )
+    result = await runner.call("todos.list", input={})
+
+    assert [todo.model_dump() for todo in result] == [created.json()]
+
+
+def test_list_todos_tool_manifest_is_conservative() -> None:
+    manifest = tool_manifest(tools)
+
+    assert [entry["name"] for entry in manifest["tools"]] == ["todos.list"]
+    entry = manifest["tools"][0]
+    assert entry["input_schema"] == {
+        "additionalProperties": False,
+        "properties": {},
+        "type": "object",
+    }
+    assert entry["annotations"] == {
+        "read_only": True,
+        "destructive": False,
+        "idempotent": True,
+        "open_world": False,
+    }
+    assert len(tools.handlers) == 1
+    assert tools.handlers[0].use_case is list_todos

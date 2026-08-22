@@ -1,0 +1,44 @@
+from pathlib import Path
+
+from tenchi.testing import open_http
+
+from app.infra.memory_todo_repository import MemoryTodoRepository
+from app.server.asgi import build_app
+
+
+async def test_complete_todo_persists_and_rejects_unknown_ids(
+    tmp_path: Path,
+) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with open_http(build_app(database_path)) as http:
+        created = await http.post("/todos", json={"title": "Ship benchmark"})
+        todo_id = created.json()["id"]
+        completed = await http.patch(f"/todos/{todo_id}/complete")
+
+    assert completed.status_code == 200
+    assert completed.json() == {
+        "id": todo_id,
+        "title": "Ship benchmark",
+        "completed": True,
+    }
+
+    async with open_http(build_app(database_path)) as http:
+        listed = await http.get("/todos")
+        missing = await http.patch("/todos/missing/complete")
+
+    assert listed.json() == [completed.json()]
+    assert missing.status_code == 404
+    assert missing.headers["x-tenchi-error-source"] == "app"
+    assert missing.json()["code"] == "TODO_NOT_FOUND"
+
+
+async def test_memory_repository_completes_without_mutating_the_original() -> None:
+    repository = MemoryTodoRepository()
+    created = await repository.create(title="Memory")
+
+    completed = await repository.complete(created.id)
+
+    assert completed is not None
+    assert completed.completed is True
+    assert created.completed is False
+    assert await repository.complete("missing") is None
