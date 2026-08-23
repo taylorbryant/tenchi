@@ -6,6 +6,23 @@ on:
   pull_request:
 
 jobs:
+  minimum-dependencies:
+    runs-on: ubuntu-latest
+    env:
+      UV_RESOLUTION: lowest-direct
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Resolve declared direct-dependency lower bounds
+        run: uv lock --upgrade
+      - run: uv sync --locked
+      - name: Run tests against declared lower bounds
+        run: uv run pytest
+
   checks:
     runs-on: ubuntu-latest
     strategy:

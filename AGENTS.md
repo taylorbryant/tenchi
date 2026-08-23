@@ -111,9 +111,10 @@ framework code, the CLI, docs, or the example apps.
   Normal CI validates the harness but never invokes a model.
 - `CHANGELOG.md` — Keep a Changelog format; maintain an `[Unreleased]`
   section during a development cycle.
-- `.github/workflows/ci.yml` — checks for the root project and separate
-  steps for taskboard's own environment. `release.yml` — tag-triggered
-  PyPI publishing via trusted publishing.
+- `.github/workflows/ci.yml` — checks the current lock on Python 3.12–3.14,
+  tests declared direct-dependency lower bounds on Python 3.12, and verifies
+  the standalone example environments. `release.yml` — tag-triggered PyPI
+  publishing via trusted publishing.
 
 ## Non-negotiable change rule
 
@@ -456,6 +457,10 @@ intent needs independent review.
 
 - Semantic versioning with pre-1.0 semantics; minor versions may change
   the API.
+- Keep current releases in the root, taskboard, and Fieldnotes lockfiles, but
+  preserve a dependency's declared lower bound until compatibility, security,
+  or a required API proves that it must rise. The Python 3.12 `lowest-direct`
+  CI job makes those published compatibility claims executable.
 - Bump `pyproject.toml` and `src/tenchi/__init__.py::__version__` together
   at the *start* of a development cycle, so `main` never claims a version
   PyPI already owns.
