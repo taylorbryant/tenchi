@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-22
+
 ### Added
 
 - Contract-driven change plans now bind completion evidence to one exact pytest
@@ -24,6 +26,24 @@ versions may change the public API.
   target and payload-safe execution counts. Earlier plan files are rejected
   with guidance to regenerate them, and generated tests now use the stable
   `test_<use_case>` name that implementations must retain.
+- A vendor-neutral coding-agent benchmark now measures whether an agent can
+  complete production-shaped changes in fresh generated applications without
+  human intervention. The initial tasks cover a persisted HTTP operation, a
+  declared not-found read operation, and an application-tool binding. Hidden
+  acceptance tests and `tenchi verify` evaluate each run against its immutable
+  starting commit. Versioned, payload-safe results record task identity,
+  changed paths, verification evidence, timing, interventions, and optional
+  token usage; reports aggregate repeated runs without exposing prompts,
+  application values, agent output, or hidden-test failures.
+
+### Changed
+
+- The documentation now includes an end-to-end feature tutorial that carries a
+  persisted operation from its HTTP contract through generation, use-case and
+  adapter implementation, route wiring, tests, OpenAPI, and historical
+  verification. Production guidance now connects contracts, jobs, tasks,
+  evaluations, preflight checks, application tools, and deployment evidence
+  into one coherent workflow.
 
 ## [0.14.0] - 2026-08-17
 
