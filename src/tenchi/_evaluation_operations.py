@@ -31,6 +31,7 @@ from ._cli_results import (
 )
 from ._openapi_operations import (
     OperationError,
+    isolated_project_imports,
     project_path,
     read_git_snapshot,
 )
@@ -124,31 +125,33 @@ def load_evaluation_runner(root: Path, target: str) -> EvaluationRunner:
     if not separator or not module_name or not attribute:
         raise OperationError(f"expected module:attribute, got {target!r}")
 
-    root_string = str(resolved_root)
-    if root_string in sys.path:
-        sys.path.remove(root_string)
-    sys.path.insert(0, root_string)
-    try:
-        module = importlib.import_module(module_name)
-    except Exception as exc:
-        raise OperationError(
-            f"could not import {module_name!r} ({type(exc).__name__})"
-        ) from exc
-    try:
-        runner = getattr(module, attribute)
-    except AttributeError:
-        raise OperationError(
-            f"module {module_name!r} has no attribute {attribute!r}"
-        ) from None
-    except Exception as exc:
-        raise OperationError(
-            f"could not read {target!r} ({type(exc).__name__})"
-        ) from exc
-    if not isinstance(runner, EvaluationRunner):
-        raise OperationError(
-            f"{target!r} is not a tenchi EvaluationRunner (got {type(runner).__name__})"
-        )
-    return runner
+    with isolated_project_imports(resolved_root, module_names=(module_name,)):
+        root_string = str(resolved_root)
+        if root_string in sys.path:
+            sys.path.remove(root_string)
+        sys.path.insert(0, root_string)
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as exc:
+            raise OperationError(
+                f"could not import {module_name!r} ({type(exc).__name__})"
+            ) from exc
+        try:
+            runner = getattr(module, attribute)
+        except AttributeError:
+            raise OperationError(
+                f"module {module_name!r} has no attribute {attribute!r}"
+            ) from None
+        except Exception as exc:
+            raise OperationError(
+                f"could not read {target!r} ({type(exc).__name__})"
+            ) from exc
+        if not isinstance(runner, EvaluationRunner):
+            raise OperationError(
+                f"{target!r} is not a tenchi EvaluationRunner "
+                f"(got {type(runner).__name__})"
+            )
+        return runner
 
 
 @contextmanager

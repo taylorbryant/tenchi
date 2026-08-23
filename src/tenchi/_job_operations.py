@@ -11,7 +11,12 @@ from pathlib import Path
 from typing_extensions import TypedDict
 
 from ._cli_results import AGENT_PROTOCOL_VERSION, AgentProtocolVersion
-from ._openapi_operations import OperationError, project_path, read_git_snapshot
+from ._openapi_operations import (
+    OperationError,
+    isolated_project_imports,
+    project_path,
+    read_git_snapshot,
+)
 from ._schema_compatibility import ChangeSeverity
 from .compatibility import (
     CompatibilityChange,
@@ -109,22 +114,25 @@ def load_job_group(root: Path, target: str) -> JobGroup:
     if not separator or not module_name or not attribute:
         raise OperationError(f"expected module:attribute, got {target!r}")
 
-    root_string = str(resolved_root)
-    if root_string in sys.path:
-        sys.path.remove(root_string)
-    sys.path.insert(0, root_string)
-    try:
-        module = importlib.import_module(module_name)
-    except Exception as exc:
-        raise OperationError(f"could not import {module_name!r}: {exc}") from exc
-    if not hasattr(module, attribute):
-        raise OperationError(f"module {module_name!r} has no attribute {attribute!r}")
-    group = getattr(module, attribute)
-    if not isinstance(group, JobGroup):
-        raise OperationError(
-            f"{target!r} is not a tenchi JobGroup (got {type(group).__name__})"
-        )
-    return group
+    with isolated_project_imports(resolved_root, module_names=(module_name,)):
+        root_string = str(resolved_root)
+        if root_string in sys.path:
+            sys.path.remove(root_string)
+        sys.path.insert(0, root_string)
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as exc:
+            raise OperationError(f"could not import {module_name!r}: {exc}") from exc
+        if not hasattr(module, attribute):
+            raise OperationError(
+                f"module {module_name!r} has no attribute {attribute!r}"
+            )
+        group = getattr(module, attribute)
+        if not isinstance(group, JobGroup):
+            raise OperationError(
+                f"{target!r} is not a tenchi JobGroup (got {type(group).__name__})"
+            )
+        return group
 
 
 def job_list_result(root: Path, group: JobGroup) -> JobListResult:

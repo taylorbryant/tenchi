@@ -129,3 +129,37 @@ def test_error_body_omits_absent_details() -> None:
         "message": "y",
         "details": [1],
     }
+
+
+def test_error_body_normalizes_nonfinite_numbers_and_binary_details() -> None:
+    assert error_body(
+        code="X",
+        message="y",
+        details={"score": float("nan"), "raw": b"\xff"},
+    ) == {
+        "code": "X",
+        "message": "y",
+        "details": {"score": "NaN", "raw": "_w=="},
+    }
+
+
+def test_error_body_drops_details_that_still_cannot_render() -> None:
+    recursive: list[object] = []
+    recursive.append(recursive)
+
+    assert error_body(code="X", message="y", details=recursive) == {
+        "code": "X",
+        "message": "y",
+    }
+
+
+def test_error_body_replaces_unencodable_surrogates_in_required_text() -> None:
+    assert error_body(
+        code="X",
+        message="bad \ud800 text",
+        request_id="request-\udfff",
+    ) == {
+        "code": "X",
+        "message": "bad ? text",
+        "request_id": "request-?",
+    }

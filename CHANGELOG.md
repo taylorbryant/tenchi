@@ -7,6 +7,41 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- `JobPayloadError` gives queue consumers a stable, payload-safe failure for a
+  delivered message that no longer satisfies its declared input schema.
+- `TaskInputError` and `ExecutionInputError` give direct non-HTTP callers the
+  same payload-safe validation failure without rejected values or field paths.
+
+### Changed
+
+- Planned-test execution in verification receipts now identifies its
+  `project_pytest_process` provenance. Tenchi clears inherited
+  `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, and `PYTHONPATH` for deterministic
+  collection and documents that project-owned pytest code is cooperative
+  evidence rather than an independent attestation; adversarial evaluation
+  belongs outside the edited worktree. Agent protocol v12 publishes the
+  provenance while retaining all earlier snapshots.
+- `tenchi doctor` now requires the composition modules used by product
+  commands, checks feature package initializers, rejects stray top-level
+  application modules, and rejects symlinked application paths.
+- Release publishing now requires a version-matching tag, checks the Fieldnotes
+  application, and builds documentation on pull requests before merge.
+
+### Fixed
+
+- Contracts now reject incompatible text, binary, and JSON request or response
+  body declarations and non-text codecs at composition time.
+- Declared application errors safely normalize non-finite numbers, binary
+  details, and unencodable required text, and drop unrenderable details instead
+  of escaping the error boundary or skipping request observers.
+- The typed client rejects `.` and `..` path parameter segments and emits
+  canonical lowercase boolean request headers.
+- Idempotency and rate-limit conformance suites now prove records survive
+  before their requested expiry boundary.
+- Public project loaders restore `sys.path` and `sys.modules` after every load.
+
 ## [0.15.0] - 2026-08-23
 
 ### Added

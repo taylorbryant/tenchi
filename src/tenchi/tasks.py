@@ -26,8 +26,9 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
+from ._validation import payload_safe_validation_issues
 from .errors import ConfigurationError, TenchiError
 from .execution import (
     UseCaseObserver,
@@ -50,6 +51,15 @@ class TaskNotFoundError(TenchiError, LookupError):
 
 class TaskResultError(TenchiError, TypeError):
     """A task returned a value that violates its declared result type."""
+
+
+class TaskInputError(TenchiError, ValueError):
+    """Supplied task input does not satisfy its declared request type."""
+
+    def __init__(self, name: str, issues: tuple[dict[str, str], ...]) -> None:
+        super().__init__(f"input for task {name!r} is invalid")
+        self.name = name
+        self.issues = issues
 
 
 class _Unset:
@@ -432,9 +442,18 @@ def _task_kwargs(
         if not item.request_required:
             return {}
         raise TaskBindingError(f"task {item.name!r} requires input")
-    if input_json is not None:
-        return {"request": adapter.validate_json(input_json)}
-    return {"request": adapter.validate_python(input)}
+    try:
+        validated = (
+            adapter.validate_json(input_json)
+            if input_json is not None
+            else adapter.validate_python(input)
+        )
+    except ValidationError as exc:
+        raise TaskInputError(
+            item.name,
+            payload_safe_validation_issues(exc),
+        ) from None
+    return {"request": validated}
 
 
 def _validated_result(item: Task, raw: Any) -> Any:
@@ -564,6 +583,7 @@ __all__ = [
     "Task",
     "TaskBindingError",
     "TaskGroup",
+    "TaskInputError",
     "TaskNotFoundError",
     "TaskResultError",
     "TaskRunner",

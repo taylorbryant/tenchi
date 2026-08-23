@@ -116,6 +116,44 @@ async def test_observer_sees_app_and_framework_outcomes_but_not_unmatched_routes
     ]
 
 
+@pytest.mark.parametrize(
+    ("details", "expected"),
+    [
+        ({"score": float("nan")}, {"score": "NaN"}),
+        ({"raw": b"\xff"}, {"raw": "_w=="}),
+    ],
+)
+async def test_declared_error_details_always_render_and_notify_observers(
+    details: object,
+    expected: object,
+) -> None:
+    outcomes: list[RequestOutcome] = []
+
+    async def fail(context: object) -> str:
+        raise AppError(conflict, details=details)
+
+    declared = contract(
+        method="GET",
+        path="/fail",
+        response=str,
+        errors=(conflict,),
+    )
+    app = create_app(
+        routes=route_group(route(declared, fail)),
+        context_factory=object,
+        observers=(outcomes.append,),
+    )
+
+    async with open_http(app) as http:
+        response = await http.get("/fail")
+
+    assert response.status_code == 409
+    assert response.json()["details"] == expected
+    assert [(item.status_code, item.error_source) for item in outcomes] == [
+        (409, "app")
+    ]
+
+
 async def test_observers_cannot_mutate_request_headers_seen_by_later_observers(
     caplog: LogCaptureFixture,
 ) -> None:

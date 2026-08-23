@@ -111,7 +111,9 @@ JSON is the default. Declare a different body or response representation with
 `request_media_type=` and `response_media_type=`. Text declarations validate a
 string; other non-JSON media types validate bytes or strings. Requests with a
 missing or mismatched `Content-Type` fail with a framework-owned `415` before
-decoding.
+decoding. Incompatible body annotations fail when the contract is declared;
+for example, an object model cannot be paired with `text/plain`, and raw bytes
+cannot be a JSON response body.
 
 Charset-qualified text types are encoded and decoded strictly. An unsupported
 declared charset fails when the contract is built rather than during a call.

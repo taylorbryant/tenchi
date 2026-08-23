@@ -185,7 +185,7 @@ releases or retries the claim.
 | Failure | Typical worker decision |
 | --- | --- |
 | `JobNotFoundError` | Dead-letter; deploying the correct consumer may make a later replay possible |
-| Pydantic `ValidationError` | Dead-letter; the stored payload does not match the declared request |
+| `JobPayloadError` | Dead-letter; its payload-safe issues identify why the stored message does not match the declared request |
 | `JobResultError` | Roll back and dead-letter; the handler violates its result contract |
 | `AppError` | Decide from the stable application error code |
 | Cancellation | Release or roll back the claim and stop promptly |

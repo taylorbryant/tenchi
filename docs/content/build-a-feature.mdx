@@ -174,10 +174,12 @@ The same function can later run from a tool, task, or another entrypoint.
 
 ## Keep authorization honest
 
-The generated starter can require one process-configured API key at the HTTP
-boundary, but it does not put a user or tenant identity in `AppContext`.
-Consequently, this operation has no subject-level authorization policy to
-apply: every authenticated caller has the same capability.
+The generated starter deliberately contains no authentication policy and does
+not put a user or tenant identity in `AppContext`. The
+[`examples/todos`](https://github.com/taylorbryant/tenchi/tree/main/examples/todos)
+application demonstrates an optional process-configured API-key hook. Even
+with that hook, every authenticated caller has the same capability because the
+example does not model subject identity.
 
 Do not infer ownership from `todo_id` or add a policy that lacks an
 authenticated subject. When your application gains users or tenants, enrich

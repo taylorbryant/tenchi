@@ -26,6 +26,7 @@ from tenchi.jobs import (
     JobHandler,
     JobManifest,
     JobNotFoundError,
+    JobPayloadError,
     JobResultError,
     create_job_dispatcher,
     job,
@@ -295,12 +296,16 @@ async def test_dispatch_validates_input_and_result_inside_context_scope() -> Non
     assert observed[0].entrypoint == "job"
     assert observed[0].status == "succeeded"
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(JobPayloadError) as excinfo:
         await dispatcher.dispatch(
             "mail.deliver",
-            payload_json=b'{"message_id":"missing-address"}',
+            payload_json=b'{"message_id":"SECRET-TOKEN-abc123"}',
             context=context,
         )
+    assert "SECRET-TOKEN-abc123" not in str(excinfo.value)
+    assert "SECRET-TOKEN-abc123" not in repr(excinfo.value.issues)
+    assert excinfo.value.name == "mail.deliver"
+    assert excinfo.value.issues == ({"type": "missing"},)
     assert events == ["enter", "delivered:m1", "exit", "observe"]
 
 

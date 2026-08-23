@@ -31,6 +31,7 @@ EvaluationReport (re-export of tenchi.evaluations.EvaluationReport)
 EvaluationResultError (re-export of tenchi.evaluations.EvaluationResultError)
 EvaluationRunner (re-export of tenchi.evaluations.EvaluationRunner)
 ExecutionError (re-export of tenchi.execution.ExecutionError)
+ExecutionInputError (re-export of tenchi.execution.ExecutionInputError)
 IDEMPOTENCY_CONFLICT = ErrorDef(code='IDEMPOTENCY_CONFLICT', status=409, message='The idempotency key was already used with different input', headers=())
 IDEMPOTENCY_IN_PROGRESS = ErrorDef(code='IDEMPOTENCY_IN_PROGRESS', status=409, message='An operation with this idempotency key is already in progress', headers=('Retry-After',))
 IdempotencyResultError (re-export of tenchi.idempotency.IdempotencyResultError)
@@ -46,6 +47,7 @@ JobManifest (re-export of tenchi.jobs.JobManifest)
 JobManifestEntry (re-export of tenchi.jobs.JobManifestEntry)
 JobMessage (re-export of tenchi.jobs.JobMessage)
 JobNotFoundError (re-export of tenchi.jobs.JobNotFoundError)
+JobPayloadError (re-export of tenchi.jobs.JobPayloadError)
 JobResultError (re-export of tenchi.jobs.JobResultError)
 MAX_EVALUATION_TOKENS = 9007199254740991
 MemoryIdempotencyStore (re-export of tenchi.idempotency.MemoryIdempotencyStore)
@@ -76,6 +78,7 @@ TOOL_MANIFEST_VERSION = 1
 Task (re-export of tenchi.tasks.Task)
 TaskBindingError (re-export of tenchi.tasks.TaskBindingError)
 TaskGroup (re-export of tenchi.tasks.TaskGroup)
+TaskInputError (re-export of tenchi.tasks.TaskInputError)
 TaskNotFoundError (re-export of tenchi.tasks.TaskNotFoundError)
 TaskResultError (re-export of tenchi.tasks.TaskResultError)
 TaskRunner (re-export of tenchi.tasks.TaskRunner)
@@ -345,6 +348,8 @@ def evaluation_result(*, scores: 'Mapping[str, float]', tokens: 'int | None' = N
 
 # tenchi.execution
 class ExecutionError(TenchiError, TypeError)
+class ExecutionInputError(ExecutionError)
+    def __init__(self, use_case: 'Callable[..., Awaitable[Any]]', issues: 'tuple[dict[str, str], ...]') -> 'None'
 UseCaseObserver = collections.abc.Callable[[tenchi.execution.UseCaseOutcome], typing.Any]
 class UseCaseOutcome
     use_case: Callable[..., Awaitable[Any]]
@@ -427,6 +432,8 @@ class JobMessage
     payload_json: bytes
     def __init__(self, name: 'str', payload_json: 'bytes') -> None
 class JobNotFoundError(TenchiError, LookupError)
+class JobPayloadError(TenchiError, ValueError)
+    def __init__(self, name: 'str', issues: 'tuple[dict[str, str], ...]') -> 'None'
 class JobResultError(TenchiError, TypeError)
 def create_job_dispatcher(*, jobs: 'JobGroup', use_case_observers: 'Sequence[UseCaseObserver]' = ()) -> 'JobDispatcher'
 def job(name: 'str', *, request: 'type[Any] | UnionType', result: 'type[Any] | UnionType | None', description: 'str | None' = None) -> 'Job[Any, Any]'
@@ -617,6 +624,8 @@ class TaskBindingError(ConfigurationError, TypeError)
 class TaskGroup
     tasks: tuple[Task, ...]
     def __init__(self, tasks: 'tuple[Task, ...]') -> None
+class TaskInputError(TenchiError, ValueError)
+    def __init__(self, name: 'str', issues: 'tuple[dict[str, str], ...]') -> 'None'
 class TaskNotFoundError(TenchiError, LookupError)
 class TaskResultError(TenchiError, TypeError)
 class TaskRunner

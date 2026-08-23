@@ -232,7 +232,21 @@ async def verify_idempotency_store(
             completed_ttl=None,
             reservation_ttl=10,
         )
-        await advance_clock(advance, 10)
+        await advance_clock(advance, 9.9)
+        require_type(
+            await _reserve(
+                open_store,
+                namespace=namespace,
+                scope=scope,
+                key=key,
+                fingerprint="same-input",
+                completed_ttl=None,
+                reservation_ttl=10,
+            ),
+            IdempotencyInProgress,
+            "a reservation must remain active before its TTL boundary",
+        )
+        await advance_clock(advance, 0.1)
         second = await _required_reservation(
             open_store,
             namespace=namespace,
@@ -291,7 +305,20 @@ async def verify_idempotency_store(
         )
         await _complete(open_store, expiring, result_json=b'"expiring"')
         await _complete(open_store, permanent, result_json=b'"permanent"')
-        await advance_clock(advance, 10)
+        await advance_clock(advance, 9.9)
+        require_type(
+            await _reserve(
+                open_store,
+                namespace=expiring_namespace,
+                scope=expiring_scope,
+                key=expiring_key,
+                fingerprint="expiring",
+                completed_ttl=10,
+            ),
+            IdempotencyReplay,
+            "a completed record must remain replayable before its TTL boundary",
+        )
+        await advance_clock(advance, 0.1)
         require_type(
             await _reserve(
                 open_store,

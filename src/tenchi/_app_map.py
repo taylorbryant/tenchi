@@ -20,7 +20,10 @@ from ._cli_results import (
     DiagnosticResult,
 )
 from .contracts import Contract
-from .doctor import run_doctor
+from .doctor import (
+    _application_python_files,  # pyright: ignore[reportPrivateUsage]
+    run_doctor,
+)
 from .evaluations import Evaluation, EvaluationGroup
 from .jobs import Job, JobGroup, JobHandler
 from .routes import Route, RouteGroup
@@ -625,7 +628,7 @@ def format_app_map(result: AppMapResult) -> str:
 
 
 def _read_modules(root: Path, builder: _GraphBuilder) -> tuple[_ModuleInfo, ...]:
-    app_files = sorted((root / "app").rglob("*.py"))
+    app_files = _application_python_files(root)
     root_tests = sorted((root / "tests").rglob("test_*.py"))
     modules: list[_ModuleInfo] = []
     for path in dict.fromkeys((*app_files, *root_tests)):

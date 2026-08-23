@@ -337,7 +337,7 @@ object to stdout and exits nonzero:
 
 ```json
 {
-  "schema_version": 11,
+  "schema_version": 12,
   "result": "operation_error",
   "operation": "routes",
   "ok": false,
@@ -367,9 +367,13 @@ the relevant contract, use case, policy, port, and tests, then rely on the full
 validation loop.
 
 A change plan narrows that limitation but does not remove it. It proves that
-the requested generated structure was completed and connected; it cannot prove
-that the implementation satisfies the product requirement or that its test
-assertions are meaningful.
+the requested generated structure was completed and connected, and reports
+planned-test execution from the project pytest process. Because project-owned
+plugins and test code share that process, this evidence is not an independent
+attestation against malicious repository code. It also cannot prove that the
+implementation satisfies the product requirement or that its test assertions
+are meaningful. Use externally owned hidden acceptance tests when the code
+producer itself is outside the trust boundary.
 
 Model evaluation execution is intentionally outside `check` and `verify`.
 Those commands still check and compare the payload-free policy. Let an agent

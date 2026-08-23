@@ -945,12 +945,18 @@ class Client:
         )
         rendered: dict[str, str] = {}
         for key, value in values.items():
-            if value is None or str(value) == "":
+            rendered_value = str(value) if value is not None else ""
+            if not rendered_value:
                 raise ValueError(
                     f"{contract.name}: path parameter {key!r} must be a "
                     f"non-empty value, got {value!r}"
                 )
-            rendered[key] = str(value)
+            if rendered_value in {".", ".."}:
+                raise ValueError(
+                    f"{contract.name}: path parameter {key!r} must not be a "
+                    f"dot segment, got {value!r}"
+                )
+            rendered[key] = rendered_value
         _validate_parameter_round_trip(
             adapter,
             validated,
@@ -1386,7 +1392,7 @@ def _encoded_header_input(
 
 
 def _render_request_header_value(name: str, value: object, *, label: str) -> str:
-    rendered = str(value)
+    rendered = str(value).lower() if isinstance(value, bool) else str(value)
     if "\r" in rendered or "\n" in rendered:
         raise ValueError(f"{label} field {name!r} must not contain CR or LF")
     if rendered[:1] in {" ", "\t"} or rendered[-1:] in {" ", "\t"}:

@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from codecs import lookup as lookup_codec
 from email.message import Message
-from typing import cast
+from types import UnionType
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    TypeAliasType,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+)
 
 
 class MediaTypeError(ValueError):
@@ -63,8 +74,139 @@ def validate_media_type(value: str) -> None:
         return
     try:
         lookup_codec(charset)
+        "".encode(charset)
     except LookupError as exc:
         raise MediaTypeError(f"unsupported charset {charset!r}") from exc
+
+
+def validate_body_media_type(
+    annotation: object,
+    media_type: str,
+    *,
+    label: str,
+    response_body: bool,
+) -> None:
+    """Reject root body annotations the declared codec cannot represent.
+
+    The HTTP runtime handles JSON values, decoded text strings, or raw
+    bytes. Keeping this proof deliberately small and structural makes
+    declaration-time behavior match that runtime without importing Pydantic
+    or application code here.
+    """
+    kinds = _root_body_kinds(annotation)
+    if kinds is None:
+        # Forward references and deliberately dynamic annotations are resolved
+        # by Pydantic's adapter construction. Only pairings whose root shape is
+        # statically incompatible belong to this declaration-time check.
+        return
+    if not kinds:
+        return
+    if is_json_media_type(media_type):
+        if response_body and "bytes" in kinds:
+            raise MediaTypeError(
+                f"{label} bytes cannot use a JSON media type; declare a binary "
+                "media type such as 'application/octet-stream'"
+            )
+        return
+    if is_text_media_type(media_type):
+        allowed = {"str"} if response_body else {"none", "str"}
+        if not kinds <= allowed:
+            raise MediaTypeError(f"{label} for a text media type must be str-shaped")
+        return
+    allowed = {"bytes", "str"} if response_body else {"bytes", "none", "str"}
+    if not kinds <= allowed:
+        raise MediaTypeError(
+            f"{label} for a non-JSON media type must be str- or bytes-shaped"
+        )
+
+
+def _root_body_kinds(
+    annotation: object,
+    substitutions: dict[TypeVar, object] | None = None,
+) -> frozenset[str] | None:
+    """Return possible validated root value kinds, or ``None`` if unknown."""
+    if isinstance(annotation, TypeVar):
+        replacement = (substitutions or {}).get(annotation)
+        if replacement is not None:
+            return _root_body_kinds(replacement, substitutions)
+        if annotation.__constraints__:
+            kinds: set[str] = set()
+            for constraint in annotation.__constraints__:
+                classified = _root_body_kinds(constraint, substitutions)
+                if classified is None:
+                    return None
+                kinds.update(classified)
+            return frozenset(kinds)
+        if annotation.__bound__ is not None:
+            return _root_body_kinds(annotation.__bound__, substitutions)
+        return None
+    if isinstance(annotation, TypeAliasType):
+        return _root_body_kinds(annotation.__value__, substitutions)
+    if annotation is Any or annotation is object:
+        return None
+    if annotation is None or annotation is type(None):
+        return frozenset({"none"})
+    origin = get_origin(annotation)
+    if isinstance(origin, TypeAliasType):
+        parameters = origin.__type_params__
+        arguments = get_args(annotation)
+        if len(parameters) != len(arguments):
+            return None
+        nested_substitutions = dict(substitutions or {})
+        for parameter, argument in zip(parameters, arguments, strict=True):
+            # ParamSpec and TypeVarTuple aliases describe callables and variadic
+            # containers rather than scalar wire bodies. Treat those as unknown
+            # instead of pretending their substitutions are ordinary types.
+            if not isinstance(parameter, TypeVar):
+                return None
+            nested_substitutions[parameter] = argument
+        return _root_body_kinds(origin.__value__, nested_substitutions)
+    if origin is Annotated:
+        arguments = get_args(annotation)
+        if any(
+            hasattr(metadata, "__get_pydantic_core_schema__")
+            for metadata in arguments[1:]
+        ):
+            # Functional validators and custom schema metadata may replace the
+            # validated root value entirely. Their runtime output cannot be
+            # proven from the wrapped annotation alone.
+            return None
+        return _root_body_kinds(arguments[0], substitutions) if arguments else None
+    if origin is Union or origin is UnionType:
+        kinds: set[str] = set()
+        for member in get_args(annotation):
+            classified = _root_body_kinds(member, substitutions)
+            if classified is None:
+                return None
+            kinds.update(classified)
+        return frozenset(kinds)
+    if origin is Literal:
+        return frozenset(_runtime_body_kind(value) for value in get_args(annotation))
+    if origin is not None:
+        # Parameterized containers and other generic annotations are ordinary
+        # structured values. Their exact validation remains Pydantic's job;
+        # the media pairing only needs to distinguish them from root str/bytes.
+        return frozenset({"other"})
+    supertype = getattr(annotation, "__supertype__", None)
+    if supertype is not None:
+        return _root_body_kinds(supertype, substitutions)
+    if isinstance(annotation, type):
+        if issubclass(annotation, str):
+            return frozenset({"str"})
+        if issubclass(annotation, bytes):
+            return frozenset({"bytes"})
+        return frozenset({"other"})
+    return None
+
+
+def _runtime_body_kind(value: object) -> str:
+    if isinstance(value, str):
+        return "str"
+    if isinstance(value, bytes):
+        return "bytes"
+    if value is None:
+        return "none"
+    return "other"
 
 
 def media_type_matches(*, declared: str, actual: str | None) -> bool:

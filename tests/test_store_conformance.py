@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from math import ceil
 
 import pytest
 
@@ -15,6 +16,7 @@ from tenchi.idempotency import (
 from tenchi.rate_limits import (
     MemoryRateLimitStore,
     RateLimitDecision,
+    RateLimitExceeded,
     RateLimitPermit,
     RateLimitStore,
 )
@@ -131,3 +133,93 @@ async def test_rate_limit_failure_names_the_store_and_case() -> None:
     assert excinfo.value.store == "RateLimitStore"
     assert excinfo.value.case == "capacity_and_rejection"
     assert "first cost" in excinfo.value.reason
+
+
+class EarlyExpiringIdempotencyStore:
+    def __init__(self, clock: Clock) -> None:
+        self.inner = MemoryIdempotencyStore(clock=clock)
+
+    async def reserve(
+        self,
+        *,
+        namespace: str,
+        scope: str,
+        key: str,
+        fingerprint: str,
+        completed_ttl: float | None,
+        reservation_ttl: float,
+    ) -> IdempotencyDecision:
+        return await self.inner.reserve(
+            namespace=namespace,
+            scope=scope,
+            key=key,
+            fingerprint=fingerprint,
+            completed_ttl=(completed_ttl / 2 if completed_ttl is not None else None),
+            reservation_ttl=reservation_ttl / 2,
+        )
+
+    async def complete(
+        self,
+        reservation: IdempotencyReservation,
+        *,
+        result_json: bytes,
+    ) -> None:
+        await self.inner.complete(reservation, result_json=result_json)
+
+    async def abandon(self, reservation: IdempotencyReservation) -> None:
+        await self.inner.abandon(reservation)
+
+
+async def test_idempotency_conformance_rejects_too_early_expiry() -> None:
+    clock = Clock()
+    store = EarlyExpiringIdempotencyStore(clock)
+
+    @asynccontextmanager
+    async def open_store() -> AsyncGenerator[IdempotencyStore]:
+        yield store
+
+    with pytest.raises(StoreConformanceError) as excinfo:
+        await verify_idempotency_store(open_store, advance=clock.advance)
+
+    assert excinfo.value.case == "expiration_is_token_fenced"
+    assert "before its TTL boundary" in excinfo.value.reason
+
+
+class EarlyResettingRateLimitStore:
+    def __init__(self, clock: Clock) -> None:
+        self.inner = MemoryRateLimitStore(clock=clock)
+
+    async def consume(
+        self,
+        *,
+        namespace: str,
+        scope: str,
+        limit: int,
+        window_seconds: float,
+        cost: int,
+    ) -> RateLimitDecision:
+        decision = await self.inner.consume(
+            namespace=namespace,
+            scope=scope,
+            limit=limit,
+            window_seconds=window_seconds / 2,
+            cost=cost,
+        )
+        if isinstance(decision, RateLimitExceeded):
+            return RateLimitExceeded(decision.limit, ceil(window_seconds))
+        return RateLimitPermit(decision.limit, decision.remaining, ceil(window_seconds))
+
+
+async def test_rate_limit_conformance_rejects_too_early_reset() -> None:
+    clock = Clock()
+    store = EarlyResettingRateLimitStore(clock)
+
+    @asynccontextmanager
+    async def open_store() -> AsyncGenerator[RateLimitStore]:
+        yield store
+
+    with pytest.raises(StoreConformanceError) as excinfo:
+        await verify_rate_limit_store(open_store, advance=clock.advance)
+
+    assert excinfo.value.case == "reset_boundary"
+    assert "before its reset boundary" in excinfo.value.reason

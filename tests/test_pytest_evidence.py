@@ -53,6 +53,40 @@ def test_create_project(value: int) -> None:
     assert evidence.collected == 2
     assert evidence.passed == 2
     assert evidence.ok is True
+    assert evidence.as_dict()["provenance"] == "project_pytest_process"
+
+
+def test_execution_evidence_ignores_inherited_pytest_and_python_path_hooks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    injected = tmp_path / "injected"
+    injected.mkdir()
+    marker = tmp_path / "sitecustomize-ran"
+    (injected / "sitecustomize.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n",
+        encoding="utf-8",
+    )
+    plugin_marker = tmp_path / "inherited-plugin-ran"
+    (tmp_path / "inherited_plugin.py").write_text(
+        f"from pathlib import Path\nPath({str(plugin_marker)!r}).write_text('ran')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", str(injected))
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k definitely_not_the_planned_test")
+    monkeypatch.setenv("PYTEST_PLUGINS", "inherited_plugin")
+
+    evidence = _run(
+        tmp_path,
+        """\
+def test_create_project() -> None:
+    pass
+""",
+    )
+
+    assert evidence.status == "passed"
+    assert not marker.exists()
+    assert not plugin_marker.exists()
 
 
 def test_execution_evidence_rejects_a_replacement_callable(tmp_path: Path) -> None:

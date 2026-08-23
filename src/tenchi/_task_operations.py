@@ -10,7 +10,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import cast
 
-from pydantic import ValidationError
 from pydantic_core import to_jsonable_python
 
 from ._cli_results import (
@@ -19,10 +18,11 @@ from ._cli_results import (
     TaskRunErrorResult,
     TaskRunResult,
 )
-from ._openapi_operations import OperationError
+from ._openapi_operations import OperationError, isolated_project_imports
 from .errors import AppError
 from .tasks import (
     TaskBindingError,
+    TaskInputError,
     TaskNotFoundError,
     TaskResultError,
     TaskRunner,
@@ -42,22 +42,25 @@ def load_task_runner(root: Path, target: str) -> TaskRunner:
     if not separator or not module_name or not attribute:
         raise OperationError(f"expected module:attribute, got {target!r}")
 
-    root_string = str(resolved_root)
-    if root_string in sys.path:
-        sys.path.remove(root_string)
-    sys.path.insert(0, root_string)
-    try:
-        module = importlib.import_module(module_name)
-    except Exception as exc:
-        raise OperationError(f"could not import {module_name!r}: {exc}") from exc
-    if not hasattr(module, attribute):
-        raise OperationError(f"module {module_name!r} has no attribute {attribute!r}")
-    runner = getattr(module, attribute)
-    if not isinstance(runner, TaskRunner):
-        raise OperationError(
-            f"{target!r} is not a tenchi TaskRunner (got {type(runner).__name__})"
-        )
-    return runner
+    with isolated_project_imports(resolved_root, module_names=(module_name,)):
+        root_string = str(resolved_root)
+        if root_string in sys.path:
+            sys.path.remove(root_string)
+        sys.path.insert(0, root_string)
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as exc:
+            raise OperationError(f"could not import {module_name!r}: {exc}") from exc
+        if not hasattr(module, attribute):
+            raise OperationError(
+                f"module {module_name!r} has no attribute {attribute!r}"
+            )
+        runner = getattr(module, attribute)
+        if not isinstance(runner, TaskRunner):
+            raise OperationError(
+                f"{target!r} is not a tenchi TaskRunner (got {type(runner).__name__})"
+            )
+        return runner
 
 
 def task_list_result(root: Path, target: str, runner: TaskRunner) -> TaskListResult:
@@ -114,22 +117,14 @@ async def task_run_result(
             code="TASK_NOT_FOUND",
             message=str(exc),
         )
-    except (ValidationError, TaskBindingError) as exc:
-        details: object | None = None
-        if isinstance(exc, ValidationError):
-            details = exc.errors(
-                include_url=False,
-                include_input=False,
-                include_context=False,
-            )
+    except (TaskInputError, TaskBindingError) as exc:
+        details: object | None = (
+            list(exc.issues) if isinstance(exc, TaskInputError) else None
+        )
         error = TaskRunErrorResult(
             kind="invalid_input",
             code="TASK_INPUT_INVALID",
-            message=(
-                f"input for task {name!r} is invalid"
-                if isinstance(exc, ValidationError)
-                else str(exc)
-            ),
+            message=str(exc),
             details=details,
         )
     except AppError as exc:

@@ -5,9 +5,8 @@ import logging
 import os
 
 import aiosqlite
-from pydantic import ValidationError
 from tenchi.errors import AppError
-from tenchi.jobs import JobNotFoundError, JobResultError
+from tenchi.jobs import JobNotFoundError, JobPayloadError, JobResultError
 
 from app.infra.deterministic_answer_generator import DeterministicAnswerGenerator
 from app.infra.port_wiring import ensure_schema
@@ -45,7 +44,7 @@ async def process_next(database_path: str) -> bool:
                 payload_json=entry.payload_json,
                 context=context,
             )
-        except (ValidationError, JobNotFoundError, JobResultError, AppError) as error:
+        except (JobPayloadError, JobNotFoundError, JobResultError, AppError) as error:
             await connection.rollback()
             await outbox.mark_failed(entry.id, error=_failure_text(error))
         except BaseException:
@@ -60,7 +59,7 @@ async def process_next(database_path: str) -> bool:
 def _failure_text(error: Exception) -> str:
     if isinstance(error, AppError):
         return f"{error.code}: {error}"
-    if isinstance(error, ValidationError):
+    if isinstance(error, JobPayloadError):
         return "JOB_INPUT_INVALID: payload does not match the declaration"
     if isinstance(error, JobResultError):
         return "JOB_RESULT_INVALID: result does not match the declaration"

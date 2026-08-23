@@ -20,7 +20,11 @@ from typing import Any, Generic, Protocol, Union, cast, get_args, get_origin, ov
 
 from typing_extensions import TypeVar
 
-from ._media_types import MediaTypeError, validate_media_type
+from ._media_types import (
+    MediaTypeError,
+    validate_body_media_type,
+    validate_media_type,
+)
 from .errors import (
     ConfigurationError,
     ErrorDef,
@@ -169,6 +173,14 @@ class Contract(Generic[ResponseT, ResponseHeadersT]):
             has_response_definitions=bool(self.responses),
             request_examples=self.request_examples,
             response_examples=self.response_examples,
+        )
+        _validate_body_media_pairings(
+            path=self.path,
+            request=self.request,
+            response=self.response,
+            request_media_type=self.request_media_type,
+            response_media_type=self.response_media_type,
+            has_response_definitions=bool(self.responses),
         )
 
     def declares_error(self, definition: ErrorDef) -> bool:
@@ -474,6 +486,14 @@ def contract(  # pyright: ignore[reportInconsistentOverload]
         request_examples=declared_request_examples,
         response_examples=declared_response_examples,
     )
+    _validate_body_media_pairings(
+        path=path,
+        request=request,
+        response=response,
+        request_media_type=request_media_type,
+        response_media_type=response_media_type,
+        has_response_definitions=bool(declared_responses),
+    )
     if timeout is not None and (timeout <= 0 or not isfinite(timeout)):
         raise ConfigurationError(
             f"contract(path={path!r}): timeout must be finite and positive, "
@@ -583,6 +603,41 @@ def _validate_example_body_declarations(
         raise ConfigurationError(
             f"contract(path={path!r}): response_examples were provided but {reason}"
         )
+
+
+def _validate_body_media_pairings(
+    *,
+    path: object,
+    request: object,
+    response: object,
+    request_media_type: object,
+    response_media_type: object,
+    has_response_definitions: bool,
+) -> None:
+    if request is not None and isinstance(request_media_type, str):
+        try:
+            validate_body_media_type(
+                request,
+                request_media_type,
+                label="request body",
+                response_body=False,
+            )
+        except MediaTypeError as exc:
+            raise ConfigurationError(f"contract(path={path!r}): {exc}") from exc
+    if (
+        response is not None
+        and not has_response_definitions
+        and isinstance(response_media_type, str)
+    ):
+        try:
+            validate_body_media_type(
+                response,
+                response_media_type,
+                label="response body",
+                response_body=True,
+            )
+        except MediaTypeError as exc:
+            raise ConfigurationError(f"contract(path={path!r}): {exc}") from exc
 
 
 def _validate_no_body_status(

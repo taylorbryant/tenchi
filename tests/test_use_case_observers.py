@@ -8,12 +8,13 @@ from typing import cast
 
 import pytest
 from _pytest.logging import LogCaptureFixture
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from tenchi.contracts import contract
 from tenchi.errors import AppError, ConfigurationError, ErrorDef
 from tenchi.execution import (
     ExecutionError,
+    ExecutionInputError,
     UseCaseObserver,
     UseCaseOutcome,
     execute,
@@ -231,7 +232,7 @@ async def test_http_classifies_use_case_failures(
 async def test_validation_failure_does_not_report_an_uninvoked_use_case() -> None:
     outcomes: list[UseCaseOutcome] = []
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ExecutionInputError):
         await execute(
             echo,
             request={},

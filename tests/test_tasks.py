@@ -6,12 +6,13 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from tenchi.errors import AppError, ConfigurationError, ErrorDef
 from tenchi.execution import UseCaseOutcome
 from tenchi.tasks import (
     TaskBindingError,
+    TaskInputError,
     TaskNotFoundError,
     TaskResultError,
     create_task_runner,
@@ -111,10 +112,14 @@ async def test_runner_validates_input_before_opening_resources() -> None:
         lifespan=lifespan,
     )
 
-    with pytest.raises(ValidationError):
-        await runner.run("backfill", input={"limit": "not-an-int"})
+    with pytest.raises(TaskInputError) as excinfo:
+        await runner.run("backfill", input={"limit": "SECRET-not-an-int"})
 
     assert events == []
+    assert excinfo.value.name == "backfill"
+    assert excinfo.value.issues == ({"type": "int_parsing"},)
+    assert "SECRET" not in str(excinfo.value)
+    assert "SECRET" not in repr(excinfo.value.issues)
 
 
 async def test_runner_owns_lifespan_context_and_validated_result() -> None:

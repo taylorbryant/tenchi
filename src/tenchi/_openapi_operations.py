@@ -106,23 +106,26 @@ def load_route_group(root: Path, target: str) -> RouteGroup:
     if not separator or not module_name or not attribute:
         raise OperationError(f"expected module:attribute, got {target!r}")
 
-    root_string = str(resolved_root)
-    if root_string in sys.path:
-        sys.path.remove(root_string)
-    sys.path.insert(0, root_string)
-    try:
-        module = importlib.import_module(module_name)
-    except Exception as exc:  # import-time application failures are user errors
-        raise OperationError(f"could not import {module_name!r}: {exc}") from exc
+    with isolated_project_imports(resolved_root, module_names=(module_name,)):
+        root_string = str(resolved_root)
+        if root_string in sys.path:
+            sys.path.remove(root_string)
+        sys.path.insert(0, root_string)
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as exc:  # import-time application failures are user errors
+            raise OperationError(f"could not import {module_name!r}: {exc}") from exc
 
-    if not hasattr(module, attribute):
-        raise OperationError(f"module {module_name!r} has no attribute {attribute!r}")
-    group = getattr(module, attribute)
-    if not isinstance(group, RouteGroup):
-        raise OperationError(
-            f"{target!r} is not a tenchi RouteGroup (got {type(group).__name__})"
-        )
-    return group
+        if not hasattr(module, attribute):
+            raise OperationError(
+                f"module {module_name!r} has no attribute {attribute!r}"
+            )
+        group = getattr(module, attribute)
+        if not isinstance(group, RouteGroup):
+            raise OperationError(
+                f"{target!r} is not a tenchi RouteGroup (got {type(group).__name__})"
+            )
+        return group
 
 
 @contextmanager
@@ -161,6 +164,7 @@ def _project_modules(
     """Return loaded application modules while excluding the active environment."""
     modules: dict[str, ModuleType] = {}
     environment_root = Path(sys.prefix).resolve()
+    framework_root = Path(__file__).resolve().parent
     for name, module in tuple(sys.modules.items()):
         if any(
             name == package or name.startswith(f"{package}.")
@@ -174,6 +178,15 @@ def _project_modules(
         try:
             resolved_file = Path(module_file).resolve()
         except OSError:
+            continue
+        try:
+            resolved_file.relative_to(framework_root)
+        except ValueError:
+            pass
+        else:
+            # An editable Tenchi install can live below the selected project
+            # root. It is the loader, not project state, and its class identity
+            # must remain stable across the isolated import.
             continue
         try:
             resolved_file.relative_to(environment_root)

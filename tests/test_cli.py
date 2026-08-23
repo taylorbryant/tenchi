@@ -44,7 +44,7 @@ def _assert_operation_error(
     assert result.returncode != 0
     payload = json.loads(result.stdout)
     assert payload == {
-        "schema_version": 11,
+        "schema_version": 12,
         "result": "operation_error",
         "operation": operation,
         "ok": False,
@@ -259,7 +259,7 @@ def test_new_scaffolds_a_working_app(
     mapped = _tenchi(root, "map", "--json")
     assert mapped.returncode == 0, mapped.stdout + mapped.stderr
     app_map = json.loads(mapped.stdout)
-    assert app_map["schema_version"] == 11
+    assert app_map["schema_version"] == 12
     assert app_map["summary"] == {
         "features": 1,
         "contracts": 2,
@@ -282,7 +282,7 @@ def test_new_scaffolds_a_working_app(
     preflight = _tenchi(root, "preflight", "--json")
     assert preflight.returncode == 0, preflight.stdout + preflight.stderr
     preflight_result = json.loads(preflight.stdout)
-    assert preflight_result["schema_version"] == 11
+    assert preflight_result["schema_version"] == 12
     assert preflight_result["ok"] is True
     assert preflight_result["counts"] == {
         "passed": 0,
@@ -296,13 +296,13 @@ def test_new_scaffolds_a_working_app(
         evaluation_list.stdout + evaluation_list.stderr
     )
     listed_evaluations = json.loads(evaluation_list.stdout)
-    assert listed_evaluations["schema_version"] == 11
+    assert listed_evaluations["schema_version"] == 12
     assert listed_evaluations["evaluations"] == []
 
     evaluation_run = _tenchi(root, "eval", "run", "--json")
     assert evaluation_run.returncode == 0, evaluation_run.stdout + evaluation_run.stderr
     evaluation_report = json.loads(evaluation_run.stdout)
-    assert evaluation_report["schema_version"] == 11
+    assert evaluation_report["schema_version"] == 12
     assert evaluation_report["ok"] is True
     assert evaluation_report["counts"] == {
         "completed": 0,
@@ -526,7 +526,7 @@ def test_eval_snapshot_cli_writes_checks_and_classifies_policy_changes(
 
     assert changed.returncode == 1
     report = json.loads(changed.stdout)
-    assert report["schema_version"] == 11
+    assert report["schema_version"] == 12
     assert report["compatible"] is False
     assert report["changes"][0]["message"].startswith("threshold decreased")
     assert "private prompt" not in changed.stdout + changed.stderr
@@ -651,7 +651,7 @@ def test_jobs_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> None
     agent_result = _tenchi(tmp_path, "jobs", "--jobs", target, "--json")
     assert agent_result.returncode == 0, agent_result.stderr
     listed_result = json.loads(agent_result.stdout)
-    assert listed_result["schema_version"] == 11
+    assert listed_result["schema_version"] == 12
     assert listed_result["manifest"] == manifest
 
     written = _tenchi(tmp_path, "jobs", "--jobs", target, "--write", "jobs.json")
@@ -733,7 +733,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     agent_result = _tenchi(tmp_path, "tools", "--tools", target, "--json")
     assert agent_result.returncode == 0, agent_result.stderr
     listed_result = json.loads(agent_result.stdout)
-    assert listed_result["schema_version"] == 11
+    assert listed_result["schema_version"] == 12
     assert listed_result["root"] == str(tmp_path)
     assert listed_result["manifest"] == manifest
 
@@ -769,7 +769,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     )
     assert diff.returncode == 1
     report = json.loads(diff.stdout)
-    assert report["schema_version"] == 11
+    assert report["schema_version"] == 12
     assert report["status"] == "incompatible"
     assert report["counts"]["breaking"] == 1
     assert report["counts"]["metadata"] == 1
@@ -876,7 +876,7 @@ def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> Non
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 11
+    assert payload["schema_version"] == 12
     assert payload["target"] == target
     assert payload["ok"] is False
     assert payload["counts"] == {
@@ -1071,7 +1071,7 @@ def test_task_cli_lists_runs_and_reports_validation_as_versioned_json(
     listed = _tenchi(tmp_path, "task", "list", "--tasks", target, "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     listing = json.loads(listed.stdout)
-    assert listing["schema_version"] == 11
+    assert listing["schema_version"] == 12
     assert listing["target"] == target
     assert listing["tasks"][0]["name"] == "records.repair"
     assert listing["tasks"][0]["input_required"] is True
@@ -1123,7 +1123,7 @@ def test_generated_app_checks_pass(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    assert report["schema_version"] == 11
+    assert report["schema_version"] == 12
     assert report["ok"] is True
     assert report["counts"] == {"passed": 9, "failed": 0, "total": 9}
     assert [step["name"] for step in report["steps"]] == [
@@ -1162,7 +1162,7 @@ def test_verify_produces_one_receipt_against_an_immutable_baseline(
 
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads(result.stdout)
-    assert receipt["schema_version"] == 11
+    assert receipt["schema_version"] == 12
     assert receipt["tenchi_version"]
     assert receipt["ok"] is True
     assert receipt["baseline"] == {"ref": "HEAD", "commit": commit}
@@ -1681,7 +1681,7 @@ def test_openapi_diff_ref_reads_the_snapshot_from_git(
     )
     assert compatible_result.returncode == 0, compatible_result.stderr
     compatible = json.loads(compatible_result.stdout)
-    assert compatible["schema_version"] == 11
+    assert compatible["schema_version"] == 12
     assert compatible["root"] == str(root)
     assert compatible["baseline"] == "HEAD:openapi.json"
     assert compatible["compatible"] is True
@@ -1858,7 +1858,7 @@ def test_make_dry_run_and_json_share_a_versioned_result(
     assert main(["make", "feature", "notes", "--dry-run", "--json"]) == 0
     planned = json.loads(capsys.readouterr().out)
 
-    assert planned["schema_version"] == 11
+    assert planned["schema_version"] == 12
     assert planned["ok"] is True
     assert planned["dry_run"] is True
     assert planned["artifact"] == "feature"
@@ -1906,7 +1906,7 @@ def test_make_json_reports_errors_without_writing(
     assert main(["make", "feature", "notes", "--json"]) == 1
 
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == 11
+    assert result["schema_version"] == 12
     assert result["ok"] is False
     assert result["files"] == []
     assert "app/features/ not found" in result["error"]
@@ -2494,7 +2494,7 @@ create_project_contract = contract(
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 11
+    assert payload["schema_version"] == 12
     assert payload["artifact"] == "use-case"
     assert payload["ok"] is False
     assert payload["files"] == []
@@ -3120,7 +3120,7 @@ def test_routes_json_emits_a_machine_readable_map(
     assert main(["routes", "--json"]) == 0
 
     result = cast(dict[str, Any], json.loads(capsys.readouterr().out))
-    assert result["schema_version"] == 11
+    assert result["schema_version"] == 12
     assert result["root"] == str(EXAMPLE_DIR)
     entries = cast(list[dict[str, Any]], result["routes"])
     assert entries

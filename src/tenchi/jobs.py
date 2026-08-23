@@ -23,9 +23,10 @@ from typing import Any, Literal, cast, overload
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.protocols import Validator
-from pydantic import ConfigDict, TypeAdapter, with_config
+from pydantic import ConfigDict, TypeAdapter, ValidationError, with_config
 from typing_extensions import TypedDict
 
+from ._validation import payload_safe_validation_issues
 from .errors import ConfigurationError, TenchiError
 from .execution import (
     UseCaseObserver,
@@ -66,6 +67,19 @@ class JobNotFoundError(TenchiError, LookupError):
 
 class JobResultError(TenchiError, TypeError):
     """A job handler returned a value outside its declared result type."""
+
+
+class JobPayloadError(TenchiError, ValueError):
+    """A delivered job payload does not satisfy its declared input type.
+
+    ``issues`` deliberately excludes rejected input values and Pydantic help
+    URLs so queue adapters can classify and log the failure safely.
+    """
+
+    def __init__(self, name: str, issues: tuple[dict[str, str], ...]) -> None:
+        super().__init__(f"job {name!r} payload does not match its declared input")
+        self.name = name
+        self.issues = issues
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,9 +396,15 @@ class JobDispatcher:
         )
         if selected is None:
             raise JobNotFoundError(f"unknown job {name!r}")
-        request = selected.job._request_adapter.validate_json(  # pyright: ignore[reportPrivateUsage]
-            payload_json
-        )
+        try:
+            request = selected.job._request_adapter.validate_json(  # pyright: ignore[reportPrivateUsage]
+                payload_json
+            )
+        except ValidationError as exc:
+            raise JobPayloadError(
+                name,
+                payload_safe_validation_issues(exc),
+            ) from None
         call = (
             _UseCaseCall(selected.use_case, entrypoint="job")
             if self.use_case_observers
@@ -633,6 +653,7 @@ __all__ = [
     "JobManifestEntry",
     "JobMessage",
     "JobNotFoundError",
+    "JobPayloadError",
     "JobResultError",
     "create_job_dispatcher",
     "job",

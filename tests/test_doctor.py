@@ -379,6 +379,99 @@ def test_missing_prescribed_modules_are_flagged(app_root: Path) -> None:
     assert findings[0].code == "TENCHI_DOCTOR_MISSING_STRUCTURE"
 
 
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "app/server/evaluations.py",
+        "app/server/jobs.py",
+        "app/server/preflight.py",
+        "app/server/tasks.py",
+        "app/server/tools.py",
+    ],
+)
+def test_composition_modules_used_by_product_commands_are_required(
+    app_root: Path,
+    relative: str,
+) -> None:
+    (app_root / relative).unlink()
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        finding.path == relative and finding.code == "TENCHI_DOCTOR_MISSING_STRUCTURE"
+        for finding in findings
+    )
+
+
+def test_feature_package_initializer_cannot_import_infrastructure(
+    app_root: Path,
+) -> None:
+    initializer = app_root / "app/features/todos/__init__.py"
+    initializer.write_text("import app.infra.port_wiring\n", encoding="utf-8")
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        finding.path == "app/features/todos/__init__.py"
+        and finding.code == "TENCHI_DOCTOR_FORBIDDEN_IMPORT"
+        and "feature packages must not import infrastructure" in finding.message
+        for finding in findings
+    )
+
+
+def test_top_level_application_modules_are_rejected(app_root: Path) -> None:
+    (app_root / "app/helpers.py").write_text(
+        "import app.infra.port_wiring\n",
+        encoding="utf-8",
+    )
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        finding.path == "app/helpers.py"
+        and finding.code == "TENCHI_DOCTOR_UNRECOGNIZED_APP_MODULE"
+        for finding in findings
+    )
+
+
+def test_symlinked_application_directories_are_rejected(app_root: Path) -> None:
+    source = app_root / "linked-feature"
+    source.mkdir()
+    (source / "schemas.py").write_text("VALUE = 1\n", encoding="utf-8")
+    linked = app_root / "app/features/linked"
+    linked.symlink_to(source, target_is_directory=True)
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        finding.path == "app/features/linked"
+        and finding.code == "TENCHI_DOCTOR_SYMLINKED_PATH"
+        for finding in findings
+    )
+
+
+def test_symlinked_application_files_are_rejected_without_reading_them(
+    app_root: Path,
+) -> None:
+    outside = app_root / "outside.py"
+    outside.write_text("import app.infra.port_wiring\n", encoding="utf-8")
+    linked = app_root / "app/features/todos/linked.py"
+    linked.symlink_to(outside)
+
+    findings = run_doctor(app_root)
+
+    assert any(
+        finding.path == "app/features/todos/linked.py"
+        and finding.code == "TENCHI_DOCTOR_SYMLINKED_PATH"
+        for finding in findings
+    )
+    assert not any(
+        finding.path == "app/features/todos/linked.py"
+        and finding.code == "TENCHI_DOCTOR_FORBIDDEN_IMPORT"
+        for finding in findings
+    )
+
+
 def test_feature_tests_are_exempt(app_root: Path) -> None:
     feature_test = app_root / "app/features/todos/tests/test_create_todo.py"
     assert "from app.infra" in feature_test.read_text()
@@ -427,7 +520,7 @@ def test_doctor_json_has_versioned_stable_diagnostics(
 ) -> None:
     assert main(["doctor", "--json"]) == 0
     clean = json.loads(capsys.readouterr().out)
-    assert clean["schema_version"] == 11
+    assert clean["schema_version"] == 12
     assert clean["ok"] is True
     assert clean["diagnostics"] == []
 

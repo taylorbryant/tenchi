@@ -37,6 +37,7 @@ type _Count = Annotated[int, Field(ge=0, le=_MAX_COUNT)]
 
 class TestExecutionEvidencePayload(TypedDict):
     target: str
+    provenance: Literal["project_pytest_process"]
     status: TestExecutionStatus
     collected: _Count
     passed: _Count
@@ -94,6 +95,7 @@ class TestExecutionEvidence:
     errored: int
     deselected: int
     ambiguous: int
+    provenance: Literal["project_pytest_process"] = "project_pytest_process"
 
     @property
     def ok(self) -> bool:
@@ -102,6 +104,7 @@ class TestExecutionEvidence:
     def as_dict(self) -> TestExecutionEvidencePayload:
         return {
             "target": self.target,
+            "provenance": self.provenance,
             "status": self.status,
             "collected": self.collected,
             "passed": self.passed,
@@ -124,6 +127,13 @@ def evidence_environment(
     environment = {
         _EVIDENCE_PATH_ENVIRONMENT: str(path),
         _EVIDENCE_TARGET_ENVIRONMENT: target,
+        # Inherited pytest selection and import hooks would make verification
+        # depend on the invoking shell rather than the checked project. This
+        # does not turn project-owned pytest code into a security boundary;
+        # the receipt reports that provenance explicitly.
+        "PYTEST_ADDOPTS": "",
+        "PYTEST_PLUGINS": "",
+        "PYTHONPATH": "",
     }
     if identity is not None:
         environment.update(

@@ -16,7 +16,11 @@ from typing import Any, Generic, Union, cast, get_origin, overload
 from starlette.responses import Response
 from typing_extensions import TypeVar
 
-from ._media_types import MediaTypeError, validate_media_type
+from ._media_types import (
+    MediaTypeError,
+    validate_body_media_type,
+    validate_media_type,
+)
 from .errors import ConfigurationError
 
 BodyT = TypeVar("BodyT", default=Any)
@@ -255,6 +259,13 @@ def _validate_response_definition(
     if isinstance(media_type, str):
         try:
             validate_media_type(media_type)
+            if body is not None and not passthrough:
+                validate_body_media_type(
+                    body,
+                    media_type,
+                    label="response body",
+                    response_body=True,
+                )
         except MediaTypeError as exc:
             raise ConfigurationError(f"{label}: media_type is invalid: {exc}") from exc
     if not isinstance(description, str) or not description.strip():

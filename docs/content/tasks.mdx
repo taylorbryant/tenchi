@@ -123,7 +123,9 @@ Input is validated before the lifespan or context opens. Output is validated
 before the scoped context commits, so an invalid result rolls back
 transactional work. Application errors, invalid input, invalid results, and
 unexpected failures have distinct codes in JSON output. Task input is not
-echoed into the result.
+echoed into the result. Direct `TaskRunner.run()` callers receive a
+payload-safe `TaskInputError` for invalid input; its `issues` expose only stable
+validation kinds.
 
 Cancellation propagates through the use case and both cleanup scopes. A
 cancelled process or MCP call can therefore roll back the same way as another

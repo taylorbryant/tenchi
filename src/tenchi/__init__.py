@@ -49,7 +49,13 @@ from .evaluations import (
     evaluation_metric,
     evaluation_result,
 )
-from .execution import ExecutionError, UseCaseObserver, UseCaseOutcome, execute
+from .execution import (
+    ExecutionError,
+    ExecutionInputError,
+    UseCaseObserver,
+    UseCaseOutcome,
+    execute,
+)
 from .health import health_route
 from .idempotency import (
     IDEMPOTENCY_CONFLICT,
@@ -72,6 +78,7 @@ from .jobs import (
     JobManifestEntry,
     JobMessage,
     JobNotFoundError,
+    JobPayloadError,
     JobResultError,
     create_job_dispatcher,
     job,
@@ -110,6 +117,7 @@ from .tasks import (
     Task,
     TaskBindingError,
     TaskGroup,
+    TaskInputError,
     TaskNotFoundError,
     TaskResultError,
     TaskRunner,
@@ -141,7 +149,7 @@ from .webhooks import (
     webhook,
 )
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 
 __all__ = [
     "EVALUATION_MANIFEST_VERSION",
@@ -182,6 +190,7 @@ __all__ = [
     "EvaluationResultError",
     "EvaluationRunner",
     "ExecutionError",
+    "ExecutionInputError",
     "IdempotencyResultError",
     "IdempotencyStore",
     "IdempotencyStoreError",
@@ -194,6 +203,7 @@ __all__ = [
     "JobManifestEntry",
     "JobMessage",
     "JobNotFoundError",
+    "JobPayloadError",
     "JobResultError",
     "MemoryIdempotencyStore",
     "MemoryRateLimitStore",
@@ -221,6 +231,7 @@ __all__ = [
     "Task",
     "TaskBindingError",
     "TaskGroup",
+    "TaskInputError",
     "TaskNotFoundError",
     "TaskResultError",
     "TaskRunner",

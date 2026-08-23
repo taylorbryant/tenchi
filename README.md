@@ -178,7 +178,11 @@ OpenAPI, durable job messages, application tools, and AI evaluation policy each
 have canonical manifests and directional compatibility reports. Breaking and
 unknown changes fail; additive and metadata changes remain visible for review.
 Contract-driven change plans can additionally require exact generated files,
-bindings, and pytest execution evidence in the final receipt.
+bindings, and pytest execution evidence in the final receipt. That evidence is
+reported by the project's pytest process, so it protects the cooperative
+human/agent workflow from incomplete work but is not a tamper-proof attestation
+against malicious project-owned plugins or test code. Use externally owned
+hidden tests when the code producer is adversarial.
 
 Tenchi cannot prove that an application's business rules are correct. It can
 prove which checks ran against which source, reject invalid wiring before

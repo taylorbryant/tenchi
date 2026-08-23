@@ -439,8 +439,11 @@ collected by pytest must retain that definition's source identity; wrapping
 decorators therefore fail closed. It reads the plan before and after
 project-owned commands to detect mutation. Change-plan evidence proves
 structural completion and test execution, not business correctness or assertion
-quality; preserve the accepted plan ID outside the edited worktree when exact
-intent needs independent review.
+quality. Its `project_pytest_process` provenance is cooperative evidence, not a
+tamper-proof attestation against project-owned conftest files, plugins, or
+imported test code running in that interpreter. Use an external evaluator with
+withheld tests when the code producer is adversarial, and preserve the accepted
+plan ID outside the edited worktree when exact intent needs independent review.
 
 ## Testing conventions
 

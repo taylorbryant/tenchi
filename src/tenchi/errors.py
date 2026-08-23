@@ -8,6 +8,8 @@ application-owned ones via the ``x-tenchi-error-source`` response header.
 
 from __future__ import annotations
 
+import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -135,12 +137,62 @@ def error_body(
     unknown objects via ``str``) so a declared error always renders as its
     declared status rather than crashing serialization into a 500.
     """
-    body: dict[str, Any] = {"code": code, "message": message}
+    body: dict[str, Any] = {
+        "code": _json_safe_text(code),
+        "message": _json_safe_text(message),
+    }
     if details is not None:
-        body["details"] = to_jsonable_python(details, fallback=str)
+        try:
+            rendered = to_jsonable_python(
+                details,
+                bytes_mode="base64",
+                inf_nan_mode="strings",
+                fallback=_safe_string,
+            )
+            rendered = _normalize_nonfinite_numbers(rendered)
+            # Match Starlette's strict UTF-8 JSON boundary before the response
+            # is constructed. Circular values, lone surrogates, or hostile
+            # ``__str__`` implementations make details unavailable, never the
+            # declared application error itself.
+            json.dumps(rendered, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        except (OSError, TypeError, UnicodeError, ValueError):
+            pass
+        else:
+            body["details"] = rendered
     if request_id is not None:
-        body["request_id"] = request_id
+        body["request_id"] = _json_safe_text(request_id)
     return body
+
+
+def _json_safe_text(value: str) -> str:
+    """Replace lone surrogates that Starlette's UTF-8 renderer cannot encode."""
+    return value.encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _safe_string(value: object) -> str:
+    try:
+        return str(value)
+    except Exception:
+        return "<unavailable>"
+
+
+def _normalize_nonfinite_numbers(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        if math.isnan(value):
+            return "NaN"
+        return "Infinity" if value > 0 else "-Infinity"
+    if isinstance(value, list):
+        return [_normalize_nonfinite_numbers(item) for item in cast(list[Any], value)]
+    if isinstance(value, tuple):
+        return [
+            _normalize_nonfinite_numbers(item) for item in cast(tuple[Any, ...], value)
+        ]
+    if isinstance(value, dict):
+        normalized: dict[Any, Any] = {}
+        for key, item in cast(dict[Any, Any], value).items():
+            normalized[key] = _normalize_nonfinite_numbers(item)
+        return normalized
+    return value
 
 
 def _validated_error_defs(  # pyright: ignore[reportUnusedFunction]

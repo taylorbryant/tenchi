@@ -148,7 +148,7 @@ Use three terminal paths for each delivery attempt:
 | Deterministic failure | Roll back partial writes, then dead-letter with a bounded error |
 | Transient infrastructure failure | Roll back the claim, apply bounded backoff, and retry |
 
-Unknown job names, `ValidationError`, and `JobResultError` are deterministic
+Unknown job names, `JobPayloadError`, and `JobResultError` are deterministic
 for the same record. Classify each `AppError` code by its semantics: a rejected
 business rule may be permanent, while a declared rate-limit error may be
 retryable after its advertised delay. Retrying permanent failures forever

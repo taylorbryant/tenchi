@@ -125,7 +125,11 @@ Pydantic input.
 Run `uv run tenchi map --feature <name>` to inspect one feature and its direct
 dependencies, `uv run tenchi doctor` to check these conventions alone, or
 `uv run tenchi check` for the complete validation loop. Add `--json` to the map
-when an agent or other tool will consume it.
+when an agent or other tool will consume it. Doctor also requires the standard
+server composition modules used by these commands, checks imports from feature
+package initializers, rejects stray modules directly under `app/`, and rejects
+symlinked application paths so its result does not vary by Python's
+directory-walking behavior.
 
 <Callout title="Types without runtime coupling">
   A normal `from app.server.context import AppContext` import is the clearest

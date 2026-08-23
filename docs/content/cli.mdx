@@ -204,7 +204,9 @@ uv run tenchi doctor --json
 
 Doctor validates the canonical application structure, dependency direction,
 and authorization consistency. Findings include a stable code, severity, file,
-line, and message in the versioned JSON result.
+line, and message in the versioned JSON result. Application source directories
+must use real files and directories rather than symlinks; Doctor rejects links
+instead of scanning different files on different Python versions.
 
 ## Run every check
 

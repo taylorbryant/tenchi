@@ -32,7 +32,6 @@ import logging
 import os
 
 import aiosqlite
-from pydantic import ValidationError
 
 from app.infra.port_wiring import configure_connection, ensure_schema
 from app.infra.sqlite_idempotency import SqliteIdempotencyStore
@@ -47,7 +46,7 @@ from app.infra.sqlite_repositories import (
 from app.server.context import AppContext
 from app.server.jobs import dispatcher
 from tenchi.errors import AppError
-from tenchi.jobs import JobNotFoundError, JobResultError
+from tenchi.jobs import JobNotFoundError, JobPayloadError, JobResultError
 
 logger = logging.getLogger("taskboard.worker")
 
@@ -79,7 +78,7 @@ async def process_next(database_path: str) -> bool:
                 payload_json=entry.payload_json,
                 context=context,
             )
-        except (ValidationError, JobNotFoundError, JobResultError, AppError) as error:
+        except (JobPayloadError, JobNotFoundError, JobResultError, AppError) as error:
             # Deterministic failures — bad payload or name, invalid result,
             # business rejection — dead-letter instead of retrying; retrying
             # would starve every job behind this one. Roll back first so
@@ -94,7 +93,7 @@ async def process_next(database_path: str) -> bool:
 def _failure_text(error: Exception) -> str:
     if isinstance(error, AppError):
         return f"{error.code}: {error}"
-    if isinstance(error, ValidationError):
+    if isinstance(error, JobPayloadError):
         return "JOB_INPUT_INVALID: stored payload does not match the job declaration"
     if isinstance(error, JobResultError):
         return "JOB_RESULT_INVALID: handler result does not match the job declaration"

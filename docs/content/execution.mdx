@@ -20,6 +20,10 @@ async def handle_job(payload: bytes, context: AppContext) -> Todo:
 
 `request_json=` validates serialized input against the use case's annotated
 `request` parameter. Use `request=` for an already decoded Python value.
+Invalid input raises `ExecutionInputError` before the context opens. Its
+`issues` contain stable validation kinds without rejected values, field paths,
+or rendered validation messages, so a worker can classify and log it without
+persisting application payloads.
 
 `execute()` deliberately supplies only `request` and `context`. A use case that
 requires HTTP-specific `params`, `query`, or `headers` is not portable to this

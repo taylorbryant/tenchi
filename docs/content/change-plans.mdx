@@ -109,11 +109,24 @@ verification, the receipt fails.
 ## Understand the proof boundary
 
 A passing plan proves structural completion and that its source-bound test ran
-successfully, not business correctness. It does not prove that the test called
-the use case, that its assertions are strong enough, or that the implementation
-satisfies the product requirement. Review the use case, policy, ports, and test
-behavior as usual; `tenchi check` and the historical compatibility stages
-remain part of the same final receipt.
+successfully according to the project's pytest process, not business
+correctness or independently attested execution. The JSON receipt identifies
+this boundary as `provenance: "project_pytest_process"`.
+
+Project-owned `conftest.py` files, pytest plugins, fixtures, and imported test
+code run in that same interpreter. Code with permission to modify and execute
+the repository can therefore interfere with the evidence collector. Tenchi
+clears inherited `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, and `PYTHONPATH` so shell
+configuration cannot silently redirect the run, but it does not describe this
+in-process evidence as tamper-proof. Use an external evaluator with withheld
+tests—such as the repository's agent-change benchmark—or an isolated CI policy
+owned outside the edited worktree when the code producer is adversarial.
+
+The receipt also does not prove that the test called the use case, that its
+assertions are strong enough, or that the implementation satisfies the product
+requirement. Review the use case, policy, ports, and test behavior as usual;
+`tenchi check` and the historical compatibility stages remain part of the same
+final receipt.
 
 Pytest marks such as `@pytest.mark.parametrize` remain suitable because they
 preserve the test function's source identity. A custom decorator that returns a

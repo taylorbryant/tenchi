@@ -328,6 +328,24 @@ async def test_call_substitutes_path_params(client: Client) -> None:
     assert item == Item(name="abc")
 
 
+@pytest.mark.parametrize("item_id", [".", ".."])
+async def test_call_rejects_path_dot_segments_before_io(item_id: str) -> None:
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"name": "unexpected"})
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ValueError, match="must not be a dot segment"):
+            await client.call(
+                get_item_contract,
+                params=ItemParams(item_id=item_id),
+            )
+
+    assert requests == []
+
+
 async def test_call_rejects_lossy_path_parameter_serializers_before_io() -> None:
     def increment(value: int) -> str:
         return str(value + 1)
@@ -496,6 +514,28 @@ async def test_call_sends_headers_with_hyphenated_names(client: Client) -> None:
     )
 
     assert result == "abc/fr"
+
+
+async def test_call_serializes_boolean_headers_canonically() -> None:
+    class BooleanHeaders(BaseModel):
+        enabled: bool
+
+    declared = contract(
+        method="GET",
+        path="/boolean-header",
+        headers=BooleanHeaders,
+        status=204,
+    )
+    received: list[str] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        received.append(request.headers["enabled"])
+        return httpx.Response(204)
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        await client.call(declared, headers=BooleanHeaders(enabled=True))
+
+    assert received == ["true"]
 
 
 async def test_call_uses_pydantic_aliases_as_wire_names() -> None:
@@ -1640,14 +1680,12 @@ async def test_empty_path_param_is_rejected(client: Client) -> None:
         await client.call(optional_contract, params=OptionalParams())
 
 
-async def test_non_json_media_with_model_request_is_rejected(client: Client) -> None:
-    bad_contract = contract(
-        method="POST",
-        path="/items",
-        request=Item,
-        request_media_type="application/xml",
-        response=Item,
-    )
-
-    with pytest.raises(TypeError, match="cannot encode Item as application/xml"):
-        await client.call(bad_contract, request=Item(name="x"))
+def test_non_json_media_with_model_request_is_rejected_at_declaration() -> None:
+    with pytest.raises(ConfigurationError, match=r"request body.*str- or bytes-shaped"):
+        contract(
+            method="POST",
+            path="/items",
+            request=Item,
+            request_media_type="application/xml",
+            response=Item,
+        )

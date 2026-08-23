@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import ast
 import io
+import os
 import tokenize
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,7 +45,12 @@ _STRUCTURE = (
     "app/server/__init__.py",
     "app/server/asgi.py",
     "app/server/context.py",
+    "app/server/evaluations.py",
+    "app/server/jobs.py",
+    "app/server/preflight.py",
     "app/server/routes.py",
+    "app/server/tasks.py",
+    "app/server/tools.py",
 )
 
 _FEATURE_KINDS: dict[str, Category] = {
@@ -80,6 +86,7 @@ _TASK_REEXPORTS = frozenset(
         "Task",
         "TaskBindingError",
         "TaskGroup",
+        "TaskInputError",
         "TaskNotFoundError",
         "TaskResultError",
         "TaskRunner",
@@ -99,6 +106,7 @@ _JOB_REEXPORTS = frozenset(
         "JobHandler",
         "JobMessage",
         "JobNotFoundError",
+        "JobPayloadError",
         "JobResultError",
     }
 )
@@ -194,6 +202,18 @@ _RULES: dict[Category, dict[Category, str]] = {
         "evaluations": "policies must not import evaluations",
         "jobs": "policies must not import jobs",
         **{k: f"policies {v}" for k, v in _HTTP_RULES.items()},
+    },
+    "feature": {
+        "infra": "feature packages must not import infrastructure",
+        "server": "feature packages must not import server composition",
+        "context": "feature packages must not import the app context",
+        "use_cases": "feature packages must not import use cases",
+        "routes": "feature packages must not import routes",
+        "tasks": "feature packages must not import task declarations",
+        "tools": "feature packages must not import tool declarations",
+        "evaluations": "feature packages must not import evaluations",
+        "jobs": "feature packages must not import job declarations",
+        **{k: f"feature packages {v}" for k, v in _HTTP_RULES.items()},
     },
     "use_cases": {
         "infra": "use cases must not import concrete infrastructure",
@@ -309,9 +329,10 @@ class Finding:
 def run_doctor(root: Path) -> list[Finding]:
     """Check the application at ``root`` and return all findings."""
     findings = _structure_findings(root)
+    findings.extend(_symlink_findings(root))
     findings.extend(_generated_incomplete_findings(root))
 
-    for path in sorted((root / "app").rglob("*.py")):
+    for path in _application_python_files(root):
         relative = path.relative_to(root)
         parts = _module_parts(relative)
         source_category = _classify_module(parts)
@@ -355,7 +376,7 @@ def run_doctor(root: Path) -> list[Finding]:
 
 def _generated_incomplete_findings(root: Path) -> list[Finding]:
     findings: list[Finding] = []
-    for path in sorted((root / "app").rglob("*.py")):
+    for path in _application_python_files(root):
         relative = path.relative_to(root)
         try:
             source = path.read_text(encoding="utf-8")
@@ -387,6 +408,19 @@ def _placement_findings(
     """Flag feature modules the prescribed structure has no place for —
     otherwise a stray ``helpers.py`` (or a nested feature tree) would
     silently escape every dependency rule."""
+    if parts[:1] == ("app",) and len(parts) == 2 and relative.name != "__init__.py":
+        return [
+            Finding(
+                path=relative.as_posix(),
+                line=0,
+                message=(
+                    "unrecognized top-level application module: place shared "
+                    "code under app/shared, infrastructure under app/infra, "
+                    "features under app/features, or composition under app/server"
+                ),
+                code="TENCHI_DOCTOR_UNRECOGNIZED_APP_MODULE",
+            )
+        ]
     if parts[1:2] != ("features",) or category is not None:
         return []
     if len(parts) <= 2 or (relative.name == "__init__.py" and len(parts) == 3):
@@ -418,7 +452,7 @@ def _authorization_findings(root: Path) -> list[Finding]:
     alone.
     """
     surveyed: list[tuple[Path, bool, bool]] = []
-    for path in sorted((root / "app").rglob("*.py")):
+    for path in _application_python_files(root):
         relative = path.relative_to(root)
         if relative.name == "__init__.py":
             continue
@@ -509,6 +543,71 @@ def _structure_findings(root: Path) -> list[Finding]:
         for rel in _STRUCTURE
         if not (root / rel).is_file()
     ]
+
+
+def _symlink_findings(root: Path) -> list[Finding]:
+    """Reject app symlinks instead of scanning them version-dependently."""
+    app = root / "app"
+    findings: list[Finding] = []
+    if app.is_symlink():
+        return [
+            Finding(
+                path="app",
+                line=0,
+                message="symlinked application paths are unsupported",
+                code="TENCHI_DOCTOR_SYMLINKED_PATH",
+            )
+        ]
+    if not app.is_dir():
+        return findings
+    for current, directories, files in os.walk(app, followlinks=False):
+        parent = Path(current)
+        retained: list[str] = []
+        for name in directories:
+            path = parent / name
+            if path.is_symlink():
+                findings.append(
+                    Finding(
+                        path=path.relative_to(root).as_posix(),
+                        line=0,
+                        message="symlinked application paths are unsupported",
+                        code="TENCHI_DOCTOR_SYMLINKED_PATH",
+                    )
+                )
+            else:
+                retained.append(name)
+        directories[:] = retained
+        for name in files:
+            path = parent / name
+            if path.is_symlink():
+                findings.append(
+                    Finding(
+                        path=path.relative_to(root).as_posix(),
+                        line=0,
+                        message="symlinked application paths are unsupported",
+                        code="TENCHI_DOCTOR_SYMLINKED_PATH",
+                    )
+                )
+    return sorted(findings, key=lambda finding: finding.path)
+
+
+def _application_python_files(root: Path) -> list[Path]:
+    """Return real Python files below app without following any symlink."""
+    app = root / "app"
+    if app.is_symlink() or not app.is_dir():
+        return []
+    paths: list[Path] = []
+    for current, directories, files in os.walk(app, followlinks=False):
+        parent = Path(current)
+        directories[:] = [
+            name for name in directories if not (parent / name).is_symlink()
+        ]
+        paths.extend(
+            path
+            for name in files
+            if name.endswith(".py") and not (path := parent / name).is_symlink()
+        )
+    return sorted(paths)
 
 
 def _import_findings(
@@ -617,6 +716,8 @@ def _classify_module(parts: tuple[str, ...]) -> Category | None:
         return "server"
     if parts[1:2] == ("shared",):
         return "shared"
+    if parts[1:2] == ("features",) and len(parts) == 3:
+        return "feature"
     if parts[1:2] == ("features",) and len(parts) >= 4:
         return _FEATURE_KINDS.get(parts[3])
     return None

@@ -20,8 +20,9 @@ Failure taxonomy, so entrypoints can react per class:
 - :class:`ExecutionError` — the call is miswired (missing parameters,
   unresolvable annotation, unusable context source). Deterministic;
   retrying cannot help. Raised before the context opens.
-- ``pydantic.ValidationError`` — the input does not match the declared
-  type. Also deterministic, also raised before the context opens.
+- :class:`ExecutionInputError` — the input does not match the declared
+  type. Its issue kinds are payload-safe. Also deterministic, also raised
+  before the context opens.
 - Everything the use case itself raises — ``AppError`` and unexpected
   exceptions — propagates after flowing through a scoped context's
   ``__aexit__``, because how a failure is surfaced (dead-letter, exit
@@ -45,8 +46,9 @@ from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any, Literal, cast
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
+from ._validation import payload_safe_validation_issues
 from .errors import AppError, TenchiError
 
 logger = logging.getLogger("tenchi.execution")
@@ -57,6 +59,19 @@ class ExecutionError(TenchiError, TypeError):
     input, or the context source cannot work. Deterministic — a retry
     with the same arguments fails the same way — so queue-style callers
     should dead-letter rather than retry."""
+
+
+class ExecutionInputError(ExecutionError):
+    """Input supplied to execute() violates the use case's request type."""
+
+    def __init__(
+        self,
+        use_case: Callable[..., Awaitable[Any]],
+        issues: tuple[dict[str, str], ...],
+    ) -> None:
+        super().__init__(f"input for use case {_describe(use_case)} is invalid")
+        self.use_case = use_case
+        self.issues = issues
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,7 +241,7 @@ async def execute[ResultT](
     The signature is checked and the input validated before the context
     opens, so neither a miswired call nor invalid input ever starts a
     unit of work. Miswiring raises :class:`ExecutionError`; invalid
-    input raises pydantic's ``ValidationError``.
+    input raises :class:`ExecutionInputError`.
 
     ``context`` follows :func:`open_context` semantics.
 
@@ -354,9 +369,18 @@ def _validated_kwargs(
             f"execute({_describe(use_case)}): Pydantic cannot validate request "
             f"annotation {_type_name(annotation)}: {exc}"
         ) from exc
-    if request_json is not None:
-        return {"request": adapter.validate_json(request_json)}
-    return {"request": adapter.validate_python(request)}
+    try:
+        validated = (
+            adapter.validate_json(request_json)
+            if request_json is not None
+            else adapter.validate_python(request)
+        )
+    except ValidationError as exc:
+        raise ExecutionInputError(
+            use_case,
+            payload_safe_validation_issues(exc),
+        ) from None
+    return {"request": validated}
 
 
 def _request_annotation(use_case: Callable[..., Any], declared: Any) -> Any:

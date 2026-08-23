@@ -98,7 +98,20 @@ async def verify_rate_limit_store(
             RateLimitExceeded,
             "an exhausted window must reject another cost",
         )
-        await advance_clock(advance, 10)
+        await advance_clock(advance, 9.9)
+        require_type(
+            await _consume(
+                open_store,
+                namespace=namespace,
+                scope=scope,
+                limit=1,
+                window_seconds=10,
+                cost=1,
+            ),
+            RateLimitExceeded,
+            "an exhausted window must remain active before its reset boundary",
+        )
+        await advance_clock(advance, 0.1)
         require(
             await _consume(
                 open_store,

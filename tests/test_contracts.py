@@ -1,5 +1,7 @@
+from typing import Annotated
+
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PlainValidator
 
 from tenchi.contracts import Contract, contract
 from tenchi.errors import ConfigurationError, ErrorDef
@@ -7,6 +9,12 @@ from tenchi.errors import ConfigurationError, ErrorDef
 
 class Item(BaseModel):
     name: str
+
+
+type BinaryAlias = bytes
+type OptionalTextAlias = str | None
+type GenericAlias[T] = T
+type ValidatedText = Annotated[Item, PlainValidator(lambda _: "rendered")]
 
 
 def test_contract_defaults() -> None:
@@ -247,6 +255,119 @@ def test_contract_rejects_unsupported_declared_charsets() -> None:
             response=str,
             response_media_type="text/plain; charset=not-a-codec",
         )
+
+
+@pytest.mark.parametrize("charset", ["zip", "base64", "hex", "rot_13", "quopri"])
+def test_contract_rejects_non_text_declared_codecs(charset: str) -> None:
+    with pytest.raises(
+        ConfigurationError, match=r"response_media_type.*unsupported charset"
+    ):
+        contract(
+            method="GET",
+            path="/items",
+            response=str,
+            response_media_type=f"text/plain; charset={charset}",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "annotation", "media_type", "message"),
+    [
+        ("request", Item, "text/plain", "request body.*str-shaped"),
+        ("response", Item, "text/plain", "response body.*str-shaped"),
+        (
+            "request",
+            Item,
+            "application/octet-stream",
+            "request body.*str- or bytes-shaped",
+        ),
+        (
+            "response",
+            Item,
+            "application/octet-stream",
+            "response body.*str- or bytes-shaped",
+        ),
+        ("response", bytes, "application/json", "bytes cannot use a JSON"),
+        ("response", BinaryAlias, "application/json", "bytes cannot use a JSON"),
+        (
+            "response",
+            GenericAlias[bytes],
+            "application/json",
+            "bytes cannot use a JSON",
+        ),
+        (
+            "response",
+            str | None,
+            "text/plain",
+            "response body.*str-shaped",
+        ),
+        (
+            "response",
+            OptionalTextAlias,
+            "text/plain",
+            "response body.*str-shaped",
+        ),
+    ],
+)
+def test_contract_rejects_incompatible_body_media_pairings(
+    field: str,
+    annotation: object,
+    media_type: str,
+    message: str,
+) -> None:
+    kwargs: dict[str, object] = {
+        "method": "POST",
+        "path": "/items",
+        field: annotation,
+        f"{field}_media_type": media_type,
+    }
+    with pytest.raises(ConfigurationError, match=message):
+        contract(**kwargs)  # type: ignore[arg-type]
+
+
+def test_direct_contract_construction_enforces_body_media_pairings() -> None:
+    with pytest.raises(ConfigurationError, match=r"response body.*str-shaped"):
+        Contract(
+            method="GET",
+            path="/items",
+            response=Item,
+            response_media_type="text/plain",
+        )
+
+
+def test_nullable_body_pairings_follow_the_runtime_direction() -> None:
+    request = contract(
+        method="POST",
+        path="/request",
+        request=str | None,
+        request_media_type="text/plain",
+    )
+    response = contract(
+        method="GET",
+        path="/response",
+        response=str | None,
+    )
+    aliased_response = contract(
+        method="GET",
+        path="/aliased-response",
+        response=GenericAlias[str],  # type: ignore[arg-type]
+        response_media_type="text/plain",
+    )
+
+    assert request.request == str | None
+    assert response.response == str | None
+    assert aliased_response.response == GenericAlias[str]
+
+
+def test_custom_validation_output_is_not_rejected_from_its_wrapped_type() -> None:
+    declared = contract(
+        method="GET",
+        path="/validated-text",
+        response=ValidatedText,  # type: ignore[arg-type]
+        response_media_type="text/plain",
+    )
+
+    assert declared.response == ValidatedText
 
 
 def test_contract_rejects_extended_media_type_parameters() -> None:

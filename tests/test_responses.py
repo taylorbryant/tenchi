@@ -489,6 +489,12 @@ def test_response_declarations_fail_early_when_ambiguous_or_incoherent() -> None
             media_type="text/plain; charset=not-a-codec",
         )
 
+    with pytest.raises(ConfigurationError, match=r"response body.*str-shaped"):
+        response(Item, status=200, media_type="text/plain")
+
+    with pytest.raises(ConfigurationError, match="bytes cannot use a JSON"):
+        response(bytes, status=200)
+
     with pytest.raises(
         ConfigurationError,
         match="pass top-level union members as separate positional body alternatives",

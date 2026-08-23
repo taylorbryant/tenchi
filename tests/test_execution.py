@@ -5,10 +5,11 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, field_validator
+from pydantic_core import PydanticCustomError
 
 from tenchi.errors import AppError, ErrorDef
-from tenchi.execution import ExecutionError, execute, open_context
+from tenchi.execution import ExecutionError, ExecutionInputError, execute, open_context
 
 
 class Note(BaseModel):
@@ -56,10 +57,18 @@ async def test_json_input_is_validated_the_same_way() -> None:
 async def test_invalid_input_raises_before_any_work_runs() -> None:
     log: list[str] = []
 
-    with pytest.raises(ValidationError):
-        await execute(create_note, request={"title": 42}, context=Context(log))
+    with pytest.raises(ExecutionInputError) as excinfo:
+        await execute(
+            create_note,
+            request={"title": {"secret": "SECRET-TOKEN-abc123"}},
+            context=Context(log),
+        )
 
     assert log == []
+    assert excinfo.value.use_case is create_note
+    assert excinfo.value.issues == ({"type": "string_type"},)
+    assert "SECRET-TOKEN-abc123" not in str(excinfo.value)
+    assert "SECRET-TOKEN-abc123" not in repr(excinfo.value.issues)
 
 
 async def test_invalid_input_never_opens_the_context() -> None:
@@ -71,10 +80,39 @@ async def test_invalid_input_never_opens_the_context() -> None:
         yield Context(events)
         events.append("commit")
 
-    with pytest.raises(ValidationError):
-        await execute(create_note, request={}, context=unit_of_work)
+    with pytest.raises(ExecutionInputError) as excinfo:
+        await execute(
+            create_note,
+            request_json=b'{"title":{"secret":"SECRET-TOKEN-abc123"}}',
+            context=unit_of_work,
+        )
 
     assert events == []
+    assert "SECRET-TOKEN-abc123" not in str(excinfo.value)
+    assert "SECRET-TOKEN-abc123" not in repr(excinfo.value.issues)
+
+
+async def test_custom_validation_error_types_cannot_expose_input() -> None:
+    class CustomInput(BaseModel):
+        value: str
+
+        @field_validator("value")
+        @classmethod
+        def reject(cls, value: str) -> str:
+            raise PydanticCustomError(
+                f"rejected_{value}",  # type: ignore[arg-type]
+                "rejected",
+            )
+
+    async def custom(request: CustomInput, context: object) -> None:
+        return None
+
+    with pytest.raises(ExecutionInputError) as excinfo:
+        await execute(custom, request={"value": "SECRET"}, context=object())
+
+    assert excinfo.value.issues == ({"type": "validation_error"},)
+    assert "SECRET" not in str(excinfo.value)
+    assert "SECRET" not in repr(excinfo.value.issues)
 
 
 async def test_context_factory_and_scope_semantics_match_the_server() -> None:
