@@ -4,56 +4,36 @@
 [![PyPI](https://img.shields.io/pypi/v/tenchi.svg)](https://pypi.org/project/tenchi/)
 [![Python](https://img.shields.io/pypi/pyversions/tenchi.svg)](https://pypi.org/project/tenchi/)
 
-Tenchi is a contract-first Python framework for production backends that humans
-and coding agents can build and verify.
+**Production Python backends with explicit architecture and machine-verifiable
+changes.**
 
-HTTP contracts and AI-facing application tools define validated boundaries.
-Plain async functions implement use cases. `typing.Protocol` ports and frozen
-dataclasses keep dependencies explicit. Tenchi turns those declarations into a
-server, typed client, OpenAPI, machine-readable application maps, compatibility
-reports, and verification receipts.
+Tenchi is a contract-first framework for backends that humans and coding agents
+can build together. It keeps the HTTP server, typed client, OpenAPI, application
+tools, use cases, and compatibility checks aligned around the same declarations.
 
-The goal is a pit of success: generate the mechanical work, keep business
-decisions visible, and verify structure, types, tests, architecture, and public
-contracts before a change is considered complete.
+Tenchi optimizes for what happens after the first endpoint: the application
+grows, infrastructure changes, an agent edits several layers at once, and you
+still need to know whether the result is wired correctly and safe to ship.
 
-> [!WARNING]
-> Tenchi is pre-1.0. Minor releases may change public APIs while the framework
-> settles. Read [stability and releases](https://tenchi.io/stability) before
-> adopting it for a long-lived service.
+The model stays deliberately Python-native: Pydantic at the boundary, plain
+async functions for behavior, `typing.Protocol` for ports, frozen dataclasses
+for context, Starlette for ASGI, and httpx for client I/O. There is no
+dependency-injection container, base controller, ORM, queue, scheduler, or
+model runtime hidden inside the framework.
 
-[Read the documentation](https://tenchi.io/) ·
-[Follow the quickstart](https://tenchi.io/getting-started) ·
-[See how Tenchi compares](https://tenchi.io/comparisons)
+> **Pre-1.0 software.** Tenchi is ready for evaluation and real application
+> feedback, but minor releases may change public APIs. Read
+> [stability and releases](https://tenchi.io/stability) before adopting it for
+> a long-lived service.
 
-## Why Tenchi
+[Documentation](https://tenchi.io/) ·
+[Quickstart](https://tenchi.io/getting-started) ·
+[Comparisons](https://tenchi.io/comparisons)
 
-- **One executable contract.** The server validates requests and responses, the
-  Python client validates both sides of a call, and OpenAPI 3.1 comes from the
-  same declaration.
-- **Ordinary application code.** Use cases are plain async functions, ports are
-  protocols, and infrastructure is wired explicitly. Application behavior does
-  not belong to HTTP or a dependency-injection container.
-- **Changes are reviewable.** Canonical snapshots and conservative
-  compatibility analysis identify additive, breaking, metadata-only, and
-  unknown changes across HTTP, job messages, application tools, and AI
-  evaluation policy.
-- **Production concerns have a place.** Tenchi provides focused primitives and
-  patterns for authentication boundaries, authorization, transactions,
-  idempotency, rate limits, retries, signed webhooks, jobs, operational tasks,
-  health, preflight, and observability without choosing your infrastructure.
-- **Agents and humans use the same evidence.** Deterministic maps, dry-run
-  generation, versioned JSON results, a coding-agent MCP server, change plans,
-  and `tenchi verify` make automated changes inspectable by people and CI.
-- **AI features reuse the application.** Typed application tools expose normal
-  use cases through in-process callers or authenticated MCP. Evaluation gates
-  apply app-owned metrics, deadlines, and budgets without choosing a model
-  provider or agent runtime.
+## Start in five commands
 
-## Quickstart
-
-Tenchi requires Python 3.12 or newer. Create and run a complete application
-with [uv](https://docs.astral.sh/uv/):
+Tenchi requires Python 3.12 or newer. Create a complete application with
+[uv](https://docs.astral.sh/uv/):
 
 ```shell
 uvx tenchi new my_app
@@ -63,12 +43,13 @@ uv run tenchi check
 uv run tenchi dev
 ```
 
-The generated application includes a working todos feature, SQLite persistence,
-a memory test adapter, direct use-case and HTTP tests, Swagger UI, OpenAPI and
-other boundary snapshots, a protected verification policy, CI, and an
-`AGENTS.md` guide for coding agents.
+The generated application is intentionally more than a hello-world route. It
+includes a working todos feature, SQLite persistence, a memory test adapter,
+direct use-case and HTTP tests, OpenAPI and other boundary snapshots, CI, a
+repository-owned verification policy, and an `AGENTS.md` guide that gives coding
+agents the same workflow.
 
-With the server running, create a todo:
+While the server runs, create a todo from another terminal:
 
 ```shell
 curl -i \
@@ -77,24 +58,26 @@ curl -i \
   http://127.0.0.1:8000/todos
 ```
 
-Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for Swagger UI or
-follow [build a feature end to end](https://tenchi.io/build-a-feature) to carry
-one operation through its contract, use case, persistence adapters, tests,
-OpenAPI, and final verification receipt.
+Open [Swagger UI](http://127.0.0.1:8000/docs), follow the
+[complete quickstart](https://tenchi.io/getting-started), or
+[build a persisted feature end to end](https://tenchi.io/build-a-feature).
 
-To add Tenchi to an existing project instead:
+Adding Tenchi to an existing project starts with `uv add tenchi`; the
+[existing-project guide](https://tenchi.io/existing-project) builds the first
+contract, use case, context, route, ASGI application, test, and OpenAPI baseline.
 
-```shell
-uv add tenchi
+## One architecture, several entrypoints
+
+Tenchi keeps transport and infrastructure around the application instead of
+inside it:
+
+```text
+HTTP contract ─────┐
+Application tool ──┼──> plain async use case ──> app-owned ports ──> adapters
+Job / task / script┘
 ```
 
-Follow [add Tenchi to an existing project](https://tenchi.io/existing-project)
-for the first contract, use case, context, route, ASGI application, test, and
-OpenAPI baseline.
-
-## The core model
-
-Schemas define application and boundary data:
+A Pydantic model defines boundary data:
 
 ```python
 # app/features/todos/schemas.py
@@ -111,7 +94,7 @@ class Todo(BaseModel):
     completed: bool
 ```
 
-A contract owns the HTTP boundary:
+A contract owns the HTTP method, path, inputs, response, errors, and metadata:
 
 ```python
 # app/features/todos/contracts.py
@@ -129,8 +112,7 @@ create_todo_contract = contract(
 )
 ```
 
-A use case owns behavior and receives app-defined dependencies through its
-context:
+The use case owns behavior and depends only on an app-defined context:
 
 ```python
 # app/features/todos/use_cases/create_todo.py
@@ -143,7 +125,7 @@ async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
     return await context.todos.create(title=request.title)
 ```
 
-A route binds the two values:
+The route makes the binding explicit:
 
 ```python
 # app/features/todos/routes.py
@@ -158,32 +140,21 @@ routes = route_group(
 )
 ```
 
-`route()` checks the use-case parameters and return annotation against the
-contract during application composition. At runtime, Tenchi validates the
-request before the use case runs and validates the response before its request
-scope commits.
+`route()` checks the use-case signature against the contract during application
+composition. At runtime, Tenchi validates the request before behavior runs and
+the response before its scoped context commits. The same contract drives the
+async Python client and OpenAPI 3.1, so those surfaces cannot quietly drift.
 
-Applications keep the same dependency direction as they grow:
+The [mental model](https://tenchi.io/concepts) and
+[application architecture](https://tenchi.io/architecture) explain where
+contracts, policies, ports, adapters, and composition belong as the app grows.
 
-```text
-app/
-  features/<feature>/   # contracts, schemas, ports, policies, use cases, routes
-  shared/               # shared errors and domain concepts
-  infra/                # concrete adapters for app-owned ports
-  server/               # context, lifecycle, hooks, composition, ASGI app
-tests/                  # cross-feature and HTTP integration tests
-```
+## Verification is part of the framework
 
-Read the [mental model](https://tenchi.io/concepts) and
-[application architecture](https://tenchi.io/architecture) for the complete
-placement and dependency rules.
-
-## One workflow for humans, agents, and CI
-
-Tenchi makes the intended development loop explicit:
+Tenchi gives people, agents, and CI one completion loop:
 
 ```shell
-# Inspect the current application and its relationships.
+# Inspect declarations, registrations, dependencies, and diagnostics.
 uv run tenchi map --feature todos
 
 # After declaring complete_todo_contract, preview its use-case boundary.
@@ -191,56 +162,47 @@ uv run tenchi make use-case todos complete_todo \
   --from-contract app.features.todos.contracts:complete_todo_contract \
   --dry-run --json
 
-# Run formatting, linting, types, tests, architecture, and snapshot checks.
+# Check the current application.
 uv run tenchi check
 
-# In a repository with origin/main, verify against that historical commit.
+# Compare the finished tree with an immutable historical commit.
 uv run tenchi verify --base-ref origin/main --json
 ```
 
-`tenchi check` answers whether the current application is internally coherent.
-`tenchi verify` additionally requires a complete application map, compares
-public boundaries and verification policy with the selected Git commit, and
-binds its receipt to the exact source tree it observed. Contract-driven change
-plans can require the generated structure and its exact pytest target to appear
-in that receipt.
+`tenchi check` runs formatting, linting, Pyright, pytest, architecture checks,
+and exact boundary-snapshot checks. `tenchi verify` also requires a complete
+application map, compares public boundaries and verification policy with the
+selected Git commit, and binds its receipt to the exact source tree it observed.
+
+OpenAPI, durable job messages, application tools, and AI evaluation policy each
+have canonical manifests and directional compatibility reports. Breaking and
+unknown changes fail; additive and metadata changes remain visible for review.
+Contract-driven change plans can additionally require exact generated files,
+bindings, and pytest execution evidence in the final receipt.
+
+Tenchi cannot prove that an application's business rules are correct. It can
+prove which checks ran against which source, reject invalid wiring before
+traffic arrives, and prevent a changed snapshot or weakened gate from hiding an
+incompatible change.
 
 Inspection, generator-preview, discovery, diagnostic, execution, check, and
-verification results support versioned, payload-safe JSON. Compatibility
-reports use `--diff-format json`; raw OpenAPI and manifest output retain their
-published document schemas. The `tenchi mcp` command exposes the same
-inspection, preview, compatibility, check, and verification operations to
-MCP-aware coding agents over stdio. Generated applications configure that
+verification results support versioned, payload-safe JSON. `tenchi mcp` serves
+the same inspection, preview, compatibility, check, and verification operations
+to MCP-aware coding agents over stdio. Generated applications register that
 server in `.mcp.json`.
 
 Read [the coding-agent workflow](https://tenchi.io/agents),
 [connect the coding-agent MCP server](https://tenchi.io/mcp), and
-[verify a generated change](https://tenchi.io/change-plans) for the complete
-loop.
+[verify a generated change](https://tenchi.io/change-plans).
 
-## Production boundaries without prescribed infrastructure
+## AI features are application features
 
-Tenchi owns application-level contracts and lifecycle guarantees. Your app
-chooses the infrastructure behind them.
+Tenchi does not own models, prompts, agent loops, memory, or retrieval. Those
+choices sit behind app-owned ports. Tenchi makes the resulting capabilities
+safe to expose and possible to verify.
 
-| Concern | Tenchi provides | Your application chooses |
-| --- | --- | --- |
-| HTTP | Contracts, validation, declared errors, typed client, OpenAPI | Middleware, deployment platform, proxy |
-| Identity | Authentication hooks, context enrichment, authorization patterns | Identity provider, credentials, policy rules |
-| Data | App-owned ports, scoped contexts, transaction patterns, test helpers | Database, ORM or driver, migrations |
-| Reliability | Idempotency, rate-limit, retry, webhook, and job primitives | Durable stores, queue, scheduler, dead-letter policy |
-| Operations | Health routes, deployment preflight, named tasks, payload-safe outcomes | Environment checks, runbooks, exporters |
-| AI | Typed tools, authenticated MCP, evaluation gates | Models, prompts, agent loop, datasets, judges |
-
-This division keeps the framework small while giving teams an explicit answer
-for common production concerns. The [production handbook](https://tenchi.io/production)
-covers configuration, transactions, concurrency, retries, background work,
-observability, and deployment as one system.
-
-## Build AI features on normal use cases
-
-Application tools add a stable machine-facing contract around ordinary
-application behavior:
+An application tool binds a stable machine-facing contract to an ordinary use
+case:
 
 ```python
 from app.shared.errors import unauthorized
@@ -264,72 +226,63 @@ tools = tool_group(
 )
 ```
 
-The tool runner validates input and output, opens the same application
-lifecycle and scoped context used by other entrypoints, preserves only declared
-application errors, and masks unexpected failures. The same group can serve an
-in-process agent or an authenticated application MCP server with caller-specific
-discovery and explicit approval for destructive calls.
+The runner validates input and output, supplies identity through application
+context rather than model-controlled arguments, exposes only declared errors,
+and masks unexpected failures. The same tool group can serve an in-process
+agent or an authenticated application MCP server with caller-specific discovery
+and explicit approval for destructive calls.
 
-When behavior depends on a model, typed evaluation cases apply metric
-thresholds, per-case deadlines, and optional token and cost budgets. Evaluation
-policy is snapshotted and compared separately from model execution, so an agent
-cannot silently weaken a release gate and still pass historical verification.
+Typed evaluation cases add application-owned metrics, deadlines, and optional
+token and cost budgets. Evaluation policy is snapshotted separately from model
+execution, so historical verification can detect a removed case, lowered
+threshold, or expanded budget without running a provider.
 
 Read [application tools](https://tenchi.io/tools),
 [serve tools over MCP](https://tenchi.io/tool-mcp), and
-[AI evaluations](https://tenchi.io/evaluations).
+[AI evaluations](https://tenchi.io/evaluations). The
+[Fieldnotes example](https://github.com/taylorbryant/tenchi/tree/main/examples/fieldnotes)
+shows the complete pattern in a cited research backend that runs without model
+credentials by default.
 
-## CLI at a glance
+## Production concerns have an explicit home
 
-| Command | Purpose |
-| --- | --- |
-| `tenchi new` | Generate a complete application |
-| `tenchi make` | Preview or generate features and use-case boundaries |
-| `tenchi routes` / `tenchi map` | Inspect runtime routes and application structure |
-| `tenchi check` | Run deterministic local quality and snapshot checks |
-| `tenchi verify` | Produce historical compatibility and completion evidence |
-| `tenchi openapi` / `jobs` / `tools` / `eval snapshot` | Write and compare public boundary manifests |
-| `tenchi task` | Discover and run validated operational tasks |
-| `tenchi preflight` | Check the target deployment environment read-only |
-| `tenchi eval` | Discover or run app-owned AI evaluation suites |
-| `tenchi mcp` | Serve coding-agent operations over stdio MCP |
-| `tenchi dev` | Run the ASGI application locally |
+Tenchi supplies application-level boundaries and leaves infrastructure choices
+to the application:
 
-Run `tenchi <command> --help` for options or read the
-[CLI reference](https://tenchi.io/cli).
+- **HTTP:** typed requests, successful responses and headers, declared errors,
+  media types, deadlines, pagination, a runtime client, and OpenAPI.
+- **Identity:** boundary authentication hooks, context enrichment, pure policy
+  functions, and authorization in use cases.
+- **Reliability:** transaction patterns, idempotency, rate limits, bounded
+  outbound retries, signed webhooks, and queue-neutral job messages.
+- **Operations:** health routes, read-only deployment preflight, validated
+  operational tasks, payload-safe outcomes, and an OpenTelemetry bridge.
+- **Testing:** direct use-case tests, lifespan-aware in-process HTTP and typed
+  clients, and adapter conformance suites for stateful primitives.
 
-## Is Tenchi a fit?
+Your application still chooses its database, ORM or driver, identity provider,
+queue, scheduler, cache, exporters, model providers, and deployment platform.
+The [production handbook](https://tenchi.io/production) connects those choices
+to transactions, concurrency, retries, background work, observability, and
+deployment.
 
-Tenchi is designed for long-lived typed JSON APIs where application structure,
-client behavior, AI-facing tools, and compatibility need to remain aligned.
-It is a strong fit when the same use cases must run through HTTP, jobs, tasks,
-scripts, or tools and when both agents and people need machine-checkable
-evidence for a change.
+## When Tenchi fits
+
+Choose Tenchi for a long-lived typed JSON API when:
+
+- server behavior, Python clients, OpenAPI, and AI-facing tools must remain
+  aligned;
+- the same behavior must run through HTTP, jobs, tasks, scripts, or tools;
+- explicit dependencies and application structure are worth modest up-front
+  ceremony; and
+- humans and agents need the same machine-checkable completion evidence.
 
 Choose another framework when you need WebSockets, HTML templates, an ORM,
 admin UI, background runtime, or a large integration ecosystem as built-in
-features. Tenchi exposes Starlette, httpx, and Pydantic where direct access is
-more useful than another abstraction, but it deliberately does not provide a
-dependency-injection container, model SDK, agent loop, queue, or scheduler.
+features. Read the [framework comparison](https://tenchi.io/comparisons) for a
+candid comparison with FastAPI, Starlette, Litestar, and Django Ninja.
 
-Read the [framework comparison](https://tenchi.io/comparisons) for a candid
-comparison with FastAPI, Starlette, Litestar, and Django Ninja.
-
-## Examples
-
-- [`examples/todos`](https://github.com/taylorbryant/tenchi/tree/main/examples/todos)
-  is the generated teaching application. It demonstrates authentication,
-  SQLite persistence, memory-backed use-case tests, typed-client tests, and
-  boundary snapshots.
-- [`examples/taskboard`](https://github.com/taylorbryant/tenchi/tree/main/examples/taskboard)
-  combines Tenchi's production capabilities in a larger application and its
-  own standalone environment.
-- [`examples/fieldnotes`](https://github.com/taylorbryant/tenchi/tree/main/examples/fieldnotes)
-  is a cited-AI reference backend with background indexing, authenticated
-  application tools and MCP, bounded provider calls, preflight, and evaluation
-  gates. Its default provider runs without model credentials.
-
-## Documentation
+## Read next
 
 - [Quickstart](https://tenchi.io/getting-started)
 - [Build a feature end to end](https://tenchi.io/build-a-feature)
@@ -339,6 +292,11 @@ comparison with FastAPI, Starlette, Litestar, and Django Ninja.
 - [Production handbook](https://tenchi.io/production)
 - [Coding agents](https://tenchi.io/agents)
 - [Module reference](https://tenchi.io/reference)
+
+The generated [`todos`](https://github.com/taylorbryant/tenchi/tree/main/examples/todos)
+app teaches the core model. The standalone
+[`taskboard`](https://github.com/taylorbryant/tenchi/tree/main/examples/taskboard)
+app exercises capabilities together under realistic pressure.
 
 ## Development
 
