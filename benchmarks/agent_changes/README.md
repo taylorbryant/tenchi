@@ -89,9 +89,24 @@ input.
 Agent standard output and error remain attached to the invoking terminal and
 are never copied into the result. The versioned result contains only task and
 agent labels, a content digest identifying the exact task corpus, timing and
-intervention counts, changed paths, stable evaluator statuses, and exit codes.
-It never contains prompts, application values, hidden-test failures, or agent
-logs.
+intervention counts, an optional runner-reported token count, changed paths,
+stable evaluator statuses, and exit codes. It never contains prompts,
+application values, hidden-test failures, or agent logs.
+
+The integrated harness is vendor-neutral and cannot infer token usage from an
+arbitrary agent command. When the agent reports its total only after exiting,
+record it atomically in the completed result:
+
+```sh
+uv run python -m benchmarks.agent_changes record-usage \
+  /tmp/tenchi-get-todo-run-1.json \
+  --token-count 58662
+```
+
+`token_count` is the total reported by the selected agent runtime. Tokenizers
+and cache accounting differ, so compare it only within a consistently labeled
+agent and model configuration. Externally managed runs may pass
+`--agent-token-count` directly to `evaluate`.
 
 The complete list, state, result, and summary shapes are retained in
 `protocol-v1.json`. Bump the benchmark protocol version and retain the previous
@@ -124,6 +139,7 @@ uv run python -m benchmarks.agent_changes evaluate \
   --agent-status passed \
   --agent-exit-code 0 \
   --agent-duration 420 \
+  --agent-token-count 58662 \
   --attempt 1 \
   --interventions 0
 ```

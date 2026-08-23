@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import NoReturn, cast
 
@@ -22,6 +23,7 @@ from .models import (
     AgentResult,
     AgentStatus,
     BenchmarkTaskList,
+    parse_result,
     parse_state,
     render_payload,
     validated_interface,
@@ -85,6 +87,7 @@ def _dispatch(arguments: argparse.Namespace) -> int:
             status=cast(AgentStatus, arguments.agent_status),
             exit_code=arguments.agent_exit_code,
             duration_seconds=arguments.agent_duration,
+            token_count=arguments.agent_token_count,
         )
         result = evaluate_workspace(task, state, agent=agent)
         write_payload(output, result)
@@ -115,6 +118,16 @@ def _dispatch(arguments: argparse.Namespace) -> int:
         write_payload(output, result)
         print(render_payload(result), end="")
         return 0 if result.ok else 1
+    if command == "record-usage":
+        result_path = Path(arguments.result)
+        result = parse_result(result_path.read_text(encoding="utf-8"))
+        updated = replace(
+            result,
+            agent=replace(result.agent, token_count=arguments.token_count),
+        )
+        write_payload(result_path, updated)
+        print(render_payload(updated), end="")
+        return 0
     if command == "report":
         results = read_results(tuple(Path(value) for value in arguments.results))
         summary = summarize_results(results)
@@ -159,6 +172,7 @@ def _parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--state", required=True)
     evaluate.add_argument("--output", required=True)
     _add_agent_metadata(evaluate, default_status="external")
+    evaluate.add_argument("--agent-token-count", type=_non_negative_int, default=None)
 
     run = subparsers.add_parser(
         "run",
@@ -175,6 +189,13 @@ def _parser() -> argparse.ArgumentParser:
     report = subparsers.add_parser("report", help="Aggregate result JSON files")
     report.add_argument("results", nargs="+")
     report.add_argument("--json", action="store_true")
+
+    usage = subparsers.add_parser(
+        "record-usage",
+        help="Add a runner-reported token count to an existing result",
+    )
+    usage.add_argument("result")
+    usage.add_argument("--token-count", type=_non_negative_int, required=True)
     return parser
 
 

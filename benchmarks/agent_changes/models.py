@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal, NotRequired, cast
 
 from pydantic import ConfigDict, Field, TypeAdapter, ValidationError, with_config
 from typing_extensions import TypedDict
@@ -115,6 +115,7 @@ class AgentResultPayload(TypedDict):
     status: AgentStatus
     exit_code: int | None
     duration_seconds: _Duration
+    token_count: NotRequired[_Count]
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,9 +127,10 @@ class AgentResult:
     status: AgentStatus
     exit_code: int | None
     duration_seconds: float
+    token_count: int | None = None
 
     def as_dict(self) -> AgentResultPayload:
-        return {
+        payload: AgentResultPayload = {
             "label": self.label,
             "interface": self.interface,
             "attempt": self.attempt,
@@ -137,6 +139,9 @@ class AgentResult:
             "exit_code": self.exit_code,
             "duration_seconds": self.duration_seconds,
         }
+        if self.token_count is not None:
+            payload["token_count"] = self.token_count
+        return payload
 
 
 @with_config(ConfigDict(extra="forbid"))
@@ -390,6 +395,7 @@ def parse_result(text: str) -> BenchmarkResult:
             status=agent["status"],
             exit_code=agent["exit_code"],
             duration_seconds=agent["duration_seconds"],
+            token_count=agent.get("token_count"),
         ),
         source=SourceResult(
             baseline_commit=source["baseline_commit"],

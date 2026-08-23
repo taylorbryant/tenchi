@@ -31,6 +31,7 @@ from benchmarks.agent_changes.models import (
     BENCHMARK_PROTOCOL_VERSION,
     AgentResult,
     BenchmarkResult,
+    BenchmarkState,
     SourceResult,
     StepResult,
     benchmark_protocol_schemas,
@@ -696,6 +697,33 @@ def test_render_and_summary_reject_inconsistent_result_claims() -> None:
         summarize_results((inconsistent,))
 
 
+def test_agent_token_count_round_trips_without_invalidating_older_results() -> None:
+    original = _result("get_todo", ok=True, first_pass=True)
+    counted = replace(
+        original,
+        agent=replace(original.agent, token_count=81_755),
+    )
+
+    parsed = parse_result(render_payload(counted))
+    older = json.loads(render_payload(original))
+
+    assert parsed.agent.token_count == 81_755
+    assert "token_count" not in older["agent"]
+    assert parse_result(json.dumps(older)).agent.token_count is None
+
+
+@pytest.mark.parametrize("token_count", [-1, True, 9_007_199_254_740_992])
+def test_agent_token_count_rejects_non_json_safe_counts(token_count: object) -> None:
+    original = _result("get_todo", ok=True, first_pass=True)
+    counted = replace(
+        original,
+        agent=replace(original.agent, token_count=cast(Any, token_count)),
+    )
+
+    with pytest.raises(ValueError, match="schema version 1"):
+        render_payload(counted)
+
+
 def test_cli_lists_tasks_as_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["list", "--json"]) == 0
 
@@ -750,6 +778,98 @@ def test_run_cli_accepts_options_after_the_workspace_and_splits_agent_command(
     assert kwargs["label"] == "codex"
     assert kwargs["interface"] == "cli"
     assert '"ok": true' in capsys.readouterr().out
+
+
+def test_record_usage_adds_token_count_to_an_existing_result(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result_path = tmp_path / "result.json"
+    result_path.write_text(
+        render_payload(_result("get_todo", ok=True, first_pass=True)),
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "record-usage",
+                str(result_path),
+                "--token-count",
+                "81755",
+            ]
+        )
+        == 0
+    )
+
+    recorded = parse_result(result_path.read_text(encoding="utf-8"))
+    assert recorded.agent.token_count == 81_755
+    assert '"token_count": 81755' in capsys.readouterr().out
+
+
+def test_evaluate_cli_records_runner_reported_token_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    state_path = tmp_path / "state.json"
+    output = tmp_path / "result.json"
+    state_path.write_text(
+        render_payload(
+            BenchmarkState(
+                task="get_todo",
+                task_digest=f"sha256:{'a' * 64}",
+                workspace=str(workspace),
+                baseline_commit="a" * 40,
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_evaluate(
+        task: object,
+        state: BenchmarkState,
+        *,
+        agent: AgentResult | None = None,
+    ) -> BenchmarkResult:
+        del task, state
+        assert agent is not None
+        return replace(
+            _result("get_todo", ok=True, first_pass=True),
+            agent=agent,
+        )
+
+    def fake_load_task(task: str) -> object:
+        del task
+        return object()
+
+    monkeypatch.setattr(benchmark_cli, "load_task", fake_load_task)
+    monkeypatch.setattr(benchmark_cli, "evaluate_workspace", fake_evaluate)
+
+    assert (
+        main(
+            [
+                "evaluate",
+                "--state",
+                str(state_path),
+                "--output",
+                str(output),
+                "--agent-label",
+                "codex",
+                "--interface",
+                "cli",
+                "--agent-status",
+                "passed",
+                "--agent-exit-code",
+                "0",
+                "--agent-token-count",
+                "81755",
+            ]
+        )
+        == 0
+    )
+
+    assert parse_result(output.read_text(encoding="utf-8")).agent.token_count == 81_755
 
 
 def test_cli_refuses_state_and_result_files_inside_the_agent_workspace(

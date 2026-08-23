@@ -112,6 +112,12 @@
             },
             "status": {
               "$ref": "#/$defs/AgentStatus"
+            },
+            "token_count": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Token Count",
+              "type": "integer"
             }
           },
           "required": [
