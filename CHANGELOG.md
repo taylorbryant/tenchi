@@ -38,12 +38,15 @@ versions may change the public API.
 
 ### Changed
 
-- The documentation now includes an end-to-end feature tutorial that carries a
-  persisted operation from its HTTP contract through generation, use-case and
-  adapter implementation, route wiring, tests, OpenAPI, and historical
-  verification. Production guidance now connects contracts, jobs, tasks,
-  evaluations, preflight checks, application tools, and deployment evidence
-  into one coherent workflow.
+- The README now leads with Tenchi's core application model, shared human and
+  agent verification workflow, production boundaries, AI application surface,
+  and candid framework fit, while directing complete reference material to the
+  documentation site. The documentation also includes an end-to-end feature
+  tutorial that carries a persisted operation from its HTTP contract through
+  generation, use-case and adapter implementation, route wiring, tests,
+  OpenAPI, and historical verification. Production guidance connects
+  contracts, jobs, tasks, evaluations, preflight checks, application tools, and
+  deployment evidence into one coherent workflow.
 
 ## [0.14.0] - 2026-08-17
 

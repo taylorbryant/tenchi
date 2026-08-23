@@ -1,23 +1,61 @@
 # Tenchi
 
-Tenchi is a contract-first framework for production Python backends that
-humans and coding agents can build and verify. HTTP contracts and AI-facing
-application tools define validated boundaries, plain async functions implement
-use cases, and frozen dataclasses carry explicitly wired dependencies.
+[![CI](https://github.com/taylorbryant/tenchi/actions/workflows/ci.yml/badge.svg)](https://github.com/taylorbryant/tenchi/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/tenchi.svg)](https://pypi.org/project/tenchi/)
+[![Python](https://img.shields.io/pypi/pyversions/tenchi.svg)](https://pypi.org/project/tenchi/)
 
-Tenchi uses Pydantic for validation, Starlette for ASGI, and httpx for its typed
-client. It requires Python 3.12 or newer and is currently pre-1.0.
+Tenchi is a contract-first Python framework for production backends that humans
+and coding agents can build and verify.
 
-Read the [documentation](https://tenchi.io/) for the
-quickstart, mental model, complete contract and runtime guides,
-[production handbook](https://tenchi.io/production), comparisons, and module
-reference.
+HTTP contracts and AI-facing application tools define validated boundaries.
+Plain async functions implement use cases. `typing.Protocol` ports and frozen
+dataclasses keep dependencies explicit. Tenchi turns those declarations into a
+server, typed client, OpenAPI, machine-readable application maps, compatibility
+reports, and verification receipts.
 
-## Quick start
+The goal is a pit of success: generate the mechanical work, keep business
+decisions visible, and verify structure, types, tests, architecture, and public
+contracts before a change is considered complete.
 
-Create and run a working application:
+> [!WARNING]
+> Tenchi is pre-1.0. Minor releases may change public APIs while the framework
+> settles. Read [stability and releases](https://tenchi.io/stability) before
+> adopting it for a long-lived service.
 
-```sh
+[Read the documentation](https://tenchi.io/) ·
+[Follow the quickstart](https://tenchi.io/getting-started) ·
+[See how Tenchi compares](https://tenchi.io/comparisons)
+
+## Why Tenchi
+
+- **One executable contract.** The server validates requests and responses, the
+  Python client validates both sides of a call, and OpenAPI 3.1 comes from the
+  same declaration.
+- **Ordinary application code.** Use cases are plain async functions, ports are
+  protocols, and infrastructure is wired explicitly. Application behavior does
+  not belong to HTTP or a dependency-injection container.
+- **Changes are reviewable.** Canonical snapshots and conservative
+  compatibility analysis identify additive, breaking, metadata-only, and
+  unknown changes across HTTP, job messages, application tools, and AI
+  evaluation policy.
+- **Production concerns have a place.** Tenchi provides focused primitives and
+  patterns for authentication boundaries, authorization, transactions,
+  idempotency, rate limits, retries, signed webhooks, jobs, operational tasks,
+  health, preflight, and observability without choosing your infrastructure.
+- **Agents and humans use the same evidence.** Deterministic maps, dry-run
+  generation, versioned JSON results, a coding-agent MCP server, change plans,
+  and `tenchi verify` make automated changes inspectable by people and CI.
+- **AI features reuse the application.** Typed application tools expose normal
+  use cases through in-process callers or authenticated MCP. Evaluation gates
+  apply app-owned metrics, deadlines, and budgets without choosing a model
+  provider or agent runtime.
+
+## Quickstart
+
+Tenchi requires Python 3.12 or newer. Create and run a complete application
+with [uv](https://docs.astral.sh/uv/):
+
+```shell
 uvx tenchi new my_app
 cd my_app
 uv sync
@@ -25,44 +63,61 @@ uv run tenchi check
 uv run tenchi dev
 ```
 
-The generated app includes a todos feature, SQLite persistence, memory-backed
-unit tests, Swagger UI, health and OpenAPI routes, a protected `tenchi.toml`
-verification policy, an agent guide, and a CI compatibility gate. It also
-includes `.mcp.json`, so MCP-aware coding agents can use Tenchi's structured
-inspection and validation tools after `uv sync`. With the server running, open
-`http://127.0.0.1:8000/docs` or call it directly:
+The generated application includes a working todos feature, SQLite persistence,
+a memory test adapter, direct use-case and HTTP tests, Swagger UI, OpenAPI and
+other boundary snapshots, a protected verification policy, CI, and an
+`AGENTS.md` guide for coding agents.
 
-```sh
-curl -X POST http://127.0.0.1:8000/todos \
+With the server running, create a todo:
+
+```shell
+curl -i \
   -H 'content-type: application/json' \
-  -d '{"title": "Buy milk"}'
+  -d '{"title":"Buy milk"}' \
+  http://127.0.0.1:8000/todos
 ```
+
+Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for Swagger UI or
+follow [build a feature end to end](https://tenchi.io/build-a-feature) to carry
+one operation through its contract, use case, persistence adapters, tests,
+OpenAPI, and final verification receipt.
 
 To add Tenchi to an existing project instead:
 
-```sh
+```shell
 uv add tenchi
 ```
 
-Add MCP support with `uv add --dev "tenchi[mcp]"` and follow the [MCP server
-guide](https://tenchi.io/mcp) to connect a coding agent.
+Follow [add Tenchi to an existing project](https://tenchi.io/existing-project)
+for the first contract, use case, context, route, ASGI application, test, and
+OpenAPI baseline.
 
-Add the payload-safe OpenTelemetry bridge with
-`uv add "tenchi[otel]" opentelemetry-sdk`. Tenchi records finalized request,
-use-case, client, and retry-attempt outcomes through the providers your
-application configures; see the
-[observability guide](https://tenchi.io/observability).
+## The core model
 
-Follow the [existing-project guide](https://tenchi.io/existing-project) to add
-the first contract, use case, ASGI application, test, and OpenAPI baseline.
-
-## How it works
-
-A contract declares the HTTP boundary:
+Schemas define application and boundary data:
 
 ```python
-class CreatedTodoHeaders(BaseModel):
-    location: str = Field(alias="Location")
+# app/features/todos/schemas.py
+from pydantic import BaseModel, Field
+
+
+class CreateTodo(BaseModel):
+    title: str = Field(min_length=1)
+
+
+class Todo(BaseModel):
+    id: str
+    title: str
+    completed: bool
+```
+
+A contract owns the HTTP boundary:
+
+```python
+# app/features/todos/contracts.py
+from tenchi.contracts import contract
+
+from .schemas import CreateTodo, Todo
 
 
 create_todo_contract = contract(
@@ -70,253 +125,131 @@ create_todo_contract = contract(
     path="/todos",
     request=CreateTodo,
     response=Todo,
-    response_headers=CreatedTodoHeaders,
     status=201,
-    request_examples={"create": CreateTodo(title="Buy milk")},
-    response_examples={
-        "created": Todo(id="todo_123", title="Buy milk", completed=False)
-    },
 )
 ```
 
-A use case is an ordinary async function whose dependencies come from the app
+A use case owns behavior and receives app-defined dependencies through its
 context:
 
 ```python
+# app/features/todos/use_cases/create_todo.py
+from app.server.context import AppContext
+
+from ..schemas import CreateTodo, Todo
+
+
 async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
     return await context.todos.create(title=request.title)
 ```
 
-A route binds them together. Tenchi immediately checks that every boundary
-parameter and the return annotation exactly match the contract, so invalid
-wiring fails during application composition rather than on a request:
+A route binds the two values:
 
 ```python
-def create_todo_headers(todo: Todo) -> CreatedTodoHeaders:
-    return CreatedTodoHeaders(Location=f"/todos/{todo.id}")
+# app/features/todos/routes.py
+from tenchi.routes import route, route_group
+
+from .contracts import create_todo_contract
+from .use_cases.create_todo import create_todo
 
 
 routes = route_group(
-    route(
-        create_todo_contract,
-        create_todo,
-        response_headers=create_todo_headers,
-    ),
+    route(create_todo_contract, create_todo),
 )
 ```
 
-The synchronous response-header projector keeps HTTP metadata at the route
-boundary while the use case continues to return only domain data. Tenchi
-validates and serializes those headers before the request scope commits. The
-typed client validates them on every call; use `call_with_response()` when you
-also want the typed headers and underlying httpx response.
+`route()` checks the use-case parameters and return annotation against the
+contract during application composition. At runtime, Tenchi validates the
+request before the use case runs and validates the response before its request
+scope commits.
 
-Applications use this structure:
+Applications keep the same dependency direction as they grow:
 
 ```text
 app/
-  features/<feature>/   # contracts, schemas, ports, routes, jobs, tasks, tools, evaluations, use cases
+  features/<feature>/   # contracts, schemas, ports, policies, use cases, routes
   shared/               # shared errors and domain concepts
-  infra/                # concrete port implementations
-  server/               # context, runtime, preflight, boundary composition, ASGI app
-tests/                  # HTTP integration tests
+  infra/                # concrete adapters for app-owned ports
+  server/               # context, lifecycle, hooks, composition, ASGI app
+tests/                  # cross-feature and HTTP integration tests
 ```
 
-The main pieces are:
+Read the [mental model](https://tenchi.io/concepts) and
+[application architecture](https://tenchi.io/architecture) for the complete
+placement and dependency rules.
 
-- Pydantic validation for request bodies, path parameters, query parameters,
-  request and successful response headers, and response bodies; field aliases
-  are the names used on the wire and in OpenAPI, and nullable request types can
-  send JSON `null` explicitly. Declared media types are enforced against wire
-  `Content-Type`: mismatched requests receive a framework-owned 415 and the
-  typed client rejects mismatched responses. Charset-qualified text contracts
-  are encoded and decoded strictly in both directions; unsupported declared
-  charsets fail when the contract is built.
-- `typing.Protocol` ports and explicit dependency wiring instead of a DI
-  container.
-- Declared application errors with a stable JSON envelope. OpenAPI enumerates
-  the exact codes and application/framework source for every error status and
-  documents the framework-owned 500 available on every operation.
-- Named request and response examples are validated, serialized with real wire
-  aliases, and checked against the generated OpenAPI schema before publication.
-- A named exception hierarchy that distinguishes configuration mistakes from
-  runtime application and transport failures.
-- A contract-driven async client with explicit bounded retries for transport
-  failures, declared error codes, and selected raw HTTP statuses; per-attempt
-  outcomes; OpenAPI 3.1 generation; and an optional Swagger UI route.
-- Lifespan resources, request-scoped contexts, authentication hooks, middleware,
-  request deadlines, HTTP and use-case outcome observers, pagination, health
-  checks, in-process testing helpers, and an optional OpenTelemetry bridge for
-  logical spans and bounded-cardinality metrics.
-- Infrastructure-neutral idempotency with canonical validated-input
-  fingerprints, durable store transitions, typed result replay, scoped keys,
-  expiration, standard conflict/in-progress errors, and a concurrency-safe
-  memory adapter for tests.
-- Checked contract metadata identifies retry-safe unsafe HTTP operations through
-  the required `Idempotency-Key` header and a machine-readable OpenAPI
-  extension; applications still own replay storage and transaction placement.
-- Infrastructure-neutral fixed-window rate limits with atomic store decisions,
-  weighted costs, a standard declared 429 response, and a concurrency-safe
-  memory adapter for tests.
-- Reusable idempotency and rate-limit adapter conformance checks for
-  persistence, identity isolation, expiration boundaries, token fencing, and
-  concurrent admission.
-- Signed inbound webhook bindings that verify exact, size-bounded bytes before
-  parsing, attach service identity to the request context, and fail composition
-  when a marked webhook contract has no verifier.
-- Queue-neutral background jobs with validated producer messages,
-  composition-time handler bindings, validated consumer results, shared
-  use-case outcomes, and application-map nodes. Applications keep ownership of
-  queue persistence, acknowledgement, retries, and dead letters.
-- Provider-neutral AI evaluation gates with typed cases, normalized metric
-  thresholds, bounded lifecycle-aware execution, optional token and cost
-  budgets, redacted reports, CLI automation, and opt-in coding-agent MCP
-  execution. Applications keep ownership of models, prompts, judges, and
-  datasets.
+## One workflow for humans, agents, and CI
 
-`public` defaults to `False`. Set `public=True` for operations that an
-authentication hook should exempt, then inspect the metadata in the hook:
+Tenchi makes the intended development loop explicit:
 
-```python
-health = contract(method="GET", path="/health", response=Health, public=True)
+```shell
+# Inspect the current application and its relationships.
+uv run tenchi map --feature todos
 
+# After declaring complete_todo_contract, preview its use-case boundary.
+uv run tenchi make use-case todos complete_todo \
+  --from-contract app.features.todos.contracts:complete_todo_contract \
+  --dry-run --json
 
-def authenticate(info: RequestInfo, context: AppContext) -> AppContext | None:
-    if info.contract.public:
-        return None
-    # Authenticate and return an enriched context, or raise AppError.
+# Run formatting, linting, types, tests, architecture, and snapshot checks.
+uv run tenchi check
+
+# In a repository with origin/main, verify against that historical commit.
+uv run tenchi verify --base-ref origin/main --json
 ```
 
-When OpenAPI security schemes are configured, public operations receive an
-empty per-operation security requirement. `health_route()` and
-`openapi_route()` and `swagger_ui_route()` are public by default; pass
-`public=False` to protect them.
-The metadata itself does not authenticate requests—application hooks remain in
-control.
+`tenchi check` answers whether the current application is internally coherent.
+`tenchi verify` additionally requires a complete application map, compares
+public boundaries and verification policy with the selected Git commit, and
+binds its receipt to the exact source tree it observed. Contract-driven change
+plans can require the generated structure and its exact pytest target to appear
+in that receipt.
 
-Signed webhook contracts use a separate exact-body authentication boundary:
+Inspection, generator-preview, discovery, diagnostic, execution, check, and
+verification results support versioned, payload-safe JSON. Compatibility
+reports use `--diff-format json`; raw OpenAPI and manifest output retain their
+published document schemas. The `tenchi mcp` command exposes the same
+inspection, preview, compatibility, check, and verification operations to
+MCP-aware coding agents over stdio. Generated applications configure that
+server in `.mcp.json`.
 
-```python
-delivery = contract(
-    method="POST",
-    path="/webhooks/delivery",
-    request=Delivery,
-    status=204,
-    public=True,
-    webhook=True,
-)
+Read [the coding-agent workflow](https://tenchi.io/agents),
+[connect the coding-agent MCP server](https://tenchi.io/mcp), and
+[verify a generated change](https://tenchi.io/change-plans) for the complete
+loop.
 
-app = create_app(
-    routes=route_group(route(delivery, receive_delivery)),
-    context_factory=create_context,
-    webhooks=(webhook(delivery, verify_delivery),),
-)
-```
+## Production boundaries without prescribed infrastructure
 
-The verifier sees the immutable wire bytes and read-only headers before
-Pydantic parses the body. It may return an enriched context carrying verified
-service identity. See the [signed webhook
-guide](https://tenchi.io/webhooks) for HMAC verification, replay protection,
-and error declarations.
+Tenchi owns application-level contracts and lifecycle guarantees. Your app
+chooses the infrastructure behind them.
 
-Application-level quotas stay in use cases and use authenticated scope:
+| Concern | Tenchi provides | Your application chooses |
+| --- | --- | --- |
+| HTTP | Contracts, validation, declared errors, typed client, OpenAPI | Middleware, deployment platform, proxy |
+| Identity | Authentication hooks, context enrichment, authorization patterns | Identity provider, credentials, policy rules |
+| Data | App-owned ports, scoped contexts, transaction patterns, test helpers | Database, ORM or driver, migrations |
+| Reliability | Idempotency, rate-limit, retry, webhook, and job primitives | Durable stores, queue, scheduler, dead-letter policy |
+| Operations | Health routes, deployment preflight, named tasks, payload-safe outcomes | Environment checks, runbooks, exporters |
+| AI | Typed tools, authenticated MCP, evaluation gates | Models, prompts, agent loop, datasets, judges |
 
-```python
-permit = await enforce_rate_limit(
-    context.rate_limits,
-    namespace="tasks.create",
-    scope=user.id,
-    limit=5,
-    window_seconds=60,
-)
-```
+This division keeps the framework small while giving teams an explicit answer
+for common production concerns. The [production handbook](https://tenchi.io/production)
+covers configuration, transactions, concurrency, retries, background work,
+observability, and deployment as one system.
 
-Exhausted windows raise the declared `RATE_LIMITED` error with `Retry-After`.
-Use the built-in `MemoryRateLimitStore` in tests and supply an atomic shared
-store in multi-process deployments. See [rate limiting](https://tenchi.io/rate-limits)
-for idempotency placement, transaction choices, and edge-limit boundaries.
+## Build AI features on normal use cases
 
-For endpoints with more than one successful status, declare response
-definitions and select one in a synchronous presenter. Their body and header
-types become the contract's aggregate typed-client result, so they are the
-only source of truth. The same mechanism is Tenchi's controlled HTTP escape
-hatch: a passthrough definition may return a Starlette
-`StreamingResponse`, `FileResponse`, or redirect while its status, media type,
-media-type parameters, and headers remain contract-owned. No-body definitions
-accept only a concrete response with an empty materialized body; streaming
-definitions must declare their body type. The typed client reports the selected
-definition on `ClientResponse.definition` and validates its body and headers.
+Application tools add a stable machine-facing contract around ordinary
+application behavior:
 
 ```python
-from tenchi.responses import PresentedResponse, present, response
+from app.shared.errors import unauthorized
+from tenchi.tools import tool, tool_group, tool_handler
 
-created = response(Todo, status=201)
-existing = response(Todo, status=200)
-
-put_todo_contract = contract(
-    method="PUT",
-    path="/todos",
-    request=CreateTodo,
-    responses=(created, existing),
-    timeout=5.0,
-)
+from .schemas import Project
+from .use_cases.list_projects import list_projects
 
 
-def present_put(result: PutTodoResult) -> PresentedResponse:
-    outcome = created if result.created else existing
-    return present(outcome, result.todo)
-
-
-route(put_todo_contract, put_todo, present=present_put)
-```
-
-When one status permits alternative top-level body schemas, pass them as
-separate positional alternatives so Pyright preserves the exact union:
-
-```python
-flexible = response(Todo, str, status=200)  # ResponseDef[Todo | str, None]
-```
-
-Nested unions retain their ordinary spelling, such as
-`response(list[Todo | str], status=200)`. Each response definition has one
-fixed object-shaped header schema; differing header shapes belong in separate
-definitions.
-
-`timeout=` applies to this HTTP route: it cooperatively cancels overdue work,
-lets request-scope cleanup and rollback finish, then returns the framework's
-504 even if application code catches the injected cancellation. It does not
-follow the use case into tools, jobs, tasks, or direct execution; put a shared
-deadline in application or provider code when every entrypoint needs the same
-bound. `create_app(observers=...)` delivers an
-immutable `RequestOutcome`, including a read-only header mapping, after each
-matched route has finalized. Observer failures are logged and never change the
-response. `create_app(use_case_observers=...)` and
-`execute(use_case_observers=...)`, task runners, and tool runners deliver the
-same immutable `UseCaseOutcome` after context cleanup for every use case that
-was actually invoked. Finalized outcomes include a UTC `completed_at` captured
-before observer delivery, so delayed observers do not move the event's
-timestamp.
-`Client(observers=...)` delivers immutable `ClientOutcome` values for outbound
-contract calls, including transport failures, invalid responses, and
-cancellation, without carrying input, URL, header, body, or exception payloads.
-
-Named operational tasks add validated input and result contracts plus
-application lifecycle wiring around selected use cases. Use them for
-operator-invoked backfills, repairs, replays, and maintenance—not scheduling or
-queue consumption:
-
-```python
-repair_members_task = task(
-    "projects.repair_members",
-    repair_project_members,
-    description="Replace malformed project member lists.",
-)
-```
-
-Application tools expose selected use cases to AI and other machine callers
-without choosing a model provider or transport:
-
-```python
 search_projects_tool = tool(
     "projects.search",
     result=list[Project],
@@ -331,276 +264,95 @@ tools = tool_group(
 )
 ```
 
-`ToolRunner` validates input before application resources open, validates the
-result and its serialized form before context commit, preserves only declared
-application errors, and masks unexpected failures. `tool_manifest()` returns
-deterministic input and output JSON Schemas plus safety metadata for a transport
-adapter; `TOOL_MANIFEST_VERSION` identifies that versioned protocol. See the
-[application tools guide](https://tenchi.io/tools).
+The tool runner validates input and output, opens the same application
+lifecycle and scoped context used by other entrypoints, preserves only declared
+application errors, and masks unexpected failures. The same group can serve an
+in-process agent or an authenticated application MCP server with caller-specific
+discovery and explicit approval for destructive calls.
 
-Install `tenchi[mcp]` and use `create_tool_mcp_server()` to publish the same
-group over MCP. The adapter authenticates discovery and invocation, can filter
-visible tools per principal, denies destructive tools without an explicit
-approval decision, and returns versioned structured results through the stable
-2.x line of the official MCP Python SDK. Failed structured results also set
-MCP's standard `isError` flag so generic hosts do not treat them as successful
-tool output. Streamable HTTP is the supported network transport; inherited
-legacy SSE entrypoints are rejected because they cannot preserve Tenchi's
-per-request header authentication boundary:
+When behavior depends on a model, typed evaluation cases apply metric
+thresholds, per-case deadlines, and optional token and cost budgets. Evaluation
+policy is snapshotted and compared separately from model execution, so an agent
+cannot silently weaken a release gate and still pass historical verification.
 
-```python
-from app.server.runtime import DATABASE_PATH
-from tenchi.mcp import create_tool_mcp_server
+Read [application tools](https://tenchi.io/tools),
+[serve tools over MCP](https://tenchi.io/tool-mcp), and
+[AI evaluations](https://tenchi.io/evaluations).
 
-mcp = create_tool_mcp_server(
-    tools=tools,
-    authenticate=authenticate_mcp_request,
-    runner_factory=lambda user: create_user_tool_runner(
-        database_path=DATABASE_PATH,
-        user=user,
-    ),
-)
-```
+## CLI at a glance
 
-The application still owns identity, approval policy, and use-case
-authorization. See [Serve application tools over
-MCP](https://tenchi.io/tool-mcp).
+| Command | Purpose |
+| --- | --- |
+| `tenchi new` | Generate a complete application |
+| `tenchi make` | Preview or generate features and use-case boundaries |
+| `tenchi routes` / `tenchi map` | Inspect runtime routes and application structure |
+| `tenchi check` | Run deterministic local quality and snapshot checks |
+| `tenchi verify` | Produce historical compatibility and completion evidence |
+| `tenchi openapi` / `jobs` / `tools` / `eval snapshot` | Write and compare public boundary manifests |
+| `tenchi task` | Discover and run validated operational tasks |
+| `tenchi preflight` | Check the target deployment environment read-only |
+| `tenchi eval` | Discover or run app-owned AI evaluation suites |
+| `tenchi mcp` | Serve coding-agent operations over stdio MCP |
+| `tenchi dev` | Run the ASGI application locally |
 
-Application-owned evaluations declare typed cases, normalized metric
-thresholds, per-case timeouts, and optional token and cost budgets. The runner
-uses the same lifespan and scoped-context pattern as other entrypoints while
-returning only scores, usage, status, durations, and stable failure codes.
-Budget status distinguishes measured limit overruns from usage that could not
-be verified. See the [AI evaluations guide](https://tenchi.io/evaluations).
+Run `tenchi <command> --help` for options or read the
+[CLI reference](https://tenchi.io/cli).
 
-See [`examples/todos`](examples/todos) for a complete application with
-authentication, SQLite persistence, direct use-case tests, typed-client tests,
-and OpenAPI compatibility checks. Use the
-[production handbook](https://tenchi.io/production) for transactions, retries,
-background work, observability, and deployment guidance.
+## Is Tenchi a fit?
 
-See [`examples/fieldnotes`](examples/fieldnotes) for a cited AI reference
-backend. It saves owner-scoped research, indexes passages through a durable
-background job, exposes search and cited answers through HTTP and authenticated
-application tools, and gates retrieval, required evidence, and citation
-integrity with deterministic evaluations. The default answer provider needs no
-credentials; replace its feature-owned protocol adapter when connecting a
-model SDK.
+Tenchi is designed for long-lived typed JSON APIs where application structure,
+client behavior, AI-facing tools, and compatibility need to remain aligned.
+It is a strong fit when the same use cases must run through HTTP, jobs, tasks,
+scripts, or tools and when both agents and people need machine-checkable
+evidence for a change.
 
-## CLI
+Choose another framework when you need WebSockets, HTML templates, an ORM,
+admin UI, background runtime, or a large integration ecosystem as built-in
+features. Tenchi exposes Starlette, httpx, and Pydantic where direct access is
+more useful than another abstraction, but it deliberately does not provide a
+dependency-injection container, model SDK, agent loop, queue, or scheduler.
 
-```sh
-tenchi new my_app
-tenchi make feature notes --dry-run
-tenchi make feature notes --json
-tenchi make use-case notes create_note --dry-run
-tenchi make use-case notes create_note \
-  --from-contract app.features.notes.contracts:create_note_contract \
-  --dry-run --json
-tenchi routes
-tenchi map
-tenchi map --feature notes --kind route,tool,use-case,port --json
-tenchi jobs
-tenchi jobs --diff jobs.json
-tenchi jobs --diff-ref origin/main --snapshot jobs.json
-tenchi jobs --check jobs.json
-tenchi jobs --write jobs.json
-tenchi tools
-tenchi tools --diff tools.json
-tenchi tools --diff-ref origin/main --snapshot tools.json
-tenchi tools --check tools.json
-tenchi tools --write tools.json
-tenchi openapi
-tenchi openapi --diff openapi.json
-tenchi openapi --diff-ref origin/main --snapshot openapi.json
-tenchi openapi --check openapi.json
-tenchi openapi --write openapi.json
-tenchi doctor --json
-tenchi check
-tenchi verify --base-ref origin/main --json
-tenchi preflight
-tenchi preflight --json
-tenchi eval list
-tenchi eval snapshot --diff evaluations.json
-tenchi eval snapshot --diff-ref origin/main --snapshot evaluations.json
-tenchi eval snapshot --check evaluations.json
-tenchi eval snapshot --write evaluations.json
-tenchi eval run support.answer_quality --json
-tenchi task list
-tenchi task run projects.repair_members --input '{"dry_run": true}'
-tenchi mcp
-tenchi dev
-```
+Read the [framework comparison](https://tenchi.io/comparisons) for a candid
+comparison with FastAPI, Starlette, Litestar, and Django Ninja.
 
-`openapi --write` stores canonical, key-sorted JSON. Before accepting a changed
-snapshot, run `openapi --diff` to classify changes as breaking, additive,
-metadata-only, or unknown. Breaking and unknown changes return a non-zero
-status; additive and metadata-only changes pass. Use `--diff-format json` for
-machine-readable output. `--diff-ref` reads the snapshot at a Git commit, which
-keeps a pull-request gate historical even when the branch updates its snapshot.
-`openapi --check` remains the exact drift check for tests and CI. Like `check`
-and `verify`, standalone `openapi` defaults to `app.server.routes:api_routes`
-and discovers literal `OPENAPI_TITLE`, `OPENAPI_VERSION`,
-`OPENAPI_DESCRIPTION`, and `OPENAPI_SECURITY` declarations from that module.
-Flags override those declarations for nonstandard composition. Run `--diff`
-before replacing the baseline with `--write`.
-`--output` and `-o` remain aliases for `--write`. For programmatic checks,
-import `analyze_openapi_compatibility` from `tenchi.compatibility`.
+## Examples
 
-`tools --write` stores the registered application-tool manifest as canonical
-JSON. Before replacing it, run `tools --diff` or `tools --diff-ref` to classify
-changes to stable names, input and output schemas, declared application errors,
-descriptions, and safety annotations. Removed tools, narrower inputs, wider
-outputs, newly possible errors, and less-safe annotations fail compatibility.
-Use `--diff-format json` for a versioned result, or import
-`analyze_tool_compatibility` from `tenchi.compatibility`.
+- [`examples/todos`](https://github.com/taylorbryant/tenchi/tree/main/examples/todos)
+  is the generated teaching application. It demonstrates authentication,
+  SQLite persistence, memory-backed use-case tests, typed-client tests, and
+  boundary snapshots.
+- [`examples/taskboard`](https://github.com/taylorbryant/tenchi/tree/main/examples/taskboard)
+  combines Tenchi's production capabilities in a larger application and its
+  own standalone environment.
+- [`examples/fieldnotes`](https://github.com/taylorbryant/tenchi/tree/main/examples/fieldnotes)
+  is a cited-AI reference backend with background indexing, authenticated
+  application tools and MCP, bounded provider calls, preflight, and evaluation
+  gates. Its default provider runs without model credentials.
 
-`jobs --write` stores the registered durable job-message manifest as canonical
-JSON without queued payloads or handler results. Run `jobs --diff` or
-`jobs --diff-ref` before replacing it. Removed jobs and narrower consumer input
-schemas fail compatibility; additive jobs, wider accepted inputs, and
-description-only changes can pass. Import `analyze_job_compatibility` from
-`tenchi.compatibility` for programmatic checks.
+## Documentation
 
-`tenchi map` combines source declarations with the composed route group into a
-deterministic graph of features, contracts, routes, operational tasks,
-background jobs, application tools, evaluations, use cases, policies, ports,
-adapters, context, entrypoints, and tests. Every
-relationship includes source evidence and a confidence level. Use `--feature`
-for a feature plus its direct cross-feature dependencies, `--kind` for a
-comma-separated node projection, and `--json` for the versioned result.
-
-`tenchi verify --base-ref <ref>` produces one completion receipt for the
-finished tree. It resolves the historical ref to an immutable commit, runs
-`tenchi check`, requires an application map without diagnostics or unresolved
-relationships, and compares the OpenAPI, durable job-message, application-tool,
-and evaluation-policy boundaries with their snapshots at that commit.
-Before running application-owned checks or imports, verification records the
-current `HEAD`, whether the application tree is dirty, and a SHA-256 digest of
-every tracked or nonignored untracked path below the application root. It
-rechecks that identity after each application-owned stage and at the end. If a
-test, import, or concurrent edit leaves the tree changed at a checkpoint, the
-receipt fails with a `source` error instead of combining evidence from different
-source states. Git environment variables cannot redirect capture to another
-checkout.
-Ignored caches, databases, and other runtime artifacts do not affect the
-digest; add generated artifacts that should remain local to `.gitignore`.
-Generated applications also commit a repository-owned `tenchi.toml`:
-
-```toml
-schema_version = 1
-
-[verify]
-check = true
-architecture = true
-openapi = true
-jobs = true
-tools = true
-evaluations = true
-```
-
-Verification compares this policy with the same historical commit. If a change
-disables or removes required evidence, Tenchi still runs the historical
-requirement and fails the receipt for the weakening. Missing policy files use
-the strict built-in policy for existing applications; malformed or removed
-repository policies fail closed. The JSON receipt records each requirement as
-`passed`, `failed`, `skipped`, `not_configured`, or `not_verifiable`. Verify
-never updates snapshots and exits non-zero when required evidence or the policy
-comparison fails.
-
-`tenchi task list` reports the runner's task names and JSON Schemas. `tenchi
-task run` validates input, owns one application lifespan and scoped context,
-and validates output before transactional cleanup commits. Both commands
-support versioned JSON results.
-
-`tenchi preflight` runs the read-only, timeout-bounded observations declared by
-`app.server.preflight:checks` against the selected deployment environment. It
-is deliberately separate from deterministic `tenchi check`; use it after
-migrations and before traffic shifts to verify database connectivity and
-schema compatibility, secret-manager access, outbound dependencies, and worker
-readiness. Structured results expose only static names, descriptions, failure
-codes, statuses, and durations. See the [deployment preflight
-guide](https://tenchi.io/preflight).
-
-`tenchi eval list` discovers registered suites without exposing case inputs or
-running providers. `tenchi eval snapshot` writes and compares a payload-free
-policy manifest containing names, case schemas, case execution order, metrics,
-thresholds, timeouts, and budgets. Lowered thresholds, removed or reordered
-cases, removed metrics, larger budgets or timeouts, and deterministic-to-model
-changes fail compatibility. A missing historical snapshot fails unless first
-adoption is explicitly authorized with `--allow-missing-baseline`. The manifest
-intentionally excludes case inputs and does not run evaluators.
-`tenchi eval run` applies the snapshotted policy to real cases and returns a
-payload-safe result. Evaluation execution remains separate from `check` and
-`verify` because it may be nondeterministic, contact external systems, and
-incur cost; those commands verify only the declared policy.
-
-Contract-driven use-case generation can write a versioned, content-addressed
-change plan with `--plan <path> --base-ref <ref>`. Pass that path to `tenchi
-verify --change-plan` to require the generated files, removed incomplete
-markers, registered contract and use case, the accepted contract-derived
-signature, exact route bindings, a direct dependency from the exact generated
-test function, and successful execution of every invocation of that pytest
-target in the final receipt. Keep one top-level generated test function, do not
-shadow or rebind its imported use case, and use only decorators that preserve
-the function itself; Tenchi compares the callable pytest collects with that
-source definition. The plan and verification must resolve to the same immutable
-commit. A dry run can return the prospective plan without writing either it or
-the generated files.
-
-Generator `--dry-run` output lists every file without writing it. `make`,
-`routes`, `map`, `jobs`, `tools`, `preflight`, `eval list|run`, `task list|run`,
-`doctor`, `check`, and `verify` accept `--json` and return versioned results for
-agents and automation. `tenchi check` runs Ruff
-formatting and linting, Pyright, pytest, doctor, and the OpenAPI,
-job-message, application-tool, and evaluation-policy snapshot checks even when an earlier
-step fails; failed output is bounded and each step reports its duration.
-Tenchi snapshots the JSON Schema for these results and the MCP tool surface;
-breaking protocol changes require a new `schema_version`.
-Expected failures that occur before an operation-specific result exists still
-emit one versioned `operation_error` object with a stable operation and code.
-The machine-readable failure excludes application exception text and payloads,
-and the process retains a nonzero exit status.
-See the [coding-agent workflow](https://tenchi.io/agents) for the complete
-inspect, preview, edit, validate, and compatibility loop.
-
-The `tenchi mcp` CLI serves the same versioned map, route, job-message,
-application-tool, preflight, evaluation-discovery, task-discovery, doctor,
-generator-preview, OpenAPI-diff, job-diff, tool-diff, evaluation-policy-diff,
-check, and verification results over stdio. Evaluation execution is absent
-unless the server starts with
-`--allow-evaluation-runs`;
-task execution is absent unless it starts with `--allow-task-runs`.
-Preflight remains available as a read-only tool but deliberately contacts the
-environment captured by the server process. Inspection and preview tools do
-not write application files; project-owned commands executed by `check` retain
-their normal side effects. Generated apps register the command in `.mcp.json`.
-Existing apps install the optional development dependency with
-`uv add --dev "tenchi[mcp]"`. This coding-agent server is separate from the
-application MCP adapter described above.
-
-Run `tenchi <command> --help` for command options.
+- [Quickstart](https://tenchi.io/getting-started)
+- [Build a feature end to end](https://tenchi.io/build-a-feature)
+- [Contracts](https://tenchi.io/contracts)
+- [Use cases and ports](https://tenchi.io/application)
+- [Testing](https://tenchi.io/testing)
+- [Production handbook](https://tenchi.io/production)
+- [Coding agents](https://tenchi.io/agents)
+- [Module reference](https://tenchi.io/reference)
 
 ## Development
 
-```sh
+```shell
 uv sync
-uv run pytest
 uv run ruff format --check .
 uv run ruff check .
 uv run pyright
+uv run pytest
 ```
 
-The documentation is a separate Bun and Next.js application:
+The documentation is a separate Next.js application in `docs/`. Run
+`bun install` and `bun run check` from that directory to lint, type-check, test,
+and build the static site.
 
-```sh
-cd docs
-bun install
-bun run dev
-```
-
-Run `bun run check` in `docs/` to lint, type-check, test, and build the static
-GitHub Pages export. Search data and `llms.txt` files are generated during the
-build from the registered MDX pages.
-
-Tenchi is licensed under the MIT License.
+Tenchi is available under the
+[MIT License](https://github.com/taylorbryant/tenchi/blob/main/LICENSE).
