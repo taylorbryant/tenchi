@@ -30,7 +30,10 @@ from .models import (
 
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
-    arguments = parser.parse_args(argv)
+    benchmark_arguments, agent_command = _split_agent_command(argv)
+    arguments = parser.parse_args(benchmark_arguments)
+    if arguments.command == "run":
+        arguments.agent_command = agent_command
     try:
         return _dispatch(arguments)
     except (BenchmarkError, OSError, UnicodeError, ValueError) as exc:
@@ -158,7 +161,9 @@ def _parser() -> argparse.ArgumentParser:
     _add_agent_metadata(evaluate, default_status="external")
 
     run = subparsers.add_parser(
-        "run", help="Prepare, invoke an stdin-driven agent, and evaluate it"
+        "run",
+        help="Prepare, invoke an stdin-driven agent, and evaluate it",
+        epilog="Place the agent command after '--'.",
     )
     run.add_argument("task")
     run.add_argument("workspace")
@@ -166,12 +171,19 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--timeout", type=_positive_float, default=None)
     _add_workspace_options(run)
     _add_agent_metadata(run, default_status=None)
-    run.add_argument("agent_command", nargs=argparse.REMAINDER)
 
     report = subparsers.add_parser("report", help="Aggregate result JSON files")
     report.add_argument("results", nargs="+")
     report.add_argument("--json", action="store_true")
     return parser
+
+
+def _split_agent_command(argv: list[str] | None) -> tuple[list[str] | None, list[str]]:
+    values = list(sys.argv[1:] if argv is None else argv)
+    if not values or values[0] != "run" or "--" not in values:
+        return argv, []
+    separator = values.index("--")
+    return values[:separator], values[separator + 1 :]
 
 
 def _add_workspace_options(parser: argparse.ArgumentParser) -> None:

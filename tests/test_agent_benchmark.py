@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from benchmarks.agent_changes import cli as benchmark_cli
 from benchmarks.agent_changes import core
 from benchmarks.agent_changes.cli import main
 from benchmarks.agent_changes.core import (
@@ -701,6 +702,54 @@ def test_cli_lists_tasks_as_json(capsys: pytest.CaptureFixture[str]) -> None:
     output = capsys.readouterr().out
     assert '"schema_version": 1' in output
     assert '"complete_todo"' in output
+
+
+def test_run_cli_accepts_options_after_the_workspace_and_splits_agent_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(*args: Any, **kwargs: Any) -> BenchmarkResult:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return _result("get_todo", ok=True, first_pass=True)
+
+    monkeypatch.setattr(benchmark_cli, "run_benchmark", fake_run)
+    output = tmp_path / "result.json"
+
+    exit_code = main(
+        [
+            "run",
+            "get_todo",
+            str(tmp_path / "workspace"),
+            "--output",
+            str(output),
+            "--agent-label",
+            "codex",
+            "--interface",
+            "cli",
+            "--",
+            "codex",
+            "exec",
+            "--approve-for-me",
+            "-",
+        ]
+    )
+
+    assert exit_code == 0
+    assert output.exists()
+    kwargs = cast(dict[str, object], captured["kwargs"])
+    assert kwargs["command"] == (
+        "codex",
+        "exec",
+        "--approve-for-me",
+        "-",
+    )
+    assert kwargs["label"] == "codex"
+    assert kwargs["interface"] == "cli"
+    assert '"ok": true' in capsys.readouterr().out
 
 
 def test_cli_refuses_state_and_result_files_inside_the_agent_workspace(

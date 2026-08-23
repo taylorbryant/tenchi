@@ -48,14 +48,39 @@ its working directory:
 
 ```sh
 uv run python -m benchmarks.agent_changes run complete_todo \
-  /tmp/tenchi-complete-todo-run-1 \
   --output /tmp/tenchi-complete-todo-run-1.json \
   --agent-label agent-name \
   --interface mcp \
   --attempt 1 \
   --interventions 0 \
+  /tmp/tenchi-complete-todo-run-1 \
   -- agent-command-that-reads-stdin
 ```
+
+Options may appear before or after the task and workspace. The `--` separator
+is required because everything after it belongs to the agent command.
+
+For example, the installed Codex CLI can run a CLI-only baseline with:
+
+```sh
+uv run python -m benchmarks.agent_changes run \
+  --output /tmp/tenchi-get-todo-run-1.json \
+  --agent-label codex-default \
+  --interface cli \
+  --attempt 1 \
+  --interventions 0 \
+  get_todo \
+  /tmp/tenchi-get-todo-run-1 \
+  -- \
+  codex exec \
+    --ephemeral \
+    --ignore-user-config \
+    --approve-for-me \
+    -
+```
+
+`--approve-for-me` already selects Codex's workspace-write sandbox. Do not
+combine it with Codex's separate `--sandbox` option.
 
 The harness deliberately does not prescribe a model vendor or agent CLI. Use a
 small adapter when the selected agent cannot receive its prompt on standard

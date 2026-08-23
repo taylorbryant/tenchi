@@ -36,5 +36,5 @@ async def test_memory_repository_finds_created_todos_and_rejects_unknown_ids() -
     repository = MemoryTodoRepository()
     created = await repository.create(title="Memory")
 
-    assert await repository.get(created.id) == created
-    assert await repository.get("missing") is None
+    assert await repository.get(todo_id=created.id) == created
+    assert await repository.get(todo_id="missing") is None
