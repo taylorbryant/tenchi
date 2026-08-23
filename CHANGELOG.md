@@ -7,7 +7,7 @@ versions may change the public API.
 
 ## [Unreleased]
 
-## [0.15.0] - 2026-08-22
+## [0.15.0] - 2026-08-23
 
 ### Added
 
