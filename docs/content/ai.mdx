@@ -1,0 +1,145 @@
+import { Callout } from "@/components/callout";
+
+# Build with AI
+
+Tenchi supports two different roles for AI without creating two application
+architectures:
+
+| Goal | Tenchi's role |
+| --- | --- |
+| Let a coding agent change the backend | Give the agent deterministic inspection, previewable generation, structured checks, and historical verification |
+| Add AI behavior to the backend | Expose ordinary use cases as typed tools, keep providers behind ports, and gate model behavior with evaluations |
+
+Both paths lead back to the same plain async use cases and explicit dependency
+wiring. Model-generated input never supplies identity or infrastructure, and a
+coding agent does not need a hidden framework runtime to understand the
+application.
+
+## Let an agent change the backend
+
+A coding agent works through the same development loop as a person:
+
+```shell
+uv run tenchi map --feature projects --json
+uv run tenchi make use-case projects create_project \
+  --from-contract app.features.projects.contracts:create_project_contract \
+  --dry-run --json
+uv run tenchi check --json
+uv run tenchi verify --base-ref origin/main --json
+```
+
+The map explains what exists and how it is connected. The preview derives a
+use-case boundary from the contract without writing files. `check` reports the
+complete local repair list, and `verify` compares the finished application with
+an immutable Git baseline.
+
+Generated applications include an `AGENTS.md` and project-local MCP
+configuration. Use the [coding-agent workflow](/agents) with any agent that can
+read files and run commands, or [connect an MCP-aware coding agent](/mcp) to the
+same renderer-independent operations.
+
+For contract-driven generation, a [change plan](/change-plans) can bind the
+requested contract, generated files, route wiring, and one test target to the
+final verification receipt. The receipt proves structural completion and
+reported test execution; externally owned acceptance tests remain the right
+boundary when the code producer is adversarial.
+
+## Add AI behavior to the backend
+
+Keep model calls behind an application-owned protocol, just like a database or
+external API:
+
+```python
+from typing import Protocol
+
+from .schemas import Answer, AnswerRequest
+
+
+class AnswerGenerator(Protocol):
+    async def answer(self, request: AnswerRequest) -> Answer: ...
+```
+
+The use case owns authorization, retrieval, business rules, and the decision to
+call that port. Infrastructure selects the provider and model at composition.
+The same use case can serve HTTP and an AI-facing tool:
+
+```python
+from app.shared.errors import question_not_answerable
+from tenchi.tools import tool, tool_group, tool_handler
+
+from .schemas import Answer, AnswerRequest
+from .use_cases.answer_question import answer_question
+
+
+answer_tool = tool(
+    "knowledge.answer",
+    request=AnswerRequest,
+    result=Answer,
+    description="Answer from sources visible to the authenticated user.",
+    errors=(question_not_answerable,),
+    read_only=True,
+    open_world=False,
+)
+
+tools = tool_group(
+    tool_handler(answer_tool, answer_question),
+)
+```
+
+The [application-tool boundary](/tools) validates input and output, publishes a
+deterministic manifest, and applies the application's lifespan and context to
+every call. It does not choose an agent SDK or model provider. Call tools
+in-process from your preferred AI runtime or [serve them over authenticated
+MCP](/tool-mcp).
+
+## Keep production rules in the application
+
+AI callers use the same production boundaries as every other caller:
+
+- Authentication supplies identity through application-owned context wiring.
+- Use cases and pure policies authorize every action.
+- Tool safety annotations describe behavior but never grant permission.
+- Idempotency, rate limits, deadlines, retries, jobs, and observability remain
+  ordinary application concerns.
+- Declared errors stay stable; unexpected exceptions and undeclared application
+  errors remain behind a generic invocation failure.
+
+This keeps model prompts and tool-selection logic from becoming an alternate
+authorization or transaction layer.
+
+## Gate behavior that deterministic tests cannot prove
+
+When a provider or model can change behavior without a Python code change,
+declare application-owned evaluation cases and metrics:
+
+```shell
+uv run tenchi eval list
+uv run tenchi eval run
+uv run tenchi eval snapshot --diff evaluations.json
+```
+
+[AI evaluations](/evaluations) run typed cases with bounded concurrency,
+timeouts, thresholds, and optional token or cost budgets. The payload-free
+policy snapshot makes a weakened gate visible in review without running a model
+during every deterministic check.
+
+<Callout title="Tenchi is not an agent runtime">
+  Tenchi does not implement model turns, handoffs, prompt templates,
+  conversation memory, vector search, or RAG orchestration. Use the libraries
+  that fit your product behind application ports; use Tenchi to keep their
+  inputs, permissions, lifecycle, outcomes, and release gates explicit.
+</Callout>
+
+## See the complete shape
+
+[Fieldnotes](/fieldnotes) combines owner-scoped ingestion, background indexing,
+authenticated application tools, MCP, cited answers behind a provider port,
+operational reindexing, preflight checks, and evaluation gates without model
+credentials in CI.
+
+Choose the next page from the role AI will play:
+
+- [Let a coding agent change your backend](/agents)
+- [Expose use cases as AI tools](/tools)
+- [Gate AI behavior with evaluations](/evaluations)
+- [Study the Fieldnotes reference backend](/fieldnotes)

@@ -1,6 +1,6 @@
 import { Callout } from "@/components/callout";
 
-# Production handbook
+# Prepare the application for production
 
 Tenchi keeps production infrastructure outside the framework core, but it
 gives each concern a defined place. Process resources live in lifespan,
@@ -8,9 +8,9 @@ request resources live in the context scope, external systems sit behind
 application-owned ports, and operational entrypoints call the same use cases
 as HTTP.
 
-This handbook turns that model into concrete recipes for a service that needs
-to survive retries, concurrent writes, partial failures, and deployment
-changes.
+This guide turns that model into an ordered production checklist for a service
+that needs to survive retries, concurrent writes, partial failures, and
+deployment changes.
 
 ## What Tenchi owns
 

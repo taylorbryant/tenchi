@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import Agents from "@/content/agents.mdx";
+import Ai from "@/content/ai.mdx";
 import Application from "@/content/application.mdx";
 import Architecture from "@/content/architecture.mdx";
 import Authentication from "@/content/authentication.mdx";
@@ -61,6 +62,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/execution": Execution,
   "/jobs": Jobs,
   "/tasks": Tasks,
+  "/ai": Ai,
   "/tools": Tools,
   "/tool-mcp": ToolMcp,
   "/evaluations": Evaluations,

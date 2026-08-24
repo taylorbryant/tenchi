@@ -7,6 +7,13 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Changed
+
+- The documentation now follows four reader journeys—start, build, ship, and
+  build with AI—with a task-oriented homepage, a shorter first-application
+  path, and one guide connecting coding-agent workflows with AI features built
+  into an application.
+
 ## [0.16.0] - 2026-08-23
 
 ### Added

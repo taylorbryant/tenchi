@@ -1,9 +1,10 @@
 import { Callout } from "@/components/callout";
 
-# Quickstart
+# Build and verify your first app
 
-Create a Tenchi application, run it, make one contract change, and produce a
-verification receipt against the unchanged starting point.
+In this guide, you will create a complete application, call its API, make one
+breaking and one additive contract change, and verify the result against the
+unchanged starting point.
 
 ## Requirements
 
@@ -19,37 +20,20 @@ cd my_app
 uv sync
 ```
 
-The scaffold is intentionally a small complete application rather than a
-single route. Its important files are:
+The scaffold is a small but complete application, not a disposable hello-world
+route. You only need four parts of it for this guide:
 
-| Path | Responsibility |
+| Path | What it gives you |
 | --- | --- |
-| `app/features/todos/contracts.py` | HTTP method, path, inputs, response, and metadata |
-| `app/features/todos/schemas.py` | Pydantic boundary and application data models |
-| `app/features/todos/use_cases/` | Plain application functions |
-| `app/features/todos/ports.py` | App-owned infrastructure protocols |
-| `app/infra/` | SQLite runtime adapter, memory test adapter, and port wiring |
-| `app/server/context.py` | Frozen context passed to use cases |
-| `app/server/runtime.py` | Lifespan and context wiring shared by entrypoints |
-| `app/server/preflight.py` | Read-only checks of the target deployment environment |
-| `app/server/evaluations.py` | AI evaluation lifecycle and context composition |
-| `app/server/jobs.py` | Background-job handler composition |
-| `app/server/tasks.py` | Operational task composition |
-| `app/server/tools.py` | Registered machine-facing tool composition |
-| `app/server/asgi.py` | Composition root and ASGI application |
-| `openapi.json`, `jobs.json`, `tools.json`, and `evaluations.json` | Version-controlled HTTP, job-message, tool, and evaluation-policy contracts |
-| `tenchi.toml` | Repository-owned requirements for the completion receipt |
-| `AGENTS.md` | Placement rules and the complete agent validation loop |
-| `.mcp.json` | Project-local registration for MCP-aware coding agents |
-| `.github/workflows/ci.yml` | Checks and historical boundary compatibility gates |
+| `app/features/todos/` | One complete feature: contracts, models, use cases, ports, routes, and tests |
+| `app/infra/` | SQLite for the running app and a memory adapter for focused tests |
+| `app/server/asgi.py` | The composition root that creates the ASGI application |
+| `openapi.json`, `jobs.json`, `tools.json`, `evaluations.json` | Version-controlled boundary snapshots checked by Tenchi |
 
-The starter preflight group is empty because a local source check must not
-contact an environment implicitly. Add production dependency observations by
-following [deployment preflight](/preflight).
-
-The starter evaluation group is also empty. Add typed cases and score
-thresholds when the application gains model-backed behavior; see [AI
-evaluations](/evaluations).
+You can ignore the empty jobs, tasks, tools, evaluations, and preflight
+composition points until the application needs them. They are present so a
+future feature has one predictable place to connect. Read [how Tenchi
+works](/concepts) when you want the full map.
 
 ## Run the checks
 
@@ -58,8 +42,9 @@ uv run tenchi check
 ```
 
 The command runs Ruff formatting and linting, Pyright, pytest, doctor, and the
-OpenAPI, job-message, application-tool, and evaluation-policy snapshot checks. It runs every
-step even after a failure so one pass reports the complete repair list.
+OpenAPI, job-message, application-tool, and evaluation-policy snapshot checks.
+It runs every step even after a failure so one pass reports the complete repair
+list.
 Generated code passes untouched. Use-case tests run without an HTTP server;
 integration tests exercise the composed ASGI application.
 
@@ -185,5 +170,9 @@ feature end to end](/build-a-feature). It changes a contract, use case, port,
 both persistence adapters, route composition, tests, and the OpenAPI snapshot
 as one reviewable operation.
 
-Next, read the [mental model](/concepts), then follow [app
-architecture](/architecture) when deciding where new code belongs.
+From here, choose the path that matches the next decision you need to make:
+
+- [Understand how Tenchi works](/concepts)
+- [Build a feature end to end](/build-a-feature)
+- [Prepare the application for production](/production)
+- [Build with AI](/ai)

@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import GithubSlugger from "github-slugger";
-import { docsRoutes, getAdjacentDocsRoutes } from "./lib/docs";
+import {
+  docsRoutes,
+  docsSections,
+  getAdjacentDocsRoutes,
+  getSectionLabel,
+} from "./lib/docs";
 import { cleanPage } from "./scripts/build-llms-txt";
 
 const docsRoot = import.meta.dir;
@@ -33,12 +38,35 @@ function headingIds(source: string): Set<string> {
 }
 
 describe("documentation", () => {
+  test("reader journeys remain the primary information architecture", () => {
+    expect(docsSections.map((section) => section.label)).toEqual([
+      "Start",
+      "Build",
+      "Ship",
+      "AI and agents",
+      "Reference",
+    ]);
+    expect(getSectionLabel("/getting-started")).toBe("Start");
+    expect(getSectionLabel("/contracts")).toBe("Build");
+    expect(getSectionLabel("/production")).toBe("Ship");
+    expect(getSectionLabel("/ai")).toBe("AI and agents");
+    expect(getSectionLabel("/ai/")).toBe("AI and agents");
+  });
+
   test("every registered route has an MDX page", () => {
     expect(
       docsRoutes
         .map((route) => pagePath(route.path))
         .filter((file) => !existsSync(file)),
     ).toEqual([]);
+  });
+
+  test("page headings state the task promised by navigation", () => {
+    for (const route of docsRoutes) {
+      if (route.path === "/") continue;
+      const source = withoutCode(readFileSync(pagePath(route.path), "utf8"));
+      expect(source.match(/^#\s+(.+)$/m)?.[1]).toBe(route.title);
+    }
   });
 
   test("every registered route has canonical previous and next navigation", () => {

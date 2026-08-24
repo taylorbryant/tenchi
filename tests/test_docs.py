@@ -57,6 +57,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "idempotency",
         "existing-project",
         "fieldnotes",
+        "ai",
         "concepts",
         "architecture",
         "comparisons",

@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { LogoMark } from "@/components/logo-mark";
 import { SearchButton } from "@/components/search";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { docsSections } from "@/lib/docs";
+import { docsSections, getSectionLabel } from "@/lib/docs";
 
 function isActive(pathname: string, href: string): boolean {
   return href === "/"
@@ -14,29 +14,68 @@ function isActive(pathname: string, href: string): boolean {
     : pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({
+  onNavigate,
+  collapsible = false,
+}: {
+  onNavigate?: () => void;
+  collapsible?: boolean;
+}) {
   const pathname = usePathname();
+  const activeSection = getSectionLabel(pathname) ?? docsSections[0].label;
+  const [openSection, setOpenSection] = useState(activeSection);
+
+  useEffect(() => {
+    setOpenSection(activeSection);
+  }, [activeSection]);
+
   return (
     <div className="flex flex-col gap-7">
-      {docsSections.map((section) => (
-        <div key={section.label} className="flex flex-col gap-2">
-          <div className="px-3 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-muted">
-            {section.label}
-          </div>
-          <div className="flex flex-col gap-0.5">
-            {section.routes.map((route) => (
-              <Link
-                key={route.path}
-                href={route.path}
-                onClick={onNavigate}
-                className={`rounded-md px-3 py-1.5 text-sm no-underline transition-colors ${isActive(pathname, route.path) ? "bg-accent/10 font-medium text-accent" : "text-ink-light hover:bg-surface-muted hover:text-ink"}`}
+      {docsSections.map((section) => {
+        const expanded = !collapsible || openSection === section.label;
+        return (
+          <div key={section.label} className="flex flex-col gap-2">
+            {collapsible ? (
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() =>
+                  setOpenSection((current) =>
+                    current === section.label ? "" : section.label,
+                  )
+                }
+                className="flex items-center justify-between rounded-md px-3 py-1 text-left text-[11px] font-medium uppercase tracking-[0.16em] text-ink-muted hover:bg-surface-muted hover:text-ink"
               >
-                {"navLabel" in route ? route.navLabel : route.title}
-              </Link>
-            ))}
+                {section.label}
+                <span
+                  aria-hidden="true"
+                  className={`text-sm transition-transform ${expanded ? "rotate-90" : ""}`}
+                >
+                  ›
+                </span>
+              </button>
+            ) : (
+              <div className="px-3 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-muted">
+                {section.label}
+              </div>
+            )}
+            {expanded && (
+              <div className="flex flex-col gap-0.5">
+                {section.routes.map((route) => (
+                  <Link
+                    key={route.path}
+                    href={route.path}
+                    onClick={onNavigate}
+                    className={`rounded-md px-3 py-1.5 text-sm no-underline transition-colors ${isActive(pathname, route.path) ? "bg-accent/10 font-medium text-accent" : "text-ink-light hover:bg-surface-muted hover:text-ink"}`}
+                  >
+                    {"navLabel" in route ? route.navLabel : route.title}
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -136,6 +175,7 @@ export function Nav({ version }: { version?: string }) {
         <div className="fixed inset-x-0 bottom-0 top-[57px] z-40 overflow-y-auto overscroll-contain border-t border-border bg-bg/95 backdrop-blur-sm xl:hidden">
           <div className="mx-auto max-w-3xl px-6 py-5">
             <NavLinks
+              collapsible
               onNavigate={() => {
                 window.scrollTo({ top: 0, left: 0, behavior: "auto" });
                 setOpen(false);

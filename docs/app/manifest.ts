@@ -7,7 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Tenchi documentation",
     short_name: "Tenchi",
-    description: "Documentation for the Tenchi Python framework.",
+    description:
+      "Build production Python backends that humans and coding agents can understand, change, and verify.",
     start_url: withBasePath("/"),
     display: "standalone",
     background_color: "#ffffff",
