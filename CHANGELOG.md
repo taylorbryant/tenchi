@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-08-23
+
 ### Added
 
 - `JobPayloadError` gives queue consumers a stable, payload-safe failure for a
@@ -23,11 +25,16 @@ versions may change the public API.
   evidence rather than an independent attestation; adversarial evaluation
   belongs outside the edited worktree. Agent protocol v12 publishes the
   provenance while retaining all earlier snapshots.
+- `JobDispatcher.dispatch()`, `TaskRunner.run()`, and `execute()` now raise the
+  corresponding payload-safe input error instead of Pydantic's
+  `ValidationError`. Queue workers and other direct callers should catch the
+  new Tenchi exception for their entrypoint.
 - `tenchi doctor` now requires the composition modules used by product
   commands, checks feature package initializers, rejects stray top-level
-  application modules, and rejects symlinked application paths.
-- Release publishing now requires a version-matching tag, checks the Fieldnotes
-  application, and builds documentation on pull requests before merge.
+  application modules, and rejects symlinked application paths. Existing
+  applications must provide `app/server/evaluations.py`, `jobs.py`,
+  `preflight.py`, `tasks.py`, and `tools.py`; each module may compose an empty
+  target when the application does not use that capability yet.
 
 ### Fixed
 
