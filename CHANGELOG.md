@@ -7,12 +7,24 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- Coding-agent benchmark v2 adds five production-shaped scenarios covering
+  additive persisted-contract evolution, authenticated owner scoping, durable
+  idempotency, transactional job handoff, and diagnosis of broken application
+  tool composition. Versioned task definitions may include content-addressed
+  starting fixtures that are applied before the immutable Git baseline while
+  hidden acceptance tests remain withheld until evaluation.
+
 ### Changed
 
 - The documentation now follows four reader journeys—start, build, ship, and
   build with AI—with a task-oriented homepage, a shorter first-application
   path, and one guide connecting coding-agent workflows with AI features built
   into an application.
+- The coding-agent benchmark protects generated agent instructions, MCP
+  configuration, ignore rules, dependency metadata, verification policy, and
+  lock state from agent edits during a measured run.
 
 ## [0.16.0] - 2026-08-23
 

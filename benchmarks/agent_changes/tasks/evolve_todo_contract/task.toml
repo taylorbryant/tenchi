@@ -1,0 +1,9 @@
+schema_version = 2
+id = "evolve_todo_contract"
+title = "Evolve a persisted API contract additively"
+description = "Add an optional field without breaking existing callers or rows, and keep runtime persistence, examples, tests, and OpenAPI aligned."
+prompt = "prompt.md"
+fixture = ""
+hidden_tests = ["hidden/test_evolve_todo_contract.py.tmpl"]
+agent_timeout_seconds = 1200
+evaluation_timeout_seconds = 300

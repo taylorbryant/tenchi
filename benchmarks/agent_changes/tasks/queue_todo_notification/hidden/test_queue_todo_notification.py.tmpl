@@ -1,0 +1,81 @@
+import json
+from pathlib import Path
+
+import aiosqlite
+from tenchi.jobs import create_job_dispatcher, job_manifest
+from tenchi.testing import open_http
+
+from app.server.asgi import build_app
+from app.server.jobs import jobs
+from app.server.runtime import create_context, create_lifespan
+
+
+async def test_create_persists_a_validated_job_in_the_same_unit_of_work(
+    tmp_path: Path,
+) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with open_http(build_app(database_path)) as http:
+        created = await http.post("/todos", json={"title": "Notify later"})
+
+    assert created.status_code == 201
+    async with aiosqlite.connect(database_path) as connection:
+        rows = await (
+            await connection.execute(
+                "SELECT job, payload FROM outbox WHERE processed = 0 ORDER BY id"
+            )
+        ).fetchall()
+
+    assert len(rows) == 1
+    assert rows[0][0] == "todos.created"
+    assert json.loads(rows[0][1]) == {
+        "todo_id": created.json()["id"],
+        "title": "Notify later",
+    }
+
+    dispatcher = create_job_dispatcher(jobs=jobs)
+    async with (
+        create_lifespan(database_path)(),
+        create_context(database_path) as context,
+    ):
+        assert (
+            await dispatcher.dispatch(
+                "todos.created",
+                payload_json=rows[0][1],
+                context=context,
+            )
+            is None
+        )
+
+
+async def test_outbox_failure_rolls_back_the_todo_insert(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "rollback.db")
+    async with open_http(build_app(database_path)):
+        pass
+    async with aiosqlite.connect(database_path) as connection:
+        await connection.execute(
+            "CREATE TRIGGER reject_outbox BEFORE INSERT ON outbox "
+            "BEGIN SELECT RAISE(ABORT, 'reject outbox'); END"
+        )
+        await connection.commit()
+
+    async with open_http(build_app(database_path)) as http:
+        failed = await http.post("/todos", json={"title": "Must roll back"})
+
+    assert failed.status_code == 500
+    async with aiosqlite.connect(database_path) as connection:
+        todo_count = (
+            await (await connection.execute("SELECT COUNT(*) FROM todos")).fetchone()
+        )[0]
+        outbox_count = (
+            await (await connection.execute("SELECT COUNT(*) FROM outbox")).fetchone()
+        )[0]
+    assert todo_count == 0
+    assert outbox_count == 0
+
+
+def test_job_is_registered_and_the_snapshot_is_current() -> None:
+    manifest = job_manifest(jobs)
+
+    assert [entry["name"] for entry in manifest["jobs"]] == ["todos.created"]
+    snapshot = json.loads(Path("jobs.json").read_text(encoding="utf-8"))
+    assert snapshot == manifest

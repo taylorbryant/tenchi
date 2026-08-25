@@ -1,0 +1,9 @@
+schema_version = 2
+id = "queue_todo_notification"
+title = "Persist a validated background job transactionally"
+description = "Declare and register a durable job message, then enqueue it through a transaction-scoped outbox with the state change it announces."
+prompt = "prompt.md"
+fixture = "fixture"
+hidden_tests = ["hidden/test_queue_todo_notification.py.tmpl"]
+agent_timeout_seconds = 1200
+evaluation_timeout_seconds = 300

@@ -1,0 +1,107 @@
+from pathlib import Path
+
+import aiosqlite
+from tenchi.testing import open_http
+
+from app.infra.memory_todo_repository import MemoryTodoRepository
+from app.server.asgi import build_app
+from app.shared.users import OwnerScope
+
+ALICE = {"Authorization": "Bearer alice-token"}
+BOB = {"Authorization": "Bearer bob-token"}
+
+
+async def test_todo_reads_are_authenticated_and_owner_scoped(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with open_http(build_app(database_path)) as http:
+        unauthenticated = await http.get("/todos")
+        alice_created = await http.post(
+            "/todos",
+            headers=ALICE,
+            json={"title": "Alice only"},
+        )
+        bob_created = await http.post(
+            "/todos",
+            headers=BOB,
+            json={"title": "Bob only"},
+        )
+        alice_list = await http.get("/todos", headers=ALICE)
+        bob_cannot_read_alice = await http.get(
+            f"/todos/{alice_created.json()['id']}",
+            headers=BOB,
+        )
+        alice_reads_own = await http.get(
+            f"/todos/{alice_created.json()['id']}",
+            headers=ALICE,
+        )
+        missing = await http.get("/todos/missing", headers=ALICE)
+
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.headers["www-authenticate"] == "Bearer"
+    assert alice_list.json() == [alice_created.json()]
+    assert bob_created.json() not in alice_list.json()
+    assert alice_reads_own.json() == alice_created.json()
+    for response in (bob_cannot_read_alice, missing):
+        assert response.status_code == 404
+        assert response.headers["x-tenchi-error-source"] == "app"
+        assert response.json()["code"] == "TODO_NOT_FOUND"
+
+
+async def test_memory_repository_requires_explicit_owner_scope() -> None:
+    repository = MemoryTodoRepository()
+    alice = OwnerScope(owner_id="alice")
+    bob = OwnerScope(owner_id="bob")
+    created = await repository.create(title="Scoped", owner=alice)
+
+    assert await repository.list(owner=alice) == [created]
+    assert await repository.list(owner=bob) == []
+    assert await repository.get(todo_id=created.id, owner=alice) == created
+    assert await repository.get(todo_id=created.id, owner=bob) is None
+
+
+async def test_legacy_unowned_rows_are_preserved_but_not_exposed(
+    tmp_path: Path,
+) -> None:
+    database_path = str(tmp_path / "legacy.db")
+    async with aiosqlite.connect(database_path) as connection:
+        await connection.execute(
+            "CREATE TABLE todos ("
+            "id TEXT PRIMARY KEY, title TEXT NOT NULL, "
+            "completed INTEGER NOT NULL DEFAULT 0)"
+        )
+        await connection.execute(
+            "INSERT INTO todos (id, title, completed) VALUES (?, ?, ?)",
+            ("legacy", "No trusted owner", 0),
+        )
+        await connection.commit()
+
+    async with open_http(build_app(database_path)) as http:
+        listed = await http.get("/todos", headers=ALICE)
+        created = await http.post(
+            "/todos",
+            headers=ALICE,
+            json={"title": "Owned now"},
+        )
+
+    assert listed.status_code == 200
+    assert listed.json() == []
+    assert created.status_code == 201
+    async with aiosqlite.connect(database_path) as connection:
+        legacy = await (
+            await connection.execute("SELECT id FROM todos WHERE id = 'legacy'")
+        ).fetchone()
+    assert legacy == ("legacy",)
+
+
+async def test_openapi_declares_authentication_and_not_found(tmp_path: Path) -> None:
+    async with open_http(build_app(str(tmp_path / "todos.db"))) as http:
+        document = (await http.get("/openapi.json")).json()
+
+    assert document["components"]["securitySchemes"]["bearerAuth"] == {
+        "scheme": "bearer",
+        "type": "http",
+    }
+    assert document["security"] == [{"bearerAuth": []}]
+    operation = document["paths"]["/todos/{todo_id}"]["get"]
+    assert "TODO_NOT_FOUND" in str(operation["responses"]["404"])
+    assert "UNAUTHORIZED" in str(operation["responses"]["401"])

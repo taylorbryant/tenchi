@@ -1,0 +1,80 @@
+from pathlib import Path
+
+import aiosqlite
+from tenchi.testing import open_http
+
+from app.infra.memory_todo_repository import MemoryTodoRepository
+from app.server.asgi import build_app
+
+
+async def test_description_is_optional_validated_and_persisted(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with open_http(build_app(database_path)) as http:
+        without_description = await http.post("/todos", json={"title": "Plain"})
+        with_description = await http.post(
+            "/todos",
+            json={"title": "Detailed", "description": "A useful note"},
+        )
+        too_long = await http.post(
+            "/todos",
+            json={"title": "Invalid", "description": "x" * 501},
+        )
+
+    assert without_description.status_code == 201
+    assert without_description.json()["description"] is None
+    assert with_description.status_code == 201
+    assert with_description.json()["description"] == "A useful note"
+    assert too_long.status_code == 422
+
+    async with open_http(build_app(database_path)) as http:
+        listed = await http.get("/todos")
+
+    assert [item["description"] for item in listed.json()] == [None, "A useful note"]
+
+
+async def test_schema_migration_preserves_legacy_rows(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "legacy.db")
+    async with aiosqlite.connect(database_path) as connection:
+        await connection.execute(
+            "CREATE TABLE todos ("
+            "id TEXT PRIMARY KEY, title TEXT NOT NULL, "
+            "completed INTEGER NOT NULL DEFAULT 0)"
+        )
+        await connection.execute(
+            "INSERT INTO todos (id, title, completed) VALUES (?, ?, ?)",
+            ("legacy", "Created before descriptions", 0),
+        )
+        await connection.commit()
+
+    async with open_http(build_app(database_path)) as http:
+        listed = await http.get("/todos")
+
+    assert listed.status_code == 200
+    assert listed.json() == [
+        {
+            "id": "legacy",
+            "title": "Created before descriptions",
+            "completed": False,
+            "description": None,
+        }
+    ]
+
+
+async def test_memory_repository_keeps_the_new_field() -> None:
+    repository = MemoryTodoRepository()
+
+    created = await repository.create(title="Memory", description="Remember me")
+
+    assert created.description == "Remember me"
+
+
+async def test_openapi_publishes_description_as_optional(tmp_path: Path) -> None:
+    async with open_http(build_app(str(tmp_path / "todos.db"))) as http:
+        document = (await http.get("/openapi.json")).json()
+
+    request_schema = document["paths"]["/todos"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert "description" in request_schema["properties"]
+    assert "description" not in request_schema["required"]
+    assert "500" in str(request_schema["properties"]["description"])

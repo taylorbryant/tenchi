@@ -1,0 +1,9 @@
+schema_version = 2
+id = "owner_scoped_get_todo"
+title = "Add an authenticated owner-scoped read"
+description = "Add a not-found read to an already authenticated, owner-scoped application without leaking another user's records."
+prompt = "prompt.md"
+fixture = "fixture"
+hidden_tests = ["hidden/test_owner_scoped_get_todo.py.tmpl"]
+agent_timeout_seconds = 1200
+evaluation_timeout_seconds = 300

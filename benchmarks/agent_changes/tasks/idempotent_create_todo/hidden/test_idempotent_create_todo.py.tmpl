@@ -1,0 +1,73 @@
+from pathlib import Path
+
+import aiosqlite
+from tenchi.testing import open_http
+
+from app.server.asgi import build_app
+
+
+async def test_create_replays_durably_and_rejects_key_reuse(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "todos.db")
+    headers = {"Idempotency-Key": "create-001"}
+    async with open_http(build_app(database_path)) as http:
+        first = await http.post(
+            "/todos",
+            headers=headers,
+            json={"title": "Exactly once"},
+        )
+
+    async with open_http(build_app(database_path)) as http:
+        replay = await http.post(
+            "/todos",
+            headers=headers,
+            json={"title": "Exactly once"},
+        )
+        conflict = await http.post(
+            "/todos",
+            headers=headers,
+            json={"title": "Different input"},
+        )
+        listed = await http.get("/todos")
+
+    assert first.status_code == 201
+    assert replay.status_code == 201
+    assert replay.json() == first.json()
+    assert replay.headers["location"] == first.headers["location"]
+    assert listed.json() == [first.json()]
+    assert conflict.status_code == 409
+    assert conflict.headers["x-tenchi-error-source"] == "app"
+    assert conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
+
+    async with aiosqlite.connect(database_path) as connection:
+        todo_count = (
+            await (await connection.execute("SELECT COUNT(*) FROM todos")).fetchone()
+        )[0]
+        record = await (
+            await connection.execute(
+                "SELECT state, result_json FROM idempotency_records "
+                "WHERE namespace = ? AND idempotency_key = ?",
+                ("todos.create", "create-001"),
+            )
+        ).fetchone()
+    assert todo_count == 1
+    assert record is not None
+    assert record[0] == "completed"
+    assert record[1] is not None
+
+
+async def test_create_requires_and_documents_the_idempotency_key(
+    tmp_path: Path,
+) -> None:
+    async with open_http(build_app(str(tmp_path / "todos.db"))) as http:
+        missing = await http.post("/todos", json={"title": "No key"})
+        document = (await http.get("/openapi.json")).json()
+
+    assert missing.status_code == 422
+    operation = document["paths"]["/todos"]["post"]
+    assert operation["x-tenchi-idempotency-key"] == "Idempotency-Key"
+    parameters = operation["parameters"]
+    key = next(item for item in parameters if item["name"] == "idempotency-key")
+    assert key["in"] == "header"
+    assert key["required"] is True
+    assert "IDEMPOTENCY_CONFLICT" in str(operation["responses"]["409"])
+    assert "IDEMPOTENCY_IN_PROGRESS" in str(operation["responses"]["409"])

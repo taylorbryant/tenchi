@@ -1,0 +1,9 @@
+schema_version = 2
+id = "idempotent_create_todo"
+title = "Make a declared retry protocol durable"
+description = "Implement the published idempotency protocol through durable transaction-scoped storage."
+prompt = "prompt.md"
+fixture = "fixture"
+hidden_tests = ["hidden/test_idempotent_create_todo.py.tmpl"]
+agent_timeout_seconds = 1200
+evaluation_timeout_seconds = 300

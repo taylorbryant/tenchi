@@ -1,8 +1,9 @@
-schema_version = 1
+schema_version = 2
 id = "get_todo"
 title = "Add a declared not-found read operation"
 description = "Add a typed path read whose runtime error, OpenAPI error schema, persistence behavior, and client boundary stay aligned."
 prompt = "prompt.md"
+fixture = ""
 hidden_tests = ["hidden/test_get_todo.py.tmpl"]
 agent_timeout_seconds = 1200
 evaluation_timeout_seconds = 300

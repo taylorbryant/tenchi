@@ -1,4 +1,4 @@
-# Tenchi coding-agent benchmark
+# Tenchi coding-agent benchmark v2
 
 This benchmark measures whether a coding agent can turn a user-style backend
 request into a production-shaped Tenchi change without human rescue. It is a
@@ -6,20 +6,39 @@ repository development tool, not part of the published framework or an agent
 leaderboard.
 
 Every run starts from a newly rendered Tenchi scaffold in a disposable Git
-repository. The agent receives only that application, its generated
-`AGENTS.md`, and `TASK.md`. After the agent exits, the harness installs
-repository-owned hidden acceptance tests and requires both those tests and
-`tenchi verify` against the immutable starting commit to pass.
+repository. A task may overlay repository-owned starting files that model an
+existing application or provide an infrastructure adapter. The harness applies
+those files before dependency synchronization and the immutable baseline
+commit. The agent receives only that starting application, its generated
+`AGENTS.md`, and `TASK.md`.
+
+After the agent exits, the harness installs repository-owned hidden acceptance
+tests and requires both those tests and `tenchi verify` against the immutable
+starting commit to pass. Hidden tests never exist in the workspace while the
+agent is running.
 
 The task digest covers the task corpus, evaluator harness, and current Tenchi
 framework source. A framework or evaluator change therefore produces a new
 benchmark identity instead of silently mixing unlike runs.
 
-The initial corpus covers:
+The v2 corpus retains the three focused scaffold tasks and adds five
+production-shaped changes:
 
 - a persisted state-changing HTTP operation;
 - a read operation with a declared, machine-readable application error; and
-- a read-only application tool bound to existing behavior.
+- a read-only application tool bound to existing behavior;
+- additive evolution of a persisted request and response contract;
+- authenticated, owner-scoped behavior that prevents cross-user reads;
+- a retry-safe unsafe command backed by durable, transaction-scoped
+  idempotency;
+- a validated background-job message persisted through a transactional
+  outbox; and
+- diagnosis and repair of a declared but unregistered application tool.
+
+Each task has one narrow user outcome. A passing result means the submitted
+change satisfied that task's hidden acceptance checks and Tenchi's verification
+policy. It does not prove that the agent, model, or framework handles arbitrary
+backend work.
 
 ## Keep the agent isolated
 
@@ -114,9 +133,23 @@ snapshot before making a breaking or ambiguous machine-readable change.
 
 Evaluation never trusts commands from the agent-writable `.venv`. It runs
 pytest and Tenchi through the benchmark process's interpreter, with a retained
-pytest configuration for hidden tests. `TASK.md`, `pyproject.toml`,
-`tenchi.toml`, and `uv.lock` are protected benchmark inputs: changing any of
-them fails task integrity. The initial tasks require no dependency changes.
+pytest configuration for hidden tests. `TASK.md`, `AGENTS.md`, `.mcp.json`,
+`.gitignore`, `pyproject.toml`, `tenchi.toml`, and `uv.lock` are protected
+benchmark inputs: changing any of them fails task integrity. The tasks require
+no dependency changes.
+
+## Understand task-owned starting files
+
+Task definitions use schema version 2. Their `fixture` field is empty for a
+scaffold-only task or names a directory below the task. Files below that
+directory replace or add paths in the generated application before its baseline
+commit. Fixture bytes contribute to the task digest, so changing an adapter or
+starting condition creates a new benchmark identity.
+
+Fixtures cannot contain symlinks, hidden acceptance-test paths, Git or virtual
+environment state, or protected benchmark inputs. They are starting code, not
+answer code: the task prompt tells the agent what the supplied pieces do and
+the agent must still compose, test, and verify the requested behavior.
 
 ## Manage an external run
 

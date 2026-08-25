@@ -1,8 +1,9 @@
-schema_version = 1
+schema_version = 2
 id = "list_todos_tool"
 title = "Expose an existing use case as an application tool"
 description = "Bind existing application behavior to a transport-neutral, read-only tool and protect its manifest."
 prompt = "prompt.md"
+fixture = ""
 hidden_tests = ["hidden/test_list_todos_tool.py.tmpl"]
 agent_timeout_seconds = 1200
 evaluation_timeout_seconds = 300

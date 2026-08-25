@@ -106,8 +106,9 @@ framework code, the CLI, docs, or the example apps.
   reindexing, preflight, and evaluation gates without requiring model
   credentials in CI.
 - `benchmarks/agent_changes/` — a vendor-neutral development benchmark that
-  renders fresh generated applications, withholds repository-owned acceptance
-  tests until evaluation, and records payload-safe agent and `verify` results.
+  renders fresh generated applications, optionally applies content-addressed
+  task-owned starting fixtures, withholds repository-owned acceptance tests
+  until evaluation, and records payload-safe agent and `verify` results.
   Normal CI validates the harness but never invokes a model.
 - `CHANGELOG.md` — Keep a Changelog format; maintain an `[Unreleased]`
   section during a development cycle.

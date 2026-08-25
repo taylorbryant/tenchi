@@ -1,0 +1,37 @@
+import json
+from pathlib import Path
+
+from tenchi.tools import create_tool_runner, tool_manifest
+
+from app.features.todos.tools import list_todos_tool
+from app.server.runtime import create_context, create_lifespan
+from app.server.tools import tools
+
+
+async def test_declared_tool_is_registered_and_invokes_persisted_behavior(
+    tmp_path: Path,
+) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with (
+        create_lifespan(database_path)(),
+        create_context(database_path) as context,
+    ):
+        created = await context.todos.create(title="Discover me")
+
+    runner = create_tool_runner(
+        tools=tools,
+        context_factory=create_context,
+        lifespan=create_lifespan(database_path),
+    )
+    result = await runner.call(list_todos_tool.name, input={})
+
+    assert result == [created]
+    assert [entry["name"] for entry in tool_manifest(tools)["tools"]] == ["todos.list"]
+
+
+def test_checked_in_tool_manifest_contains_the_composed_tool() -> None:
+    document = json.loads(Path("tools.json").read_text(encoding="utf-8"))
+
+    assert [entry["name"] for entry in document["tools"]] == ["todos.list"]
+    assert len(tools.handlers) == 1
+    assert tools.handlers[0].tool is list_todos_tool

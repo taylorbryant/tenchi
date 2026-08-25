@@ -1,0 +1,437 @@
+{
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "details": {},
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "Todo": {
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "completed"
+        ],
+        "title": "Todo",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "tenchi_benchmark",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/todos": {
+      "get": {
+        "operationId": "list_todos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Todo"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "UNAUTHORIZED: Authentication required",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_todo",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "create": {
+                  "value": {
+                    "title": "Buy milk"
+                  }
+                }
+              },
+              "schema": {
+                "properties": {
+                  "title": {
+                    "minLength": 1,
+                    "title": "Title",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "title": "CreateTodo",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "created": {
+                    "value": {
+                      "completed": false,
+                      "id": "todo_123",
+                      "title": "Buy milk"
+                    }
+                  }
+                },
+                "schema": {
+                  "properties": {
+                    "completed": {
+                      "title": "Completed",
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "title": "Id",
+                      "type": "string"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "completed"
+                  ],
+                  "title": "Todo",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful response",
+            "headers": {
+              "Location": {
+                "required": true,
+                "schema": {
+                  "title": "Location",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNAUTHORIZED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "UNAUTHORIZED: Authentication required",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "app"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "REQUEST_TOO_LARGE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "REQUEST_TOO_LARGE: Request body too large",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "UNSUPPORTED_MEDIA_TYPE"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "VALIDATION_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: Request validation failed",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "INTERNAL_SERVER_ERROR"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "INTERNAL_SERVER_ERROR: Internal server error",
+            "headers": {
+              "x-tenchi-error-source": {
+                "description": "Error source.",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "framework"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}

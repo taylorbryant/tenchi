@@ -28,6 +28,7 @@ from .models import (
     AgentInterface,
     AgentResult,
     AgentStatus,
+    BenchmarkFixtureFile,
     BenchmarkResult,
     BenchmarkState,
     BenchmarkSummary,
@@ -47,6 +48,7 @@ from .models import (
 _BENCHMARK_ROOT = Path(__file__).parent
 _REPOSITORY_ROOT = _BENCHMARK_ROOT.parents[1]
 _TASKS_ROOT = _BENCHMARK_ROOT / "tasks"
+_TASK_SCHEMA_VERSION = 2
 _TASK_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-")
 _COMMIT_LENGTHS = {40, 64}
 _MAX_CAPTURE_BYTES = 2_000_000
@@ -55,7 +57,17 @@ _MAX_AGENT_TEST_FILES = 200
 _REQUIRED_COMMAND_TIMEOUT_SECONDS = 600.0
 _EVALUATOR_PYTHON = os.path.abspath(sys.executable)
 _PYTEST_CONFIG = _BENCHMARK_ROOT / "pytest.ini"
-_PROTECTED_PATHS = ("TASK.md", "pyproject.toml", "tenchi.toml", "uv.lock")
+_PROTECTED_PATHS = (
+    "TASK.md",
+    "AGENTS.md",
+    ".mcp.json",
+    ".gitignore",
+    "pyproject.toml",
+    "tenchi.toml",
+    "uv.lock",
+)
+_RESERVED_FIXTURE_PATHS = frozenset(path.casefold() for path in _PROTECTED_PATHS)
+_RESERVED_FIXTURE_ROOTS = frozenset({".git", ".venv"})
 _HIDDEN_TEST_PREFIXES = (
     "tests/tenchi_benchmark_hidden/",
     "tests/tenchi_benchmark_hidden_",
@@ -101,6 +113,7 @@ def load_task(task_id: str, *, tasks_root: Path = _TASKS_ROOT) -> BenchmarkTask:
         "title",
         "description",
         "prompt",
+        "fixture",
         "hidden_tests",
         "agent_timeout_seconds",
         "evaluation_timeout_seconds",
@@ -112,7 +125,7 @@ def load_task(task_id: str, *, tasks_root: Path = _TASKS_ROOT) -> BenchmarkTask:
     if (
         not isinstance(raw["schema_version"], int)
         or isinstance(raw["schema_version"], bool)
-        or raw["schema_version"] != 1
+        or raw["schema_version"] != _TASK_SCHEMA_VERSION
         or raw["id"] != task_id
     ):
         raise BenchmarkError(
@@ -142,6 +155,7 @@ def load_task(task_id: str, *, tasks_root: Path = _TASKS_ROOT) -> BenchmarkTask:
         raise BenchmarkError(f"could not read task prompt {prompt_relative!r}") from exc
     if not prompt.strip():
         raise BenchmarkError("benchmark task prompt must not be empty")
+    fixture_files = _load_fixture_files(root, raw["fixture"])
     for hidden in hidden_tests:
         if not hidden.is_file() or not hidden.name.endswith(".py.tmpl"):
             raise BenchmarkError(
@@ -151,12 +165,18 @@ def load_task(task_id: str, *, tasks_root: Path = _TASKS_ROOT) -> BenchmarkTask:
         id=task_id,
         digest=_task_digest(
             root,
-            (definition_path, prompt_path, *hidden_tests),
+            (
+                definition_path,
+                prompt_path,
+                *(fixture.source_path for fixture in fixture_files),
+                *hidden_tests,
+            ),
         ),
         title=title,
         description=description,
         prompt=prompt,
         prompt_path=prompt_path,
+        fixture_files=fixture_files,
         hidden_tests=hidden_tests,
         agent_timeout_seconds=_positive_seconds(
             raw["agent_timeout_seconds"], label="agent_timeout_seconds"
@@ -200,6 +220,7 @@ def prepare_workspace(
                 raise BenchmarkError("generated file escaped the workspace") from exc
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
+        _apply_fixture(task, staging)
         staging.replace(destination)
         moved = True
         if sync:
@@ -338,7 +359,7 @@ def evaluate_workspace(
             duration_seconds=0.0,
         )
     )
-    integrity = _task_integrity(task, workspace, state.baseline_commit)
+    integrity = _task_integrity(task, workspace, changed_paths)
     agent_tests = _evaluate_agent_tests(
         changed_paths,
         cwd=workspace,
@@ -441,21 +462,14 @@ def write_payload(
 def _task_integrity(
     task: BenchmarkTask,
     workspace: Path,
-    baseline_commit: str,
+    changed_paths: Sequence[str],
 ) -> StepResult:
     started = time.monotonic()
     try:
         current = (workspace / "TASK.md").read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         current = None
-    protected_unchanged = _git_succeeds(
-        workspace,
-        "diff",
-        "--quiet",
-        baseline_commit,
-        "--",
-        *_PROTECTED_PATHS,
-    )
+    protected_unchanged = not set(_PROTECTED_PATHS).intersection(changed_paths)
     ok = current == task.prompt and protected_unchanged
     return StepResult(
         name="task_integrity",
@@ -975,6 +989,72 @@ def _local_project(source: str, tenchi_root: Path) -> str:
     if rendered == source:
         raise BenchmarkError("generated pyproject did not contain Tenchi dependencies")
     return rendered
+
+
+def _load_fixture_files(
+    task_root: Path,
+    value: object,
+) -> tuple[BenchmarkFixtureFile, ...]:
+    if not isinstance(value, str):
+        raise BenchmarkError("benchmark fixture must be a relative directory or empty")
+    relative = value.strip()
+    if not relative:
+        return ()
+    declared_root = Path(relative)
+    if declared_root.is_absolute():
+        raise BenchmarkError("benchmark fixture must be a relative directory or empty")
+    unresolved_root = task_root / relative
+    if unresolved_root.is_symlink():
+        raise BenchmarkError("benchmark fixture must be a safe directory")
+    fixture_root = _task_path(task_root, relative, label="fixture")
+    if fixture_root == task_root or not fixture_root.is_dir():
+        raise BenchmarkError("benchmark fixture must be a safe directory")
+    fixtures: list[BenchmarkFixtureFile] = []
+    normalized_destinations: set[str] = set()
+    for source in sorted(fixture_root.rglob("*")):
+        if source.is_symlink():
+            raise BenchmarkError("benchmark fixture cannot contain symlinks")
+        if source.is_dir():
+            continue
+        if not source.is_file():
+            raise BenchmarkError("benchmark fixture can contain only regular files")
+        destination = source.relative_to(fixture_root).as_posix()
+        parts = Path(destination).parts
+        normalized = destination.casefold()
+        if (
+            normalized in _RESERVED_FIXTURE_PATHS
+            or not parts
+            or parts[0].casefold() in _RESERVED_FIXTURE_ROOTS
+            or normalized.startswith(_HIDDEN_TEST_PREFIXES)
+            or source.name.endswith(".py.tmpl")
+        ):
+            raise BenchmarkError(
+                f"benchmark fixture cannot replace reserved path {destination!r}"
+            )
+        if normalized in normalized_destinations:
+            raise BenchmarkError(
+                "benchmark fixture paths must be case-insensitively unique"
+            )
+        normalized_destinations.add(normalized)
+        fixtures.append(BenchmarkFixtureFile(destination, source))
+    if not fixtures:
+        raise BenchmarkError("benchmark fixture directory must contain files")
+    return tuple(fixtures)
+
+
+def _apply_fixture(task: BenchmarkTask, workspace: Path) -> None:
+    for fixture in task.fixture_files:
+        destination = (workspace / fixture.relative_path).resolve()
+        try:
+            destination.relative_to(workspace)
+            content = fixture.source_path.read_bytes()
+        except (OSError, ValueError) as exc:
+            raise BenchmarkError("could not apply benchmark fixture") from exc
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            destination.write_bytes(content)
+        except OSError as exc:
+            raise BenchmarkError("could not apply benchmark fixture") from exc
 
 
 def _task_path(root: Path, relative: str, *, label: str) -> Path:

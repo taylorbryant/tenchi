@@ -1,0 +1,9 @@
+schema_version = 2
+id = "repair_tool_registration"
+title = "Repair a declared but unregistered application tool"
+description = "Diagnose a composition gap, register an existing typed tool binding, prove invocation, and repair manifest drift."
+prompt = "prompt.md"
+fixture = "fixture"
+hidden_tests = ["hidden/test_repair_tool_registration.py.tmpl"]
+agent_timeout_seconds = 1200
+evaluation_timeout_seconds = 300

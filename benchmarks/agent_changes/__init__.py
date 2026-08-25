@@ -10,6 +10,7 @@ from .core import (
     summarize_results,
 )
 from .models import (
+    BenchmarkFixtureFile,
     BenchmarkResult,
     BenchmarkState,
     BenchmarkSummary,
@@ -19,6 +20,7 @@ from .models import (
 
 __all__ = [
     "BenchmarkError",
+    "BenchmarkFixtureFile",
     "BenchmarkResult",
     "BenchmarkState",
     "BenchmarkSummary",

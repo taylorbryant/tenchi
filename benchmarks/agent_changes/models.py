@@ -29,6 +29,14 @@ type AgentInterface = Literal["cli", "mcp", "mixed", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
+class BenchmarkFixtureFile:
+    """One task-owned file copied into the generated application baseline."""
+
+    relative_path: str
+    source_path: Path
+
+
+@dataclass(frozen=True, slots=True)
 class BenchmarkTask:
     """One repository-owned task and its hidden evaluator inputs."""
 
@@ -38,6 +46,7 @@ class BenchmarkTask:
     description: str
     prompt: str
     prompt_path: Path
+    fixture_files: tuple[BenchmarkFixtureFile, ...]
     hidden_tests: tuple[Path, ...]
     agent_timeout_seconds: float
     evaluation_timeout_seconds: float

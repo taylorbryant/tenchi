@@ -1,0 +1,16 @@
+"""Application-owned failures safe to expose through declared contracts."""
+
+from tenchi.errors import ErrorDef
+
+todo_not_found = ErrorDef(
+    code="TODO_NOT_FOUND",
+    status=404,
+    message="Todo not found",
+)
+
+unauthorized = ErrorDef(
+    code="UNAUTHORIZED",
+    status=401,
+    message="Authentication required",
+    headers=("WWW-Authenticate",),
+)

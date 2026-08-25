@@ -82,15 +82,19 @@ pythonpath = [".", "examples/todos"]
 [tool.ruff]
 line-length = 88
 src = ["src", "tests", "benchmarks", "examples/todos", "examples/taskboard"]
+# Task fixtures become the generated application's ``app`` package, so its
+# Ruff configuration—not the framework checkout's import roots—is authoritative.
+extend-exclude = ["benchmarks/agent_changes/tasks/**/fixture/**"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.pyright]
 # The taskboard example is a standalone project (its own `app` package
-# would collide with the todos example); it is checked by its own pyright
-# run in CI.
+# would collide with the todos example). Benchmark fixtures likewise become a
+# generated app package. Both are checked in their own project environments.
 include = ["src", "tests", "benchmarks", "examples/todos"]
+exclude = ["benchmarks/agent_changes/tasks/**/fixture/**"]
 extraPaths = ["examples/todos"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"

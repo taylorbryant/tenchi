@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,6 +33,7 @@ from benchmarks.agent_changes.models import (
     AgentResult,
     BenchmarkResult,
     BenchmarkState,
+    BenchmarkTask,
     SourceResult,
     StepResult,
     benchmark_protocol_schemas,
@@ -39,6 +41,8 @@ from benchmarks.agent_changes.models import (
     parse_state,
     render_payload,
 )
+
+from tenchi.compatibility import analyze_openapi_compatibility
 
 REPOSITORY_ROOT = Path(__file__).parent.parent
 
@@ -62,16 +66,166 @@ def test_repository_tasks_are_versioned_and_hidden_tests_are_valid_python() -> N
 
     assert [task.id for task in tasks] == [
         "complete_todo",
+        "evolve_todo_contract",
         "get_todo",
+        "idempotent_create_todo",
         "list_todos_tool",
+        "owner_scoped_get_todo",
+        "queue_todo_notification",
+        "repair_tool_registration",
     ]
     for task in tasks:
         assert task.digest.startswith("sha256:")
         assert len(task.digest) == 71
         assert task.prompt.startswith("# ")
+        for fixture in task.fixture_files:
+            assert fixture.source_path.is_file()
+            if fixture.source_path.suffix == ".py":
+                ast.parse(fixture.source_path.read_text(encoding="utf-8"))
         assert task.hidden_tests
         for path in task.hidden_tests:
             ast.parse(path.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("task", list_tasks(), ids=lambda task: task.id)
+def test_hidden_tests_pass_the_generated_projects_quality_configuration(
+    task: BenchmarkTask,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / task.id
+    prepare_workspace(
+        task,
+        workspace,
+        tenchi_root=REPOSITORY_ROOT,
+        sync=False,
+    )
+    hidden_root = workspace / "tests/tenchi_benchmark_hidden_quality"
+    hidden_root.mkdir(parents=True)
+    for index, source in enumerate(task.hidden_tests):
+        destination = hidden_root / f"test_{index}_{source.name.removesuffix('.tmpl')}"
+        destination.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+    for arguments in (("format", "--check"), ("check",)):
+        result = subprocess.run(
+            (sys.executable, "-m", "ruff", *arguments, str(hidden_root)),
+            cwd=workspace,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "task_id",
+    ["idempotent_create_todo", "owner_scoped_get_todo"],
+)
+def test_compatibility_sensitive_starting_fixtures_pass_check(
+    task_id: str,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / task_id
+    prepare_workspace(
+        load_task(task_id),
+        workspace,
+        tenchi_root=REPOSITORY_ROOT,
+        sync=False,
+    )
+
+    result = subprocess.run(
+        (sys.executable, "-m", "tenchi.cli", "check"),
+        cwd=workspace,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_compatibility_sensitive_tasks_start_after_boundary_prerequisites(
+    tmp_path: Path,
+) -> None:
+    owner_workspace = tmp_path / "owner"
+    prepare_workspace(
+        load_task("owner_scoped_get_todo"),
+        owner_workspace,
+        tenchi_root=REPOSITORY_ROOT,
+        sync=False,
+    )
+    owner_document = json.loads(
+        (owner_workspace / "openapi.json").read_text(encoding="utf-8")
+    )
+
+    assert owner_document["security"] == [{"bearerAuth": []}]
+    for method in ("get", "post"):
+        assert "401" in owner_document["paths"]["/todos"][method]["responses"]
+
+    idempotency_workspace = tmp_path / "idempotency"
+    prepare_workspace(
+        load_task("idempotent_create_todo"),
+        idempotency_workspace,
+        tenchi_root=REPOSITORY_ROOT,
+        sync=False,
+    )
+    idempotency_document = json.loads(
+        (idempotency_workspace / "openapi.json").read_text(encoding="utf-8")
+    )
+    operation = idempotency_document["paths"]["/todos"]["post"]
+    key = next(
+        parameter
+        for parameter in operation["parameters"]
+        if parameter["name"] == "idempotency-key"
+    )
+
+    assert key["required"] is True
+    assert "409" in operation["responses"]
+    assert "x-tenchi-idempotency-key" not in operation
+
+    guaranteed = deepcopy(idempotency_document)
+    guaranteed["paths"]["/todos"]["post"]["x-tenchi-idempotency-key"] = (
+        "Idempotency-Key"
+    )
+
+    assert (
+        analyze_openapi_compatibility(
+            idempotency_document,
+            guaranteed,
+        ).status
+        == "compatible"
+    )
+
+
+@pytest.mark.parametrize("task", list_tasks(), ids=lambda task: task.id)
+def test_repository_task_starting_state_is_clean_and_complete(
+    task: BenchmarkTask,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / task.id
+
+    state = prepare_workspace(
+        task,
+        workspace,
+        tenchi_root=REPOSITORY_ROOT,
+        sync=False,
+    )
+
+    assert state.baseline_commit
+    for fixture in task.fixture_files:
+        assert (workspace / fixture.relative_path).read_bytes() == (
+            fixture.source_path.read_bytes()
+        )
+    assert (
+        subprocess.run(
+            ("git", "status", "--porcelain"),
+            cwd=workspace,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        == ""
+    )
 
 
 def test_task_digest_changes_with_hidden_acceptance_criteria(tmp_path: Path) -> None:
@@ -114,11 +268,12 @@ def test_task_loader_rejects_unknown_fields_and_path_traversal(tmp_path: Path) -
     (task_root / "test.py.tmpl").write_text("def test_ok(): ...\n", encoding="utf-8")
     (task_root / "task.toml").write_text(
         """\
-schema_version = 1
+schema_version = 2
 id = "bad"
 title = "Bad"
 description = "Bad task"
 prompt = "../outside.md"
+fixture = ""
 hidden_tests = ["test.py.tmpl"]
 agent_timeout_seconds = 10
 evaluation_timeout_seconds = 10
@@ -139,7 +294,7 @@ unknown = true
 
     definition = (task_root / "task.toml").read_text(encoding="utf-8")
     (task_root / "task.toml").write_text(
-        definition.replace("schema_version = 1", "schema_version = true"),
+        definition.replace("schema_version = 2", "schema_version = true"),
         encoding="utf-8",
     )
     with pytest.raises(BenchmarkError, match="unsupported version"):
@@ -177,6 +332,129 @@ def test_prepare_workspace_creates_a_clean_generated_git_baseline(
         == ""
     )
     assert parse_state(render_payload(state)) == state
+
+
+def test_task_fixture_is_digested_and_applied_before_the_clean_baseline(
+    tmp_path: Path,
+) -> None:
+    source = REPOSITORY_ROOT / "benchmarks/agent_changes/tasks/repair_tool_registration"
+    task_root = tmp_path / "repair_tool_registration"
+    shutil.copytree(source, task_root)
+    original = load_task("repair_tool_registration", tasks_root=tmp_path)
+    fixture = task_root / "fixture/app/features/todos/tools.py"
+    fixture.write_text(
+        f"{fixture.read_text(encoding='utf-8')}\n# changed fixture\n",
+        encoding="utf-8",
+    )
+    changed = load_task("repair_tool_registration", tasks_root=tmp_path)
+    workspace = tmp_path / "workspace"
+
+    state = prepare_workspace(
+        changed,
+        workspace,
+        tenchi_root=REPOSITORY_ROOT,
+        sync=False,
+    )
+
+    assert changed.digest != original.digest
+    assert (
+        (workspace / "app/features/todos/tools.py")
+        .read_text(encoding="utf-8")
+        .endswith("# changed fixture\n")
+    )
+    assert state.baseline_commit
+    assert (
+        subprocess.run(
+            ("git", "status", "--porcelain"),
+            cwd=workspace,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        == ""
+    )
+
+
+def test_task_loader_rejects_unsafe_fixture_paths(tmp_path: Path) -> None:
+    task_root = tmp_path / "unsafe"
+    fixture_root = task_root / "fixture"
+    fixture_root.mkdir(parents=True)
+    (task_root / "prompt.md").write_text("# Task\n", encoding="utf-8")
+    (task_root / "test.py.tmpl").write_text("def test_ok(): ...\n", encoding="utf-8")
+    (fixture_root / "agents.md").write_text("replacement", encoding="utf-8")
+    (task_root / "task.toml").write_text(
+        """\
+schema_version = 2
+id = "unsafe"
+title = "Unsafe"
+description = "Unsafe fixture"
+prompt = "prompt.md"
+fixture = "fixture"
+hidden_tests = ["test.py.tmpl"]
+agent_timeout_seconds = 10
+evaluation_timeout_seconds = 10
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BenchmarkError, match="reserved path"):
+        load_task("unsafe", tasks_root=tmp_path)
+
+    (fixture_root / "agents.md").unlink()
+    outside = tmp_path / "outside.py"
+    outside.write_text("VALUE = 1\n", encoding="utf-8")
+    (fixture_root / "linked.py").symlink_to(outside)
+
+    with pytest.raises(BenchmarkError, match="symlinks"):
+        load_task("unsafe", tasks_root=tmp_path)
+
+    shutil.rmtree(fixture_root)
+    replacement = tmp_path / "replacement"
+    replacement.mkdir()
+    (replacement / "safe.py").write_text("VALUE = 1\n", encoding="utf-8")
+    fixture_root.symlink_to(replacement, target_is_directory=True)
+
+    with pytest.raises(BenchmarkError, match="safe directory"):
+        load_task("unsafe", tasks_root=tmp_path)
+
+
+def test_task_loader_never_exposes_hidden_tests_as_fixture_files(
+    tmp_path: Path,
+) -> None:
+    task_root = tmp_path / "unsafe"
+    hidden_root = task_root / "hidden"
+    hidden_root.mkdir(parents=True)
+    (task_root / "prompt.md").write_text("# Task\n", encoding="utf-8")
+    (hidden_root / "test.py.tmpl").write_text(
+        "def test_hidden(): ...\n",
+        encoding="utf-8",
+    )
+    (task_root / "task.toml").write_text(
+        """\
+schema_version = 2
+id = "unsafe"
+title = "Unsafe"
+description = "Unsafe fixture"
+prompt = "prompt.md"
+fixture = "hidden"
+hidden_tests = ["hidden/test.py.tmpl"]
+agent_timeout_seconds = 10
+evaluation_timeout_seconds = 10
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BenchmarkError, match="reserved path"):
+        load_task("unsafe", tasks_root=tmp_path)
+
+    definition = (task_root / "task.toml").read_text(encoding="utf-8")
+    (task_root / "task.toml").write_text(
+        definition.replace('fixture = "hidden"', 'fixture = "."'),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BenchmarkError, match="safe directory"):
+        load_task("unsafe", tasks_root=tmp_path)
 
 
 def test_sync_runs_after_workspace_reaches_its_final_path(
@@ -438,11 +716,20 @@ def test_evaluation_rejects_changes_to_protected_tooling_inputs(
         "def test_agent_change(): assert True\n",
         encoding="utf-8",
     )
-    pyproject = workspace / "pyproject.toml"
-    pyproject.write_text(
-        f"{pyproject.read_text(encoding='utf-8')}\n# weakened by agent\n",
-        encoding="utf-8",
-    )
+    for relative in (
+        "AGENTS.md",
+        ".mcp.json",
+        ".gitignore",
+        "pyproject.toml",
+        "tenchi.toml",
+        "uv.lock",
+    ):
+        protected = workspace / relative
+        current = protected.read_text(encoding="utf-8") if protected.exists() else ""
+        protected.write_text(
+            f"{current}\n# changed by agent\n",
+            encoding="utf-8",
+        )
 
     result = evaluate_workspace(task, state)
 
