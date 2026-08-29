@@ -6,7 +6,7 @@ function entry(overrides: Partial<SearchEntry>): SearchEntry {
   return {
     route: "/contracts",
     pageTitle: "Contracts",
-    sectionLabel: "Build",
+    sectionLabel: "Build APIs",
     heading: "Contracts",
     headingId: "",
     body: "A contract is the single source of truth for an API endpoint.",
@@ -23,9 +23,9 @@ const entries: SearchEntry[] = [
   }),
   entry({
     route: "/getting-started",
-    pageTitle: "Build and verify your first app",
+    pageTitle: "Build your first Tenchi app",
     sectionLabel: "Start",
-    heading: "Build and verify your first app",
+    heading: "Build your first Tenchi app",
     body: "Create a Tenchi app and run it locally.",
   }),
   entry({

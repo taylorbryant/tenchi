@@ -148,6 +148,44 @@ The analyzer classifies changes as:
 Breaking and unknown changes return a failing exit status. Use
 `--diff-format json` for automation.
 
+## Try a breaking and additive change
+
+In a generated application, open `app/features/todos/schemas.py` and tighten
+the title constraint:
+
+```diff
+ class CreateTodo(BaseModel):
+-    title: str = Field(min_length=1)
++    title: str = Field(min_length=3)
+```
+
+Compare the current contracts with the checked-in snapshot:
+
+```shell
+uv run tenchi openapi --diff openapi.json
+```
+
+The command fails because existing callers can send titles that the new
+constraint rejects. Restore `min_length=1`, then add an optional field:
+
+```python
+class CreateTodo(BaseModel):
+    title: str = Field(min_length=1)
+    notes: str | None = None
+```
+
+The same diff command now reports an additive change. After reviewing it,
+update the snapshot and check the application:
+
+```shell
+uv run tenchi openapi --write openapi.json
+uv run tenchi check
+```
+
+Use `tenchi verify --base-ref <historical-ref>` when the repository also needs
+one receipt for its checks, application map, verification policy, and every
+versioned boundary.
+
 <Callout type="warning" title="Compare before updating">
   A compatibility gate needs a snapshot from the pull-request base, previous
   push, or previous release. If a breaking change and its new snapshot are

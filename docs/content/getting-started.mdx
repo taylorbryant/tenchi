@@ -1,16 +1,15 @@
 import { Callout } from "@/components/callout";
 
-# Build and verify your first app
+# Build your first Tenchi app
 
-In this guide, you will create a complete application, call its API, make one
-breaking and one additive contract change, and verify the result against the
-unchanged starting point.
+Create a working application, call its API, follow one request through the
+code, and change its behavior in a plain async function.
 
 ## Requirements
 
-Tenchi requires Python 3.12 or newer. The examples use
-[uv](https://docs.astral.sh/uv/) to create environments and run commands and
-Git to preserve the historical verification baseline.
+Tenchi requires Python 3.12 or newer. The commands in this guide use
+[uv](https://docs.astral.sh/uv/) to create the environment and run the
+application.
 
 ## Create the application
 
@@ -20,55 +19,16 @@ cd my_app
 uv sync
 ```
 
-The scaffold is a small but complete application, not a disposable hello-world
-route. You only need four parts of it for this guide:
-
-| Path | What it gives you |
-| --- | --- |
-| `app/features/todos/` | One complete feature: contracts, models, use cases, ports, routes, and tests |
-| `app/infra/` | SQLite for the running app and a memory adapter for focused tests |
-| `app/server/asgi.py` | The composition root that creates the ASGI application |
-| `openapi.json`, `jobs.json`, `tools.json`, `evaluations.json` | Version-controlled boundary snapshots checked by Tenchi |
-
-You can ignore the empty jobs, tasks, tools, evaluations, and preflight
-composition points until the application needs them. They are present so a
-future feature has one predictable place to connect. Read [how Tenchi
-works](/concepts) when you want the full map.
-
-## Run the checks
-
-```shell
-uv run tenchi check
-```
-
-The command runs Ruff formatting and linting, Pyright, pytest, doctor, and the
-OpenAPI, job-message, application-tool, and evaluation-policy snapshot checks.
-It runs every step even after a failure so one pass reports the complete repair
-list.
-Generated code passes untouched. Use-case tests run without an HTTP server;
-integration tests exercise the composed ASGI application.
-
-Record that passing starting point before making the tutorial change:
-
-```shell
-git init
-git add .
-git commit -m "Create Tenchi application"
-```
-
-The commit gives compatibility checks an immutable copy of the original
-snapshots and verification policy.
-
-## Start the server
+The generated application already contains a todos feature and SQLite
+persistence. Start it:
 
 ```shell
 uv run tenchi dev
 ```
 
-The runtime database defaults to `my_app.db`. Set `MY_APP_DATABASE` to choose a
-different path.
+## Call the API
 
-In another terminal:
+From another terminal, create and list todos:
 
 ```shell
 curl -i \
@@ -79,100 +39,94 @@ curl -i \
 curl http://127.0.0.1:8000/todos
 ```
 
-The create response is validated as `Todo`, returns status `201`, and includes
-the declared `Location` header. Restart the server and list again: the todo is
-still present because the startup lifespan ensures the SQLite schema while
-each request owns its own commit-or-rollback transaction.
+The create operation returns status `201`, a validated `Todo` body, and a
+`Location` header. The list operation returns the saved todo. Restart the
+server and list again to confirm that SQLite persisted it.
 
 Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) to inspect and call
-the same contracts through Swagger UI. The underlying document is served at
-`/openapi.json`, and `/health` exposes the starter's dependency-free liveness
-route. Add a separate readiness route before deployment when serving traffic
-depends on a database or another external system.
+the same API through Swagger UI.
 
-## Make the first contract change
+## Follow the request through four files
 
-Open `app/features/todos/schemas.py` and require a longer title:
+The create operation has four application-facing parts:
 
-```diff
- class CreateTodo(BaseModel):
--    title: str = Field(min_length=1)
-+    title: str = Field(min_length=3)
-```
+| Path | Responsibility |
+| --- | --- |
+| `app/features/todos/schemas.py` | Defines the validated request and response data |
+| `app/features/todos/contracts.py` | Declares `POST /todos` and its HTTP behavior |
+| `app/features/todos/use_cases/create_todo.py` | Implements the application behavior |
+| `app/features/todos/routes.py` | Binds the contract to the use case |
 
-The server now rejects shorter input before the use case runs. Generate the
-current OpenAPI and compare it to the committed baseline:
-
-```shell
-uv run tenchi openapi --diff openapi.json
-```
-
-Tightening a request constraint is breaking for existing callers, so the
-command fails and explains the affected operation. Restore the old constraint,
-then add an optional field instead:
+The contract and route handle the boundary. The use case stays ordinary
+Python:
 
 ```python
-class CreateTodo(BaseModel):
-    title: str = Field(min_length=1)
-    notes: str | None = None
+async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
+    return await context.todos.create(title=request.title)
 ```
 
-The compatibility report now classifies the change as additive. After
-reviewing it, update the snapshot:
+`context.todos` is a `TodoRepository` port owned by the application. The
+running server supplies a SQLite adapter; the direct use-case test supplies a
+memory adapter. The use case does not need to know which one it received.
 
-```shell
-uv run tenchi openapi --write openapi.json
-uv run tenchi check
-uv run tenchi verify --base-ref HEAD
-```
-
-`verify` reruns the local checks, requires a complete application map, compares
-all four boundary snapshots with the starting commit, and confirms that
-`tenchi.toml` was not weakened. The optional field is additive, so the receipt
-passes. Treat a failed receipt as unfinished work and commit the change only
-after it succeeds.
-
-<Callout title="Keep the baseline historical">
-  In this tutorial, `HEAD` still names the original generated application. In
-  normal work, use the pull-request base, previous push, or previous release.
-  Run `--diff` before replacing a snapshot; generated CI uses the pull-request
-  base, so committing an updated snapshot cannot hide an incompatible change.
+<Callout title="The rest of the scaffold can wait">
+  The generated project includes server wiring, infrastructure adapters, and
+  extension points for later capabilities. You do not need to understand or
+  edit them to work on this operation.
 </Callout>
 
-## Add another feature
+## Change the behavior
 
-```shell
-uv run tenchi make feature notes
-uv run tenchi make use-case notes create_note
-uv run tenchi map --feature notes
+Trim surrounding whitespace before saving a title. In
+`app/features/todos/use_cases/create_todo.py`, change the repository call:
+
+```diff
+ async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
+-    return await context.todos.create(title=request.title)
++    return await context.todos.create(title=request.title.strip())
 ```
 
-Generators create files and print the wiring steps. They do not edit existing
-composition modules, keeping dependency wiring visible and app-owned.
-Add `--dry-run` to preview every file or `--json` for a versioned result.
-If you declare the HTTP contract first, add `--from-contract
-app.features.notes.contracts:<contract_name>` to generate the exact boundary
-signature. That use case and its test deliberately fail `tenchi check` until
-you replace the generated placeholders and remove their incomplete markers.
-Add `--plan .tenchi/changes/<name>.json --base-ref <historical-ref>` when the
-final receipt should prove that exact generated structure; follow [verify a
-generated change](/change-plans) for the complete workflow.
-The map shows the new declarations before they are wired. Runtime-bound
-contracts, use cases, and adapters become registered after you follow the
-printed composition steps. Use
-`tenchi map --feature notes --json` when an agent or another tool will consume
-the graph. See [coding agents](/agents) for the complete inspect, preview, edit,
-and validate loop, or [connect the coding-agent MCP server](/mcp) to expose
-those operations as agent tools.
+Update the direct test in
+`app/features/todos/tests/test_create_todo.py` so it proves the new behavior:
 
-To practice the complete path on the generated application, follow [build a
-feature end to end](/build-a-feature). It changes a contract, use case, port,
-both persistence adapters, route composition, tests, and the OpenAPI snapshot
-as one reviewable operation.
+```diff
+-    todo = await create_todo(CreateTodo(title="Buy milk"), context)
++    todo = await create_todo(CreateTodo(title="  Buy milk  "), context)
 
-From here, choose the path that matches the next decision you need to make:
+     assert todo.title == "Buy milk"
+```
 
-- [Understand how Tenchi works](/concepts)
-- [Build a feature end to end](/build-a-feature)
-- [Prepare the application for production](/production)
-- [Build with AI](/ai)
+Run that focused test:
+
+```shell
+uv run pytest app/features/todos/tests/test_create_todo.py
+```
+
+The test calls the use case directly with a memory repository. It does not
+start an HTTP server or open SQLite.
+
+## Check the application
+
+```shell
+uv run tenchi check
+```
+
+`tenchi check` runs the generated project's formatting, linting, type,
+behavior, architecture, and boundary checks. The command reports every failed
+step so one run gives you the complete repair list.
+
+Your first change touched one plain function and one focused test. The contract,
+route, persistence wiring, OpenAPI, and HTTP behavior remained aligned without
+requiring changes.
+
+## Continue from the core
+
+- [How Tenchi works](/concepts) explains the small application model.
+- [Build a feature end to end](/build-a-feature) adds a persisted operation
+  across a port, two adapters, a route, and tests.
+- [Review API compatibility](/openapi) shows how to classify breaking and
+  additive contract changes.
+- [Prepare for production](/production) covers operational decisions when the
+  application is ready to ship.
+- [Build with AI](/ai) is optional guidance for coding agents, application
+  tools, MCP, and evaluations.

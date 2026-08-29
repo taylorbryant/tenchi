@@ -10,9 +10,16 @@ OpenAPI snapshot.
 
 ## Start from a committed application
 
-Follow the [quickstart](/getting-started) through the initial commit under “Run
-the checks,” then stop before its first contract change. Run this tutorial from
-the generated application root. `HEAD` must still identify the unchanged
+Complete [Build your first Tenchi app](/getting-started), then commit the
+current application before adding the new operation:
+
+```shell
+git init
+git add .
+git commit -m "Create Tenchi application"
+```
+
+Run this tutorial from the application root. `HEAD` must identify the committed
 starting point so Tenchi can compare the finished change with an immutable
 baseline.
 

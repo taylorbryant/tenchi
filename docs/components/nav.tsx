@@ -197,7 +197,7 @@ export function Nav({ version }: { version?: string }) {
         </Link>
         <SearchButton className="mt-6" />
         <div className="mt-6 flex-1 overflow-y-auto pb-6">
-          <NavLinks />
+          <NavLinks collapsible />
         </div>
         <SidebarMeta version={version} />
       </aside>

@@ -1,7 +1,7 @@
 export const siteName = "Tenchi";
 
 export const siteDescription =
-  "Build production Python backends that humans and coding agents can understand, change, and verify.";
+  "Build typed Python APIs around explicit contracts and plain async functions.";
 
 export const defaultSiteUrl = "https://tenchi.io";
 
@@ -18,10 +18,10 @@ export const docsSections = [
       },
       {
         path: "/getting-started",
-        title: "Build and verify your first app",
+        title: "Build your first Tenchi app",
         navLabel: "First application",
         description:
-          "Create a complete Tenchi application, call its API, change a contract, and verify the result against an immutable baseline.",
+          "Create a Tenchi application, call its API, follow one request through the code, and change its behavior.",
         priority: 0.96,
       },
       {
@@ -59,7 +59,7 @@ export const docsSections = [
     ],
   },
   {
-    label: "Build",
+    label: "Build APIs",
     routes: [
       {
         path: "/architecture",
@@ -144,7 +144,7 @@ export const docsSections = [
     ],
   },
   {
-    label: "Ship",
+    label: "Operate",
     routes: [
       {
         path: "/production",
@@ -261,7 +261,7 @@ export const docsSections = [
     ],
   },
   {
-    label: "AI and agents",
+    label: "Extend",
     routes: [
       {
         path: "/ai",

@@ -41,16 +41,16 @@ describe("documentation", () => {
   test("reader journeys remain the primary information architecture", () => {
     expect(docsSections.map((section) => section.label)).toEqual([
       "Start",
-      "Build",
-      "Ship",
-      "AI and agents",
+      "Build APIs",
+      "Operate",
+      "Extend",
       "Reference",
     ]);
     expect(getSectionLabel("/getting-started")).toBe("Start");
-    expect(getSectionLabel("/contracts")).toBe("Build");
-    expect(getSectionLabel("/production")).toBe("Ship");
-    expect(getSectionLabel("/ai")).toBe("AI and agents");
-    expect(getSectionLabel("/ai/")).toBe("AI and agents");
+    expect(getSectionLabel("/contracts")).toBe("Build APIs");
+    expect(getSectionLabel("/production")).toBe("Operate");
+    expect(getSectionLabel("/ai")).toBe("Extend");
+    expect(getSectionLabel("/ai/")).toBe("Extend");
   });
 
   test("every registered route has an MDX page", () => {
@@ -143,5 +143,6 @@ describe("documentation", () => {
     expect(themeSource).not.toMatch(/[☼◫☾]/);
     expect(themeSource.match(/<svg/g)?.length).toBe(3);
     expect(navSource).toContain("overscroll-contain");
+    expect(navSource.match(/<NavLinks\s+collapsible/g)?.length).toBe(2);
   });
 });
