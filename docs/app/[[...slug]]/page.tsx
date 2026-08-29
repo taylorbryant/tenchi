@@ -36,9 +36,9 @@ export default async function DocsPage({ params }: PageProps) {
   if (!path) notFound();
   const Content = docsContent[path];
   return (
-    <>
+    <div className="py-14 lg:py-20">
       <Content />
       <PrevNext path={path} />
-    </>
+    </div>
   );
 }

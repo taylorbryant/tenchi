@@ -53,7 +53,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body className="bg-bg font-sans text-ink antialiased">
         <script
           // biome-ignore lint/security/noDangerouslySetInnerHtml: static pre-paint theme bootstrap
@@ -66,10 +66,7 @@ export default function RootLayout({
           Skip to content
         </a>
         <Nav version={frameworkVersion()} />
-        <main
-          id="content"
-          className="mx-auto max-w-3xl px-6 py-14 lg:px-12 lg:py-20"
-        >
+        <main id="content" className="mx-auto max-w-3xl px-6 lg:px-12">
           {children}
         </main>
         <Toc />
