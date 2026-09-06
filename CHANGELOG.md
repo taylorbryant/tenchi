@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-05
+
 ### Fixed
 
 - Typed client path parameters must match their Starlette route converter before
@@ -24,6 +26,8 @@ versions may change the public API.
   OpenAPI generation, or typed-client preflight. Use `Field(alias=...)` or include
   the serialization name in `validation_alias`; nested models, dataclasses,
   typed dictionaries, and alias choices follow the same rule.
+- Source distributions exclude local documentation dependencies, build caches,
+  and generated site output.
 
 ### Added
 

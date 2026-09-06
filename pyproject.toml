@@ -1,6 +1,6 @@
 [project]
 name = "tenchi"
-version = "0.16.0"
+version = "0.17.0"
 description = "A contract-first framework for production Python backends that humans and coding agents can build and verify."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -74,6 +74,18 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tenchi"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/docs/.next",
+    "/docs/.next-pages",
+    "/docs/node_modules",
+    "/docs/out",
+    "/docs/public/llms.txt",
+    "/docs/public/llms-full.txt",
+    "/docs/public/search-index.json",
+    "/docs/tsconfig.tsbuildinfo",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
