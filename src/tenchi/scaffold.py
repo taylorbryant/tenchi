@@ -216,6 +216,11 @@ reviewable source edits.
 Authentication belongs in boundary hooks. Authorization belongs in use cases
 and pure policy functions. Declare every expected `AppError` on its contract or
 route group; undeclared application errors intentionally become framework 500s.
+Response field aliases must be readable by the same model; use Field(alias=...)
+or include the serialization name in validation_alias. JSON responses must
+satisfy their published schema and revalidate from the emitted bytes before
+the request scope commits. Idempotent results must serialize back to the same
+typed value before completion; keep their store in the write transaction.
 OpenAPI enumerates the exact codes and application/framework source for each
 error status and documents the framework-owned internal 500 on every operation.
 Contract examples are public documentation. Use named, realistic placeholder

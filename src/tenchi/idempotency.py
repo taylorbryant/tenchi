@@ -482,7 +482,14 @@ async def run_idempotently[ResultT](
         raw_result = await operation()
         try:
             result = adapter.validate_python(raw_result)
-            result_json = adapter.dump_json(result, by_alias=True)
+            result_json = adapter.dump_json(
+                deepcopy(result), by_alias=True, round_trip=True, warnings="error"
+            )
+            replay = adapter.validate_json(result_json)
+            if not same_python_value(result, replay):
+                raise ValueError(
+                    "result serialization does not preserve the typed value"
+                )
         except Exception as exc:
             raise IdempotencyResultError(
                 f"run_idempotently({namespace!r}): operation result does not "

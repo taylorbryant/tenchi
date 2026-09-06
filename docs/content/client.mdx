@@ -20,6 +20,18 @@ async with Client(base_url="https://api.example.com") as client:
 `call()` returns only the validated response body. Input arguments mirror the
 contract: `request=`, `params=`, `query=`, and `headers=`.
 
+Path values must match the declared Starlette converter before any request is
+sent. Ordinary `{name}` or `{name:str}` parameters cannot contain `/`. Use an
+explicit `{name:path}` converter for a nested path; `.` and `..` segments are
+rejected even inside those values. Percent encoding does not make a slash safe
+for a single-segment parameter, because the server routes the decoded path.
+
+Response field aliases must be accepted by the response model's validation
+aliases. A model with only `serialization_alias="wire_name"` cannot read its
+own output unless its validation configuration also accepts that name. Tenchi
+rejects these declarations before I/O; use `Field(alias="wire_name")` or an
+appropriate `validation_alias`. See [response validation](/responses).
+
 ## Inspect the HTTP response
 
 ```python

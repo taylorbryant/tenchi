@@ -22,6 +22,7 @@ import inspect
 import logging
 import math
 import random
+import re
 from asyncio import CancelledError
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
@@ -36,6 +37,7 @@ from urllib.parse import quote
 
 import httpx
 from pydantic import TypeAdapter
+from starlette.routing import compile_path
 
 from ._media_types import (
     MediaTypeError,
@@ -44,6 +46,7 @@ from ._media_types import (
     media_type_matches,
     text_charset,
 )
+from ._response_validation import validate_response_aliases
 from ._values import same_python_value
 from .contracts import (
     _PATH_PARAMETER,  # pyright: ignore[reportPrivateUsage]
@@ -944,6 +947,7 @@ class Client:
             label=f"{contract.name}: params",
         )
         rendered: dict[str, str] = {}
+        _, _, converters = compile_path(contract.path)
         for key, value in values.items():
             rendered_value = str(value) if value is not None else ""
             if not rendered_value:
@@ -951,10 +955,19 @@ class Client:
                     f"{contract.name}: path parameter {key!r} must be a "
                     f"non-empty value, got {value!r}"
                 )
-            if rendered_value in {".", ".."}:
+            if any(segment in {".", ".."} for segment in rendered_value.split("/")):
                 raise ValueError(
                     f"{contract.name}: path parameter {key!r} must not be a "
-                    f"dot segment, got {value!r}"
+                    "dot segment or contain dot segments"
+                )
+            converter = converters.get(key)
+            if (
+                converter is not None
+                and re.fullmatch(converter.regex, rendered_value) is None
+            ):
+                raise ValueError(
+                    f"{contract.name}: path parameter {key!r} does not match "
+                    "its declared path converter"
                 )
             rendered[key] = rendered_value
         _validate_parameter_round_trip(
@@ -1557,6 +1570,7 @@ def _preflight_contract_types(
                     "describe object-shaped input"
                 )
         if slot == "response":
+            validate_response_aliases(adapter, label=f"{contract.name}: response")
             response_adapter = adapter
         elif slot == "response_headers":
             response_headers_adapter = adapter
@@ -1576,6 +1590,11 @@ def _preflight_contract_types(
             if definition.headers is not None
             else None
         )
+        if case_response_adapter is not None:
+            validate_response_aliases(
+                case_response_adapter,
+                label=f"{contract.name}: response status {definition.status}",
+            )
         if case_headers_adapter is not None:
             _response_header_fields(
                 case_headers_adapter.json_schema(mode="serialization", by_alias=True),

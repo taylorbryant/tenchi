@@ -7,6 +7,24 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Fixed
+
+- Typed client path parameters must match their Starlette route converter before
+  I/O. Single-segment parameters cannot introduce slashes that select another
+  route; explicit `path` converters retain nested paths but reject dot segments.
+- JSON response bodies are checked against the published serialization schema
+  and revalidated from the emitted bytes before the request scope commits.
+  Mutated models, invalid custom validation results, and serializers that violate
+  the schema now produce framework-owned 500s and roll back scoped writes.
+- Idempotent results use round-trip serialization and must reconstruct the same
+  typed value before their reservation is completed. `Json[T]` results replay
+  correctly; lossy or unreadable results fail before completion, and serialization
+  uses an isolated copy of the result.
+- Unreadable response field aliases fail during application composition,
+  OpenAPI generation, or typed-client preflight. Use `Field(alias=...)` or include
+  the serialization name in `validation_alias`; nested models, dataclasses,
+  typed dictionaries, and alias choices follow the same rule.
+
 ### Added
 
 - Coding-agent benchmark v2 adds five production-shaped scenarios covering

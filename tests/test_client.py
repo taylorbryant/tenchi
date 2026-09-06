@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 from starlette.applications import Starlette
+from typing_extensions import TypedDict
 
 from tenchi.client import Client, ClientResponse, UnexpectedResponseError
 from tenchi.contracts import contract
@@ -28,8 +29,10 @@ from tenchi.errors import (
     ErrorDef,
     validation_error,
 )
+from tenchi.responses import response
 from tenchi.routes import route, route_group
 from tenchi.server import create_app
+from tenchi.testing import open_client
 
 
 class Item(BaseModel):
@@ -326,6 +329,117 @@ async def test_call_substitutes_path_params(client: Client) -> None:
     item = await client.call(get_item_contract, params=ItemParams(item_id="abc"))
 
     assert item == Item(name="abc")
+
+
+async def test_path_separator_cannot_invoke_another_route() -> None:
+    calls: list[str] = []
+    other_contract = contract(method="GET", path="/items/a/b", response=Item)
+
+    async def read(params: ItemParams, context: object) -> Item:
+        calls.append("requested")
+        return Item(name=params.item_id)
+
+    async def other(context: object) -> Item:
+        calls.append("other")
+        return Item(name="other")
+
+    app = create_app(
+        routes=route_group(
+            route(get_item_contract, read),
+            route(other_contract, other),
+        ),
+        context_factory=object,
+    )
+    async with open_client(app) as client:
+        with pytest.raises(ValueError, match=r"path parameter.*converter"):
+            await client.call(get_item_contract, params=ItemParams(item_id="a/b"))
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("value", ["-1", "1.5", "a/b"])
+async def test_path_parameters_must_match_the_declared_converter(value: str) -> None:
+    declared = contract(
+        method="GET", path="/items/{item_id:int}", params=ItemParams, response=Item
+    )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"name": "wrong route"})
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ValueError, match=r"path parameter.*converter"):
+            await client.call(declared, params=ItemParams(item_id=value))
+
+    assert requests == []
+
+
+async def test_path_converter_preserves_nested_and_percent_encoded_values() -> None:
+    declared = contract(
+        method="GET", path="/files/{item_id:path}", params=ItemParams, response=Item
+    )
+
+    async def read(params: ItemParams, context: object) -> Item:
+        return Item(name=params.item_id)
+
+    app = create_app(routes=route_group(route(declared, read)), context_factory=object)
+    async with open_client(app) as client:
+        for value in ("a/b", "a%2Fb", "a/b c", "a/%2e%2e/b"):
+            assert await client.call(
+                declared, params=ItemParams(item_id=value)
+            ) == Item(name=value)
+
+
+@pytest.mark.parametrize("value", ["a/../b", "a/./b", "../a"])
+async def test_path_converter_rejects_embedded_dot_segments(value: str) -> None:
+    declared = contract(
+        method="GET", path="/files/{item_id:path}", params=ItemParams, response=Item
+    )
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"name": "wrong route"})
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ValueError, match="dot segment"):
+            await client.call(declared, params=ItemParams(item_id=value))
+    assert requests == []
+
+
+@pytest.mark.parametrize("variant", [False, True])
+async def test_unreadable_response_aliases_fail_before_io(variant: bool) -> None:
+    class Unreadable(BaseModel):
+        value: str = Field(serialization_alias="wire_value")
+
+    @dataclass
+    class UnreadableDataclass:
+        value: Annotated[str, Field(validation_alias="input")]
+
+    class UnreadableDictionary(TypedDict):
+        value: Annotated[str, Field(serialization_alias="output")]
+
+    requests: list[httpx.Request] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=[{"wire_value": "ok"}])
+
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        for annotation in (list[Unreadable], UnreadableDataclass, UnreadableDictionary):
+            declared = (
+                contract(
+                    method="GET",
+                    path="/unreadable",
+                    responses=(response(annotation, status=200),),
+                )
+                if variant
+                else contract(method="GET", path="/unreadable", response=annotation)
+            )
+            with pytest.raises(ConfigurationError, match=r"response.*alias"):
+                await client.call(declared)
+    assert requests == []
 
 
 @pytest.mark.parametrize("item_id", [".", ".."])

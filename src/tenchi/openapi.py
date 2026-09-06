@@ -24,6 +24,7 @@ from jsonschema.protocols import Validator
 from pydantic import TypeAdapter
 
 from . import errors as tenchi_errors
+from ._response_validation import validate_response_aliases
 from .contracts import (
     _IDEMPOTENCY_KEY_HEADER,  # pyright: ignore[reportPrivateUsage]
     Contract,
@@ -568,6 +569,10 @@ def _successful_response(
     }
     if response_type is not None:
         assert media_type is not None
+        validate_response_aliases(
+            TypeAdapter(response_type),
+            label=f"openapi: route {declared.name!r} response",
+        )
         response_schema = _json_schema(
             response_type,
             components,

@@ -125,6 +125,11 @@ runtime, Tenchi validates input before the use case and validates its result
 before the request scope commits. The same contract can also drive OpenAPI and
 the typed Python client.
 
+JSON responses are checked against their published schema and read back through
+Pydantic before committing, including when a use case returns an existing model.
+Response field aliases must be readable by that same model; use `Field(alias=...)`
+for shared wire names. See [successful responses](https://tenchi.io/responses).
+
 Read [How Tenchi works](https://tenchi.io/concepts) for the complete mental
 model or [Build a feature](https://tenchi.io/build-a-feature) to carry an
 operation through persistence and tests.

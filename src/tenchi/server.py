@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -29,6 +30,7 @@ from types import MappingProxyType
 from typing import Any, Literal, Never, cast, overload
 from uuid import uuid4
 
+from jsonschema.protocols import Validator
 from pydantic import TypeAdapter, ValidationError
 from starlette import responses as _starlette_responses
 from starlette import routing as _starlette_routing
@@ -50,6 +52,7 @@ from ._media_types import (
     media_type_parts,
     text_charset,
 )
+from ._response_validation import response_schema_validator, validate_response_aliases
 from .contracts import (
     Contract,
     _object_schema,  # pyright: ignore[reportPrivateUsage]
@@ -250,6 +253,7 @@ class _BoundRoute:
     headers_adapter: TypeAdapter[Any] | None
     request_adapter: TypeAdapter[Any] | None
     response_adapter: TypeAdapter[Any] | None
+    response_validator: Validator | None
     response_headers_adapter: TypeAdapter[Any] | None
     response_header_names: frozenset[str]
     required_response_headers: frozenset[str]
@@ -265,6 +269,7 @@ class _BoundRoute:
 class _BoundResponse:
     definition: ResponseDef[Any, Any]
     response_adapter: TypeAdapter[Any] | None
+    response_validator: Validator | None
     response_headers_adapter: TypeAdapter[Any] | None
     response_header_names: frozenset[str]
     required_response_headers: frozenset[str]
@@ -431,6 +436,13 @@ def create_app(
             headers_adapter=headers_adapter,
             request_adapter=request_adapter,
             response_adapter=response_adapter,
+            response_validator=(
+                response_schema_validator(
+                    response_adapter, label=f"route {item.contract.name!r}"
+                )
+                if is_json_media_type(item.contract.response_media_type)
+                else None
+            ),
             response_headers_adapter=response_headers_adapter,
             response_header_names=response_header_names,
             required_response_headers=required_response_headers,
@@ -631,6 +643,8 @@ def _annotation_adapter(
             f"create_app: {label} has a {slot} type {type_name} "
             f"Pydantic cannot validate: {exc}"
         ) from exc
+    if slot == "response":
+        validate_response_aliases(adapter, label=label)
     if slot in {"params", "query", "headers", "response_headers"}:
         mode = "serialization" if slot == "response_headers" else "validation"
         try:
@@ -706,6 +720,13 @@ def _bind_response(
     return _BoundResponse(
         definition=definition,
         response_adapter=response_adapter,
+        response_validator=(
+            response_schema_validator(response_adapter, label=label)
+            if definition.media_type is not None
+            and is_json_media_type(definition.media_type)
+            and not definition.passthrough
+            else None
+        ),
         response_headers_adapter=response_headers_adapter,
         response_header_names=names,
         required_response_headers=required,
@@ -899,13 +920,21 @@ def _validated_payload(
     value: Any,
     *,
     media_type: str | None,
+    schema_validator: Validator | None,
 ) -> tuple[Any, bytes | str | None]:
     if adapter is None:
         return None, None
     validated = adapter.validate_python(value)
     assert media_type is not None
     if is_json_media_type(media_type):
-        return validated, adapter.dump_json(validated, by_alias=True)
+        payload = adapter.dump_json(validated, by_alias=True, warnings="error")
+        assert schema_validator is not None
+        schema_validator.validate(json.loads(payload))
+        # Existing Pydantic instances may be trusted by validate_python().
+        # Re-read the bytes through the same boundary as the typed client,
+        # checking custom validators as well as the published JSON Schema.
+        adapter.validate_json(payload)
+        return validated, payload
     if isinstance(validated, str) and is_text_media_type(media_type):
         return validated, validated.encode(text_charset(media_type))
     if isinstance(validated, bytes | str):
@@ -1084,6 +1113,7 @@ def _presented_response(
         selected.response_adapter,
         None if _is_unset(presented.body) else presented.body,
         media_type=definition.media_type,
+        schema_validator=selected.response_validator,
     )
     response_headers = {REQUEST_ID_HEADER: request_id}
     response_headers.update(
@@ -1309,6 +1339,7 @@ def _make_endpoint(
                 bound.response_adapter,
                 result,
                 media_type=contract.response_media_type,
+                schema_validator=bound.response_validator,
             )
         except Exception as exc:
             _raise_response_contract_violation(contract, request_id, exc)

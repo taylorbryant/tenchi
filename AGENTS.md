@@ -224,6 +224,12 @@ API shape:
   exactly one natural reading (`route(contract, use_case)`).
 - Boundary validation accepts any type Pydantic can validate (via
   `TypeAdapter`), not just `BaseModel` subclasses.
+- Ordinary JSON responses must satisfy their published serialization schema
+  and revalidate from the emitted bytes before the request scope commits.
+  Response field aliases must be accepted by the same type's validation aliases;
+  unreadable aliases fail during composition, OpenAPI generation, and client
+  preflight. Response schemas must be self-contained; validation never fetches
+  remote references.
 - Do not hide httpx, Starlette, or Pydantic where exposing them is more
   useful (e.g. `Client(transport=...)`, lifespans as async context
   managers).

@@ -7,6 +7,22 @@ HTTP boundary. Use the simple contract fields when success has one fixed
 shape; use response definitions when status or representation depends on the
 result.
 
+For ordinary JSON responses, Tenchi serializes the value, checks those exact
+bytes against the published serialization schema, and revalidates them through
+Pydantic before the request scope commits. This also checks already-created
+models whose fields or nested collections were mutated after construction.
+Custom serializers must produce schema-valid JSON that the declared type can
+read back. A failure becomes a framework-owned 500 and rolls back scoped writes.
+
+Response field aliases must be readable by the same model. Prefer
+`Field(alias="wire_name")` for a shared input/output name. If using separate
+validation and serialization aliases, include the output name in the accepted
+validation aliases, for example `AliasChoices("input_name", "wire_name")`.
+Unreadable field aliases fail during application composition, OpenAPI
+generation, and client preflight, including inside nested response types.
+JSON Schema validation resolves local references only; it never fetches remote
+schemas during a request. Use self-contained schemas for custom response types.
+
 ## One successful response
 
 ```python

@@ -1,11 +1,18 @@
 """Named response variants and controlled response passthrough."""
 
 from dataclasses import dataclass
-from typing import assert_type, cast
+from typing import Annotated, Literal, assert_type, cast
 
 import httpx
 import pytest
-from pydantic import BaseModel, Field, model_validator
+from pydantic import (
+    AliasChoices,
+    AliasPath,
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 from starlette.responses import Response, StreamingResponse
 
 from tenchi.cli import route_map
@@ -21,6 +28,112 @@ from tenchi.testing import open_client, open_http
 
 class Item(BaseModel):
     name: str
+
+
+@pytest.mark.parametrize("variant", [False, True])
+def test_unreadable_nested_response_aliases_fail_composition(variant: bool) -> None:
+    class Unreadable(BaseModel):
+        value: str = Field(serialization_alias="wire_value")
+
+    class Envelope(BaseModel):
+        type: list[Unreadable]
+
+    selected = response(Envelope, status=200)
+    declared = (
+        contract(method="GET", path="/unreadable", responses=(selected,))
+        if variant
+        else contract(method="GET", path="/unreadable", response=Envelope)
+    )
+
+    async def read(context: object) -> Envelope:
+        raise AssertionError("invalid composition must fail before invocation")
+
+    def present_result(result: Envelope) -> PresentedResponse:
+        return present(selected, result)
+
+    binding = (
+        route(declared, read, present=present_result)
+        if variant
+        else route(declared, read)
+    )
+    routes = route_group(binding)
+    with pytest.raises(ConfigurationError, match=r"response.*alias"):
+        create_app(routes=routes, context_factory=object)
+    with pytest.raises(ConfigurationError, match=r"response.*alias"):
+        openapi_schema(routes, title="Test", version="1")
+
+
+@pytest.mark.parametrize("variant", [False, True])
+async def test_response_alias_choices_and_name_population_round_trip(
+    variant: bool,
+) -> None:
+    class Aliased(BaseModel):
+        value: int = Field(alias="wire", ge=1)
+
+    class Chosen(BaseModel):
+        value: int = Field(
+            validation_alias=AliasChoices("input", AliasPath("wire")),
+            serialization_alias="wire",
+        )
+
+    class Named(BaseModel):
+        model_config = ConfigDict(populate_by_name=True)
+        value: int = Field(validation_alias="input")
+
+    class Envelope(BaseModel):
+        type: Aliased
+        metadata: Chosen
+        serialization: Named
+
+    original = Envelope(
+        type=Aliased(wire=1),
+        metadata=Chosen.model_validate({"input": 2}),
+        serialization=Named.model_validate({"input": 3}),
+    )
+    selected = response(Envelope, status=200)
+    declared = (
+        contract(method="GET", path="/aliased", responses=(selected,))
+        if variant
+        else contract(method="GET", path="/aliased", response=Envelope)
+    )
+
+    async def read(context: object) -> Envelope:
+        return original
+
+    def present_result(result: Envelope) -> PresentedResponse:
+        return present(selected, result)
+
+    binding = (
+        route(declared, read, present=present_result)
+        if variant
+        else route(declared, read)
+    )
+    app = create_app(routes=route_group(binding), context_factory=object)
+    async with open_client(app) as client:
+        assert await client.call(declared) == original
+
+
+async def test_discriminated_response_union_with_field_named_type_round_trips() -> None:
+    class First(BaseModel):
+        type: Literal["first"]
+        value: int = Field(alias="wire")
+
+    class Second(BaseModel):
+        type: Literal["second"]
+
+    class Envelope(BaseModel):
+        choice: Annotated[First | Second, Field(discriminator="type")]
+
+    declared = contract(method="GET", path="/choice", response=Envelope)
+
+    async def read(context: object) -> Envelope:
+        return Envelope(choice=First(type="first", wire=1))
+
+    app = create_app(routes=route_group(route(declared, read)), context_factory=object)
+    async with open_client(app) as client:
+        assert await client.call(declared) == Envelope(
+            choice=First(type="first", wire=1)
+        )
 
 
 class CreatedHeaders(BaseModel):

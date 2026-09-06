@@ -6,7 +6,14 @@ from enum import StrEnum
 from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, model_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    Json,
+    PlainSerializer,
+    model_serializer,
+)
 
 from tenchi.errors import AppError, ConfigurationError
 from tenchi.idempotency import (
@@ -334,6 +341,113 @@ async def test_replay_is_validated_without_calling_operation() -> None:
     assert result == Result(id="task-1", title="Original")
     assert store.completed == []
     assert store.abandoned == []
+
+
+async def test_json_result_replays_the_original_value() -> None:
+    class JsonResult(BaseModel):
+        value: Json[list[int]]
+
+    store = MemoryIdempotencyStore()
+    calls = 0
+
+    async def operation() -> JsonResult:
+        nonlocal calls
+        calls += 1
+        return JsonResult.model_validate({"value": "[1,2]"})
+
+    results = [
+        await run_idempotently(
+            store,
+            namespace="tasks.create",
+            scope="actor:alice",
+            key="request-1",
+            fingerprint="input-1",
+            result_type=JsonResult,
+            operation=operation,
+        )
+        for _ in range(2)
+    ]
+
+    assert calls == 1
+    assert results[0] == results[1]
+    assert results[0].value == [1, 2]
+
+
+async def test_lossy_result_is_rejected_before_completing_reservation() -> None:
+    class LossyResult(BaseModel):
+        value: int
+
+        @model_serializer
+        def serialize(self) -> dict[str, int]:
+            return {"value": self.value + 1}
+
+    store = Store(reserved)
+    original = LossyResult(value=1)
+
+    async def operation() -> LossyResult:
+        return original
+
+    with pytest.raises(IdempotencyResultError):
+        await run_idempotently(
+            store,
+            namespace="tasks.create",
+            scope="actor:alice",
+            key="request-1",
+            fingerprint="input-1",
+            result_type=LossyResult,
+            operation=operation,
+        )
+
+    assert original.value == 1
+    assert store.completed == []
+    assert len(store.abandoned) == 1
+
+
+async def test_result_serialization_cannot_mutate_the_callers_model() -> None:
+    store = Store(reserved)
+    original = MutatingSerializedRequest(values=[1, 2])
+
+    async def operation() -> MutatingSerializedRequest:
+        return original
+
+    with pytest.raises(IdempotencyResultError):
+        await run_idempotently(
+            store,
+            namespace="tasks.create",
+            scope="actor:alice",
+            key="request-1",
+            fingerprint="input-1",
+            result_type=MutatingSerializedRequest,
+            operation=operation,
+        )
+
+    assert original.values == [1, 2]
+    assert store.completed == []
+    assert len(store.abandoned) == 1
+
+
+async def test_required_excluded_result_field_fails_before_completion() -> None:
+    class ExcludedResult(BaseModel):
+        value: str = Field(exclude=True)
+
+    store = Store(reserved)
+
+    async def operation() -> ExcludedResult:
+        return ExcludedResult(value="not replayable")
+
+    with pytest.raises(IdempotencyResultError):
+        await run_idempotently(
+            store,
+            namespace="tasks.create",
+            scope="actor:alice",
+            key="request-1",
+            fingerprint="input-1",
+            result_type=ExcludedResult,
+            operation=operation,
+        )
+
+    assert store.completed == []
+    assert len(store.abandoned) == 1
 
 
 @pytest.mark.parametrize(

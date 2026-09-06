@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from pydantic import BaseModel, Field
 from starlette.applications import Starlette
 
 from app.features.projects.schemas import Project
@@ -28,6 +29,22 @@ write_contract = contract(method="POST", path="/write", response=Project, status
 glitch_contract = contract(
     method="POST", path="/glitch", response=Project, errors=(glitch,)
 )
+
+
+class WrittenCount(BaseModel):
+    count: int = Field(ge=1)
+
+
+invalid_response_contract = contract(
+    method="POST", path="/invalid-response", response=WrittenCount
+)
+
+
+async def write_then_return_invalid(context: AppContext) -> WrittenCount:
+    await context.projects.create(name="invalid", owner=OwnerScope(owner_id="alice"))
+    result = WrittenCount(count=1)
+    result.count = 0
+    return result
 
 
 async def write_project(context: AppContext) -> Project:
@@ -64,6 +81,7 @@ def make_app(database_path: str) -> Starlette:
         routes=route_group(
             route(write_contract, write_project),
             route(glitch_contract, write_then_fail),
+            route(invalid_response_contract, write_then_return_invalid),
         ),
         context_factory=create_context,
         lifespan=lifespan,
@@ -81,6 +99,10 @@ async def test_commit_on_success_rollback_on_error(tmp_path: Path) -> None:
         failed = await http.post("/glitch")
         assert failed.status_code == 409
         assert failed.json()["code"] == "GLITCH"
+
+        invalid = await http.post("/invalid-response")
+        assert invalid.status_code == 500
+        assert invalid.headers["x-tenchi-error-source"] == "framework"
 
     async with open_request_ports(database) as ports:
         names = [

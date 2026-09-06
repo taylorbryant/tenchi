@@ -3,18 +3,108 @@
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
+from typing import Annotated
+from urllib import request as url_request
 
 import httpx
 import pytest
-from pydantic import BaseModel, Field, model_serializer
+from pydantic import BaseModel, Field, WithJsonSchema, field_validator, model_serializer
 from starlette.applications import Starlette
 
 from tenchi.client import Client
 from tenchi.contracts import contract
 from tenchi.errors import AppError, ErrorDef
+from tenchi.responses import PresentedResponse, present, response
 from tenchi.routes import route, route_group
 from tenchi.server import RequestInfo, create_app
-from tenchi.testing import open_client
+from tenchi.testing import open_client, open_http
+
+
+@pytest.mark.parametrize("variant", [False, True])
+@pytest.mark.parametrize("validation", ["schema", "custom"])
+async def test_mutated_response_constraint_failure_rolls_back(
+    variant: bool, validation: str
+) -> None:
+    class Count(BaseModel):
+        value: int = Field(ge=1 if validation == "schema" else 0)
+
+        @field_validator("value")
+        @classmethod
+        def positive(cls, value: int) -> int:
+            if validation == "custom" and value == 0:
+                raise ValueError("count must be positive")
+            return value
+
+    class Counts(BaseModel):
+        items: list[Count]
+
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def context() -> AsyncGenerator[object]:
+        events.append("enter")
+        try:
+            yield object()
+        except BaseException:
+            events.append("rollback")
+            raise
+        else:
+            events.append("commit")
+
+    async def write(context: object) -> Counts:
+        events.append("write")
+        result = Counts(items=[Count(value=1)])
+        result.items[0].value = 0
+        return result
+
+    selected = response(Counts, status=200)
+
+    def present_counts(result: Counts) -> PresentedResponse:
+        return present(selected, result)
+
+    declared = (
+        contract(method="POST", path="/counts", responses=(selected,))
+        if variant
+        else contract(method="POST", path="/counts", response=Counts)
+    )
+    binding = (
+        route(declared, write, present=present_counts)
+        if variant
+        else route(declared, write)
+    )
+    app = create_app(routes=route_group(binding), context_factory=context)
+    async with open_http(app) as http:
+        result = await http.post("/counts")
+
+    assert result.status_code == 500
+    assert result.headers["x-tenchi-error-source"] == "framework"
+    assert events == ["enter", "write", "rollback"]
+
+
+async def test_response_validation_never_fetches_a_remote_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ExternalSchema(BaseModel):
+        value: Annotated[int, WithJsonSchema({"$ref": "https://schemas.invalid/count"})]
+
+    fetches: list[object] = []
+
+    def fetch(url: object, *args: object, **kwargs: object) -> None:
+        fetches.append(url)
+        raise AssertionError("response validation must not fetch schemas")
+
+    monkeypatch.setattr(url_request, "urlopen", fetch)
+    declared = contract(method="GET", path="/external-schema", response=ExternalSchema)
+
+    async def read(context: object) -> ExternalSchema:
+        return ExternalSchema(value=1)
+
+    app = create_app(routes=route_group(route(declared, read)), context_factory=object)
+    async with open_http(app) as http:
+        result = await http.get("/external-schema")
+
+    assert result.status_code == 500
+    assert fetches == []
 
 
 @dataclass(frozen=True, slots=True)

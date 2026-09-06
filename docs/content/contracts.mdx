@@ -118,6 +118,12 @@ cannot be a JSON response body.
 Charset-qualified text types are encoded and decoded strictly. An unsupported
 declared charset fails when the contract is built rather than during a call.
 
+JSON response bodies must satisfy their published serialization schema and be
+readable by the declared Pydantic type. Response field aliases follow the same
+rule: use `Field(alias=...)` or accept the serialization name in
+`validation_alias`. These checks keep the server and typed client aligned;
+see [successful responses](/responses) for validation and rollback behavior.
+
 ## Give callers concrete examples
 
 Use `request_examples=` and `response_examples=` when a caller would benefit
