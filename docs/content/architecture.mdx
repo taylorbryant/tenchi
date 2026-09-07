@@ -85,9 +85,10 @@ The `app/server/` package is the application root:
   final Starlette application.
 
 Only `context.py`, `routes.py`, and `asgi.py` are required. The other server
-modules exist when the application uses that capability; `tenchi map`,
-`tenchi check`, and `tenchi verify` treat an absent default module as not
-configured.
+modules exist when the application uses that capability. `tenchi map`,
+`tenchi check`, and `tenchi verify` treat an absent default module for jobs,
+tasks, tools, or evaluations as not configured; `tenchi preflight` requires
+its module when you run it.
 
 The composition root may import anything. Everything else follows a narrower
 direction.

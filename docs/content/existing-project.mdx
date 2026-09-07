@@ -43,9 +43,10 @@ app/
 ```
 
 These are the only modules Tenchi requires. Background jobs, operational tasks,
-application tools, evaluations, and preflight checks each add one module under
-`app/server/` when the application needs them; until then `tenchi map`,
-`tenchi check`, and `tenchi verify` treat those boundaries as not configured.
+application tools, and evaluations each add one module under `app/server/`
+when the application needs them; until then `tenchi map`, `tenchi check`, and
+`tenchi verify` treat those boundaries as not configured. Preflight checks add
+`app/server/preflight.py` when you adopt that deployment gate.
 
 ## Declare the boundary
 

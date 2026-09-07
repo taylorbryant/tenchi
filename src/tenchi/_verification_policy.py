@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from ._openapi_operations import OperationError, project_path, read_git_snapshot
-from ._targets import optional_target_absent, optional_target_absent_at_ref
+from ._targets import optional_target_absent, optional_targets_absent_at_ref
 
 VERIFICATION_POLICY_PATH = "tenchi.toml"
 VERIFICATION_POLICY_SCHEMA_VERSION = 1
@@ -163,15 +163,13 @@ def unconfigured_stages(
     """
     if optional_targets is None:
         return frozenset()
-    absent: set[VerificationEvidenceStage] = set()
-    for stage, (target, default) in optional_targets.items():
-        if ref is None:
-            missing = optional_target_absent(root, target, default)
-        else:
-            missing = optional_target_absent_at_ref(root, target, default, ref=ref)
-        if missing:
-            absent.add(stage)
-    return frozenset(absent)
+    if ref is not None:
+        return optional_targets_absent_at_ref(root, ref=ref, targets=optional_targets)
+    return frozenset(
+        stage
+        for stage, (target, default) in optional_targets.items()
+        if optional_target_absent(root, target, default)
+    )
 
 
 def _read_current_policy(

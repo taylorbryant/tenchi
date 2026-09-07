@@ -74,9 +74,10 @@ framework code, the CLI, docs, or the example apps.
     evaluation-policy snapshot rendering and readable drift diagnostics used
     by the CLI.
   - `doctor.py` — dependency-direction and structure checks.
-  - `_targets.py` — default composition targets and detection of the optional
-    server modules (jobs, tasks, tools, evaluations, preflight) that `map`,
-    `check`, and `verify` treat as not configured when absent.
+  - `_targets.py` — default composition targets, detection of absent optional
+    job, task, tool, and evaluation modules (as files or packages, in the
+    working tree or at a baseline commit), and the shared loader that `map`,
+    `check`, and `verify` use to treat them as not configured.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
   - `_generation.py` — contract-driven source rendering and the explicit
     incomplete marker enforced by doctor.
@@ -178,8 +179,9 @@ modules marked optional as optional, and `map`, `check`, `verify`, and the
 coding-agent MCP `app_map` tool treat an absent default target for jobs,
 tasks, tools, or evaluations as not configured rather than as a load failure.
 `check` omits a snapshot step only when both the module and its snapshot are
-absent. An explicitly overridden target is never optional. The full scaffold
-still generates every module.
+absent. An explicitly overridden target is never optional. `tenchi preflight`
+still requires its module when it runs. The full scaffold still generates
+every module.
 
 Dependency direction is enforced by `tenchi doctor` and must hold in every
 example and template:

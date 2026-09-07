@@ -11,10 +11,11 @@ versions may change the public API.
 
 - The server composition modules for background jobs, operational tasks,
   application tools, evaluations, and preflight checks are optional. `tenchi
-  doctor` no longer reports them as missing structure, and `tenchi map`,
+  doctor` no longer reports any of them as missing structure. `tenchi map`,
   `tenchi check`, `tenchi verify`, and the coding-agent MCP `app_map` tool
-  treat an absent default target as not configured instead of failing to
-  import it. `check` omits a job, tool, or evaluation snapshot step only when
+  treat an absent default job, task, tool, or evaluation target as not
+  configured instead of failing to import it, whether the module would be a
+  file or a package; `tenchi preflight` still requires its module. `check` omits a job, tool, or evaluation snapshot step only when
   both the module and its snapshot file are absent; either one alone still runs
   the step so drift fails visibly. Without `tenchi.toml`, the built-in
   verification policy requires check, architecture, and OpenAPI and records

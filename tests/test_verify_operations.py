@@ -169,21 +169,14 @@ def _run_with_map(
         del root, target
         return object()
 
-    def fake_load_task_runner(root: Path, target: str) -> SimpleNamespace:
-        del root, target
-        return SimpleNamespace(tasks=object())
-
-    def fake_load_evaluation_runner(root: Path, target: str) -> SimpleNamespace:
-        del root, target
-        return SimpleNamespace(evaluations=object())
-
-    def fake_load_job_group(root: Path, target: str) -> object:
-        del root, target
-        return object()
-
-    def fake_load_tool_group(root: Path, target: str) -> object:
-        del root, target
-        return object()
+    def fake_load_optional_groups(root: Path, **targets: str) -> SimpleNamespace:
+        del root, targets
+        return SimpleNamespace(
+            tasks=object(),
+            jobs=object(),
+            tools=object(),
+            evaluations=object(),
+        )
 
     def fake_map_app(*args: object, **kwargs: object) -> AppMapResult:
         del args, kwargs
@@ -256,23 +249,8 @@ def _run_with_map(
     )
     monkeypatch.setattr(
         _verify_operations,
-        "load_task_runner",
-        fake_load_task_runner,
-    )
-    monkeypatch.setattr(
-        _verify_operations,
-        "load_evaluation_runner",
-        fake_load_evaluation_runner,
-    )
-    monkeypatch.setattr(
-        _verify_operations,
-        "load_job_group",
-        fake_load_job_group,
-    )
-    monkeypatch.setattr(
-        _verify_operations,
-        "load_tool_group",
-        fake_load_tool_group,
+        "load_optional_groups",
+        fake_load_optional_groups,
     )
     monkeypatch.setattr(
         _verify_operations,

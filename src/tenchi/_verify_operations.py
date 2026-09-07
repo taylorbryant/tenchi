@@ -41,9 +41,7 @@ from ._cli_results import (
 from ._evaluation_operations import (
     EvaluationDiffPayload,
     EvaluationDiffResult,
-    discard_evaluation_output,
     evaluation_diff_result,
-    load_evaluation_runner,
 )
 from ._generation import (
     GENERATED_INCOMPLETE_PRAGMA,
@@ -55,7 +53,6 @@ from ._job_operations import (
     JobDiffPayload,
     JobDiffResult,
     job_diff_result,
-    load_job_group,
 )
 from ._openapi_operations import (
     OpenApiDiffPayload,
@@ -81,15 +78,12 @@ from ._source_identity import (
 from ._targets import (
     DEFAULT_EVALUATIONS_TARGET,
     DEFAULT_JOBS_TARGET,
-    DEFAULT_TASKS_TARGET,
     DEFAULT_TOOLS_TARGET,
-    optional_target_absent,
+    load_optional_groups,
 )
-from ._task_operations import load_task_runner
 from ._tool_operations import (
     ToolDiffPayload,
     ToolDiffResult,
-    load_tool_group,
     tool_diff_result,
 )
 from ._verification_policy import (
@@ -655,36 +649,20 @@ def verification_result(
     if enforced("architecture") or initial_change_plan is not None:
         try:
             route_group = load_route_group(resolved_root, routes)
-            evaluation_group = None
-            if not optional_target_absent(
-                resolved_root, evaluations, DEFAULT_EVALUATIONS_TARGET
-            ):
-                with discard_evaluation_output():
-                    evaluation_group = load_evaluation_runner(
-                        resolved_root, evaluations
-                    ).evaluations
-            task_group = (
-                None
-                if optional_target_absent(resolved_root, tasks, DEFAULT_TASKS_TARGET)
-                else load_task_runner(resolved_root, tasks).tasks
-            )
-            job_group = (
-                None
-                if optional_target_absent(resolved_root, jobs, DEFAULT_JOBS_TARGET)
-                else load_job_group(resolved_root, jobs)
-            )
-            tool_group = (
-                None
-                if optional_target_absent(resolved_root, tools, DEFAULT_TOOLS_TARGET)
-                else load_tool_group(resolved_root, tools)
+            groups = load_optional_groups(
+                resolved_root,
+                tasks=tasks,
+                jobs=jobs,
+                tools=tools,
+                evaluations=evaluations,
             )
             app_map = map_app(
                 resolved_root,
                 route_group,
-                task_group,
-                job_group,
-                tool_group,
-                evaluation_group,
+                groups.tasks,
+                groups.jobs,
+                groups.tools,
+                groups.evaluations,
             )
             if enforced("architecture"):
                 architecture = VerificationArchitectureResult(
