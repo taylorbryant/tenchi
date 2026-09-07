@@ -19,8 +19,17 @@ versions may change the public API.
   matching `app/server/` module exists, and lists only those compose steps.
   The generated `AGENTS.md` and `README.md` describe the optional capabilities
   as additions rather than assuming them. `tenchi.scaffold.app_files()` gains
-  a keyword-only `full` parameter, and `feature_files()` a keyword-only
+    a keyword-only `full` parameter, and `feature_files()` a keyword-only
   `capabilities` parameter.
+- `tenchi verify` treats a job, tool, or evaluation boundary whose composition
+  module did not exist at the baseline commit as a first adoption: the missing
+  historical snapshot is compared against an empty manifest and recorded as a
+  `job manifest baseline`, `tool manifest baseline`, or `evaluation manifest
+  baseline` metadata change, so a capability can be adopted in one change. The
+  explicit `--allow-missing-*` overrides remain for a module that existed at
+  the baseline while its snapshot did not. A stage omitted from `tenchi.toml`
+  while its composition module exists is now a verification error naming the
+  fix; `false` remains a deliberate skip.
 - The server composition modules for background jobs, operational tasks,
   application tools, evaluations, and preflight checks are optional. `tenchi
   doctor` no longer reports any of them as missing structure. `tenchi map`,

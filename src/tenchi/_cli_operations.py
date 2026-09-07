@@ -36,7 +36,12 @@ from .contracts import Contract
 from .doctor import run_doctor
 from .openapi import openapi_schema
 from .routes import RouteGroup, route, route_group
-from .scaffold import feature_files, present_capabilities, use_case_files
+from .scaffold import (
+    OPTIONAL_CAPABILITIES,
+    feature_files,
+    present_capabilities,
+    use_case_files,
+)
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -182,8 +187,8 @@ def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
             f"Compose app.features.{name}.routes in app/server/routes.py",
             *(
                 f"Compose app.features.{name}.{capability} "
-                f"in app/server/{capability}.py"
-                for capability in ("jobs", "tasks", "tools", "evaluations")
+                f"in {capabilities[capability].as_posix()}"
+                for capability in OPTIONAL_CAPABILITIES
                 if capability in capabilities
             ),
         ),

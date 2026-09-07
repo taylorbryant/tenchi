@@ -287,10 +287,12 @@ commit reaches the target branch, run `tenchi verify` with the pull-request
 base ref for later changes so CI checks both exact snapshot drift and
 historical compatibility.
 
-When you later add a durable job, application tool, or evaluation, write its
-snapshot and commit both before verifying against a ref that predates them.
-[Background jobs](/jobs), [application tools](/tools), and [AI
-evaluations](/evaluations) each describe that first-adoption step.
+When you later add a durable job, application tool, or evaluation, add its
+module, write its snapshot, and set the matching `[verify]` stage to `true` in
+the same change. `tenchi verify` treats the missing historical snapshot as a
+first adoption when the module did not exist at the baseline. [Background
+jobs](/jobs), [application tools](/tools), and [AI evaluations](/evaluations)
+each describe that step.
 
 Start the development server after the checks pass:
 

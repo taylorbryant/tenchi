@@ -227,10 +227,7 @@ def compare_job_baseline(
                 CompatibilityChange(
                     severity="metadata",
                     location="job manifest baseline",
-                    message=(
-                        "historical baseline absent; explicit first-adoption "
-                        "override used"
-                    ),
+                    message="historical baseline absent; first adoption recorded",
                 ),
             )
         )

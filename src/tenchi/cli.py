@@ -76,6 +76,7 @@ from ._cli_results import (
     CheckResult,
     MakeResult,
 )
+from ._composition import load_optional_groups
 from ._evaluation_operations import (
     EvaluationDiffResult,
     compare_evaluation_baseline,
@@ -113,7 +114,6 @@ from ._targets import (
     DEFAULT_ROUTES_TARGET,
     DEFAULT_TASKS_TARGET,
     DEFAULT_TOOLS_TARGET,
-    load_optional_groups,
 )
 from ._task_operations import load_task_runner, task_list_result, task_run_result
 from ._tool_operations import (
@@ -433,7 +433,8 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Also generate the job, task, tool, evaluation, and preflight "
-            "composition modules with their snapshots and policy stages"
+            "composition modules, plus the snapshot, snapshot test, and "
+            "tenchi.toml stage for jobs, tools, and evaluations"
         ),
     )
 

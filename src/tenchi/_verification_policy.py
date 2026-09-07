@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
+from ._composition import optional_targets_absent_at_ref
 from ._openapi_operations import OperationError, project_path, read_git_snapshot
-from ._targets import optional_target_absent, optional_targets_absent_at_ref
+from ._targets import optional_target_absent, present_module_path
 
 VERIFICATION_POLICY_PATH = "tenchi.toml"
 VERIFICATION_POLICY_SCHEMA_VERSION = 1
@@ -172,6 +173,39 @@ def unconfigured_stages(
     )
 
 
+def undeclared_composed_stages(
+    root: Path,
+    comparison: VerificationPolicyComparison,
+    optional_targets: OptionalStageTargets | None,
+) -> tuple[tuple[VerificationEvidenceStage, str], ...]:
+    """Return the stages a repository policy omits although their module exists.
+
+    ``not_configured`` is only honest while nothing composes the boundary. A
+    committed policy that omits a stage whose module is present would silently
+    skip its historical comparison, so verification reports each one with the
+    fix. An explicit ``false`` remains a deliberate skip.
+    """
+    if optional_targets is None or comparison.current.source != "repository":
+        return ()
+    findings: list[tuple[VerificationEvidenceStage, str]] = []
+    for stage, (target, default) in optional_targets.items():
+        if comparison.current.requirement(stage) != "not_configured":
+            continue
+        if optional_target_absent(root, target, default):
+            continue
+        module = present_module_path(root, target) if target == default else None
+        composed_by = module.as_posix() if module is not None else target
+        findings.append(
+            (
+                stage,
+                f"{composed_by} composes {stage} but {VERIFICATION_POLICY_PATH} "
+                f"does not declare the {stage} stage; set {stage} = true under "
+                "[verify], or false to skip it deliberately",
+            )
+        )
+    return tuple(findings)
+
+
 def _read_current_policy(
     path: Path,
     *,
@@ -317,5 +351,6 @@ __all__ = [
     "VerificationRequirement",
     "default_verification_policy",
     "unconfigured_stages",
+    "undeclared_composed_stages",
     "verification_policy_comparison",
 ]

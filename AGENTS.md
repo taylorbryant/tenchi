@@ -363,9 +363,10 @@ evaluators. The manifest retains case names in execution order plus schemas,
 metrics, thresholds, kind, timeout, and budgets but never case inputs. Removed
 policy elements and weakened gates are incompatible; reordered cases, changed
 case schemas, and unsupported fields fail closed for review. A missing
-historical snapshot fails by default; first adoption requires the explicit
-missing-baseline option and records an `evaluation manifest baseline` metadata
-change. `check` performs
+historical snapshot fails by default unless the composition module did not
+exist at the baseline, which `verify` records as a first adoption; otherwise
+first adoption requires the explicit missing-baseline option. Either path
+records an `evaluation manifest baseline` metadata change. `check` performs
 exact drift checking and `verify` compares the policy with the historical Git
 baseline.
 `mcp` is a thin, stdio-only adapter over the same renderer-independent
@@ -445,10 +446,12 @@ root. Git repository-selection environment variables cannot redirect the
 receipt to another checkout. Recheck that identity after every project-owned
 execution or import and at the end; any observed persistent change fails the
 receipt as a source error. It never writes
-snapshots. A missing job snapshot
-requires the explicit `--allow-missing-job-baseline` first-adoption override. A
-missing evaluation snapshot requires the explicit
-`--allow-missing-evaluation-baseline` first-adoption override. The CLI and
+snapshots. A missing job, tool, or evaluation snapshot is a first adoption when the
+composition module did not exist at the baseline commit and otherwise requires
+the explicit `--allow-missing-job-baseline` or
+`--allow-missing-evaluation-baseline` override. A stage omitted from
+`tenchi.toml` while its composition module exists is a verification error;
+`false` remains a deliberate skip. The CLI and
 coding-agent MCP tool return the same versioned receipt and propagate
 cancellation through source capture and the active check subprocess.
 Contract-driven use-case generation can write a versioned change plan in the

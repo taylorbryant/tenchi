@@ -209,8 +209,9 @@ The snapshot includes evaluation names, case names in execution order, the case
 JSON Schema, metric names and thresholds, suite kind, per-case timeout, and
 token or cost budgets. It never includes case inputs and creating it never
 invokes an evaluator. `tenchi check` performs the exact snapshot check once
-`app/server/evaluations.py` exists; set `evaluations = true` under `[verify]`
-in `tenchi.toml` so `tenchi verify` enforces the historical comparison.
+`app/server/evaluations.py` exists; declare `evaluations = true` under
+`[verify]` in `tenchi.toml` in the same change so `tenchi verify` enforces the
+historical comparison.
 
 Review policy changes before replacing the snapshot:
 
@@ -240,7 +241,9 @@ uv run tenchi eval snapshot \
 ```
 
 The result records an `evaluation manifest baseline` metadata change. Do not
-use this override for a renamed or mistyped snapshot path.
+use this override for a renamed or mistyped snapshot path. `tenchi verify`
+needs no override when `app/server/evaluations.py` itself did not exist at the
+baseline.
 
 Case names are the stable identity in this manifest. Changing a case's input
 while keeping its name does not change the snapshot. Review case

@@ -19,11 +19,16 @@ from ._openapi_operations import (
 )
 from ._schema_compatibility import ChangeSeverity
 from .compatibility import (
+    CompatibilityChange,
     CompatibilityReport,
     CompatibilityStatus,
     analyze_tool_compatibility,
 )
-from .tools import ToolGroup, ToolManifest, tool_manifest
+from .tools import TOOL_MANIFEST_VERSION, ToolGroup, ToolManifest, tool_manifest
+
+_EMPTY_TOOL_MANIFEST = json.dumps(
+    {"schema_version": TOOL_MANIFEST_VERSION, "tools": []}
+)
 
 
 class ToolListPayload(TypedDict):
@@ -147,8 +152,11 @@ def tool_diff_result(
     tools: str,
     snapshot: Path,
     ref: str | None,
+    allow_missing_baseline: bool = False,
 ) -> ToolDiffResult:
     """Generate the tool manifest and compare it with a baseline."""
+    if allow_missing_baseline and ref is None:
+        raise OperationError("allow_missing_baseline requires a Git ref")
     resolved_root = root.resolve()
     current = tool_manifest(load_tool_group(resolved_root, tools))
     if ref is None:
@@ -169,19 +177,23 @@ def tool_diff_result(
                 f"could not read baseline {str(snapshot)!r}: {exc}"
             ) from exc
         baseline_label = str(snapshot)
+        baseline_present = True
     else:
         baseline = read_git_snapshot(
             resolved_root,
             ref=ref,
             snapshot=snapshot,
+            missing_text=_EMPTY_TOOL_MANIFEST if allow_missing_baseline else None,
         )
         baseline_text = baseline.text
         baseline_label = baseline.label
+        baseline_present = baseline.present
     return compare_tool_baseline(
         resolved_root,
         baseline_text=baseline_text,
         baseline_label=baseline_label,
         current=current,
+        baseline_present=baseline_present,
     )
 
 
@@ -191,6 +203,7 @@ def compare_tool_baseline(
     baseline_text: str,
     baseline_label: str,
     current: ToolManifest,
+    baseline_present: bool = True,
 ) -> ToolDiffResult:
     """Compare a generated application-tool manifest with serialized JSON."""
     try:
@@ -210,6 +223,17 @@ def compare_tool_baseline(
         raise OperationError(
             f"could not compare baseline {baseline_label!r}: {exc}"
         ) from exc
+    if not baseline_present:
+        report = CompatibilityReport(
+            changes=(
+                *report.changes,
+                CompatibilityChange(
+                    severity="metadata",
+                    location="tool manifest baseline",
+                    message="historical baseline absent; first adoption recorded",
+                ),
+            )
+        )
     return ToolDiffResult(
         root=str(root.resolve()),
         baseline=baseline_label,

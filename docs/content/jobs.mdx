@@ -122,7 +122,8 @@ The manifest contains stable names, descriptions, and input JSON Schemas. It
 never contains queued payloads or handler results. Commit `jobs.json`, then
 check exact drift locally and in CI (`tenchi check` runs this step once
 `app/server/jobs.py` exists, and `jobs = true` under `[verify]` in
-`tenchi.toml` makes `tenchi verify` enforce the historical comparison):
+`tenchi.toml`, declared in the same change, makes `tenchi verify` enforce the
+historical comparison):
 
 ```shell
 uv run tenchi jobs --check jobs.json
@@ -139,7 +140,8 @@ uv run tenchi jobs --diff-ref origin/main --snapshot jobs.json
 When adopting the manifest for the first time and the selected Git ref truly
 predates `jobs.json`, add `--allow-missing-baseline` to that one `--diff-ref`
 comparison. The report records the missing baseline as metadata. Future
-comparisons fail if the historical file is absent.
+comparisons fail if the historical file is absent. `tenchi verify` needs no
+override when `app/server/jobs.py` itself did not exist at the baseline.
 
 Removing a job or narrowing the payloads its consumer accepts is breaking.
 Adding a job or widening accepted payloads is additive; description-only

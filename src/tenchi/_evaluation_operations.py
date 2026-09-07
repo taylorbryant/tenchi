@@ -290,10 +290,7 @@ def compare_evaluation_baseline(
                 CompatibilityChange(
                     severity="metadata",
                     location="evaluation manifest baseline",
-                    message=(
-                        "historical baseline absent; explicit first-adoption "
-                        "override used"
-                    ),
+                    message="historical baseline absent; first adoption recorded",
                 ),
             )
         )

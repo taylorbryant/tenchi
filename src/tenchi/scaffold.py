@@ -12,6 +12,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
+from ._targets import OPTIONAL_CAPABILITY_TARGETS, present_module_path
+
 _PYPROJECT = """\
 [project]
 name = "__APP_NAME__"
@@ -220,11 +222,14 @@ providers and incur cost.
   declarations in that module.
 - When the application has jobs, tools, or evaluations, run `tenchi jobs --diff
   jobs.json`, `tenchi tools --diff tools.json`, or `tenchi eval snapshot --diff
-  evaluations.json` before replacing that snapshot, and keep the matching
-  `[verify]` stage `true` in `tenchi.toml`. Treat a missing historical snapshot
-  as an error; only a first adoption may pass `--allow-missing-baseline`, and
-  only `--allow-missing-job-baseline` or `--allow-missing-evaluation-baseline`
-  with `verify` for that adoption.
+  evaluations.json` before replacing that snapshot, and declare the matching
+  `[verify]` stage `true` in `tenchi.toml` in the same change as the module;
+  `verify` rejects a composed boundary the policy omits and treats a baseline
+  where the module did not exist as a first adoption. A missing historical
+  snapshot for a module that did exist at the baseline is an error unless a
+  human authorizes `--allow-missing-baseline`, or
+  `--allow-missing-job-baseline` / `--allow-missing-evaluation-baseline` with
+  `verify`, once.
 - After accepting snapshot changes, run `tenchi verify --base-ref <ref>` with a
   historical ref and retain its complete pass/fail receipt.
 - Do not hand-edit generated files into a different application structure to
@@ -1189,18 +1194,21 @@ _FULL_ONLY_FILES: dict[str, str] = {
 
 # Optional feature files keyed by the server composition module that binds
 # them. ``make feature`` emits one only when that module exists.
-OPTIONAL_CAPABILITIES: tuple[str, ...] = ("tasks", "jobs", "tools", "evaluations")
+OPTIONAL_CAPABILITIES: tuple[str, ...] = tuple(OPTIONAL_CAPABILITY_TARGETS)
 
 
-def present_capabilities(root: Path) -> frozenset[str]:
-    """Return the optional capabilities whose server module exists under *root*."""
-    server = root / "app" / "server"
-    return frozenset(
-        name
-        for name in OPTIONAL_CAPABILITIES
-        if (server / f"{name}.py").is_file()
-        or (server / name / "__init__.py").is_file()
-    )
+def present_capabilities(root: Path) -> dict[str, Path]:
+    """Map each optional capability whose server module exists to that module.
+
+    The path is project-relative and names the file that actually exists, a
+    module file or a package initializer, so generators can point at it.
+    """
+    present: dict[str, Path] = {}
+    for name, target in OPTIONAL_CAPABILITY_TARGETS.items():
+        path = present_module_path(root, target)
+        if path is not None:
+            present[name] = path
+    return present
 
 
 def app_files(app_name: str, *, full: bool = False) -> dict[str, str]:

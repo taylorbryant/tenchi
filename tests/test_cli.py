@@ -649,9 +649,7 @@ def test_eval_snapshot_diff_ref_requires_an_explicit_missing_baseline_override(
     assert {
         "severity": "metadata",
         "location": "evaluation manifest baseline",
-        "message": (
-            "historical baseline absent; explicit first-adoption override used"
-        ),
+        "message": "historical baseline absent; first adoption recorded",
     } in report["changes"]
 
 
@@ -1231,6 +1229,108 @@ def test_generated_app_verifies_with_optional_stages_not_configured(
     }
     assert steps["tools"] == "failed"
     assert "jobs" not in steps
+
+
+def test_generated_app_without_a_policy_uses_the_built_in_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    (root / "tenchi.toml").unlink()
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline")
+
+    doctor = _tenchi(root, "doctor", "--json")
+    assert doctor.returncode == 0, doctor.stdout + doctor.stderr
+    checked = _tenchi(root, "check", "--json")
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    verified = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+    assert verified.returncode == 0, verified.stdout + verified.stderr
+    receipt = json.loads(verified.stdout)
+    assert receipt["ok"] is True
+    assert receipt["policy"]["source"] == "default"
+    assert receipt["policy"]["compatible"] is True
+    assert {
+        item["stage"]: item["status"] for item in receipt["policy"]["requirements"]
+    } == {
+        "check": "passed",
+        "architecture": "passed",
+        "openapi": "passed",
+        "jobs": "not_configured",
+        "tools": "not_configured",
+        "evaluations": "not_configured",
+    }
+
+
+def test_adopting_a_capability_is_one_change_that_declares_its_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline without tools or jobs")
+
+    (root / "app/server/tools.py").write_text(
+        "from tenchi.tools import tool_group\n\ntools = tool_group()\n"
+    )
+    (root / "app/server/jobs.py").write_text(
+        "from tenchi.jobs import job_group\n\njobs = job_group()\n"
+    )
+    assert _tenchi(root, "tools", "--write", "tools.json").returncode == 0
+    assert _tenchi(root, "jobs", "--write", "jobs.json").returncode == 0
+
+    # Composed but undeclared: verify names each module and the fix.
+    undeclared = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+    assert undeclared.returncode == 1, undeclared.stdout + undeclared.stderr
+    receipt = json.loads(undeclared.stdout)
+    assert receipt["ok"] is False
+    messages = {error["stage"]: error["message"] for error in receipt["errors"]}
+    assert "app/server/tools.py composes tools" in messages["tools"]
+    assert "set tools = true" in messages["tools"]
+    assert "app/server/jobs.py composes jobs" in messages["jobs"]
+
+    # Declaring the stages in the same change is enough: the modules did not
+    # exist at the baseline, so the missing snapshots are first adoptions.
+    policy = root / "tenchi.toml"
+    policy.write_text(policy.read_text() + "jobs = true\ntools = true\n")
+
+    adopted = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+    assert adopted.returncode == 0, adopted.stdout + adopted.stderr
+    receipt = json.loads(adopted.stdout)
+    assert receipt["ok"] is True
+    assert receipt["errors"] == []
+    assert receipt["policy"]["compatible"] is True
+    assert {change["stage"] for change in receipt["policy"]["changes"]} == {
+        "jobs",
+        "tools",
+    }
+    assert all(
+        change["severity"] == "strengthening" for change in receipt["policy"]["changes"]
+    )
+    assert receipt["tools"]["compatible"] is True
+    assert receipt["tools"]["changes"][-1]["location"] == "tool manifest baseline"
+    assert receipt["jobs"]["compatible"] is True
+    assert receipt["jobs"]["changes"][-1]["location"] == "job manifest baseline"
+    assert receipt["evaluations"] is None
+
+    # An explicit false stays a deliberate skip rather than an error.
+    policy.write_text(policy.read_text().replace("tools = true", "tools = false"))
+    skipped = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+    assert skipped.returncode == 0, skipped.stdout + skipped.stderr
+    tools_stage = next(
+        item
+        for item in json.loads(skipped.stdout)["policy"]["requirements"]
+        if item["stage"] == "tools"
+    )
+    assert tools_stage["status"] == "skipped"
 
 
 def test_verify_produces_one_receipt_against_an_immutable_baseline(

@@ -28,11 +28,13 @@ HTTP API.
 uvx tenchi new my_app --full
 ```
 
-`--full` also generates the composition module, snapshot, snapshot test, and
-`tenchi.toml` stage for background jobs, operational tasks, application tools,
-evaluations, and preflight checks, so every extension point exists from the
-start. Without it, add each module when the application adopts that
-capability; the matching guide shows the file.
+`--full` also generates the composition modules for background jobs,
+operational tasks, application tools, evaluations, and preflight checks, plus
+the snapshot, snapshot test, and `tenchi.toml` stage for jobs, tools, and
+evaluations, so every extension point exists from the start. Without it, add
+each module when the application adopts that capability; the matching guide
+shows the file, and `tenchi verify` treats the first snapshot as a first
+adoption when the module did not exist at the baseline.
 
 ## Generate application slices
 
@@ -309,7 +311,11 @@ omitted key records the current requirement as `not_configured`. A stage is
 actually `skipped` or `not_configured` only when the historical policy did not
 require it too; otherwise the historical requirement remains enforced and its
 evidence reports `passed`, `failed`, or `not_verifiable`. Generated
-applications require all six stages. An application without `tenchi.toml` uses
+applications declare `check`, `architecture`, and `openapi`; `tenchi new
+--full` declares all six. A stage omitted from `tenchi.toml` while its
+composition module exists is a verification error, so adopting a capability
+means declaring its stage in the same change; `false` remains a deliberate
+skip. An application without `tenchi.toml` uses
 Tenchi's built-in policy: `check`, `architecture`, and `openapi` are required,
 and `jobs`, `tools`, and `evaluations` are required while their default
 composition module exists and `not_configured` otherwise. The current policy
@@ -317,7 +323,7 @@ judges the working tree; the historical policy judges the baseline commit, so
 deleting a module cannot quietly drop a requirement the baseline had.
 
 `check` means the complete local `tenchi check` loop, including exact drift
-checks for the four checked-in snapshots. `openapi`, `jobs`, `tools`, and
+checks for every checked-in snapshot. `openapi`, `jobs`, `tools`, and
 `evaluations` mean their separate historical compatibility comparisons against
 the selected Git baseline. Disabling one historical comparison does not remove
 its exact snapshot check while `check` remains required.
@@ -344,8 +350,14 @@ change when code and its updated snapshot are committed together. The command
 exits non-zero for a failed check, incomplete architecture evidence, a breaking
 or unknown boundary change, or a baseline that cannot be read.
 
-If the selected ref genuinely predates the application's first `jobs.json`,
-pass `--allow-missing-job-baseline` once and confirm the job result includes a
+When a job, tool, or evaluation composition module did not exist at the
+baseline, verify treats the missing historical snapshot as a first adoption
+automatically and records a `job manifest baseline`, `tool manifest
+baseline`, or `evaluation manifest baseline` metadata change. The overrides
+below cover a module that did exist at the baseline while its snapshot did
+not, such as a renamed snapshot path. If the selected ref genuinely predates
+the application's first `jobs.json` in that situation, pass
+`--allow-missing-job-baseline` once and confirm the job result includes a
 `job manifest baseline` metadata change. If it already contains the OpenAPI,
 job, and tool snapshots but genuinely predates the application's first
 `evaluations.json`, pass
