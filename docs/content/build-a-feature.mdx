@@ -253,17 +253,20 @@ This test crosses route dispatch, request validation, the SQLite adapter,
 transaction commit, result validation, and HTTP serialization. The direct test
 remains the faster place for behavior and failure cases.
 
-## Review the API change
+## See what the contract bought you
 
-Adding an operation should be additive. Compare the composed API with the
-committed snapshot before replacing it:
+The contract is also the source of the published OpenAPI document, so Tenchi
+can tell you what this change means for existing callers. Compare the composed
+API with the committed snapshot:
 
 ```shell
 uv run tenchi openapi --diff openapi.json
 ```
 
-The report classifies the change. Once it says additive, write the new snapshot
-and run the complete check:
+The report lists one additive change: a new operation that no current caller
+depends on. Had you renamed a field or removed a response, the same command
+would report a breaking change before anything shipped. Accept the additive
+change by writing the new snapshot, then run the complete check:
 
 ```shell
 uv run tenchi openapi --write openapi.json
