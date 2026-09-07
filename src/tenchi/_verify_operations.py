@@ -78,6 +78,13 @@ from ._source_identity import (
     VerificationSourcePayload,
     source_identity,
 )
+from ._targets import (
+    DEFAULT_EVALUATIONS_TARGET,
+    DEFAULT_JOBS_TARGET,
+    DEFAULT_TASKS_TARGET,
+    DEFAULT_TOOLS_TARGET,
+    optional_target_absent,
+)
 from ._task_operations import load_task_runner
 from ._tool_operations import (
     ToolDiffPayload,
@@ -87,6 +94,7 @@ from ._tool_operations import (
 )
 from ._verification_policy import (
     VERIFICATION_EVIDENCE_STAGES,
+    OptionalStageTargets,
     VerificationEvidenceStage,
     VerificationPolicyChange,
     VerificationPolicyChangeSeverity,
@@ -94,6 +102,7 @@ from ._verification_policy import (
     VerificationPolicySource,
     VerificationRequirement,
     default_verification_policy,
+    unconfigured_stages,
     verification_policy_comparison,
 )
 
@@ -535,11 +544,18 @@ def verification_result(
                 )
             )
 
+    optional_targets: OptionalStageTargets = {
+        "jobs": (jobs, DEFAULT_JOBS_TARGET),
+        "tools": (tools, DEFAULT_TOOLS_TARGET),
+        "evaluations": (evaluations, DEFAULT_EVALUATIONS_TARGET),
+    }
+
     _raise_if_cancelled(cancelled)
     try:
         policy_comparison = verification_policy_comparison(
             resolved_root,
             ref=baseline_commit,
+            optional_targets=optional_targets,
         )
     except OperationError as exc:
         policy_error = str(exc)
@@ -547,7 +563,9 @@ def verification_result(
 
     initial_policy_comparison = policy_comparison
 
-    fallback_policy = default_verification_policy()
+    fallback_policy = default_verification_policy(
+        unconfigured=unconfigured_stages(resolved_root, optional_targets),
+    )
 
     def enforced(stage: VerificationEvidenceStage) -> bool:
         if policy_comparison is None:
@@ -637,18 +655,36 @@ def verification_result(
     if enforced("architecture") or initial_change_plan is not None:
         try:
             route_group = load_route_group(resolved_root, routes)
-            with discard_evaluation_output():
-                evaluation_runner = load_evaluation_runner(resolved_root, evaluations)
-            task_runner = load_task_runner(resolved_root, tasks)
-            job_group = load_job_group(resolved_root, jobs)
-            tool_group = load_tool_group(resolved_root, tools)
+            evaluation_group = None
+            if not optional_target_absent(
+                resolved_root, evaluations, DEFAULT_EVALUATIONS_TARGET
+            ):
+                with discard_evaluation_output():
+                    evaluation_group = load_evaluation_runner(
+                        resolved_root, evaluations
+                    ).evaluations
+            task_group = (
+                None
+                if optional_target_absent(resolved_root, tasks, DEFAULT_TASKS_TARGET)
+                else load_task_runner(resolved_root, tasks).tasks
+            )
+            job_group = (
+                None
+                if optional_target_absent(resolved_root, jobs, DEFAULT_JOBS_TARGET)
+                else load_job_group(resolved_root, jobs)
+            )
+            tool_group = (
+                None
+                if optional_target_absent(resolved_root, tools, DEFAULT_TOOLS_TARGET)
+                else load_tool_group(resolved_root, tools)
+            )
             app_map = map_app(
                 resolved_root,
                 route_group,
-                task_runner.tasks,
+                task_group,
                 job_group,
                 tool_group,
-                evaluation_runner.evaluations,
+                evaluation_group,
             )
             if enforced("architecture"):
                 architecture = VerificationArchitectureResult(
@@ -743,6 +779,7 @@ def verification_result(
         final_policy_comparison = verification_policy_comparison(
             resolved_root,
             ref=baseline_commit,
+            optional_targets=optional_targets,
         )
     except OperationError as exc:
         final_policy_error = str(exc)

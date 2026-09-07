@@ -111,7 +111,8 @@ evidence and an `exact` or `inferred` confidence value.
 `--feature` keeps the selected feature and its directly connected nodes, which
 makes cross-feature policy and shared-port dependencies visible without loading
 the entire application. `--kind` accepts a comma-separated projection of node
-kinds. The default route target is `app.server.routes:api_routes`; override it
+kinds. A default job, task, tool, or evaluation target whose module does not
+exist is skipped; an explicitly overridden target must load. The default route target is `app.server.routes:api_routes`; override it
 with `--routes module:attribute`. The default job target is
 `app.server.jobs:jobs`; override it with `--jobs module:attribute`. The default
 tool target is `app.server.tools:tools`; override it with
@@ -217,7 +218,10 @@ uv run tenchi check --json
 
 Check runs Ruff format, Ruff lint, Pyright, pytest, doctor, and the exact
 OpenAPI, job-message, application-tool, and evaluation-policy snapshot checks.
-Every step runs even when an earlier one fails. Human output shows a compact status list;
+A job, tool, or evaluation snapshot step is omitted only when neither its
+default composition module nor its snapshot file exists; a snapshot without its
+module, or a module without its snapshot, still runs and fails as drift. Every
+step runs even when an earlier one fails. Human output shows a compact status list;
 JSON includes stable step names, commands, exit codes, durations, and bounded
 failure output. Use `--timeout` to change the per-step limit.
 
@@ -292,9 +296,12 @@ omitted key records the current requirement as `not_configured`. A stage is
 actually `skipped` or `not_configured` only when the historical policy did not
 require it too; otherwise the historical requirement remains enforced and its
 evidence reports `passed`, `failed`, or `not_verifiable`. Generated
-applications require all six stages. An application without `tenchi.toml`
-keeps the same safe behavior through Tenchi's built-in policy, so existing
-projects do not lose coverage before adopting the file.
+applications require all six stages. An application without `tenchi.toml` uses
+Tenchi's built-in policy: `check`, `architecture`, and `openapi` are required,
+and `jobs`, `tools`, and `evaluations` are required while their default
+composition module exists and `not_configured` otherwise. The current policy
+judges the working tree; the historical policy judges the baseline commit, so
+deleting a module cannot quietly drop a requirement the baseline had.
 
 `check` means the complete local `tenchi check` loop, including exact drift
 checks for the four checked-in snapshots. `openapi`, `jobs`, `tools`, and

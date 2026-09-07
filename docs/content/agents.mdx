@@ -299,9 +299,10 @@ baseline.
 If an agent disables or removes a required stage in `tenchi.toml`, Tenchi
 retains the historical requirement for that run and reports the policy change
 as incompatible. The agent therefore cannot make a difficult check disappear
-in the same change that weakens the policy. A missing policy uses strict
-built-in requirements for existing applications; generated applications commit
-the policy so the repository owns its definition of done.
+in the same change that weakens the policy. Without a policy file, Tenchi's
+built-in policy requires check, architecture, and OpenAPI plus each optional
+boundary whose composition module exists; generated applications commit the
+policy so the repository owns its definition of done.
 
 `verify` does not replace the diff-before-write review. It proves that the
 finished tree—including accepted snapshot updates—still agrees with the

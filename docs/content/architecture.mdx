@@ -84,6 +84,11 @@ The `app/server/` package is the application root:
 - `asgi.py` creates adapters, lifecycle resources, hooks, middleware, and the
   final Starlette application.
 
+Only `context.py`, `routes.py`, and `asgi.py` are required. The other server
+modules exist when the application uses that capability; `tenchi map`,
+`tenchi check`, and `tenchi verify` treat an absent default module as not
+configured.
+
 The composition root may import anything. Everything else follows a narrower
 direction.
 
@@ -159,8 +164,9 @@ async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
 `tenchi doctor` enforces the dependency direction above and these structural
 rules:
 
-- The standard server composition modules used by `map`, `check`, and `verify`
-  must exist.
+- `app/server/asgi.py`, `app/server/context.py`, and `app/server/routes.py`
+  must exist. The modules that compose jobs, tasks, tools, evaluations, and
+  preflight checks are optional.
 - Imports inside feature package initializers are checked like any other
   feature module.
 - Modules directly under `app/` outside `features`, `shared`, `infra`, and

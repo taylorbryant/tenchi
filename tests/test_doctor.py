@@ -389,18 +389,13 @@ def test_missing_prescribed_modules_are_flagged(app_root: Path) -> None:
         "app/server/tools.py",
     ],
 )
-def test_composition_modules_used_by_product_commands_are_required(
+def test_optional_composition_modules_are_not_required(
     app_root: Path,
     relative: str,
 ) -> None:
     (app_root / relative).unlink()
 
-    findings = run_doctor(app_root)
-
-    assert any(
-        finding.path == relative and finding.code == "TENCHI_DOCTOR_MISSING_STRUCTURE"
-        for finding in findings
-    )
+    assert run_doctor(app_root) == []
 
 
 def test_feature_package_initializer_cannot_import_infrastructure(

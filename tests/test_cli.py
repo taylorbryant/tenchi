@@ -1139,6 +1139,97 @@ def test_generated_app_checks_pass(
     ]
 
 
+_OPTIONAL_SCAFFOLD_PATHS = (
+    "app/server/evaluations.py",
+    "app/server/jobs.py",
+    "app/server/preflight.py",
+    "app/server/tasks.py",
+    "app/server/tools.py",
+    "app/features/todos/evaluations.py",
+    "evaluations.json",
+    "jobs.json",
+    "tools.json",
+    "tests/test_evaluation_snapshot.py",
+    "tests/test_job_snapshot.py",
+    "tests/test_tool_snapshot.py",
+)
+
+
+def test_an_app_without_optional_composition_modules_passes_every_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    for relative in _OPTIONAL_SCAFFOLD_PATHS:
+        (root / relative).unlink()
+    # No repository policy: the built-in policy must follow the modules present.
+    (root / "tenchi.toml").unlink()
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline")
+
+    doctor = _tenchi(root, "doctor", "--json")
+    assert doctor.returncode == 0, doctor.stdout + doctor.stderr
+    assert json.loads(doctor.stdout)["diagnostics"] == []
+
+    mapped = _tenchi(root, "map", "--json")
+    assert mapped.returncode == 0, mapped.stdout + mapped.stderr
+    summary = json.loads(mapped.stdout)["summary"]
+    assert summary["routes"] == 2
+    assert summary["diagnostics"] == 0
+    assert summary["unresolved"] == 0
+    assert (summary["jobs"], summary["tasks"], summary["tools"]) == (0, 0, 0)
+    assert summary["evaluations"] == 0
+
+    checked = _tenchi(root, "check", "--json")
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    report = json.loads(checked.stdout)
+    assert report["ok"] is True
+    assert [step["name"] for step in report["steps"]] == [
+        "ruff format",
+        "ruff",
+        "pyright",
+        "pytest",
+        "doctor",
+        "openapi",
+    ]
+
+    verified = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+    assert verified.returncode == 0, verified.stdout + verified.stderr
+    receipt = json.loads(verified.stdout)
+    assert receipt["ok"] is True
+    assert receipt["errors"] == []
+    assert receipt["policy"]["source"] == "default"
+    assert receipt["policy"]["compatible"] is True
+    assert {
+        item["stage"]: (item["current"], item["status"])
+        for item in receipt["policy"]["requirements"]
+    } == {
+        "check": ("required", "passed"),
+        "architecture": ("required", "passed"),
+        "openapi": ("required", "passed"),
+        "jobs": ("not_configured", "not_configured"),
+        "tools": ("not_configured", "not_configured"),
+        "evaluations": ("not_configured", "not_configured"),
+    }
+    assert receipt["jobs"] is None
+    assert receipt["tools"] is None
+    assert receipt["evaluations"] is None
+
+    # A snapshot left behind without its module is drift, not "unconfigured".
+    (root / "tools.json").write_text("{}\n")
+    drifted = _tenchi(root, "check", "--json")
+    assert drifted.returncode == 1
+    steps = {
+        step["name"]: step["status"] for step in json.loads(drifted.stdout)["steps"]
+    }
+    assert steps["tools"] == "failed"
+    assert "jobs" not in steps
+
+
 def test_verify_produces_one_receipt_against_an_immutable_baseline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

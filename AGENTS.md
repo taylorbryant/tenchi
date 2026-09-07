@@ -74,6 +74,9 @@ framework code, the CLI, docs, or the example apps.
     evaluation-policy snapshot rendering and readable drift diagnostics used
     by the CLI.
   - `doctor.py` — dependency-direction and structure checks.
+  - `_targets.py` — default composition targets and detection of the optional
+    server modules (jobs, tasks, tools, evaluations, preflight) that `map`,
+    `check`, and `verify` treat as not configured when absent.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
   - `_generation.py` — contract-driven source rendering and the explicit
     incomplete marker enforced by doctor.
@@ -159,16 +162,24 @@ app/
     hooks.py       # HTTP-boundary hooks (authentication)
     webhooks.py    # signed-provider verification and service identity
     routes.py      # composes feature groups; group-level error declarations
-    jobs.py        # binds job declarations to consumer use cases
+    jobs.py        # optional: binds job declarations to consumer use cases
     runtime.py     # resources shared by HTTP and operational entrypoints
-    preflight.py   # read-only checks of the target deployment environment
-    evaluations.py # composes the application evaluation runner
-    tasks.py       # composes the operational task runner
-    tools.py       # composes tools with authenticated context wiring
-    mcp.py         # optionally exposes application tools over MCP
+    preflight.py   # optional: read-only checks of the deployment environment
+    evaluations.py # optional: composes the application evaluation runner
+    tasks.py       # optional: composes the operational task runner
+    tools.py       # optional: composes tools with authenticated context wiring
+    mcp.py         # optional: exposes application tools over MCP
     asgi.py        # concrete wiring, lifespan, hooks; exposes `app`
 tests/             # integration tests over HTTP / the typed client
 ```
+
+`context.py`, `routes.py`, and `asgi.py` are required. Doctor treats the
+modules marked optional as optional, and `map`, `check`, `verify`, and the
+coding-agent MCP `app_map` tool treat an absent default target for jobs,
+tasks, tools, or evaluations as not configured rather than as a load failure.
+`check` omits a snapshot step only when both the module and its snapshot are
+absent. An explicitly overridden target is never optional. The full scaffold
+still generates every module.
 
 Dependency direction is enforced by `tenchi doctor` and must hold in every
 example and template:
@@ -414,8 +425,12 @@ OpenAPI, job-message, application-tool, and evaluation-policy snapshots with
 that immutable commit. Generated applications declare required evidence in
 `tenchi.toml`. Verification compares that policy with the same commit and
 enforces the stronger current-or-historical requirement, so a gate cannot skip
-itself while being weakened. Missing policy files retain Tenchi's strict
-built-in requirements; malformed or removed repository policies fail closed.
+itself while being weakened. Missing policy files use Tenchi's built-in
+policy: check, architecture, and OpenAPI are required, and jobs, tools, and
+evaluations are required while their default module exists (in the working
+tree for the current policy, at the baseline commit for the historical one)
+and not configured otherwise; malformed or removed repository policies fail
+closed.
 The receipt distinguishes passed, failed, skipped, not-configured, and
 not-verifiable evidence. It records the current HEAD, dirty state, and a
 canonical digest of tracked and nonignored untracked paths below the application

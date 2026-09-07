@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from tenchi import _checks
+from tenchi._cli_results import CheckResult
 
 
 class _FakeProcess:
@@ -25,10 +26,118 @@ class _FakeProcess:
         return self.returncode
 
 
-def test_check_runs_every_step_and_bounds_failure_output(
+def _always_passing(command: list[str], **kwargs: Any) -> _FakeProcess:
+    del command, kwargs
+    return _FakeProcess(0)
+
+
+def _configured_app(root: Path) -> None:
+    """Create an app root whose optional boundaries all have snapshots.
+
+    A snapshot without its module keeps the matching check step, so these
+    tests still observe every command that a fully composed application runs.
+    """
+    (root / "app").mkdir()
+    for snapshot in ("evaluations.json", "jobs.json", "tools.json"):
+        (root / snapshot).write_text("{}")
+
+
+def _run(root: Path, **overrides: Any) -> CheckResult:
+    arguments: dict[str, Any] = {
+        "routes": "app.server.routes:api_routes",
+        "title": "Example",
+        "version": "0.1.0",
+        "description": None,
+        "snapshot": "openapi.json",
+        "security_json": None,
+        "timeout_seconds": 10,
+    }
+    arguments.update(overrides)
+    return _checks.run_check(root, **arguments)
+
+
+def test_check_omits_snapshot_steps_for_unconfigured_boundaries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / "app").mkdir()
+    calls: list[list[str]] = []
+
+    def start(command: list[str], **kwargs: Any) -> _FakeProcess:
+        del kwargs
+        calls.append(command)
+        return _FakeProcess(0)
+
+    monkeypatch.setattr(_checks, "_start_process", start)
+
+    result = _run(tmp_path)
+
+    assert result.ok is True
+    assert [step.name for step in result.steps] == [
+        "ruff format",
+        "ruff",
+        "pyright",
+        "pytest",
+        "doctor",
+        "openapi",
+    ]
+    assert len(calls) == 6
+
+
+@pytest.mark.parametrize(
+    ("module", "snapshot", "step"),
+    [
+        ("app/server/tools.py", None, "tools"),
+        (None, "tools.json", "tools"),
+        ("app/server/jobs.py", None, "jobs"),
+        (None, "jobs.json", "jobs"),
+        ("app/server/evaluations.py", None, "evaluations"),
+        (None, "evaluations.json", "evaluations"),
+    ],
+)
+def test_check_keeps_a_snapshot_step_when_either_side_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    module: str | None,
+    snapshot: str | None,
+    step: str,
+) -> None:
+    (tmp_path / "app").mkdir()
+    if module is not None:
+        path = tmp_path / module
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("")
+    if snapshot is not None:
+        (tmp_path / snapshot).write_text("{}")
+    monkeypatch.setattr(_checks, "_start_process", _always_passing)
+
+    result = _run(tmp_path)
+
+    assert [item.name for item in result.steps] == [
+        "ruff format",
+        "ruff",
+        "pyright",
+        "pytest",
+        "doctor",
+        "openapi",
+        step,
+    ]
+
+
+def test_check_never_omits_an_explicitly_overridden_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "app").mkdir()
+    monkeypatch.setattr(_checks, "_start_process", _always_passing)
+
+    result = _run(tmp_path, tools="my_app.tools:tools")
+
+    assert [item.name for item in result.steps][-1] == "tools"
+
+
+def test_check_runs_every_step_and_bounds_failure_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configured_app(tmp_path)
     calls: list[list[str]] = []
 
     def start(command: list[str], **kwargs: Any) -> _FakeProcess:
@@ -92,7 +201,7 @@ def test_check_reports_a_missing_app_without_starting_commands(tmp_path: Path) -
 def test_check_rejects_invalid_programmatic_timeouts(
     tmp_path: Path, timeout_seconds: float
 ) -> None:
-    (tmp_path / "app").mkdir()
+    _configured_app(tmp_path)
 
     result = _checks.run_check(
         tmp_path,
@@ -113,7 +222,7 @@ def test_check_rejects_invalid_programmatic_timeouts(
 def test_check_bounds_timeout_output_after_adding_the_timeout_message(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "app").mkdir()
+    _configured_app(tmp_path)
 
     def start(command: list[str], **kwargs: Any) -> _FakeProcess:
         del command
@@ -152,7 +261,7 @@ def test_check_bounds_timeout_output_after_adding_the_timeout_message(
 def test_check_passes_description_to_the_openapi_step(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "app").mkdir()
+    _configured_app(tmp_path)
     calls: list[list[str]] = []
 
     def start(command: list[str], **kwargs: Any) -> _FakeProcess:
@@ -199,7 +308,7 @@ def test_check_passes_description_to_the_openapi_step(
 def test_child_environment_prioritizes_the_current_virtualenv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "app").mkdir()
+    _configured_app(tmp_path)
     monkeypatch.setattr(sys, "executable", "/tmp/example/.venv/bin/python")
     monkeypatch.setattr(sys, "prefix", "/tmp/example/.venv")
     monkeypatch.setattr(sys, "base_prefix", "/usr/local")
@@ -215,7 +324,7 @@ def test_child_environment_prioritizes_the_current_virtualenv(
 def test_check_cancellation_stops_the_active_process(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "app").mkdir()
+    _configured_app(tmp_path)
     process = _FakeProcess(None)
     stopped = False
     cancellation_checks = 0
@@ -256,7 +365,7 @@ def test_check_cancellation_stops_the_active_process(
 def test_keyboard_interrupt_stops_the_active_process(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "app").mkdir()
+    _configured_app(tmp_path)
     process = _FakeProcess(None)
     stopped = False
 

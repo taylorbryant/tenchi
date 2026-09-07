@@ -22,6 +22,12 @@ from ._pytest_evidence import (
     evidence_environment,
     read_test_execution_evidence,
 )
+from ._targets import (
+    DEFAULT_EVALUATIONS_TARGET,
+    DEFAULT_JOBS_TARGET,
+    DEFAULT_TOOLS_TARGET,
+    optional_target_absent,
+)
 
 _MAX_OUTPUT_BYTES = 65_536
 _POLL_SECONDS = 0.05
@@ -93,6 +99,20 @@ def run_check(
         job_snapshot=job_snapshot,
         security_json=security_json,
     )
+    commands = tuple(
+        command
+        for command in commands
+        if not _unconfigured_step(
+            command.name,
+            root=resolved_root,
+            evaluations=evaluations,
+            evaluation_snapshot=evaluation_snapshot,
+            jobs=jobs,
+            job_snapshot=job_snapshot,
+            tools=tools,
+            tool_snapshot=tool_snapshot,
+        )
+    )
     results: list[CheckStepResult] = []
     for index, command in enumerate(commands, start=1):
         if cancelled is not None and cancelled():
@@ -156,6 +176,36 @@ def run_test_execution(
             ambiguous=evidence.collected,
         )
     return evidence
+
+
+def _unconfigured_step(
+    name: str,
+    *,
+    root: Path,
+    evaluations: str,
+    evaluation_snapshot: str,
+    jobs: str,
+    job_snapshot: str,
+    tools: str,
+    tool_snapshot: str,
+) -> bool:
+    """True when an optional snapshot step has neither a module nor a snapshot.
+
+    A snapshot without its module, or a module without its snapshot, is drift
+    and keeps the step so it fails visibly.
+    """
+    optional = {
+        "evaluations": (evaluations, DEFAULT_EVALUATIONS_TARGET, evaluation_snapshot),
+        "jobs": (jobs, DEFAULT_JOBS_TARGET, job_snapshot),
+        "tools": (tools, DEFAULT_TOOLS_TARGET, tool_snapshot),
+    }
+    if name not in optional:
+        return False
+    target, default, snapshot = optional[name]
+    return (
+        optional_target_absent(root, target, default)
+        and not Path(root, snapshot).exists()
+    )
 
 
 def _check_commands(

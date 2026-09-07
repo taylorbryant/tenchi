@@ -104,6 +104,17 @@ from ._preflight_operations import (
     load_preflight_group,
     preflight_result,
 )
+from ._targets import (
+    DEFAULT_API_ROUTES_TARGET,
+    DEFAULT_APP_TARGET,
+    DEFAULT_EVALUATIONS_TARGET,
+    DEFAULT_JOBS_TARGET,
+    DEFAULT_PREFLIGHT_TARGET,
+    DEFAULT_ROUTES_TARGET,
+    DEFAULT_TASKS_TARGET,
+    DEFAULT_TOOLS_TARGET,
+    optional_target_absent,
+)
 from ._task_operations import load_task_runner, task_list_result, task_run_result
 from ._tool_operations import (
     compare_tool_baseline,
@@ -118,8 +129,8 @@ from .compatibility import (
     render_tool_compatibility_report,
 )
 from .errors import ConfigurationError
-from .evaluations import EvaluationManifest, evaluation_manifest
-from .jobs import JOB_MANIFEST_VERSION, JobManifest, job_manifest
+from .evaluations import EvaluationGroup, EvaluationManifest, evaluation_manifest
+from .jobs import JOB_MANIFEST_VERSION, JobGroup, JobManifest, job_manifest
 from .openapi import openapi_schema
 from .routes import RouteGroup
 from .scaffold import app_files
@@ -134,7 +145,8 @@ from .snapshots import (
     render_tool_snapshot,
     tool_snapshot_diff,
 )
-from .tools import ToolManifest, tool_manifest
+from .tasks import TaskGroup
+from .tools import ToolGroup, ToolManifest, tool_manifest
 
 
 def _positive_float(value: str) -> float:
@@ -169,14 +181,14 @@ def _app_map_kind_list(value: str) -> tuple[AppMapNodeKind, ...]:
     return tuple(cast(AppMapNodeKind, item) for item in raw_kinds)
 
 
-_DEFAULT_ROUTES = "app.server.routes:routes"
-_DEFAULT_API_ROUTES = "app.server.routes:api_routes"
-_DEFAULT_APP = "app.server.asgi:app"
-_DEFAULT_PREFLIGHT = "app.server.preflight:checks"
-_DEFAULT_EVALUATIONS = "app.server.evaluations:runner"
-_DEFAULT_TASKS = "app.server.tasks:runner"
-_DEFAULT_JOBS = "app.server.jobs:jobs"
-_DEFAULT_TOOLS = "app.server.tools:tools"
+_DEFAULT_ROUTES = DEFAULT_ROUTES_TARGET
+_DEFAULT_API_ROUTES = DEFAULT_API_ROUTES_TARGET
+_DEFAULT_APP = DEFAULT_APP_TARGET
+_DEFAULT_PREFLIGHT = DEFAULT_PREFLIGHT_TARGET
+_DEFAULT_EVALUATIONS = DEFAULT_EVALUATIONS_TARGET
+_DEFAULT_TASKS = DEFAULT_TASKS_TARGET
+_DEFAULT_JOBS = DEFAULT_JOBS_TARGET
+_DEFAULT_TOOLS = DEFAULT_TOOLS_TARGET
 
 _AGENT_COMMAND_OPERATIONS: dict[str, AgentOperationName] = {
     "make": "make",
@@ -2051,15 +2063,26 @@ def _map_app(
     as_json: bool,
 ) -> int:
     output = sys.stderr if as_json else sys.stdout
+    root = Path.cwd()
+    evaluations: EvaluationGroup | None = None
+    tasks: TaskGroup | None = None
+    jobs: JobGroup | None = None
+    tools: ToolGroup | None = None
     try:
         with redirect_stdout(output):
-            group = load_route_group(Path.cwd(), target)
-        with discard_evaluation_output():
-            evaluation_runner = load_evaluation_runner(Path.cwd(), evaluations_target)
+            group = load_route_group(root, target)
+        if not optional_target_absent(root, evaluations_target, _DEFAULT_EVALUATIONS):
+            with discard_evaluation_output():
+                evaluations = load_evaluation_runner(
+                    root, evaluations_target
+                ).evaluations
         with redirect_stdout(output):
-            runner = load_task_runner(Path.cwd(), tasks_target)
-            jobs = load_job_group(Path.cwd(), jobs_target)
-            tools = load_tool_group(Path.cwd(), tools_target)
+            if not optional_target_absent(root, tasks_target, _DEFAULT_TASKS):
+                tasks = load_task_runner(root, tasks_target).tasks
+            if not optional_target_absent(root, jobs_target, _DEFAULT_JOBS):
+                jobs = load_job_group(root, jobs_target)
+            if not optional_target_absent(root, tools_target, _DEFAULT_TOOLS):
+                tools = load_tool_group(root, tools_target)
     except OperationError as exc:
         return _render_operation_error(
             operation="map",
@@ -2071,14 +2094,7 @@ def _map_app(
         )
 
     with redirect_stdout(output):
-        result = map_app(
-            Path.cwd(),
-            group,
-            runner.tasks,
-            jobs,
-            tools,
-            evaluation_runner.evaluations,
-        )
+        result = map_app(root, group, tasks, jobs, tools, evaluations)
     if feature is not None:
         features = sorted(node.name for node in result.nodes if node.kind == "feature")
         if feature not in features:

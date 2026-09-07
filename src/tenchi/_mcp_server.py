@@ -75,6 +75,13 @@ from ._preflight_operations import (
     load_preflight_group,
     preflight_result,
 )
+from ._targets import (
+    DEFAULT_EVALUATIONS_TARGET,
+    DEFAULT_JOBS_TARGET,
+    DEFAULT_TASKS_TARGET,
+    DEFAULT_TOOLS_TARGET,
+    optional_target_absent,
+)
 from ._task_operations import (
     load_task_runner,
     task_list_result,
@@ -283,18 +290,29 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
     ) -> AppMapPayload:
         def operation() -> AppMapPayload:
             group = load_route_group(root, options.api_routes)
-            runner = load_task_runner(root, options.tasks)
-            jobs = load_job_group(root, options.jobs)
-            tools = load_tool_group(root, options.tools)
-            evaluation_runner = load_evaluation_runner(root, options.evaluations)
-            result = map_app(
-                root,
-                group,
-                runner.tasks,
-                jobs,
-                tools,
-                evaluation_runner.evaluations,
+            tasks = (
+                None
+                if optional_target_absent(root, options.tasks, DEFAULT_TASKS_TARGET)
+                else load_task_runner(root, options.tasks).tasks
             )
+            jobs = (
+                None
+                if optional_target_absent(root, options.jobs, DEFAULT_JOBS_TARGET)
+                else load_job_group(root, options.jobs)
+            )
+            tools = (
+                None
+                if optional_target_absent(root, options.tools, DEFAULT_TOOLS_TARGET)
+                else load_tool_group(root, options.tools)
+            )
+            evaluations = (
+                None
+                if optional_target_absent(
+                    root, options.evaluations, DEFAULT_EVALUATIONS_TARGET
+                )
+                else load_evaluation_runner(root, options.evaluations).evaluations
+            )
+            result = map_app(root, group, tasks, jobs, tools, evaluations)
             if feature is not None:
                 available = sorted(
                     node.name for node in result.nodes if node.kind == "feature"

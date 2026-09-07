@@ -7,6 +7,22 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Changed
+
+- The server composition modules for background jobs, operational tasks,
+  application tools, evaluations, and preflight checks are optional. `tenchi
+  doctor` no longer reports them as missing structure, and `tenchi map`,
+  `tenchi check`, `tenchi verify`, and the coding-agent MCP `app_map` tool
+  treat an absent default target as not configured instead of failing to
+  import it. `check` omits a job, tool, or evaluation snapshot step only when
+  both the module and its snapshot file are absent; either one alone still runs
+  the step so drift fails visibly. Without `tenchi.toml`, the built-in
+  verification policy requires check, architecture, and OpenAPI and records
+  jobs, tools, and evaluations as `not_configured` while their module is
+  absent, judged in the working tree for the current policy and at the
+  baseline commit for the historical one. Explicitly overridden targets are
+  never optional. Generated applications are unchanged.
+
 ## [0.17.0] - 2026-09-05
 
 ### Fixed

@@ -39,18 +39,16 @@ from ._generation import GENERATED_INCOMPLETE_PRAGMA
 
 Category = str
 
+# Composition modules every application needs. The modules that compose
+# jobs, tasks, tools, evaluations, and preflight checks are optional; the
+# CLI treats an absent default target as "not configured".
 _STRUCTURE = (
     "app/__init__.py",
     "app/features/__init__.py",
     "app/server/__init__.py",
     "app/server/asgi.py",
     "app/server/context.py",
-    "app/server/evaluations.py",
-    "app/server/jobs.py",
-    "app/server/preflight.py",
     "app/server/routes.py",
-    "app/server/tasks.py",
-    "app/server/tools.py",
 )
 
 _FEATURE_KINDS: dict[str, Category] = {
