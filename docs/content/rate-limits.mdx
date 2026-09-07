@@ -71,20 +71,13 @@ class RateLimitStore(Protocol):
     ) -> RateLimitDecision: ...
 ```
 
-`consume()` must be atomic. The first accepted cost opens a fixed window for
-the `(namespace, scope)` identity. Later costs are accepted while their sum is
-at most `limit`. A rejection does not consume capacity. At the reset boundary,
-the next accepted cost opens a new window. Changing the limit or window starts
-a new window immediately.
-
-The store returns either:
+`consume()` must be atomic and returns either:
 
 - `RateLimitPermit(limit, remaining, reset_after_seconds)` for accepted work;
 - `RateLimitExceeded(limit, retry_after_seconds)` for rejected work.
 
-`enforce_rate_limit()` validates those values before trusting them. A malformed
-adapter response raises `RateLimitStoreError` rather than producing a misleading
-allowance or `Retry-After` value.
+The window semantics an adapter must implement are listed under
+[Constraints](#constraints).
 
 ## Scope from verified identity
 
@@ -188,9 +181,8 @@ await enforce_rate_limit(
 )
 ```
 
-`limit` and `cost` must be positive integers, and cost cannot exceed the limit.
-`window_seconds` must be finite and greater than zero. Tenchi validates the
-policy before calling the store.
+Tenchi validates the policy values before calling the store; see
+[Constraints](#constraints).
 
 ## Test with the memory store
 
@@ -296,3 +288,18 @@ Configure your reverse proxy, load balancer, CDN, or API gateway for:
 Keep application limits for rules that need verified users, tenants, plans,
 operation names, or domain-specific weighted costs. Many deployed services need
 both layers.
+
+## Constraints
+
+- `limit` and `cost` must be positive integers, and `cost` cannot exceed
+  `limit`. `window_seconds` must be finite and greater than zero.
+- The first accepted cost opens a fixed window for the `(namespace, scope)`
+  identity. Later costs are accepted while their sum is at most `limit`.
+- A rejection does not consume capacity.
+- At the reset boundary, the next accepted cost opens a new window. Changing
+  the limit or window starts a new window immediately.
+- `enforce_rate_limit()` validates the store's returned values. A malformed
+  adapter response raises `RateLimitStoreError` rather than producing a
+  misleading allowance or `Retry-After` value.
+- `MemoryRateLimitStore` is concurrency-safe within one process only and loses
+  every window on restart.

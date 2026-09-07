@@ -41,16 +41,16 @@ describe("documentation", () => {
   test("reader journeys remain the primary information architecture", () => {
     expect(docsSections.map((section) => section.label)).toEqual([
       "Start",
-      "Build APIs",
+      "Core",
       "Operate",
-      "Extend",
+      "Agents and AI",
       "Reference",
     ]);
     expect(getSectionLabel("/getting-started")).toBe("Start");
-    expect(getSectionLabel("/contracts")).toBe("Build APIs");
+    expect(getSectionLabel("/contracts")).toBe("Core");
     expect(getSectionLabel("/production")).toBe("Operate");
-    expect(getSectionLabel("/ai")).toBe("Extend");
-    expect(getSectionLabel("/ai/")).toBe("Extend");
+    expect(getSectionLabel("/ai")).toBe("Agents and AI");
+    expect(getSectionLabel("/ai/")).toBe("Agents and AI");
   });
 
   test("every registered route has an MDX page", () => {

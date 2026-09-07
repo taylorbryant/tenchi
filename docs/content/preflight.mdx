@@ -57,10 +57,6 @@ checks = preflight_group(
 )
 ```
 
-Names use dotted `snake_case` and remain stable for deployment automation.
-Failure codes use `SCREAMING_SNAKE_CASE`. When you omit a code, Tenchi derives
-one such as `PREFLIGHT_DATABASE_SCHEMA_FAILED`.
-
 Checks default to a five-second timeout. Set a shorter or longer declaration
 timeout only when the dependency has a known response budget:
 
@@ -74,8 +70,7 @@ preflight_check(
 ```
 
 Tenchi runs the checks concurrently and reports results in declaration order.
-A check must propagate cancellation so its client and connection cleanup can
-finish when it times out.
+Naming and shape rules are listed under [Constraints](#constraints).
 
 ## Keep the boundary read-only
 
@@ -164,9 +159,7 @@ the same versioned result model as the MCP tool:
 ```
 
 Exception types, exception messages, and return values never appear in the
-result. Descriptions and failure codes come from the declaration, so keep them
-free of credentials and tenant data. A check that accidentally returns a value
-is reported as failed and the value is discarded.
+result.
 
 <Callout type="warning" title="Configure application logging separately">
   The CLI and MCP tool discard direct stdout and stderr from preflight code.
@@ -207,3 +200,19 @@ A safe release sequence is:
 
 Continue with [deployment](/deployment) for health routes, server limits,
 rollout, and rollback guidance.
+
+## Constraints
+
+- Check names use dotted `snake_case` and remain stable for deployment
+  automation. Failure codes use `SCREAMING_SNAKE_CASE`; when omitted, Tenchi
+  derives one such as `PREFLIGHT_DATABASE_SCHEMA_FAILED`.
+- Each check is a zero-argument async function that returns `None` on success
+  and raises on failure. A check that returns a value is reported as failed and
+  the value is discarded.
+- A check must propagate cancellation so its client and connection cleanup can
+  finish when it times out.
+- `--timeout` caps every declared timeout and never extends one.
+- Descriptions and failure codes come from the declaration and appear in
+  results, so keep them free of credentials and tenant data.
+- Preflight receives no application context and does not start the
+  application lifespan.

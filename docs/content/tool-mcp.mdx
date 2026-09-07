@@ -89,16 +89,8 @@ uv run uvicorn app.server.mcp:app
 The default Streamable HTTP endpoint is `/mcp`. Tenchi uses the MCP SDK's
 stateless HTTP mode, so calls do not depend on sticky routing to an in-memory
 MCP session. Application resources still follow the lifespan and context
-wiring in each caller's `ToolRunner`. Tenchi rejects `stateless_http=False`
-because authentication and visibility are evaluated independently for every
-request.
-
-<Callout type="warning" title="Use Streamable HTTP, not legacy SSE">
-  Application MCP supports the SDK's Streamable HTTP transport and rejects its
-  inherited `sse_app()` and `run_sse_async()` entrypoints. Legacy SSE cannot
-  carry Tenchi's independently authenticated request-header scope without
-  weakening the identity and visibility guarantees described on this page.
-</Callout>
+wiring in each caller's `ToolRunner`. Transport rules are listed under
+[Constraints](#constraints).
 
 When your process configures an OpenTelemetry provider, MCP v2 also emits
 protocol-level telemetry. That complements Tenchi's payload-safe HTTP,
@@ -164,9 +156,6 @@ trusted hosts, origin policy, edge rate limits, and any network-level access
 control.
 
 Authentication runs again for every `tools/list` and `tools/call` request.
-Authentication or visibility failures during discovery become one generic
-`Tool discovery failed.` MCP error; callback exception messages and the failed
-stage are not returned to the client.
 
 ## Limit discovery per caller
 
@@ -362,3 +351,22 @@ assert result.structured_content == {
 
 The in-memory transport still runs authentication and visibility callbacks. A
 real HTTP transport additionally supplies `McpRequest.headers`.
+
+## Constraints
+
+- Application MCP supports the SDK's Streamable HTTP transport and stdio.
+  `stateless_http=False` is rejected because authentication and visibility are
+  evaluated independently for every request.
+- The inherited `sse_app()` and `run_sse_async()` entrypoints are rejected.
+  Legacy SSE cannot carry an independently authenticated request-header scope
+  without weakening the identity and visibility guarantees on this page.
+- `McpRequest.headers` is `None` for stdio and direct in-process calls, and its
+  representations omit the header mapping.
+- Authentication or visibility failures during discovery return one generic
+  `Tool discovery failed.` MCP error. Callback exception messages and the
+  failed stage are not returned to the client.
+- A tool declared with `destructive=True` cannot run without an `approve`
+  callback that accepts the exact call.
+- `TOOL_MCP_PROTOCOL_VERSION` changes whenever the result envelope or schema
+  mapping changes. The transport-neutral `tools.json` manifest carries its own
+  version.

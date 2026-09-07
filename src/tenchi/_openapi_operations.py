@@ -6,7 +6,7 @@ import importlib
 import json
 import subprocess
 import sys
-from collections.abc import Generator, Mapping
+from collections.abc import Generator, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -392,6 +392,82 @@ def read_git_snapshot(
         text=show_result.stdout,
         label=baseline_label,
         present=True,
+    )
+
+
+def git_paths_present(
+    root: Path,
+    *,
+    ref: str,
+    paths: Iterable[Path],
+) -> frozenset[Path]:
+    """Return the subset of project-relative *paths* that exist at *ref*.
+
+    One ``git ls-tree`` call answers every path, so callers can test several
+    optional modules against a baseline without a subprocess per module.
+    """
+    _validate_git_ref(ref)
+    resolved_root = root.resolve()
+    relative_paths = tuple(dict.fromkeys(Path(path) for path in paths))
+    if not relative_paths:
+        return frozenset()
+    try:
+        root_result = subprocess.run(
+            git_command("rev-parse", "--show-toplevel"),
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+            env=git_environment(),
+        )
+    except FileNotFoundError as exc:
+        raise OperationError("could not run git; install Git to compare a ref") from exc
+    except (OSError, UnicodeError) as exc:
+        raise OperationError(f"could not inspect the Git repository: {exc}") from exc
+    if root_result.returncode != 0:
+        reason = root_result.stderr.strip() or "not inside a Git repository"
+        raise OperationError(f"could not inspect the Git repository: {reason}")
+    git_root = Path(root_result.stdout.strip()).resolve()
+
+    tree_paths: dict[str, Path] = {}
+    for relative in relative_paths:
+        try:
+            tree_path = (resolved_root / relative).resolve().relative_to(git_root)
+        except ValueError as exc:
+            raise OperationError(
+                f"{relative.as_posix()!r} must resolve inside the current Git "
+                "repository"
+            ) from exc
+        tree_paths[tree_path.as_posix()] = relative
+
+    commit = resolve_git_commit(root, ref)
+    try:
+        tree_result = subprocess.run(
+            git_command(
+                "ls-tree",
+                "--full-tree",
+                "--name-only",
+                "-z",
+                commit,
+                "--",
+                *tree_paths,
+            ),
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+            env=git_environment(),
+        )
+    except (OSError, UnicodeError) as exc:
+        raise OperationError(f"could not inspect baseline {ref!r}: {exc}") from exc
+    if tree_result.returncode != 0:
+        reason = tree_result.stderr.strip() or "could not inspect the tree"
+        raise OperationError(f"could not inspect baseline {ref!r}: {reason}")
+    present = {name for name in tree_result.stdout.split("\0") if name}
+    return frozenset(
+        relative for name, relative in tree_paths.items() if name in present
     )
 
 

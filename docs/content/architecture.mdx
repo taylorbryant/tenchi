@@ -84,6 +84,12 @@ The `app/server/` package is the application root:
 - `asgi.py` creates adapters, lifecycle resources, hooks, middleware, and the
   final Starlette application.
 
+Only `context.py`, `routes.py`, and `asgi.py` are required. The other server
+modules exist when the application uses that capability. `tenchi map`,
+`tenchi check`, and `tenchi verify` treat an absent default module for jobs,
+tasks, tools, or evaluations as not configured; `tenchi preflight` requires
+its module when you run it.
+
 The composition root may import anything. Everything else follows a narrower
 direction.
 
@@ -126,11 +132,8 @@ Pydantic input.
 Run `uv run tenchi map --feature <name>` to inspect one feature and its direct
 dependencies, `uv run tenchi doctor` to check these conventions alone, or
 `uv run tenchi check` for the complete validation loop. Add `--json` to the map
-when an agent or other tool will consume it. Doctor also requires the standard
-server composition modules used by these commands, checks imports from feature
-package initializers, rejects stray modules directly under `app/`, and rejects
-symlinked application paths so its result does not vary by Python's
-directory-walking behavior.
+when an agent or other tool will consume it. Doctor's structural rules are
+listed under [Constraints](#constraints).
 
 <Callout title="Types without runtime coupling">
   A normal `from app.server.context import AppContext` import is the clearest
@@ -156,3 +159,19 @@ if TYPE_CHECKING:
 async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
     return await context.todos.create(title=request.title)
 ```
+
+## Constraints
+
+`tenchi doctor` enforces the dependency direction above and these structural
+rules:
+
+- `app/server/asgi.py`, `app/server/context.py`, and `app/server/routes.py`
+  must exist. The modules that compose jobs, tasks, tools, evaluations, and
+  preflight checks are optional.
+- Imports inside feature package initializers are checked like any other
+  feature module.
+- Modules directly under `app/` outside `features`, `shared`, `infra`, and
+  `server` are rejected.
+- Symlinked application paths are rejected so results do not vary with
+  Python's directory-walking behavior.
+- Test modules are exempt from the import rules.

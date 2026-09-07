@@ -75,6 +75,16 @@ from ._preflight_operations import (
     load_preflight_group,
     preflight_result,
 )
+from ._targets import (
+    DEFAULT_API_ROUTES_TARGET,
+    DEFAULT_EVALUATIONS_TARGET,
+    DEFAULT_JOBS_TARGET,
+    DEFAULT_PREFLIGHT_TARGET,
+    DEFAULT_ROUTES_TARGET,
+    DEFAULT_TASKS_TARGET,
+    DEFAULT_TOOLS_TARGET,
+    load_optional_groups,
+)
 from ._task_operations import (
     load_task_runner,
     task_list_result,
@@ -130,13 +140,13 @@ class McpServerOptions:
     """Fixed application boundary captured by one MCP server process."""
 
     root: Path
-    routes: str = "app.server.routes:routes"
-    api_routes: str = "app.server.routes:api_routes"
-    preflight: str = "app.server.preflight:checks"
-    evaluations: str = "app.server.evaluations:runner"
-    tasks: str = "app.server.tasks:runner"
-    jobs: str = "app.server.jobs:jobs"
-    tools: str = "app.server.tools:tools"
+    routes: str = DEFAULT_ROUTES_TARGET
+    api_routes: str = DEFAULT_API_ROUTES_TARGET
+    preflight: str = DEFAULT_PREFLIGHT_TARGET
+    evaluations: str = DEFAULT_EVALUATIONS_TARGET
+    tasks: str = DEFAULT_TASKS_TARGET
+    jobs: str = DEFAULT_JOBS_TARGET
+    tools: str = DEFAULT_TOOLS_TARGET
     allow_task_runs: bool = False
     allow_evaluation_runs: bool = False
     snapshot: str = "openapi.json"
@@ -283,17 +293,20 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
     ) -> AppMapPayload:
         def operation() -> AppMapPayload:
             group = load_route_group(root, options.api_routes)
-            runner = load_task_runner(root, options.tasks)
-            jobs = load_job_group(root, options.jobs)
-            tools = load_tool_group(root, options.tools)
-            evaluation_runner = load_evaluation_runner(root, options.evaluations)
+            groups = load_optional_groups(
+                root,
+                tasks=options.tasks,
+                jobs=options.jobs,
+                tools=options.tools,
+                evaluations=options.evaluations,
+            )
             result = map_app(
                 root,
                 group,
-                runner.tasks,
-                jobs,
-                tools,
-                evaluation_runner.evaluations,
+                groups.tasks,
+                groups.jobs,
+                groups.tools,
+                groups.evaluations,
             )
             if feature is not None:
                 available = sorted(

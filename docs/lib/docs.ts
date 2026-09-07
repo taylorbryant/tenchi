@@ -29,16 +29,8 @@ export const docsSections = [
         title: "Build a feature end to end",
         navLabel: "Build a feature",
         description:
-          "Carry one persisted operation through its contract, use case, port, adapters, route, tests, and verification receipt.",
+          "Carry one persisted operation through its contract, port, adapters, use case, route, tests, and OpenAPI snapshot.",
         priority: 0.95,
-      },
-      {
-        path: "/existing-project",
-        title: "Add Tenchi to an existing project",
-        navLabel: "Existing project",
-        description:
-          "Add Tenchi without the application generator and build the first complete contract, use case, ASGI application, test, and OpenAPI baseline.",
-        priority: 0.94,
       },
       {
         path: "/concepts",
@@ -49,17 +41,17 @@ export const docsSections = [
         priority: 0.94,
       },
       {
-        path: "/comparisons",
-        title: "Choose the right framework",
-        navLabel: "Comparisons",
+        path: "/existing-project",
+        title: "Add Tenchi to an existing project",
+        navLabel: "Existing project",
         description:
-          "Compare Tenchi with FastAPI, Starlette, Litestar, and Django Ninja, including when another framework is the better choice.",
-        priority: 0.9,
+          "Add Tenchi without the application generator and build the first complete contract, use case, ASGI application, test, and OpenAPI baseline.",
+        priority: 0.94,
       },
     ],
   },
   {
-    label: "Build APIs",
+    label: "Core",
     routes: [
       {
         path: "/architecture",
@@ -118,27 +110,19 @@ export const docsSections = [
         priority: 0.85,
       },
       {
-        path: "/client",
-        title: "Call contracts with the typed client",
-        navLabel: "Typed client",
-        description:
-          "Call Tenchi contracts through async httpx with validated inputs, responses, errors, retries, and payload-safe outcomes.",
-        priority: 0.84,
-      },
-      {
-        path: "/pagination",
-        title: "Paginate collection endpoints",
-        navLabel: "Pagination",
-        description:
-          "Share validated limit and offset queries and typed page envelopes across the server, client, and OpenAPI.",
-        priority: 0.8,
-      },
-      {
         path: "/testing",
         title: "Test at the right boundary",
         navLabel: "Testing",
         description:
           "Test use cases directly and exercise complete applications through lifespan-aware typed and raw in-process clients.",
+        priority: 0.84,
+      },
+      {
+        path: "/client",
+        title: "Call contracts with the typed client",
+        navLabel: "Typed client",
+        description:
+          "Call Tenchi contracts through async httpx with validated inputs, responses, errors, retries, and payload-safe outcomes.",
         priority: 0.84,
       },
     ],
@@ -261,11 +245,12 @@ export const docsSections = [
     ],
   },
   {
-    label: "Extend",
+    label: "Agents and AI",
     routes: [
       {
         path: "/ai",
         title: "Build with AI",
+        navLabel: "Overview",
         description:
           "Use coding agents to change a Tenchi backend and expose application behavior safely to AI callers through the same architecture.",
         priority: 0.92,
@@ -281,7 +266,7 @@ export const docsSections = [
       {
         path: "/mcp",
         title: "Connect a coding agent over MCP",
-        navLabel: "Coding-agent MCP",
+        navLabel: "Coding-agent MCP server",
         description:
           "Connect an MCP-aware coding agent to Tenchi's application map, generation previews, compatibility reports, and checks.",
         priority: 0.86,
@@ -291,7 +276,7 @@ export const docsSections = [
         title: "Verify a generated change",
         navLabel: "Change plans",
         description:
-          "Tie contract-driven generation to a content-addressed plan and verify its structural postconditions against one Git baseline.",
+          "Record what a generated use case must become, then verify the finished change against one Git baseline.",
         priority: 0.87,
       },
       {
@@ -305,7 +290,7 @@ export const docsSections = [
       {
         path: "/tool-mcp",
         title: "Serve application tools over MCP",
-        navLabel: "Application MCP",
+        navLabel: "Application MCP server",
         description:
           "Publish authenticated tools with caller-specific discovery, explicit destructive-call approval, and structured results.",
         priority: 0.87,
@@ -354,6 +339,14 @@ export const docsSections = [
         description:
           "Understand Tenchi's pre-1.0 compatibility expectations, versioned surfaces, and upgrade workflow.",
         priority: 0.74,
+      },
+      {
+        path: "/comparisons",
+        title: "Choose the right framework",
+        navLabel: "Comparisons",
+        description:
+          "Compare Tenchi with FastAPI, Starlette, Litestar, and Django Ninja, including when another framework is the better choice.",
+        priority: 0.9,
       },
     ],
   },

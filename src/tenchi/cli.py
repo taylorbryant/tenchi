@@ -104,6 +104,17 @@ from ._preflight_operations import (
     load_preflight_group,
     preflight_result,
 )
+from ._targets import (
+    DEFAULT_API_ROUTES_TARGET,
+    DEFAULT_APP_TARGET,
+    DEFAULT_EVALUATIONS_TARGET,
+    DEFAULT_JOBS_TARGET,
+    DEFAULT_PREFLIGHT_TARGET,
+    DEFAULT_ROUTES_TARGET,
+    DEFAULT_TASKS_TARGET,
+    DEFAULT_TOOLS_TARGET,
+    load_optional_groups,
+)
 from ._task_operations import load_task_runner, task_list_result, task_run_result
 from ._tool_operations import (
     compare_tool_baseline,
@@ -168,15 +179,6 @@ def _app_map_kind_list(value: str) -> tuple[AppMapNodeKind, ...]:
         )
     return tuple(cast(AppMapNodeKind, item) for item in raw_kinds)
 
-
-_DEFAULT_ROUTES = "app.server.routes:routes"
-_DEFAULT_API_ROUTES = "app.server.routes:api_routes"
-_DEFAULT_APP = "app.server.asgi:app"
-_DEFAULT_PREFLIGHT = "app.server.preflight:checks"
-_DEFAULT_EVALUATIONS = "app.server.evaluations:runner"
-_DEFAULT_TASKS = "app.server.tasks:runner"
-_DEFAULT_JOBS = "app.server.jobs:jobs"
-_DEFAULT_TOOLS = "app.server.tools:tools"
 
 _AGENT_COMMAND_OPERATIONS: dict[str, AgentOperationName] = {
     "make": "make",
@@ -477,7 +479,7 @@ def _build_parser() -> argparse.ArgumentParser:
     routes_parser.add_argument(
         "--routes",
         dest="target",
-        default=_DEFAULT_ROUTES,
+        default=DEFAULT_ROUTES_TARGET,
         help="module:attribute of the RouteGroup (default: %(default)s)",
     )
     routes_parser.add_argument(
@@ -493,7 +495,7 @@ def _build_parser() -> argparse.ArgumentParser:
     jobs_parser.add_argument(
         "--jobs",
         dest="target",
-        default=_DEFAULT_JOBS,
+        default=DEFAULT_JOBS_TARGET,
         help="module:attribute of the JobGroup (default: %(default)s)",
     )
     jobs_parser.add_argument(
@@ -551,7 +553,7 @@ def _build_parser() -> argparse.ArgumentParser:
     tools_parser.add_argument(
         "--tools",
         dest="target",
-        default=_DEFAULT_TOOLS,
+        default=DEFAULT_TOOLS_TARGET,
         help="module:attribute of the ToolGroup (default: %(default)s)",
     )
     tools_parser.add_argument(
@@ -603,27 +605,27 @@ def _build_parser() -> argparse.ArgumentParser:
     map_parser.add_argument(
         "--routes",
         dest="target",
-        default=_DEFAULT_API_ROUTES,
+        default=DEFAULT_API_ROUTES_TARGET,
         help="module:attribute of the API RouteGroup (default: %(default)s)",
     )
     map_parser.add_argument(
         "--evaluations",
-        default=_DEFAULT_EVALUATIONS,
+        default=DEFAULT_EVALUATIONS_TARGET,
         help="module:attribute of the EvaluationRunner (default: %(default)s)",
     )
     map_parser.add_argument(
         "--tasks",
-        default=_DEFAULT_TASKS,
+        default=DEFAULT_TASKS_TARGET,
         help="module:attribute of the TaskRunner (default: %(default)s)",
     )
     map_parser.add_argument(
         "--jobs",
-        default=_DEFAULT_JOBS,
+        default=DEFAULT_JOBS_TARGET,
         help="module:attribute of the JobGroup (default: %(default)s)",
     )
     map_parser.add_argument(
         "--tools",
-        default=_DEFAULT_TOOLS,
+        default=DEFAULT_TOOLS_TARGET,
         help="module:attribute of the ToolGroup (default: %(default)s)",
     )
     map_parser.add_argument(
@@ -652,7 +654,7 @@ def _build_parser() -> argparse.ArgumentParser:
     openapi_parser.add_argument(
         "--routes",
         dest="target",
-        default=_DEFAULT_API_ROUTES,
+        default=DEFAULT_API_ROUTES_TARGET,
         help="module:attribute of the RouteGroup (default: %(default)s)",
     )
     openapi_parser.add_argument(
@@ -733,7 +735,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     check_parser.add_argument(
         "--routes",
-        default=_DEFAULT_API_ROUTES,
+        default=DEFAULT_API_ROUTES_TARGET,
         help="module:attribute of the API RouteGroup (default: %(default)s)",
     )
     check_parser.add_argument(
@@ -773,7 +775,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     check_parser.add_argument(
         "--evaluations",
-        default=_DEFAULT_EVALUATIONS,
+        default=DEFAULT_EVALUATIONS_TARGET,
         help="module:attribute of the EvaluationRunner (default: %(default)s)",
     )
     check_parser.add_argument(
@@ -783,7 +785,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     check_parser.add_argument(
         "--jobs",
-        default=_DEFAULT_JOBS,
+        default=DEFAULT_JOBS_TARGET,
         help="module:attribute of the JobGroup (default: %(default)s)",
     )
     check_parser.add_argument(
@@ -793,7 +795,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     check_parser.add_argument(
         "--tools",
-        default=_DEFAULT_TOOLS,
+        default=DEFAULT_TOOLS_TARGET,
         help="module:attribute of the ToolGroup (default: %(default)s)",
     )
     check_parser.add_argument(
@@ -835,27 +837,27 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     verify_parser.add_argument(
         "--routes",
-        default=_DEFAULT_API_ROUTES,
+        default=DEFAULT_API_ROUTES_TARGET,
         help="module:attribute of the API RouteGroup (default: %(default)s)",
     )
     verify_parser.add_argument(
         "--evaluations",
-        default=_DEFAULT_EVALUATIONS,
+        default=DEFAULT_EVALUATIONS_TARGET,
         help="module:attribute of the EvaluationRunner (default: %(default)s)",
     )
     verify_parser.add_argument(
         "--tasks",
-        default=_DEFAULT_TASKS,
+        default=DEFAULT_TASKS_TARGET,
         help="module:attribute of the TaskRunner (default: %(default)s)",
     )
     verify_parser.add_argument(
         "--jobs",
-        default=_DEFAULT_JOBS,
+        default=DEFAULT_JOBS_TARGET,
         help="module:attribute of the JobGroup (default: %(default)s)",
     )
     verify_parser.add_argument(
         "--tools",
-        default=_DEFAULT_TOOLS,
+        default=DEFAULT_TOOLS_TARGET,
         help="module:attribute of the ToolGroup (default: %(default)s)",
     )
     verify_parser.add_argument(
@@ -943,7 +945,7 @@ def _build_parser() -> argparse.ArgumentParser:
     preflight_parser.add_argument(
         "--preflight",
         dest="target",
-        default=_DEFAULT_PREFLIGHT,
+        default=DEFAULT_PREFLIGHT_TARGET,
         help="module:attribute of the PreflightGroup (default: %(default)s)",
     )
     preflight_parser.add_argument(
@@ -1003,7 +1005,7 @@ def _build_parser() -> argparse.ArgumentParser:
         operation_parser.add_argument(
             "--evaluations",
             dest="target",
-            default=_DEFAULT_EVALUATIONS,
+            default=DEFAULT_EVALUATIONS_TARGET,
             help=("module:attribute of the EvaluationRunner (default: %(default)s)"),
         )
         operation_parser.add_argument(
@@ -1014,7 +1016,7 @@ def _build_parser() -> argparse.ArgumentParser:
     evaluation_snapshot_parser.add_argument(
         "--evaluations",
         dest="target",
-        default=_DEFAULT_EVALUATIONS,
+        default=DEFAULT_EVALUATIONS_TARGET,
         help="module:attribute of the EvaluationRunner (default: %(default)s)",
     )
     evaluation_snapshot_mode = evaluation_snapshot_parser.add_mutually_exclusive_group()
@@ -1079,7 +1081,7 @@ def _build_parser() -> argparse.ArgumentParser:
         operation_parser.add_argument(
             "--tasks",
             dest="target",
-            default=_DEFAULT_TASKS,
+            default=DEFAULT_TASKS_TARGET,
             help="module:attribute of the TaskRunner (default: %(default)s)",
         )
         operation_parser.add_argument(
@@ -1098,39 +1100,39 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     mcp_parser.add_argument(
         "--routes",
-        default=_DEFAULT_ROUTES,
+        default=DEFAULT_ROUTES_TARGET,
         help="module:attribute used by the routes tool (default: %(default)s)",
     )
     mcp_parser.add_argument(
         "--api-routes",
-        default=_DEFAULT_API_ROUTES,
+        default=DEFAULT_API_ROUTES_TARGET,
         help=(
             "module:attribute used by app-map and OpenAPI tools (default: %(default)s)"
         ),
     )
     mcp_parser.add_argument(
         "--preflight",
-        default=_DEFAULT_PREFLIGHT,
+        default=DEFAULT_PREFLIGHT_TARGET,
         help="module:attribute used by the preflight tool (default: %(default)s)",
     )
     mcp_parser.add_argument(
         "--evaluations",
-        default=_DEFAULT_EVALUATIONS,
+        default=DEFAULT_EVALUATIONS_TARGET,
         help="module:attribute used by evaluation tools (default: %(default)s)",
     )
     mcp_parser.add_argument(
         "--tasks",
-        default=_DEFAULT_TASKS,
+        default=DEFAULT_TASKS_TARGET,
         help="module:attribute used by task tools (default: %(default)s)",
     )
     mcp_parser.add_argument(
         "--jobs",
-        default=_DEFAULT_JOBS,
+        default=DEFAULT_JOBS_TARGET,
         help="module:attribute used by the app-map tool (default: %(default)s)",
     )
     mcp_parser.add_argument(
         "--tools",
-        default=_DEFAULT_TOOLS,
+        default=DEFAULT_TOOLS_TARGET,
         help=(
             "module:attribute used by application-tool inspection "
             "(default: %(default)s)"
@@ -1193,7 +1195,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     dev_parser.add_argument(
         "--app",
-        default=_DEFAULT_APP,
+        default=DEFAULT_APP_TARGET,
         help="module:attribute of the ASGI app (default: %(default)s)",
     )
     dev_parser.add_argument("--host", default="127.0.0.1")
@@ -2051,15 +2053,17 @@ def _map_app(
     as_json: bool,
 ) -> int:
     output = sys.stderr if as_json else sys.stdout
+    root = Path.cwd()
     try:
         with redirect_stdout(output):
-            group = load_route_group(Path.cwd(), target)
-        with discard_evaluation_output():
-            evaluation_runner = load_evaluation_runner(Path.cwd(), evaluations_target)
-        with redirect_stdout(output):
-            runner = load_task_runner(Path.cwd(), tasks_target)
-            jobs = load_job_group(Path.cwd(), jobs_target)
-            tools = load_tool_group(Path.cwd(), tools_target)
+            group = load_route_group(root, target)
+            groups = load_optional_groups(
+                root,
+                tasks=tasks_target,
+                jobs=jobs_target,
+                tools=tools_target,
+                evaluations=evaluations_target,
+            )
     except OperationError as exc:
         return _render_operation_error(
             operation="map",
@@ -2072,12 +2076,12 @@ def _map_app(
 
     with redirect_stdout(output):
         result = map_app(
-            Path.cwd(),
+            root,
             group,
-            runner.tasks,
-            jobs,
-            tools,
-            evaluation_runner.evaluations,
+            groups.tasks,
+            groups.jobs,
+            groups.tools,
+            groups.evaluations,
         )
     if feature is not None:
         features = sorted(node.name for node in result.nodes if node.kind == "feature")

@@ -72,10 +72,10 @@ each call, so a server that stays open sees edits made during the agent session.
 | `task_list` | Registered operational tasks with validated input and output JSON Schemas |
 | `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true`; use-case previews accept `from_contract` to derive an exact boundary signature and `base_ref` to return an inline change plan |
 | `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
-| `jobs_diff` | A directional compatibility report against `jobs.json`, another project snapshot, or that snapshot at a Git ref |
-| `tools_diff` | A directional compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
-| `evaluation_diff` | A payload-free compatibility report against `evaluations.json`, another project snapshot, or that snapshot at a Git ref; missing Git snapshots fail unless first adoption is explicit, and evaluators never run |
-| `verify` | One completion receipt containing the exact current source digest, optional change-plan evidence, protected `tenchi.toml` requirements, checks, strict architecture evidence, and all four compatibility reports against a required Git ref |
+| `jobs_diff` | A compatibility report against `jobs.json`, another project snapshot, or that snapshot at a Git ref |
+| `tools_diff` | A compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
+| `evaluation_diff` | A compatibility report, without case inputs, against `evaluations.json`, another project snapshot, or that snapshot at a Git ref; missing Git snapshots fail unless first adoption is explicit, and evaluators never run |
+| `verify` | One [receipt](/change-plans#verification-terms): source digest, optional change-plan result, `tenchi.toml` requirements, checks, architecture, and all four compatibility reports against a required Git ref |
 | `check` | Ruff format, Ruff lint, Pyright, pytest, doctor, and the OpenAPI, job, tool, and evaluation-policy snapshot checks |
 
 `task_run` is absent by default. Start the server with
@@ -132,8 +132,8 @@ For a feature change, give the agent this sequence:
 3. Call `make_preview` when new framework-shaped files are needed. When a use
    case's HTTP contract already exists, pass its `module:attribute` target as
    `from_contract` so the preview derives the exact boundary signature. Pass
-   the intended `base_ref` to receive a content-addressed change plan inline,
-   then retain its `plan_id` outside the edited worktree.
+   the intended `base_ref` to receive a change plan inline, then retain its
+   `plan_id` outside the edited worktree.
 4. Edit ordinary Python files through the agent's normal filesystem tools.
 5. Call `check` and resolve every failed step.
 6. Call `openapi_diff` before accepting a changed OpenAPI snapshot.
@@ -144,7 +144,7 @@ For a feature change, give the agent this sequence:
     If the CLI or another trusted tool persisted the inline plan, pass its
     project-relative path as `change_plan`. Retain the completion receipt and
     compare its `plan_id` with the initially accepted ID. Resolve policy changes
-    as well as failed evidence; do not disable a `tenchi.toml` stage to make the
+    as well as failed stages; do not disable a `tenchi.toml` stage to make the
     receipt pass.
 
 The agent must still make route and infrastructure wiring explicit in the
@@ -152,8 +152,8 @@ application source. MCP previews follow the same rule as `tenchi make`: they
 describe the remaining wiring instead of silently changing composition files.
 The MCP server never writes a returned change plan; persist it through an
 authorized filesystem tool or create it with the CLI. See [verify a generated
-change](/change-plans) for the exact pytest-target requirement, fixed
-postconditions, and proof boundary.
+change](/change-plans) for the exact pytest-target requirement, the completion
+conditions, and what the receipt does and does not prove.
 
 ## Override application conventions
 

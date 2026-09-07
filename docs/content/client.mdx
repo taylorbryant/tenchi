@@ -20,17 +20,8 @@ async with Client(base_url="https://api.example.com") as client:
 `call()` returns only the validated response body. Input arguments mirror the
 contract: `request=`, `params=`, `query=`, and `headers=`.
 
-Path values must match the declared Starlette converter before any request is
-sent. Ordinary `{name}` or `{name:str}` parameters cannot contain `/`. Use an
-explicit `{name:path}` converter for a nested path; `.` and `..` segments are
-rejected even inside those values. Percent encoding does not make a slash safe
-for a single-segment parameter, because the server routes the decoded path.
-
-Response field aliases must be accepted by the response model's validation
-aliases. A model with only `serialization_alias="wire_name"` cannot read its
-own output unless its validation configuration also accepts that name. Tenchi
-rejects these declarations before I/O; use `Field(alias="wire_name")` or an
-appropriate `validation_alias`. See [response validation](/responses).
+Path values and response aliases are checked before any request is sent; see
+[Constraints](#constraints).
 
 ## Inspect the HTTP response
 
@@ -99,20 +90,12 @@ Transport failures are retryable by default within the policy. Prefer selecting
 declared application errors by stable code in `retry_on`. A status in
 `retry_on_statuses` retries every response with that status—including a
 declared application error—so add one only when an intermediary may return the
-same transient failure without Tenchi's error envelope. The status list accepts
-unique values from 400 through 599; all other unexpected statuses remain
-terminal.
+same transient failure without Tenchi's error envelope.
 
-Tenchi uses exponential backoff with bounded jitter. A valid `Retry-After`
-decimal-integer delay or HTTP date from a selected status or declared error can
-increase the wait, but never beyond `max_delay_seconds`. Malformed and past
-values are ignored. The total timeout covers attempts and backoff; exceeding it
+Tenchi uses exponential backoff with bounded jitter. A `Retry-After` value from
+a selected status or declared error can increase the wait, but never beyond
+`max_delay_seconds`. The total timeout covers attempts and backoff; exceeding it
 raises `RetryTimeoutError`. Caller cancellation always remains cancellation.
-
-Invalid success bodies or headers are never retried. Neither are invalid media
-types or error envelopes unless their HTTP status is explicitly selected. This
-keeps contract drift and bad data terminal while allowing deliberate recovery
-from raw proxy and load-balancer failures.
 
 GET, HEAD, OPTIONS, and TRACE may use a policy directly. Retrying POST, PUT,
 PATCH, or DELETE requires `allow_unsafe_methods=True`:
@@ -256,3 +239,27 @@ Tests should normally use `tenchi.testing.open_client(app)`. It supplies an
 ASGI transport, runs the application lifespan, and returns the same `Client`
 API used against a deployed server. Pass `observers=` and
 `attempt_observers=` to assert outbound outcomes in a test.
+
+## Constraints
+
+- Path values must match the declared Starlette converter before any request is
+  sent. Ordinary `{name}` or `{name:str}` parameters cannot contain `/`; use an
+  explicit `{name:path}` converter for a nested path. `.` and `..` segments are
+  rejected even inside path converters. Percent encoding does not make a slash
+  safe for a single-segment parameter, because the server routes the decoded
+  path.
+- Response field aliases must be accepted by the response model's validation
+  aliases. A model with only `serialization_alias="wire_name"` cannot read its
+  own output unless its validation configuration also accepts that name. Tenchi
+  rejects these declarations before I/O. See [response
+  constraints](/responses#constraints).
+- `retry_on_statuses` accepts unique values from 400 through 599. Every other
+  unexpected status remains terminal.
+- A `Retry-After` value must be a decimal-integer delay or an HTTP date.
+  Malformed and past values are ignored, and no value can extend the wait
+  beyond `max_delay_seconds`.
+- Invalid success bodies or headers are never retried. Invalid media types or
+  error envelopes are retried only when their HTTP status is explicitly
+  selected. Contract drift and bad data stay terminal; deliberate recovery from
+  raw proxy and load-balancer failures remains possible.
+- Retrying POST, PUT, PATCH, or DELETE requires `allow_unsafe_methods=True`.

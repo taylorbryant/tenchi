@@ -26,7 +26,6 @@ import Jobs from "@/content/jobs.mdx";
 import Mcp from "@/content/mcp.mdx";
 import Observability from "@/content/observability.mdx";
 import OpenApi from "@/content/openapi.mdx";
-import Pagination from "@/content/pagination.mdx";
 import Preflight from "@/content/preflight.mdx";
 import Production from "@/content/production.mdx";
 import RateLimits from "@/content/rate-limits.mdx";
@@ -57,7 +56,6 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/responses": Responses,
   "/errors": Errors,
   "/client": Client,
-  "/pagination": Pagination,
   "/authentication": Authentication,
   "/execution": Execution,
   "/jobs": Jobs,

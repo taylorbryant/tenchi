@@ -41,9 +41,7 @@ from ._cli_results import (
 from ._evaluation_operations import (
     EvaluationDiffPayload,
     EvaluationDiffResult,
-    discard_evaluation_output,
     evaluation_diff_result,
-    load_evaluation_runner,
 )
 from ._generation import (
     GENERATED_INCOMPLETE_PRAGMA,
@@ -55,7 +53,6 @@ from ._job_operations import (
     JobDiffPayload,
     JobDiffResult,
     job_diff_result,
-    load_job_group,
 )
 from ._openapi_operations import (
     OpenApiDiffPayload,
@@ -78,15 +75,20 @@ from ._source_identity import (
     VerificationSourcePayload,
     source_identity,
 )
-from ._task_operations import load_task_runner
+from ._targets import (
+    DEFAULT_EVALUATIONS_TARGET,
+    DEFAULT_JOBS_TARGET,
+    DEFAULT_TOOLS_TARGET,
+    load_optional_groups,
+)
 from ._tool_operations import (
     ToolDiffPayload,
     ToolDiffResult,
-    load_tool_group,
     tool_diff_result,
 )
 from ._verification_policy import (
     VERIFICATION_EVIDENCE_STAGES,
+    OptionalStageTargets,
     VerificationEvidenceStage,
     VerificationPolicyChange,
     VerificationPolicyChangeSeverity,
@@ -94,6 +96,7 @@ from ._verification_policy import (
     VerificationPolicySource,
     VerificationRequirement,
     default_verification_policy,
+    unconfigured_stages,
     verification_policy_comparison,
 )
 
@@ -535,11 +538,18 @@ def verification_result(
                 )
             )
 
+    optional_targets: OptionalStageTargets = {
+        "jobs": (jobs, DEFAULT_JOBS_TARGET),
+        "tools": (tools, DEFAULT_TOOLS_TARGET),
+        "evaluations": (evaluations, DEFAULT_EVALUATIONS_TARGET),
+    }
+
     _raise_if_cancelled(cancelled)
     try:
         policy_comparison = verification_policy_comparison(
             resolved_root,
             ref=baseline_commit,
+            optional_targets=optional_targets,
         )
     except OperationError as exc:
         policy_error = str(exc)
@@ -547,7 +557,9 @@ def verification_result(
 
     initial_policy_comparison = policy_comparison
 
-    fallback_policy = default_verification_policy()
+    fallback_policy = default_verification_policy(
+        unconfigured=unconfigured_stages(resolved_root, optional_targets),
+    )
 
     def enforced(stage: VerificationEvidenceStage) -> bool:
         if policy_comparison is None:
@@ -637,18 +649,20 @@ def verification_result(
     if enforced("architecture") or initial_change_plan is not None:
         try:
             route_group = load_route_group(resolved_root, routes)
-            with discard_evaluation_output():
-                evaluation_runner = load_evaluation_runner(resolved_root, evaluations)
-            task_runner = load_task_runner(resolved_root, tasks)
-            job_group = load_job_group(resolved_root, jobs)
-            tool_group = load_tool_group(resolved_root, tools)
+            groups = load_optional_groups(
+                resolved_root,
+                tasks=tasks,
+                jobs=jobs,
+                tools=tools,
+                evaluations=evaluations,
+            )
             app_map = map_app(
                 resolved_root,
                 route_group,
-                task_runner.tasks,
-                job_group,
-                tool_group,
-                evaluation_runner.evaluations,
+                groups.tasks,
+                groups.jobs,
+                groups.tools,
+                groups.evaluations,
             )
             if enforced("architecture"):
                 architecture = VerificationArchitectureResult(
@@ -743,6 +757,7 @@ def verification_result(
         final_policy_comparison = verification_policy_comparison(
             resolved_root,
             ref=baseline_commit,
+            optional_targets=optional_targets,
         )
     except OperationError as exc:
         final_policy_error = str(exc)

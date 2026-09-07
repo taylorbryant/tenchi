@@ -35,10 +35,12 @@ from tenchi._pytest_evidence import TestExecutionEvidence as _TestExecutionEvide
 from tenchi._source_identity import SourceIdentityError, VerificationSource
 from tenchi._tool_operations import ToolDiffResult
 from tenchi._verification_policy import (
+    OptionalStageTargets,
     VerificationPolicy,
     VerificationPolicyChange,
     VerificationPolicyComparison,
     default_verification_policy,
+    unconfigured_stages,
 )
 from tenchi.compatibility import CompatibilityReport
 
@@ -158,29 +160,23 @@ def _run_with_map(
         root: Path,
         *,
         ref: str,
+        **kwargs: object,
     ) -> VerificationPolicyComparison:
-        del root, ref
+        del root, ref, kwargs
         return next(policy_results)
 
     def fake_load_route_group(root: Path, target: str) -> object:
         del root, target
         return object()
 
-    def fake_load_task_runner(root: Path, target: str) -> SimpleNamespace:
-        del root, target
-        return SimpleNamespace(tasks=object())
-
-    def fake_load_evaluation_runner(root: Path, target: str) -> SimpleNamespace:
-        del root, target
-        return SimpleNamespace(evaluations=object())
-
-    def fake_load_job_group(root: Path, target: str) -> object:
-        del root, target
-        return object()
-
-    def fake_load_tool_group(root: Path, target: str) -> object:
-        del root, target
-        return object()
+    def fake_load_optional_groups(root: Path, **targets: str) -> SimpleNamespace:
+        del root, targets
+        return SimpleNamespace(
+            tasks=object(),
+            jobs=object(),
+            tools=object(),
+            evaluations=object(),
+        )
 
     def fake_map_app(*args: object, **kwargs: object) -> AppMapResult:
         del args, kwargs
@@ -253,23 +249,8 @@ def _run_with_map(
     )
     monkeypatch.setattr(
         _verify_operations,
-        "load_task_runner",
-        fake_load_task_runner,
-    )
-    monkeypatch.setattr(
-        _verify_operations,
-        "load_evaluation_runner",
-        fake_load_evaluation_runner,
-    )
-    monkeypatch.setattr(
-        _verify_operations,
-        "load_job_group",
-        fake_load_job_group,
-    )
-    monkeypatch.setattr(
-        _verify_operations,
-        "load_tool_group",
-        fake_load_tool_group,
+        "load_optional_groups",
+        fake_load_optional_groups,
     )
     monkeypatch.setattr(
         _verify_operations,
@@ -1097,3 +1078,34 @@ def test_git_baselines_ignore_repository_environment_overrides(
     assert resolve_git_commit(local, "HEAD") == local_commit
     baseline = read_git_snapshot(local, ref="HEAD", snapshot=Path("openapi.json"))
     assert baseline.text == "local\n"
+
+
+def test_default_policy_marks_unconfigured_optional_stages() -> None:
+    policy = default_verification_policy(unconfigured=("jobs", "evaluations"))
+
+    assert policy.source == "default"
+    assert dict(policy.requirements) == {
+        "check": "required",
+        "architecture": "required",
+        "openapi": "required",
+        "jobs": "not_configured",
+        "tools": "required",
+        "evaluations": "not_configured",
+    }
+
+
+def test_unconfigured_stages_follow_the_default_module_files(tmp_path: Path) -> None:
+    (tmp_path / "app" / "server").mkdir(parents=True)
+    (tmp_path / "app" / "server" / "tools.py").write_text("tools = None\n")
+    targets: OptionalStageTargets = {
+        "jobs": ("app.server.jobs:jobs", "app.server.jobs:jobs"),
+        "tools": ("app.server.tools:tools", "app.server.tools:tools"),
+        "evaluations": ("custom.evaluations:runner", "app.server.evaluations:runner"),
+    }
+
+    absent = unconfigured_stages(tmp_path, targets)
+
+    # jobs has no module; tools exists; evaluations was overridden explicitly,
+    # so it is never optional even though its module is absent.
+    assert absent == frozenset({"jobs"})
+    assert unconfigured_stages(tmp_path, None) == frozenset()

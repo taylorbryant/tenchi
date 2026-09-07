@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
 from ._openapi_operations import OperationError, project_path, read_git_snapshot
+from ._targets import optional_target_absent, optional_targets_absent_at_ref
 
 VERIFICATION_POLICY_PATH = "tenchi.toml"
 VERIFICATION_POLICY_SCHEMA_VERSION = 1
@@ -41,6 +42,11 @@ VERIFICATION_EVIDENCE_STAGES: tuple[VerificationEvidenceStage, ...] = (
     "tools",
     "evaluations",
 )
+
+# ``stage -> (requested target, convention default)`` for the stages whose
+# composition module is optional. The built-in policy requires such a stage
+# only while its default module exists.
+type OptionalStageTargets = Mapping[VerificationEvidenceStage, tuple[str, str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,11 +101,21 @@ def verification_policy_comparison(
     root: Path,
     *,
     ref: str,
+    optional_targets: OptionalStageTargets | None = None,
 ) -> VerificationPolicyComparison:
-    """Load the current policy and compare it with *ref* directionally."""
+    """Load the current policy and compare it with *ref* directionally.
+
+    *optional_targets* names the stages whose composition module may be
+    absent. When a repository has no ``tenchi.toml``, the built-in policy
+    requires such a stage only while its module exists, in the working tree
+    for the current policy and at *ref* for the historical one.
+    """
     resolved_root = root.resolve()
     path = project_path(resolved_root, VERIFICATION_POLICY_PATH)
-    current = _read_current_policy(path)
+    current = _read_current_policy(
+        path,
+        unconfigured=unconfigured_stages(resolved_root, optional_targets),
+    )
     snapshot = read_git_snapshot(
         resolved_root,
         ref=ref,
@@ -109,7 +125,9 @@ def verification_policy_comparison(
     historical = (
         _parse_policy(snapshot.text, label=snapshot.label)
         if snapshot.present
-        else _default_policy()
+        else _default_policy(
+            unconfigured_stages(resolved_root, optional_targets, ref=ref)
+        )
     )
     return VerificationPolicyComparison(
         path=VERIFICATION_POLICY_PATH,
@@ -120,14 +138,47 @@ def verification_policy_comparison(
     )
 
 
-def default_verification_policy() -> VerificationPolicy:
-    """Return the fail-closed policy used when policy evidence is unavailable."""
-    return _default_policy()
+def default_verification_policy(
+    *,
+    unconfigured: Iterable[VerificationEvidenceStage] = (),
+) -> VerificationPolicy:
+    """Return the fail-closed policy used when policy evidence is unavailable.
+
+    *unconfigured* stages are recorded as ``not_configured`` instead of
+    ``required``; every other stage stays required.
+    """
+    return _default_policy(unconfigured)
 
 
-def _read_current_policy(path: Path) -> VerificationPolicy:
+def unconfigured_stages(
+    root: Path,
+    optional_targets: OptionalStageTargets | None,
+    *,
+    ref: str | None = None,
+) -> frozenset[VerificationEvidenceStage]:
+    """Return the optional stages whose default module is absent.
+
+    Without *ref* the working tree is inspected; with *ref* the module's
+    presence at that commit decides.
+    """
+    if optional_targets is None:
+        return frozenset()
+    if ref is not None:
+        return optional_targets_absent_at_ref(root, ref=ref, targets=optional_targets)
+    return frozenset(
+        stage
+        for stage, (target, default) in optional_targets.items()
+        if optional_target_absent(root, target, default)
+    )
+
+
+def _read_current_policy(
+    path: Path,
+    *,
+    unconfigured: Iterable[VerificationEvidenceStage] = (),
+) -> VerificationPolicy:
     if not path.exists():
-        return _default_policy()
+        return _default_policy(unconfigured)
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
@@ -193,11 +244,15 @@ def _parse_policy(text: str, *, label: str) -> VerificationPolicy:
     )
 
 
-def _default_policy() -> VerificationPolicy:
+def _default_policy(
+    unconfigured: Iterable[VerificationEvidenceStage] = (),
+) -> VerificationPolicy:
+    absent = frozenset(unconfigured)
     return VerificationPolicy(
         source="default",
         requirements=tuple(
-            (stage, "required") for stage in VERIFICATION_EVIDENCE_STAGES
+            (stage, "not_configured" if stage in absent else "required")
+            for stage in VERIFICATION_EVIDENCE_STAGES
         ),
     )
 
@@ -252,6 +307,7 @@ __all__ = [
     "VERIFICATION_EVIDENCE_STAGES",
     "VERIFICATION_POLICY_PATH",
     "VERIFICATION_POLICY_SCHEMA_VERSION",
+    "OptionalStageTargets",
     "VerificationEvidenceStage",
     "VerificationPolicy",
     "VerificationPolicyChange",
@@ -260,5 +316,6 @@ __all__ = [
     "VerificationPolicySource",
     "VerificationRequirement",
     "default_verification_policy",
+    "unconfigured_stages",
     "verification_policy_comparison",
 ]

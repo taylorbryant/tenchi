@@ -67,7 +67,6 @@ def test_docs_cover_the_framework_workflow() -> None:
         "responses",
         "errors",
         "client",
-        "pagination",
         "authentication",
         "execution",
         "jobs",
