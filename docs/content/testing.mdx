@@ -157,9 +157,9 @@ def test_job_snapshot_is_current() -> None:
     assert main(["jobs", "--check", "jobs.json"]) == 0
 ```
 
-Run `tenchi jobs --diff jobs.json` before replacing the snapshot. The
-directional report proves that a new consumer can still read messages accepted
-under the historical manifest. See [Background jobs](/jobs) for the complete
+Run `tenchi jobs --diff jobs.json` before replacing the snapshot. The report
+proves that a new consumer can still read messages accepted under the
+historical manifest. See [Background jobs](/jobs) for the complete
 producer, consumer, and rollout workflow.
 
 Generated applications also keep the machine-facing tool contract current:
@@ -176,7 +176,8 @@ Run `tenchi tools --diff` against the previous snapshot before replacing it.
 The exact test proves reproducibility; the historical diff proves
 compatibility. See [Application tools](/tools) for the complete workflow.
 
-Keep the payload-free evaluation policy reproducible in the same way:
+Keep the evaluation policy, which contains no case inputs, reproducible in the
+same way:
 
 ```python
 from tenchi.cli import main

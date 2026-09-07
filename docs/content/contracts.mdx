@@ -80,30 +80,9 @@ Field aliases are the wire names for path, query, and header fields and appear
 the same way in OpenAPI. `route()` verifies that path placeholders match the
 declared parameter schema.
 
-Path fields must serialize as one non-null scalar value. Query fields must
-serialize as one scalar value or an array of non-null scalar values; arrays use
-repeated query keys. A field cannot combine scalar and array alternatives
-because a single query value would be ambiguous. Request-header fields must
-serialize as one scalar value, and their aliases must
-normalize to unique, valid HTTP header names. They cannot declare
-transport-owned headers such as `Content-Type`, `Content-Length`, or `Host`;
-body media types belong to `request_media_type=`. Header values must also be
-safe ASCII field values without control characters or edge whitespace. Tenchi
-rejects nested path/query objects, multi-valued headers, null-only fields, and
-open-ended parameter mappings during route/server/OpenAPI composition because
-those shapes have no implicit wire encoding. Nullable query and header fields
-must be omittable, usually by declaring a `None` default; a required nullable
-field cannot distinguish `None` from a missing parameter and is rejected. Path
-fields cannot be nullable. Fixed-length tuples of scalar query values remain
-supported.
-
-Before sending a typed request, `Client` passes the concrete path, query, and
-header values through their actual HTTP encoding and the declared Pydantic
-validator again. That check includes configured httpx defaults, so inherited
-parameters cannot silently replace an omitted value. A custom serializer must
-preserve both the scalar-or-array shape and the validated value. An empty
-repeated value is usable only when omission reconstructs the same default;
-otherwise the client fails before I/O with no parameter payload in the error.
+Every path, query, and header field needs one unambiguous wire encoding. Tenchi
+rejects shapes that lack one when the route, server, or OpenAPI document is
+composed. The exact rules are listed under [Constraints](#constraints).
 
 ## Media types
 
@@ -115,14 +94,9 @@ decoding. Incompatible body annotations fail when the contract is declared;
 for example, an object model cannot be paired with `text/plain`, and raw bytes
 cannot be a JSON response body.
 
-Charset-qualified text types are encoded and decoded strictly. An unsupported
-declared charset fails when the contract is built rather than during a call.
-
-JSON response bodies must satisfy their published serialization schema and be
-readable by the declared Pydantic type. Response field aliases follow the same
-rule: use `Field(alias=...)` or accept the serialization name in
-`validation_alias`. These checks keep the server and typed client aligned;
-see [successful responses](/responses) for validation and rollback behavior.
+JSON response bodies are checked against their published schema and read back
+through the declared type before the request scope commits. See [successful
+responses](/responses) for that behavior and its rollback rules.
 
 ## Give callers concrete examples
 
@@ -179,10 +153,48 @@ storage; follow [Make operations safe to retry](/idempotency) for that work.
   into tools, jobs, tasks, or direct execution.
 - `errors=` declares the application failures callers are allowed to observe.
 - `responses=` declares status-dependent successful outcomes.
-- Singular successful statuses must be between 200 and 399.
-- Singular `204`, `205`, and `304` outcomes must omit `response=` because
-  those statuses cannot carry a response body.
 
 Invalid combinations and unsupported schemas fail when `contract()` is called.
 Continue with [routes and server](/server), [responses](/responses), and
 [errors](/errors).
+
+## Constraints
+
+Tenchi enforces these rules when the contract is declared or when the
+application, OpenAPI document, or typed client is composed.
+
+- Path fields serialize as one non-null scalar value and cannot be nullable.
+- Query fields serialize as one scalar value or an array of non-null scalar
+  values; arrays use repeated query keys. A field cannot combine scalar and
+  array alternatives because a single query value would be ambiguous.
+  Fixed-length tuples of scalar values remain supported.
+- Request-header fields serialize as one scalar value. Their aliases must
+  normalize to unique, valid HTTP header names and cannot name transport-owned
+  headers such as `Content-Type`, `Content-Length`, or `Host`; body media types
+  belong to `request_media_type=`. Header values must be safe ASCII without
+  control characters or edge whitespace.
+- Nested path or query objects, multi-valued headers, null-only fields, and
+  open-ended parameter mappings are rejected because they have no implicit
+  wire encoding.
+- Nullable query and header fields must be omittable, usually through a `None`
+  default. A required nullable field cannot distinguish `None` from a missing
+  parameter and is rejected.
+- Singular successful statuses must be between 200 and 399. Singular `204`,
+  `205`, and `304` outcomes must omit `response=` because those statuses cannot
+  carry a body.
+- Text media types validate a string; other non-JSON media types validate
+  bytes or strings. An object model cannot be paired with `text/plain`, and raw
+  bytes cannot be a JSON response body. Charset-qualified text types are encoded
+  and decoded strictly, and an unsupported declared charset fails when the
+  contract is built.
+- JSON response bodies must satisfy their published serialization schema and be
+  readable by the declared type. Response field aliases must be readable by the
+  same model: use `Field(alias=...)` or accept the serialization name in
+  `validation_alias`. See [response constraints](/responses#constraints).
+- Before sending a typed request, `Client` passes the concrete path, query, and
+  header values through their HTTP encoding and the declared validator again,
+  including configured httpx defaults, so an inherited parameter cannot
+  silently replace an omitted value. A custom serializer must preserve both the
+  scalar-or-array shape and the validated value. An empty repeated value is
+  usable only when omission reconstructs the same default; otherwise the client
+  fails before I/O without including the parameter payload in the error.

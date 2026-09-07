@@ -8,20 +8,10 @@ shape; use response definitions when status or representation depends on the
 result.
 
 For ordinary JSON responses, Tenchi serializes the value, checks those exact
-bytes against the published serialization schema, and revalidates them through
-Pydantic before the request scope commits. This also checks already-created
-models whose fields or nested collections were mutated after construction.
-Custom serializers must produce schema-valid JSON that the declared type can
-read back. A failure becomes a framework-owned 500 and rolls back scoped writes.
-
-Response field aliases must be readable by the same model. Prefer
-`Field(alias="wire_name")` for a shared input/output name. If using separate
-validation and serialization aliases, include the output name in the accepted
-validation aliases, for example `AliasChoices("input_name", "wire_name")`.
-Unreadable field aliases fail during application composition, OpenAPI
-generation, and client preflight, including inside nested response types.
-JSON Schema validation resolves local references only; it never fetches remote
-schemas during a request. Use self-contained schemas for custom response types.
+bytes against the published serialization schema, and reads them back through
+Pydantic before the request scope commits. A failure becomes a framework-owned
+500 and rolls back scoped writes. The rules that make a response readable are
+listed under [Constraints](#constraints).
 
 ## One successful response
 
@@ -53,9 +43,7 @@ route(
 
 The synchronous header projector keeps HTTP metadata out of the use case.
 Tenchi checks that its return annotation and fixed scalar fields match the
-contract at composition time. A required response-header field cannot accept
-`None`, because a null value has no HTTP header representation. Make the field
-optional when omitting the header is valid.
+contract at composition time.
 
 Presenters and header projectors may raise a declared `AppError`. It uses the
 same application-error response as an error raised by the use case; undeclared
@@ -123,8 +111,7 @@ many = response(list[Todo | ArchivedTodo], status=200)
 ## Empty and passthrough responses
 
 Use `response(None, status=204)` for an empty result and select it with
-`present(definition)`. When an empty definition also uses passthrough, its
-concrete Starlette response must have a materialized empty body.
+`present(definition)`.
 
 For streaming, files, or redirects, declare `passthrough=True` and present a
 Starlette `Response`. Tenchi preserves it while validating the contract-owned
@@ -135,3 +122,26 @@ status, media type parameters, and declared headers.
   declares its body type, and its status, content type, and headers must match
   the selected response definition.
 </Callout>
+
+## Constraints
+
+- Serialization is checked on the value actually returned, so an already-created
+  model whose fields or nested collections were mutated after construction is
+  checked too. Custom serializers must produce schema-valid JSON that the
+  declared type can read back.
+- Response field aliases must be readable by the same model. Prefer
+  `Field(alias="wire_name")` for a shared input and output name. With separate
+  validation and serialization aliases, include the output name in the accepted
+  validation aliases, for example `AliasChoices("input_name", "wire_name")`.
+  Unreadable aliases fail during application composition, OpenAPI generation,
+  and client preflight, including inside nested response types.
+- JSON Schema validation resolves local references only and never fetches
+  remote schemas during a request. Use self-contained schemas for custom
+  response types.
+- A required response-header field cannot accept `None`, because a null value
+  has no HTTP header representation. Make the field optional when omitting the
+  header is valid.
+- An empty passthrough definition must present a Starlette response with a
+  materialized empty body.
+- Presenters and header projectors may raise a declared `AppError`; undeclared
+  errors remain framework-owned 500 responses.

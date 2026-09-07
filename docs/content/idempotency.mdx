@@ -52,22 +52,11 @@ different input raises `IDEMPOTENCY_CONFLICT`. Matching work that still owns
 an active reservation raises `IDEMPOTENCY_IN_PROGRESS`, optionally with
 `Retry-After`.
 
-`idempotency_key=True` is a checked contract promise. It is allowed only on
-unsafe methods and requires exactly one required, non-empty string header whose
-wire name is `Idempotency-Key`. OpenAPI publishes both that parameter and
-`x-tenchi-idempotency-key: Idempotency-Key`, so generated clients and agents can
-tell that retries using the same key describe one logical command. Removing
-that promise is a breaking OpenAPI compatibility change. Adding the promise is
-additive only when the required header already exists; adding that required
-header to an established operation remains breaking for existing callers.
-
-The flag does not call `run_idempotently()` or prove transaction placement.
-The use case and durable store below remain the implementation of the promise.
-
-These are application errors under Tenchi's
-[honesty rule](/errors#the-honesty-rule).
-If the contract does not declare them, they become framework-owned 500
-responses instead of undocumented 409 responses.
+`idempotency_key=True` is a checked contract promise, published in OpenAPI as
+`x-tenchi-idempotency-key`, so generated clients and agents can tell that
+retries with the same key describe one logical command. The flag documents the
+guarantee; the use case and durable store below implement it. The header and
+compatibility rules are listed under [Constraints](#constraints).
 
 ## Put the store in the application context
 
@@ -184,19 +173,8 @@ those writes roll back too.
 
 `fingerprint()` validates against `annotation=` before hashing canonical JSON.
 Equivalent validated values therefore share a fingerprint even when mapping
-order or coercible input spelling differs. The serialized value must validate
-back to the same untouched Python value and serialize to the same canonical
-JSON again. Lossy or mutating serializers, dynamic or undeclared serializer
-output, and `Any` values such as non-finite floats or bytes therefore cannot
-silently collide with `null` or strings—or make one request acquire changing
-fingerprints. Pass a concrete annotation when Pydantic owns a non-JSON
-representation such as a datetime. Without `annotation=`, every non-JSON root
-type—including Pydantic models and string enums—includes its runtime type in
-the fingerprint.
-
-`set` and `frozenset` values are rejected because their iteration order is not
-a stable serialization boundary. Convert them to a sorted tuple or list before
-fingerprinting.
+order or coercible input spelling differs. Pass a concrete annotation when
+Pydantic owns a non-JSON representation such as a datetime.
 
 Include every validated value that can change the operation's result: path,
 query, headers other than the idempotency key, and body. When a command has
@@ -279,3 +257,28 @@ the work once or replay its committed result. Run
 [`verify_idempotency_store()`](/testing#verify-store-adapters) against the
 adapter before relying on it, then separately test rollback with the
 application writes it protects.
+
+## Constraints
+
+- `idempotency_key=True` is allowed only on unsafe methods and requires exactly
+  one required, non-empty string header whose wire name is `Idempotency-Key`.
+  Tenchi checks both the Pydantic validation and serialization schemas.
+- Removing the promise is a breaking OpenAPI compatibility change. Adding it is
+  additive only when the required header already exists; adding that required
+  header to an established operation remains breaking for existing callers.
+- `IDEMPOTENCY_CONFLICT` and `IDEMPOTENCY_IN_PROGRESS` follow the [honesty
+  rule](/errors#the-honesty-rule). Undeclared, they become framework-owned 500
+  responses instead of undocumented 409 responses.
+- A fingerprinted value must validate back to the same untouched Python value
+  and serialize to the same canonical JSON again. Lossy or mutating
+  serializers, dynamic or undeclared serializer output, and `Any` values such
+  as non-finite floats or bytes are rejected so they cannot collide with `null`
+  or strings or give one request changing fingerprints.
+- Without `annotation=`, every non-JSON root type, including Pydantic models
+  and string enums, includes its runtime type in the fingerprint.
+- `set` and `frozenset` values are rejected because their iteration order is
+  not a stable serialization boundary. Convert them to a sorted tuple or list
+  before fingerprinting.
+- A completed result must reconstruct the same typed value from its stored
+  bytes. Lossy serializers and omitted required fields raise
+  `IdempotencyResultError` before completion and abandon the reservation.

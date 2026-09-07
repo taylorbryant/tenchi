@@ -72,7 +72,7 @@ the generated follow-up steps call out the required synchronous header
 projector.
 
 `--plan PATH` is available with `--from-contract`. It resolves `--base-ref`
-(default `HEAD`) to an immutable commit and writes a versioned structural plan
+(default `HEAD`) to a baseline commit and writes a versioned structural plan
 in the same transaction as the generated use case and test. The result includes
 the content-derived plan ID. With `--dry-run`, Tenchi returns the prospective
 plan but writes neither the plan nor application files. See [verify a generated
@@ -166,7 +166,7 @@ The default target is `app.server.tools:tools`; override it with
 version for automation.
 
 `--check` is an exact drift check. `--diff` and `--diff-ref` classify changes
-directionally and fail on breaking or unknown changes. A Git ref supplies a
+against the historical baseline and fail on breaking or unknown changes. A Git ref supplies a
 meaningful historical baseline even when the working branch updates its
 snapshot. Use `--diff-format json` for the versioned compatibility result. See
 [Application tools](/tools) for the compatibility rules.
@@ -242,14 +242,13 @@ uv run tenchi verify --base-ref origin/main \
   --change-plan .tenchi/changes/create-note.json --json
 ```
 
-Verify produces one receipt for the finished source tree. It runs `tenchi
+Verify produces one [receipt](/change-plans#verification-terms) for the finished source tree. It runs `tenchi
 check`, rejects application-map diagnostics and unresolved relationships, and
 compares the generated OpenAPI document, durable job-message manifest,
 application-tool manifest, and evaluation-policy manifest with the snapshots at
-the selected Git ref. The receipt records the immutable commit resolved from
-`--base-ref`, so all four
-compatibility reports use the same historical state even if the named ref moves
-later.
+the selected Git ref. The receipt records the baseline commit resolved from `--base-ref`, so all
+four compatibility reports use the same historical state even if the named ref
+moves later.
 
 The receipt also records `source.head_commit`, `source.tree_digest`, and
 `source.dirty` for the application root. The digest covers tracked files,
@@ -270,7 +269,7 @@ name when replacing its failing body. Verification requires pytest to collect
 at least one invocation and report every invocation as passed; skipped,
 xfailed, xpassed, deselected, failed, errored, uncollected, or ambiguous results
 fail the receipt. The plan is read before and after project-owned commands so a
-mid-verification mutation fails. Change-plan evidence supplements the normal
+mid-verification mutation fails. The change-plan result supplements the normal
 checks and compatibility reports; it does not evaluate business semantics or
 test quality.
 
@@ -341,8 +340,8 @@ application conventions. Verify never updates snapshots. Because it runs the
 application's tests and validation commands, those commands retain their normal
 side effects and per-step timeout.
 
-Verify loads `app.server.evaluations:runner` for architecture evidence and the
-payload-free policy comparison but does not run evaluators. Use `--evaluations
+Verify loads `app.server.evaluations:runner` for the architecture check and the
+policy comparison but does not run evaluators. Use `--evaluations
 module:attribute` when the application uses another composition target.
 
 ## Verify the deployment environment
@@ -379,8 +378,8 @@ uv run tenchi eval run support.answer_quality --json
 
 `eval list` discovers `app.server.evaluations:runner` and returns case names
 and schemas, metrics, thresholds, timeouts, and token or cost budgets without
-case inputs. `eval snapshot` prints, writes, checks, or directionally compares
-the payload-free policy without invoking evaluators. Breaking and unknown
+case inputs. `eval snapshot` prints, writes, checks, or compares the policy, which contains
+no case inputs, with a historical snapshot without invoking evaluators. Breaking and unknown
 changes return a non-zero status; `--diff-format json` returns the versioned
 `evaluation_diff` result. A missing Git snapshot fails by default. During first
 adoption only, pass `--allow-missing-baseline` and require the resulting

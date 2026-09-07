@@ -87,17 +87,9 @@ scope, which can commit on success, roll back on failure, and close before
 Tenchi finalizes the response. `app.server.routes:routes` composes the API,
 OpenAPI, Swagger UI, and health routes at the composition root.
 
-`create_app()` returns a Starlette application and rejects duplicate or
-equivalent route templates and invalid context-factory shapes during
-composition. Operations on one path shape must use the same path-parameter
-names. Runtime matching is independent of declaration order: literal and
-constrained paths take precedence over broader parameterized paths. A `GET`
-contract handles `HEAD` automatically unless a matching explicit `HEAD`
-contract takes precedence.
-
-Contract paths are exact. If `/todos` is declared, `/todos/` reaches Tenchi's
-structured framework 404 response instead of redirecting. Declare both paths
-explicitly only when the API intends to support both spellings.
+`create_app()` returns a Starlette application. Route templates are checked
+during composition and matched by shape at runtime; the rules are listed under
+[Constraints](#constraints).
 
 ## Lifespan and request scopes
 
@@ -156,3 +148,18 @@ guarantees cleanup before the response is finalized.
   those libraries directly at the composition root and keep framework-owned
   behavior focused on contracts and use cases.
 </Callout>
+
+## Constraints
+
+- `create_app()` rejects duplicate or equivalent route templates and invalid
+  context-factory shapes during composition.
+- Operations on one path shape must use the same path-parameter names.
+- Matching is independent of declaration order. Literal and constrained paths
+  take precedence over broader parameterized paths.
+- A `GET` contract handles `HEAD` automatically unless an explicit `HEAD`
+  contract matches.
+- Contract paths are exact. If `/todos` is declared, `/todos/` reaches the
+  structured framework 404 response instead of redirecting. Declare both
+  spellings only when the API intends to support both.
+- Observer failures are logged and cannot change the response or the use-case
+  result.

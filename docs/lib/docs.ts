@@ -291,7 +291,7 @@ export const docsSections = [
         title: "Verify a generated change",
         navLabel: "Change plans",
         description:
-          "Tie contract-driven generation to a content-addressed plan and verify its structural postconditions against one Git baseline.",
+          "Record what a generated use case must become, then verify the finished change against one Git baseline.",
         priority: 0.87,
       },
       {

@@ -296,7 +296,7 @@ pythonVersion = "3.12"
 Keep any existing test and source paths when merging these tables into the
 project's configuration.
 
-## Declare required verification evidence
+## Declare the verification policy
 
 Create `tenchi.toml` at the application root:
 
@@ -324,7 +324,7 @@ current run, and rejects a removed or weakened policy.
 Before running verification, make expected local artifacts invisible to Git.
 Tenchi's source digest deliberately includes every nonignored untracked path,
 so a cache or development database created during a check otherwise invalidates
-the receipt. Keep source, snapshots, lockfiles, and configuration visible; add
+the [receipt](/change-plans#verification-terms). Keep source, snapshots, lockfiles, and configuration visible; add
 only reproducible or environment-local artifacts to `.gitignore`. For example:
 
 ```gitignore

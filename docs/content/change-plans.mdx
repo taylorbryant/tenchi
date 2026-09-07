@@ -8,9 +8,36 @@ the generated use case was implemented, tested, and wired to the intended HTTP
 contract.
 
 Change-plan version 2 supports use cases generated with `--from-contract`.
-Plans are JSON files with a content-derived `plan_id`, the immutable Git
-baseline, the contract and use-case identities, generated paths, one exact
-pytest target, and a fixed set of completion postconditions.
+Plans are JSON files with a content-derived `plan_id`, the Git baseline, the
+contract and use-case identities, generated paths, one exact pytest target, and
+a fixed set of completion conditions.
+
+## Verification terms
+
+These words keep one meaning across `tenchi verify`, change plans, and the
+coding-agent guides.
+
+- **Baseline.** The Git commit that `--base-ref` resolves to. A ref such as
+  `origin/main` can move later, so the receipt records the commit and every
+  comparison uses that same historical state.
+- **Receipt.** The result of `tenchi verify`: one JSON object covering the
+  source digest, verification policy, checks, architecture, compatibility
+  reports, and any change plan. `tenchi check` produces a result; only `verify`
+  produces a receipt.
+- **Evidence.** What a `[verify]` stage in `tenchi.toml` requires, such as a
+  passing check or a compatible OpenAPI report. Each stage ends as `passed`,
+  `failed`, `skipped`, `not_configured`, or `not_verifiable`.
+- **Source digest.** A SHA-256 hash of the application tree, including
+  nonignored untracked files, captured before verification and rechecked after
+  every project-owned stage.
+- **Plan ID.** The `sha256:…` identity of a change plan, derived from its
+  content. Any change to the plan produces a new ID.
+- **Payload-safe.** A result that never contains request bodies, case inputs,
+  prompts, model output, secrets, or exception text. Tenchi's manifests,
+  reports, and observer outcomes all hold to this.
+- **Compatible.** A historical comparison passes when the new version still
+  accepts everything the old version accepted. The comparison is one-way: it
+  does not ask whether the two versions are equal.
 
 ## Preview the generation
 
@@ -38,7 +65,7 @@ uv run tenchi make use-case projects create_project \
   --json
 ```
 
-Tenchi resolves `origin/main` to an immutable commit before writing anything.
+Tenchi resolves `origin/main` to a baseline commit before writing anything.
 The generated use-case file, failing test, and plan are created as one
 filesystem operation; if any write fails, Tenchi removes the files created by
 that operation.
@@ -81,7 +108,7 @@ uv run tenchi verify \
 
 The change-plan section passes only when:
 
-- the plan and verification resolve to the same immutable commit;
+- the plan and verification resolve to the same baseline commit;
 - both generated files exist and contain no incomplete marker;
 - the exact contract and use case are registered, and the current contract still
   produces the accepted use-case signature;
@@ -106,12 +133,13 @@ Tenchi reads the plan before running project-owned validation commands and
 again before returning the receipt. If a test or import mutates the plan during
 verification, the receipt fails.
 
-## Understand the proof boundary
+## What the receipt proves
 
-A passing plan proves structural completion and that its source-bound test ran
-successfully according to the project's pytest process, not business
-correctness or independently attested execution. The JSON receipt identifies
-this boundary as `provenance: "project_pytest_process"`.
+A passing plan proves that the generated structure was completed and that its
+planned test ran successfully in the project's own pytest process. It does not
+prove business correctness, and nothing outside the repository attests the
+run. The JSON receipt identifies this boundary as
+`provenance: "project_pytest_process"`.
 
 Project-owned `conftest.py` files, pytest plugins, fixtures, and imported test
 code run in that same interpreter. Code with permission to modify and execute
@@ -137,7 +165,7 @@ with the current Tenchi version before editing its files; do not hand-edit an
 older plan into the new shape.
 
 The plan file is repository-owned data, not a signed instruction. Tenchi
-validates its content-derived identity and refuses weakened fixed
-postconditions, but someone who can edit the repository can replace the whole
+validates its content-derived identity and refuses weakened completion
+conditions, but someone who can edit the repository can replace the whole
 plan and receive a new ID. Preserve the initially accepted `plan_id` outside
 the edited worktree when the exact requested intent needs independent review.

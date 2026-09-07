@@ -31,18 +31,18 @@ uv run tenchi verify --base-ref origin/main --json
 The map explains what exists and how it is connected. The preview derives a
 use-case boundary from the contract without writing files. `check` reports the
 complete local repair list, and `verify` compares the finished application with
-an immutable Git baseline.
+a Git baseline.
 
 Generated applications include an `AGENTS.md` and project-local MCP
 configuration. Use the [coding-agent workflow](/agents) with any agent that can
 read files and run commands, or [connect an MCP-aware coding agent](/mcp) to the
-same renderer-independent operations.
+same operations.
 
 For contract-driven generation, a [change plan](/change-plans) can bind the
 requested contract, generated files, route wiring, and one test target to the
-final verification receipt. The receipt proves structural completion and
-reported test execution; externally owned acceptance tests remain the right
-boundary when the code producer is adversarial.
+final verification receipt. The [receipt](/change-plans#verification-terms) proves that the structure was
+completed and its test ran. When the code producer is untrusted, acceptance
+tests owned outside the repository remain the right check.
 
 ## Add AI behavior to the backend
 
@@ -119,9 +119,9 @@ uv run tenchi eval snapshot --diff evaluations.json
 ```
 
 [AI evaluations](/evaluations) run typed cases with bounded concurrency,
-timeouts, thresholds, and optional token or cost budgets. The payload-free
-policy snapshot makes a weakened gate visible in review without running a model
-during every deterministic check.
+timeouts, thresholds, and optional token or cost budgets. The policy snapshot
+contains no case inputs, so it can make a weakened gate visible in review
+without running a model during every deterministic check.
 
 <Callout title="Tenchi is not an agent runtime">
   Tenchi does not implement model turns, handoffs, prompt templates,

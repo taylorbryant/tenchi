@@ -87,11 +87,8 @@ answer_quality = evaluation(
 evaluations = evaluation_group(answer_quality)
 ```
 
-Case and evaluation names use dotted `snake_case`. Metric names use
-`snake_case`, and every score is a finite number from `0` to `1`.
-`evaluation()` checks the evaluator when its module imports: it must be an
-async function with exactly annotated `case` and `context` parameters, and it
-must return `EvaluationMeasurement`.
+`evaluation()` checks the evaluator's signature when its module imports. Naming
+and value rules are listed under [Constraints](#constraints).
 
 The context annotation may be a feature-owned `Protocol`. This keeps the
 evaluation independent of server composition while allowing the concrete
@@ -114,11 +111,8 @@ return evaluation_result(
 
 Do not put prompts, retrieved documents, model output, user data, or exception
 text in score names, case names, metric descriptions, or evaluation
-descriptions. Those declaration fields are visible through discovery. The case
-JSON Schema is visible too, including field titles, descriptions, defaults,
-and examples produced by Pydantic, so keep sensitive values out of schema
-metadata. Tenchi canonicalizes and validates this schema when the evaluation is
-declared, so schema metadata must also be portable, standards-compliant JSON.
+descriptions. Those declaration fields, and the case JSON Schema, are visible
+through discovery.
 
 Run-specific reports contain:
 
@@ -182,8 +176,7 @@ An evaluation passes only when:
 - every metric's average meets its threshold; and
 - every declared usage budget is known and remains within its limit.
 
-The declaration timeout applies to each case. `tenchi eval run --timeout`
-may shorten that limit for a particular run but never extend it.
+The declaration timeout applies to each case.
 
 When you declare `max_tokens` or `max_cost_usd`, every completed measurement
 must report the corresponding usage. Missing usage, a failed case, or a timed
@@ -198,18 +191,13 @@ Budget outcomes report `passed`, `exceeded`, or `unverified`. Later cases use
 Cost totals are compared using exact decimal arithmetic, so a declared limit is
 not crossed merely because of binary floating-point summation.
 
-Token counts use JSON's interoperable integer range. Values returned through
-`tokens` must be between `0` and `MAX_EVALUATION_TOKENS`
-(`9_007_199_254_740_991`); `max_tokens` must be between `1` and that same
-limit. Tenchi rejects values outside this range before they can reach CLI or
-MCP JSON output.
-
 Budgets are gates, not provider-side spending limits. Configure provider
 quotas and request limits separately.
 
 ## Protect the gate itself
 
-Commit a payload-free evaluation-policy snapshot so a source change cannot
+Commit an evaluation-policy snapshot, which contains no case inputs, so a
+source change cannot
 silently weaken the release gate:
 
 ```shell
@@ -253,7 +241,7 @@ The result records an `evaluation manifest baseline` metadata change. Do not
 use this override for a renamed or mistyped snapshot path.
 
 Case names are the stable identity in this manifest. Changing a case's input
-while keeping its name does not change the payload-free snapshot. Review case
+while keeping its name does not change the snapshot. Review case
 data in source control and rename the case when the scenario's meaning changes.
 
 ## Run the gate
@@ -291,8 +279,8 @@ budget.
 The coding-agent MCP server always exposes `evaluation_list` and
 `evaluation_diff`. Discovery returns case
 names and schemas, metric thresholds, timeouts, and budgets without running a
-provider or exposing case inputs. The diff tool compares the same payload-free
-manifest used by the CLI and never runs an evaluator.
+provider or exposing case inputs. The diff tool compares the same manifest
+used by the CLI and never runs an evaluator.
 
 `evaluation_run` is disabled by default because it can call external systems
 and spend money. Enable it only for a trusted MCP process:
@@ -325,3 +313,24 @@ requests idempotent or isolated when retries could incur duplicate cost.
 state, suite kind, case count, metrics, timeout, and budgets. This gives coding
 agents and reviewers one architecture view of both AI-facing tools and the
 gates that protect their behavior.
+
+## Constraints
+
+- Case and evaluation names use dotted `snake_case`. Metric names use
+  `snake_case`.
+- Every score is a finite number from `0` to `1`.
+- The evaluator must be an async function with exactly annotated `case` and
+  `context` parameters that returns `EvaluationMeasurement`.
+- The case JSON Schema is visible through discovery, including the field
+  titles, descriptions, defaults, and examples Pydantic produces. Tenchi
+  canonicalizes and validates that schema when the evaluation is declared, so
+  its metadata must be portable, standards-compliant JSON and must not contain
+  sensitive values.
+- Token counts use JSON's interoperable integer range. `tokens` must be between
+  `0` and `MAX_EVALUATION_TOKENS` (`9_007_199_254_740_991`), and `max_tokens`
+  between `1` and that limit. Values outside the range are rejected before they
+  reach CLI or MCP output.
+- `tenchi eval run --timeout` may shorten a declared case timeout but never
+  extend it.
+- When `max_tokens` or `max_cost_usd` is declared, every completed measurement
+  must report the corresponding usage, or the budget is unverified.
