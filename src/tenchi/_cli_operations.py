@@ -36,7 +36,12 @@ from .contracts import Contract
 from .doctor import run_doctor
 from .openapi import openapi_schema
 from .routes import RouteGroup, route, route_group
-from .scaffold import feature_files, use_case_files
+from .scaffold import (
+    OPTIONAL_CAPABILITIES,
+    feature_files,
+    present_capabilities,
+    use_case_files,
+)
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -145,7 +150,8 @@ def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
             error=f"tenchi make feature: {relative_feature_root} already exists",
         )
 
-    files = feature_files(name)
+    capabilities = present_capabilities(resolved_root)
+    files = feature_files(name, capabilities=capabilities)
     if not dry_run:
         write_error = _write_files_transactionally(feature_root, files)
         if write_error is not None:
@@ -179,10 +185,12 @@ def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
                 f"app.features.{name}.contracts:<contract_name>"
             ),
             f"Compose app.features.{name}.routes in app/server/routes.py",
-            f"Compose app.features.{name}.jobs in app/server/jobs.py",
-            f"Compose app.features.{name}.tasks in app/server/tasks.py",
-            f"Compose app.features.{name}.tools in app/server/tools.py",
-            (f"Compose app.features.{name}.evaluations in app/server/evaluations.py"),
+            *(
+                f"Compose app.features.{name}.{capability} "
+                f"in {capabilities[capability].as_posix()}"
+                for capability in OPTIONAL_CAPABILITIES
+                if capability in capabilities
+            ),
         ),
     )
 

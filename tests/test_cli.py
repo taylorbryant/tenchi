@@ -186,32 +186,21 @@ def test_new_scaffolds_a_working_app(
     assert (root / "app/infra/port_wiring.py").is_file()
     assert (root / "app/infra/sqlite_todo_repository.py").is_file()
     assert (root / "app/shared/errors.py").is_file()
-    assert (root / "app/server/preflight.py").is_file()
-    assert (root / "app/server/evaluations.py").is_file()
     assert (root / "app/server/runtime.py").is_file()
-    assert (root / "app/server/tasks.py").is_file()
-    assert (root / "app/server/tools.py").is_file()
     assert (root / "openapi.json").is_file()
-    assert (root / "jobs.json").is_file()
-    assert (root / "tools.json").is_file()
-    assert (root / "evaluations.json").is_file()
+    for optional in _FULL_ONLY_PATHS:
+        assert not (root / optional).exists(), optional
     assert tomllib.loads((root / "tenchi.toml").read_text()) == {
         "schema_version": 1,
         "verify": {
             "check": True,
             "architecture": True,
             "openapi": True,
-            "jobs": True,
-            "tools": True,
-            "evaluations": True,
         },
     }
     assert (root / "AGENTS.md").is_file()
     assert (root / ".mcp.json").is_file()
     assert (root / "tests/test_openapi_snapshot.py").is_file()
-    assert (root / "tests/test_job_snapshot.py").is_file()
-    assert (root / "tests/test_tool_snapshot.py").is_file()
-    assert (root / "tests/test_evaluation_snapshot.py").is_file()
     assert (root / ".github/workflows/ci.yml").is_file()
     assert "uv run tenchi check" in (root / "AGENTS.md").read_text()
     assert "https://tenchi.io/agents" in (root / "AGENTS.md").read_text()
@@ -274,10 +263,56 @@ def test_new_scaffolds_a_working_app(
         "adapters": 2,
         "contexts": 1,
         "entrypoints": 1,
-        "tests": 6,
+        "tests": 3,
         "diagnostics": 0,
         "unresolved": 0,
     }
+
+
+_FULL_ONLY_PATHS = (
+    "app/server/evaluations.py",
+    "app/server/jobs.py",
+    "app/server/preflight.py",
+    "app/server/tasks.py",
+    "app/server/tools.py",
+    "app/features/todos/evaluations.py",
+    "evaluations.json",
+    "jobs.json",
+    "tools.json",
+    "tests/test_evaluation_snapshot.py",
+    "tests/test_job_snapshot.py",
+    "tests/test_tool_snapshot.py",
+)
+
+
+def test_new_full_generates_every_extension_point(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["new", "my_app", "--full"]) == 0
+    capsys.readouterr()
+
+    root = tmp_path / "my_app"
+    for optional in _FULL_ONLY_PATHS:
+        assert (root / optional).is_file(), optional
+    assert tomllib.loads((root / "tenchi.toml").read_text()) == {
+        "schema_version": 1,
+        "verify": {
+            "check": True,
+            "architecture": True,
+            "openapi": True,
+            "jobs": True,
+            "tools": True,
+            "evaluations": True,
+        },
+    }
+
+    mapped = _tenchi(root, "map", "--json")
+    assert mapped.returncode == 0, mapped.stdout + mapped.stderr
+    assert json.loads(mapped.stdout)["summary"]["tests"] == 6
 
     preflight = _tenchi(root, "preflight", "--json")
     assert preflight.returncode == 0, preflight.stdout + preflight.stderr
@@ -317,7 +352,7 @@ def test_machine_readable_commands_keep_application_output_out_of_stdout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert main(["new", "my_app"]) == 0
+    assert main(["new", "my_app", "--full"]) == 0
     root = tmp_path / "my_app"
     routes_path = root / "app/server/routes.py"
     routes_path.write_text(
@@ -614,9 +649,7 @@ def test_eval_snapshot_diff_ref_requires_an_explicit_missing_baseline_override(
     assert {
         "severity": "metadata",
         "location": "evaluation manifest baseline",
-        "message": (
-            "historical baseline absent; explicit first-adoption override used"
-        ),
+        "message": "historical baseline absent; first adoption recorded",
     } in report["changes"]
 
 
@@ -1125,7 +1158,7 @@ def test_generated_app_checks_pass(
     report = json.loads(result.stdout)
     assert report["schema_version"] == 12
     assert report["ok"] is True
-    assert report["counts"] == {"passed": 9, "failed": 0, "total": 9}
+    assert report["counts"] == {"passed": 6, "failed": 0, "total": 6}
     assert [step["name"] for step in report["steps"]] == [
         "ruff format",
         "ruff",
@@ -1133,77 +1166,45 @@ def test_generated_app_checks_pass(
         "pytest",
         "doctor",
         "openapi",
+    ]
+
+
+def test_full_generated_app_checks_every_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app", "--full"]) == 0
+
+    result = _tenchi(tmp_path / "my_app", "check", "--json")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["counts"] == {"passed": 9, "failed": 0, "total": 9}
+    assert [step["name"] for step in report["steps"]][-3:] == [
         "evaluations",
         "jobs",
         "tools",
     ]
 
 
-_OPTIONAL_SCAFFOLD_PATHS = (
-    "app/server/evaluations.py",
-    "app/server/jobs.py",
-    "app/server/preflight.py",
-    "app/server/tasks.py",
-    "app/server/tools.py",
-    "app/features/todos/evaluations.py",
-    "evaluations.json",
-    "jobs.json",
-    "tools.json",
-    "tests/test_evaluation_snapshot.py",
-    "tests/test_job_snapshot.py",
-    "tests/test_tool_snapshot.py",
-)
-
-
-def test_an_app_without_optional_composition_modules_passes_every_gate(
+def test_generated_app_verifies_with_optional_stages_not_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     assert main(["new", "my_app"]) == 0
     root = tmp_path / "my_app"
-    for relative in _OPTIONAL_SCAFFOLD_PATHS:
-        (root / relative).unlink()
-    # No repository policy: the built-in policy must follow the modules present.
-    (root / "tenchi.toml").unlink()
     _git(root, "init", "-q")
     _git(root, "config", "user.email", "test@example.com")
     _git(root, "config", "user.name", "Test")
     _git(root, "add", ".")
     _git(root, "commit", "-qm", "baseline")
 
-    doctor = _tenchi(root, "doctor", "--json")
-    assert doctor.returncode == 0, doctor.stdout + doctor.stderr
-    assert json.loads(doctor.stdout)["diagnostics"] == []
-
-    mapped = _tenchi(root, "map", "--json")
-    assert mapped.returncode == 0, mapped.stdout + mapped.stderr
-    summary = json.loads(mapped.stdout)["summary"]
-    assert summary["routes"] == 2
-    assert summary["diagnostics"] == 0
-    assert summary["unresolved"] == 0
-    assert (summary["jobs"], summary["tasks"], summary["tools"]) == (0, 0, 0)
-    assert summary["evaluations"] == 0
-
-    checked = _tenchi(root, "check", "--json")
-    assert checked.returncode == 0, checked.stdout + checked.stderr
-    report = json.loads(checked.stdout)
-    assert report["ok"] is True
-    assert [step["name"] for step in report["steps"]] == [
-        "ruff format",
-        "ruff",
-        "pyright",
-        "pytest",
-        "doctor",
-        "openapi",
-    ]
-
     verified = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
     assert verified.returncode == 0, verified.stdout + verified.stderr
     receipt = json.loads(verified.stdout)
     assert receipt["ok"] is True
     assert receipt["errors"] == []
-    assert receipt["policy"]["source"] == "default"
-    assert receipt["policy"]["compatible"] is True
+    assert receipt["policy"]["source"] == "repository"
     assert {
         item["stage"]: (item["current"], item["status"])
         for item in receipt["policy"]["requirements"]
@@ -1219,7 +1220,7 @@ def test_an_app_without_optional_composition_modules_passes_every_gate(
     assert receipt["tools"] is None
     assert receipt["evaluations"] is None
 
-    # A snapshot left behind without its module is drift, not "unconfigured".
+    # A snapshot without its module is drift, not "unconfigured".
     (root / "tools.json").write_text("{}\n")
     drifted = _tenchi(root, "check", "--json")
     assert drifted.returncode == 1
@@ -1230,11 +1231,113 @@ def test_an_app_without_optional_composition_modules_passes_every_gate(
     assert "jobs" not in steps
 
 
-def test_verify_produces_one_receipt_against_an_immutable_baseline(
+def test_generated_app_without_a_policy_uses_the_built_in_policy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    (root / "tenchi.toml").unlink()
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline")
+
+    doctor = _tenchi(root, "doctor", "--json")
+    assert doctor.returncode == 0, doctor.stdout + doctor.stderr
+    checked = _tenchi(root, "check", "--json")
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    verified = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+    assert verified.returncode == 0, verified.stdout + verified.stderr
+    receipt = json.loads(verified.stdout)
+    assert receipt["ok"] is True
+    assert receipt["policy"]["source"] == "default"
+    assert receipt["policy"]["compatible"] is True
+    assert {
+        item["stage"]: item["status"] for item in receipt["policy"]["requirements"]
+    } == {
+        "check": "passed",
+        "architecture": "passed",
+        "openapi": "passed",
+        "jobs": "not_configured",
+        "tools": "not_configured",
+        "evaluations": "not_configured",
+    }
+
+
+def test_adopting_a_capability_is_one_change_that_declares_its_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app"]) == 0
+    root = tmp_path / "my_app"
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "baseline without tools or jobs")
+
+    (root / "app/server/tools.py").write_text(
+        "from tenchi.tools import tool_group\n\ntools = tool_group()\n"
+    )
+    (root / "app/server/jobs.py").write_text(
+        "from tenchi.jobs import job_group\n\njobs = job_group()\n"
+    )
+    assert _tenchi(root, "tools", "--write", "tools.json").returncode == 0
+    assert _tenchi(root, "jobs", "--write", "jobs.json").returncode == 0
+
+    # Composed but undeclared: verify names each module and the fix.
+    undeclared = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+    assert undeclared.returncode == 1, undeclared.stdout + undeclared.stderr
+    receipt = json.loads(undeclared.stdout)
+    assert receipt["ok"] is False
+    messages = {error["stage"]: error["message"] for error in receipt["errors"]}
+    assert "app/server/tools.py composes tools" in messages["tools"]
+    assert "set tools = true" in messages["tools"]
+    assert "app/server/jobs.py composes jobs" in messages["jobs"]
+
+    # Declaring the stages in the same change is enough: the modules did not
+    # exist at the baseline, so the missing snapshots are first adoptions.
+    policy = root / "tenchi.toml"
+    policy.write_text(policy.read_text() + "jobs = true\ntools = true\n")
+
+    adopted = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+    assert adopted.returncode == 0, adopted.stdout + adopted.stderr
+    receipt = json.loads(adopted.stdout)
+    assert receipt["ok"] is True
+    assert receipt["errors"] == []
+    assert receipt["policy"]["compatible"] is True
+    assert {change["stage"] for change in receipt["policy"]["changes"]} == {
+        "jobs",
+        "tools",
+    }
+    assert all(
+        change["severity"] == "strengthening" for change in receipt["policy"]["changes"]
+    )
+    assert receipt["tools"]["compatible"] is True
+    assert receipt["tools"]["changes"][-1]["location"] == "tool manifest baseline"
+    assert receipt["jobs"]["compatible"] is True
+    assert receipt["jobs"]["changes"][-1]["location"] == "job manifest baseline"
+    assert receipt["evaluations"] is None
+
+    # An explicit false stays a deliberate skip rather than an error.
+    policy.write_text(policy.read_text().replace("tools = true", "tools = false"))
+    skipped = _tenchi(root, "verify", "--base-ref", "HEAD", "--json")
+    assert skipped.returncode == 0, skipped.stdout + skipped.stderr
+    tools_stage = next(
+        item
+        for item in json.loads(skipped.stdout)["policy"]["requirements"]
+        if item["stage"] == "tools"
+    )
+    assert tools_stage["status"] == "skipped"
+
+
+def test_verify_produces_one_receipt_against_an_immutable_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app", "--full"]) == 0
     root = tmp_path / "my_app"
     evaluations_module = root / "app/server/evaluations.py"
     evaluations_module.write_text(
@@ -1304,7 +1407,7 @@ def test_verify_requires_an_explicit_first_adoption_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert main(["new", "my_app"]) == 0
+    assert main(["new", "my_app", "--full"]) == 0
     root = tmp_path / "my_app"
     _git(root, "init", "-q")
     _git(root, "config", "user.email", "test@example.com")
@@ -1404,7 +1507,7 @@ def test_verify_reports_a_repository_disabled_stage_as_skipped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert main(["new", "my_app"]) == 0
+    assert main(["new", "my_app", "--full"]) == 0
     root = tmp_path / "my_app"
     policy = root / "tenchi.toml"
     policy.write_text(
@@ -1440,7 +1543,7 @@ def test_verify_runs_strict_defaults_when_the_current_policy_is_invalid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert main(["new", "my_app"]) == 0
+    assert main(["new", "my_app", "--full"]) == 0
     root = tmp_path / "my_app"
     _git(root, "init", "-q")
     _git(root, "config", "user.email", "test@example.com")
@@ -1532,7 +1635,7 @@ def test_verify_requires_explicit_job_manifest_first_adoption(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert main(["new", "my_app"]) == 0
+    assert main(["new", "my_app", "--full"]) == 0
     root = tmp_path / "my_app"
     _git(root, "init", "-q")
     _git(root, "config", "user.email", "test@example.com")
@@ -1580,7 +1683,7 @@ def test_verify_catches_a_breaking_snapshot_change_after_the_snapshot_is_replace
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert main(["new", "my_app"]) == 0
+    assert main(["new", "my_app", "--full"]) == 0
     root = tmp_path / "my_app"
     snapshot_path = root / "openapi.json"
     current_snapshot = snapshot_path.read_text(encoding="utf-8")
@@ -1613,7 +1716,7 @@ def test_verify_catches_a_weakened_evaluation_policy_after_snapshot_replacement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert main(["new", "my_app"]) == 0
+    assert main(["new", "my_app", "--full"]) == 0
     root = tmp_path / "my_app"
     snapshot_path = root / "evaluations.json"
     current_snapshot = snapshot_path.read_text(encoding="utf-8")
@@ -1728,7 +1831,7 @@ def test_check_discovers_an_openapi_description(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    openapi_step = report["steps"][-4]
+    openapi_step = next(step for step in report["steps"] if step["name"] == "openapi")
     assert openapi_step["status"] == "passed"
     assert openapi_step["command"][8:10] == ["--description", "Generated API"]
 
@@ -1887,13 +1990,50 @@ def test_routes_prints_bound_routes(
     assert "TODO_NOT_FOUND" in out
 
 
-def test_make_feature_scaffolds_importable_skeleton(
+def test_make_feature_omits_files_nothing_composes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
     assert main(["new", "my_app"]) == 0
+    capsys.readouterr()
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+    # Adding one composition module opts that capability back in.
+    (root / "app/server/tools.py").write_text(
+        "from tenchi.tools import tool_group\n\ntools = tool_group()\n"
+    )
+
+    assert main(["make", "feature", "notes", "--json"]) == 0
+    created = json.loads(capsys.readouterr().out)
+
+    feature_root = root / "app/features/notes"
+    for expected in (
+        "schemas.py",
+        "ports.py",
+        "contracts.py",
+        "policy.py",
+        "routes.py",
+    ):
+        assert (feature_root / expected).is_file()
+    assert (feature_root / "tools.py").is_file()
+    for absent in ("tasks.py", "jobs.py", "evaluations.py"):
+        assert not (feature_root / absent).exists()
+    compose_steps = [step for step in created["next_steps"] if "Compose" in step]
+    assert compose_steps == [
+        "Compose app.features.notes.routes in app/server/routes.py",
+        "Compose app.features.notes.tools in app/server/tools.py",
+    ]
+
+
+def test_make_feature_scaffolds_importable_skeleton(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app", "--full"]) == 0
     monkeypatch.chdir(tmp_path / "my_app")
 
     assert main(["make", "feature", "notes"]) == 0
@@ -1941,7 +2081,7 @@ def test_make_dry_run_and_json_share_a_versioned_result(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert main(["new", "my_app"]) == 0
+    assert main(["new", "my_app", "--full"]) == 0
     capsys.readouterr()
     root = tmp_path / "my_app"
     monkeypatch.chdir(root)

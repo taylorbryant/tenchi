@@ -390,12 +390,17 @@ def test_missing_prescribed_modules_are_flagged(app_root: Path) -> None:
     ],
 )
 def test_optional_composition_modules_are_not_required(
-    app_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     relative: str,
 ) -> None:
-    (app_root / relative).unlink()
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app", "--full"]) == 0
+    root = tmp_path / "my_app"
+    monkeypatch.chdir(root)
+    (root / relative).unlink()
 
-    assert run_doctor(app_root) == []
+    assert run_doctor(root) == []
 
 
 def test_feature_package_initializer_cannot_import_infrastructure(

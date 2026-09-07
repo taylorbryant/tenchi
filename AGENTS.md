@@ -180,8 +180,8 @@ coding-agent MCP `app_map` tool treat an absent default target for jobs,
 tasks, tools, or evaluations as not configured rather than as a load failure.
 `check` omits a snapshot step only when both the module and its snapshot are
 absent. An explicitly overridden target is never optional. `tenchi preflight`
-still requires its module when it runs. The full scaffold still generates
-every module.
+still requires its module when it runs. `tenchi new` renders only the
+required modules; `tenchi new --full` renders every optional one.
 
 Dependency direction is enforced by `tenchi doctor` and must hold in every
 example and template:
@@ -325,8 +325,13 @@ print wiring instructions; they never edit existing modules. `routes`, `map`,
 `app.server.preflight:checks`,
 `app.server.evaluations:runner`,
 `app.server.asgi:app`); keep flags available to
-override, and keep `tenchi new` output aligned with `examples/todos` minus
-capabilities the starter intentionally omits.
+override. `tenchi new` renders the required layout (routes, context, ASGI
+application, OpenAPI snapshot, three-stage `tenchi.toml`); `tenchi new --full`
+also renders every optional composition module, snapshot, snapshot test, and
+policy stage, and that layout stays aligned with `examples/todos` minus
+capabilities the starter intentionally omits. `make feature` emits `tasks.py`,
+`jobs.py`, `tools.py`, and `evaluations.py` only when the matching server
+composition module exists.
 `map` combines source declarations with composed routes, operational tasks,
 background jobs, application tools, and evaluations and must stay deterministic,
 source-backed, and versioned in JSON. Feature projections retain directly
@@ -358,9 +363,10 @@ evaluators. The manifest retains case names in execution order plus schemas,
 metrics, thresholds, kind, timeout, and budgets but never case inputs. Removed
 policy elements and weakened gates are incompatible; reordered cases, changed
 case schemas, and unsupported fields fail closed for review. A missing
-historical snapshot fails by default; first adoption requires the explicit
-missing-baseline option and records an `evaluation manifest baseline` metadata
-change. `check` performs
+historical snapshot fails by default unless the composition module did not
+exist at the baseline, which `verify` records as a first adoption; otherwise
+first adoption requires the explicit missing-baseline option. Either path
+records an `evaluation manifest baseline` metadata change. `check` performs
 exact drift checking and `verify` compares the policy with the historical Git
 baseline.
 `mcp` is a thin, stdio-only adapter over the same renderer-independent
@@ -440,10 +446,12 @@ root. Git repository-selection environment variables cannot redirect the
 receipt to another checkout. Recheck that identity after every project-owned
 execution or import and at the end; any observed persistent change fails the
 receipt as a source error. It never writes
-snapshots. A missing job snapshot
-requires the explicit `--allow-missing-job-baseline` first-adoption override. A
-missing evaluation snapshot requires the explicit
-`--allow-missing-evaluation-baseline` first-adoption override. The CLI and
+snapshots. A missing job, tool, or evaluation snapshot is a first adoption when the
+composition module did not exist at the baseline commit and otherwise requires
+the explicit `--allow-missing-job-baseline` or
+`--allow-missing-evaluation-baseline` override. A stage omitted from
+`tenchi.toml` while its composition module exists is a verification error;
+`false` remains a deliberate skip. The CLI and
 coding-agent MCP tool return the same versioned receipt and propagate
 cancellation through source capture and the active check subprocess.
 Contract-driven use-case generation can write a versioned change plan in the

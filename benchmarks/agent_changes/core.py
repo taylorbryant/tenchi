@@ -209,7 +209,7 @@ def prepare_workspace(
     )
     moved = False
     try:
-        files = app_files("tenchi_benchmark")
+        files = app_files("tenchi_benchmark", full=True)
         files["pyproject.toml"] = _local_project(files["pyproject.toml"], source_root)
         files["TASK.md"] = task.prompt
         for relative, content in files.items():

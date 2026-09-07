@@ -46,6 +46,7 @@ from ._cli_results import (
     TaskListPayload,
     TaskRunPayload,
 )
+from ._composition import load_optional_groups
 from ._evaluation_operations import (
     EvaluationDiffPayload,
     discard_evaluation_output,
@@ -83,7 +84,6 @@ from ._targets import (
     DEFAULT_ROUTES_TARGET,
     DEFAULT_TASKS_TARGET,
     DEFAULT_TOOLS_TARGET,
-    load_optional_groups,
 )
 from ._task_operations import (
     load_task_runner,

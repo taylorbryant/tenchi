@@ -9,6 +9,11 @@ test adapter, explicit lifespan wiring, service routes, CI, and tests.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from pathlib import Path
+
+from ._targets import OPTIONAL_CAPABILITY_TARGETS, present_module_path
+
 _PYPROJECT = """\
 [project]
 name = "__APP_NAME__"
@@ -51,6 +56,15 @@ schema_version = 1
 check = true
 architecture = true
 openapi = true
+"""
+
+_FULL_VERIFICATION_POLICY = """\
+schema_version = 1
+
+[verify]
+check = true
+architecture = true
+openapi = true
 jobs = true
 tools = true
 evaluations = true
@@ -63,53 +77,35 @@ A [Tenchi](https://github.com/taylorbryant/tenchi) application.
 
 ```sh
 uv sync                 # install dependencies
-uv run tenchi check     # run every project check
-uv run tenchi verify --base-ref origin/main # produce a historical receipt
 uv run tenchi dev       # run the server with reload
+uv run tenchi check     # run every project check
 uv run tenchi routes    # list bound routes
-uv run tenchi map       # inspect the complete application graph
-uv run tenchi preflight # verify the selected deployment environment
-uv run tenchi eval list # discover AI evaluation gates without running them
-uv run tenchi eval snapshot --diff evaluations.json
-uv run tenchi eval snapshot --check evaluations.json
-uv run tenchi eval snapshot --write evaluations.json
-uv run tenchi task list # discover operational tasks
-uv run tenchi jobs --diff jobs.json
-uv run tenchi jobs --check jobs.json
-uv run tenchi jobs --write jobs.json
-uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
-uv run tenchi tools --diff tools.json
-uv run tenchi tools --check tools.json
-uv run tenchi tools --write tools.json
-uv run tenchi openapi --diff openapi.json
-uv run tenchi openapi --check openapi.json
-uv run tenchi openapi --write openapi.json
+uv run tenchi map       # inspect the application graph
 uv run tenchi doctor    # check dependency direction and structure
+uv run tenchi openapi --diff openapi.json
+uv run tenchi openapi --write openapi.json
+uv run tenchi verify --base-ref origin/main # produce a historical receipt
+uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
 ```
 
-Run `openapi --diff` before using `openapi --write` to replace the baseline. In
-CI, the generated workflow uses `--diff-ref` to compare against the pull
-request's base commit rather than the snapshot committed in the same change.
-Use the same diff-before-write workflow for `tools.json`; it protects the
-machine-facing names, schemas, errors, and safety annotations exposed by the
-application. Use it for `jobs.json` to protect durable producer-to-consumer
-message schemas. Use that workflow for `evaluations.json` too; it protects the
-payload-free cases, metrics, thresholds, timeouts, budgets, and suite kinds
-without running evaluators. After accepting any snapshot updates, run `tenchi
-verify --base-ref <ref>` to rerun the checks and record architecture plus all
-compatibility reports against one immutable commit.
-For a contract-driven generated use case, add `--plan
-.tenchi/changes/<name>.json --base-ref <ref>` when creating the files, then pass
-that path to `verify --change-plan`. The receipt proves the generated files,
-removed incomplete markers, the accepted contract-derived signature, exact
-route bindings, a direct dependency from the exact generated test function,
-and successful execution of every invocation of that pytest target against the
-same commit. Keep the generated test function name when replacing its body.
+Run `openapi --diff` before `openapi --write` replaces the baseline. In CI,
+the generated workflow uses `--diff-ref` to compare against the pull request's
+base commit rather than the snapshot committed in the same change. After
+accepting a snapshot update, `tenchi verify --base-ref <ref>` reruns the checks
+and records architecture plus every compatibility report against one commit.
 
 `tenchi.toml` is the repository-owned definition of required verification
-evidence. `verify` compares it with the selected Git baseline before enforcing
-the stronger current-or-historical requirement, so weakening a gate cannot
-skip that gate in the same change.
+evidence. `verify` compares it with the selected Git baseline and enforces the
+stronger current-or-historical requirement, so weakening a gate cannot skip
+that gate in the same change.
+
+When the application adds background jobs, application tools, or AI
+evaluations, compose them in `app/server/jobs.py`, `app/server/tools.py`, or
+`app/server/evaluations.py`, snapshot them with `tenchi jobs --write jobs.json`,
+`tenchi tools --write tools.json`, or `tenchi eval snapshot --write
+evaluations.json`, and set the matching `[verify]` stage to `true` in
+`tenchi.toml`. Operational tasks compose in `app/server/tasks.py` and deployment
+preflight checks in `app/server/preflight.py`.
 
 The API persists to `__APP_NAME__.db` by default. Override the location with
 `__APP_ENV_PREFIX___DATABASE`. With the development server running, browse
@@ -140,49 +136,43 @@ Framework agent workflow: https://tenchi.io/agents
    the exact use-case boundary. Implement the generated behavior, replace its
    failing test without renaming the test function, and remove both
    `# tenchi: incomplete` markers before treating the change as complete. When
-   the requested structure needs its own evidence,
-   create it with `--plan .tenchi/changes/<name>.json --base-ref <ref>` and
-   retain the returned `plan_id` outside the edited worktree.
+   the requested structure needs its own evidence, create it with
+   `--plan .tenchi/changes/<name>.json --base-ref <ref>` and retain the
+   returned `plan_id` outside the edited worktree.
 3. Keep explicit wiring visible in `app/server/routes.py`,
-   `app/server/jobs.py`, `app/server/preflight.py`,
-   `app/server/evaluations.py`, `app/server/tasks.py`, `app/server/runtime.py`,
-   `app/server/webhooks.py` when signed endpoints exist,
-   `app/server/tools.py` when application tools exist,
-   `app/server/mcp.py` when application tools are exposed over MCP,
-   `app/infra/port_wiring.py`, and `app/server/asgi.py`.
+   `app/server/runtime.py`, `app/infra/port_wiring.py`, and
+   `app/server/asgi.py`, plus `app/server/jobs.py`, `app/server/tasks.py`,
+   `app/server/tools.py`, `app/server/evaluations.py`, `app/server/preflight.py`,
+   `app/server/webhooks.py`, and `app/server/mcp.py` when the application has
+   added those capabilities.
 4. Run `uv run tenchi check` after a coherent change and treat every failed
    step as unfinished work.
 5. Finish with `uv run tenchi verify --base-ref <ref> --json`, adding
    `--change-plan <path>` when one was created, and using the pull request base,
    previous push, or previous release as `<ref>`. Treat a failed check, change
    plan, weakened `tenchi.toml`, architecture diagnostic, unresolved
-   relationship, or incompatible boundary as unfinished work.
-   The receipt records the exact Git-visible source-tree digest and fails if
-   project-owned checks or imports leave that tree changed at a verification
-   checkpoint.
-   A change plan also requires pytest to collect the exact generated test and
-   report every invocation as passed; do not rename, skip, or xfail that test.
+   relationship, or incompatible boundary as unfinished work. The receipt
+   records the exact source-tree digest and fails if project-owned checks or
+   imports leave that tree changed at a verification checkpoint. A change plan
+   also requires pytest to collect the exact generated test and report every
+   invocation as passed; do not rename, skip, or xfail that test.
 
-Use `--json` with `tenchi map`, `tenchi routes`, `tenchi jobs`, `tenchi tools`,
-`tenchi preflight`, `tenchi eval list|run`, `tenchi task`, `tenchi doctor`,
+Use `--json` with `tenchi map`, `tenchi routes`, `tenchi doctor`,
 `tenchi check`, `tenchi verify`, and `tenchi make ...` when structured output is
 more useful than terminal text. On an expected failure before the command can
 build its normal result, parse the versioned `operation_error` object from
 stdout and branch on its stable `code`; the process still exits nonzero.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
-`app_map`, `routes`, `jobs`, `tools`, `preflight`, `evaluation_list`,
-`task_list`, `doctor`, `openapi_diff`, `jobs_diff`, `tools_diff`,
-`evaluation_diff`, `make_preview`, `check`, and `verify` tools return the same
-versioned results. A contract-driven `make_preview` accepts `base_ref` to return
-an inline change plan; `verify` accepts its persisted project-relative path.
-Inspection and preview tools never write application files;
-`check` and `verify` run the project's normal validation commands. Run
-`preflight` only against the intended environment. Task execution is not
-exposed unless an operator starts the server with `--allow-task-runs`.
-Evaluation execution is not exposed unless an operator deliberately starts the
-server with `--allow-evaluation-runs`. The agent still makes ordinary,
-reviewable source edits.
+`app_map`, `routes`, `doctor`, `openapi_diff`, `make_preview`, `check`, and
+`verify` tools return the same versioned results, and `jobs`, `tools`,
+`preflight`, `evaluation_list`, `task_list`, and the matching diff tools become
+useful once the application composes those capabilities. Inspection and
+preview tools never write application files; `check` and `verify` run the
+project's normal validation commands. Task and evaluation execution stay
+disabled unless an operator starts the server with `--allow-task-runs` or
+`--allow-evaluation-runs`. The agent still makes ordinary, reviewable source
+edits.
 
 ## Placement and dependency direction
 
@@ -191,66 +181,34 @@ reviewable source edits.
 - `ports.py` owns `typing.Protocol` interfaces needed by the feature.
 - `policy.py` owns pure authorization rules for subjects in the feature.
 - `routes.py` binds contracts to use cases; it never imports infrastructure.
-- `tasks.py` gives selected use cases stable operational names; it never
-  imports infrastructure.
-- `jobs.py` declares stable background messages shared by producers and
-  consumers; handlers are bound in `app/server/jobs.py`.
-- `tools.py` binds stable machine-facing contracts to use cases; it never
-  imports infrastructure or server composition.
-- `evaluations.py` declares typed cases, metrics, and provider-neutral
-  evaluators; it never imports infrastructure or server composition.
 - `use_cases/` contains one plain async function per workflow. Use cases may
   depend on schemas, ports, policies, shared code, and `app.server.context`, but
   never concrete infrastructure, routes, or the Tenchi/Starlette runtime.
+- When added, `tasks.py`, `jobs.py`, `tools.py`, and `evaluations.py` give
+  selected use cases stable operational, durable-message, machine-facing, and
+  evaluation contracts; none of them imports infrastructure or server
+  composition, and handlers are bound at server composition.
 - `app/infra/` implements ports and never imports use cases, contracts, routes,
   or server composition.
 - `app/server/` is the composition root and may import every application layer.
-  Shared lifespan/context wiring lives in `runtime.py`; task composition lives
-  in `tasks.py`; background handlers live in `jobs.py`; read-only deployment
-  observations live in `preflight.py`; evaluation lifecycle/context wiring
-  lives in `evaluations.py`; authenticated application-tool wiring lives in
-  `tools.py` when present; application MCP transport wiring lives in `mcp.py`
-  when present.
+  Shared lifespan/context wiring lives in `runtime.py`; `context.py`,
+  `routes.py`, and `asgi.py` are required, and the other server modules exist
+  only for capabilities the application has adopted.
 - `app/shared/` never imports features.
 
 Authentication belongs in boundary hooks. Authorization belongs in use cases
 and pure policy functions. Declare every expected `AppError` on its contract or
 route group; undeclared application errors intentionally become framework 500s.
-Response field aliases must be readable by the same model; use Field(alias=...)
-or include the serialization name in validation_alias. JSON responses must
-satisfy their published schema and revalidate from the emitted bytes before
-the request scope commits. Idempotent results must serialize back to the same
-typed value before completion; keep their store in the write transaction.
-OpenAPI enumerates the exact codes and application/framework source for each
-error status and documents the framework-owned internal 500 on every operation.
-Contract examples are public documentation. Use named, realistic placeholder
-values; Tenchi validates their serialized form against OpenAPI, so never put
-credentials, personal data, or production payloads in them.
-Security configuration does not invent authentication failures, so declare
-those errors on every protected contract or route group.
+JSON responses must satisfy their published schema and revalidate from the
+emitted bytes before the request scope commits; response field aliases must be
+readable by the same model. Contract examples are public documentation, so use
+realistic placeholder values and never credentials or production payloads.
 Contracts marked `webhook=True` require an exact-body verifier binding in
-`create_app(webhooks=...)`; the verifier may attach service identity, which the
-use case still asserts.
-Application-level quotas use `enforce_rate_limit()` against a context-owned
-`RateLimitStore`, scoped from authenticated identity. Put the consume inside
-idempotent work when one logical operation should cost once. Request floods and
-unauthenticated abuse belong at the edge; `MemoryRateLimitStore` is test-only.
-Application tools receive identity through context wiring, never model-supplied
-input. Their safety annotations describe behavior but do not authorize calls.
-Declare every caller-visible `AppError`; undeclared and unexpected failures are
-masked by the tool runner.
-When application tools are exposed over MCP, authenticate discovery and calls,
-recheck per-principal visibility, and require an explicit approval decision for
-destructive tools. Structured failure results set MCP's standard `isError` flag
-while retaining their versioned error envelope. The `tenchi mcp` CLI remains
-the separate coding-agent server.
-Evaluation declarations own typed cases and score thresholds. Evaluators return
-only normalized scores and usage; never put prompts or generated outputs in
-result metadata. Each invocation receives an isolated case input. Treat
-`EVALUATION_BUDGET_EXCEEDED` as measured overage and
-`EVALUATION_BUDGET_UNVERIFIED` as missing evidence. Keep `tenchi eval run`
-separate from deterministic checks and authorize coding-agent execution
-explicitly because it may call providers and incur cost.
+`create_app(webhooks=...)`. Application tools receive identity through context
+wiring, never model-supplied input, and their safety annotations never
+authorize a call. Evaluators return only normalized scores and usage; keep
+`tenchi eval run` separate from deterministic checks because it may call
+providers and incur cost.
 
 ## Change checklist
 
@@ -262,23 +220,16 @@ explicitly because it may call providers and incur cost.
   `tenchi openapi --write openapi.json`; the command loads
   `app.server.routes:api_routes` and discovers the literal `OPENAPI_*`
   declarations in that module.
-- Run `tenchi tools --diff tools.json` before replacing the application-tool
-  snapshot with `tenchi tools --write tools.json`.
-- Run `tenchi jobs --diff jobs.json` before replacing the durable job-message
-  snapshot with `tenchi jobs --write jobs.json`; use a new job name when an
-  existing consumer cannot read both old and new queued payloads.
-- Treat a missing historical job snapshot as an error. Only during first
-  adoption, explicitly pass `--allow-missing-baseline` to `jobs --diff-ref` and
-  confirm the result records a `job manifest baseline` metadata change. Use
-  `--allow-missing-job-baseline` with `verify` only for that adoption.
-- Run `tenchi eval snapshot --diff evaluations.json` before replacing the
-  evaluation-policy snapshot with `tenchi eval snapshot --write
-  evaluations.json`.
-- Treat a missing historical evaluation snapshot as an error. Only during
-  first adoption, explicitly pass `--allow-missing-baseline` to `eval snapshot`
-  and confirm the result records an `evaluation manifest baseline` metadata
-  change. Use `--allow-missing-evaluation-baseline` with `verify` only when the
-  selected ref already contains the OpenAPI, job, and tool snapshots.
+- When the application has jobs, tools, or evaluations, run `tenchi jobs --diff
+  jobs.json`, `tenchi tools --diff tools.json`, or `tenchi eval snapshot --diff
+  evaluations.json` before replacing that snapshot, and declare the matching
+  `[verify]` stage `true` in `tenchi.toml` in the same change as the module;
+  `verify` rejects a composed boundary the policy omits and treats a baseline
+  where the module did not exist as a first adoption. A missing historical
+  snapshot for a module that did exist at the baseline is an error unless a
+  human authorizes `--allow-missing-baseline`, or
+  `--allow-missing-job-baseline` / `--allow-missing-evaluation-baseline` with
+  `verify`, once.
 - After accepting snapshot changes, run `tenchi verify --base-ref <ref>` with a
   historical ref and retain its complete pass/fail receipt.
 - Do not hand-edit generated files into a different application structure to
@@ -1182,7 +1133,7 @@ _OPENAPI_SNAPSHOT = """\
 }
 """
 
-_FILES: dict[str, str] = {
+_CORE_FILES: dict[str, str] = {
     "pyproject.toml": _PYPROJECT,
     "tenchi.toml": _VERIFICATION_POLICY,
     "README.md": _README,
@@ -1191,18 +1142,10 @@ _FILES: dict[str, str] = {
     ".gitignore": _GITIGNORE,
     ".github/workflows/ci.yml": _CI_WORKFLOW,
     "openapi.json": _OPENAPI_SNAPSHOT,
-    "jobs.json": _JOBS_SNAPSHOT,
-    "tools.json": _TOOLS_SNAPSHOT,
-    "evaluations.json": _EVALUATIONS_SNAPSHOT,
     "app/__init__.py": "",
     "app/features/__init__.py": "",
     "app/features/todos/__init__.py": "",
     "app/features/todos/contracts.py": _CONTRACTS,
-    "app/features/todos/evaluations.py": (
-        '"""Application-owned evaluations for the todos feature."""\n\n'
-        "from tenchi.evaluations import evaluation_group\n\n"
-        "evaluations = evaluation_group()\n"
-    ),
     "app/features/todos/ports.py": _PORTS,
     "app/features/todos/routes.py": _FEATURE_ROUTES,
     "app/features/todos/schemas.py": _SCHEMAS,
@@ -1218,25 +1161,66 @@ _FILES: dict[str, str] = {
     "app/server/__init__.py": "",
     "app/server/asgi.py": _SERVER_APP,
     "app/server/context.py": _CONTEXT,
-    "app/server/evaluations.py": _SERVER_EVALUATIONS,
-    "app/server/jobs.py": _SERVER_JOBS,
-    "app/server/preflight.py": _SERVER_PREFLIGHT,
     "app/server/routes.py": _SERVER_ROUTES,
     "app/server/runtime.py": _SERVER_RUNTIME,
-    "app/server/tasks.py": _SERVER_TASKS,
-    "app/server/tools.py": _SERVER_TOOLS,
     "app/shared/__init__.py": "",
     "app/shared/errors.py": _SHARED_ERRORS,
     "tests/test_http.py": _HTTP_TEST,
     "tests/test_openapi_snapshot.py": _OPENAPI_TEST,
+}
+
+
+# Files that only the full layout renders: one composition module, snapshot,
+# and snapshot test per optional capability, plus the six-stage policy.
+_FULL_ONLY_FILES: dict[str, str] = {
+    "tenchi.toml": _FULL_VERIFICATION_POLICY,
+    "jobs.json": _JOBS_SNAPSHOT,
+    "tools.json": _TOOLS_SNAPSHOT,
+    "evaluations.json": _EVALUATIONS_SNAPSHOT,
+    "app/features/todos/evaluations.py": (
+        '"""Application-owned evaluations for the todos feature."""\n\n'
+        "from tenchi.evaluations import evaluation_group\n\n"
+        "evaluations = evaluation_group()\n"
+    ),
+    "app/server/evaluations.py": _SERVER_EVALUATIONS,
+    "app/server/jobs.py": _SERVER_JOBS,
+    "app/server/preflight.py": _SERVER_PREFLIGHT,
+    "app/server/tasks.py": _SERVER_TASKS,
+    "app/server/tools.py": _SERVER_TOOLS,
     "tests/test_job_snapshot.py": _JOBS_TEST,
     "tests/test_evaluation_snapshot.py": _EVALUATIONS_TEST,
     "tests/test_tool_snapshot.py": _TOOLS_TEST,
 }
 
+# Optional feature files keyed by the server composition module that binds
+# them. ``make feature`` emits one only when that module exists.
+OPTIONAL_CAPABILITIES: tuple[str, ...] = tuple(OPTIONAL_CAPABILITY_TARGETS)
 
-def app_files(app_name: str) -> dict[str, str]:
-    """Return the scaffold as a mapping of relative path to file content."""
+
+def present_capabilities(root: Path) -> dict[str, Path]:
+    """Map each optional capability whose server module exists to that module.
+
+    The path is project-relative and names the file that actually exists, a
+    module file or a package initializer, so generators can point at it.
+    """
+    present: dict[str, Path] = {}
+    for name, target in OPTIONAL_CAPABILITY_TARGETS.items():
+        path = present_module_path(root, target)
+        if path is not None:
+            present[name] = path
+    return present
+
+
+def app_files(app_name: str, *, full: bool = False) -> dict[str, str]:
+    """Return the scaffold as a mapping of relative path to file content.
+
+    The default layout composes routes, a context, and an ASGI application.
+    ``full=True`` adds the composition module, snapshot, snapshot test, and
+    ``tenchi.toml`` stage for every optional capability.
+    """
+    files = dict(_CORE_FILES)
+    if full:
+        files.update(_FULL_ONLY_FILES)
     return {
         path: content.replace("__APP_NAME__", app_name)
         .replace("__APP_ENV_PREFIX__", app_name.upper())
@@ -1244,7 +1228,7 @@ def app_files(app_name: str) -> dict[str, str]:
             "__UNSUPPORTED_MEDIA_TYPE_DESCRIPTION__",
             "UNSUPPORTED_MEDIA_TYPE: Request media type does not match the contract",
         )
-        for path, content in _FILES.items()
+        for path, content in files.items()
     }
 
 
@@ -1307,9 +1291,26 @@ evaluations = evaluation_group()
 '''
 
 
-def feature_files(feature: str) -> dict[str, str]:
-    """Return a feature skeleton, relative to ``app/features/<feature>/``."""
-    return {
+_OPTIONAL_FEATURE_FILES: dict[str, str] = {
+    "tasks": _MAKE_FEATURE_TASKS,
+    "jobs": _MAKE_FEATURE_JOBS,
+    "tools": _MAKE_FEATURE_TOOLS,
+    "evaluations": _MAKE_FEATURE_EVALUATIONS,
+}
+
+
+def feature_files(
+    feature: str,
+    *,
+    capabilities: Iterable[str] = (),
+) -> dict[str, str]:
+    """Return a feature skeleton, relative to ``app/features/<feature>/``.
+
+    *capabilities* names the optional modules to include (see
+    ``OPTIONAL_CAPABILITIES``); callers pass the ones whose server composition
+    module exists so a feature never gains a file nothing composes.
+    """
+    files = {
         "__init__.py": "",
         "schemas.py": f'"""Pydantic models for the {feature} feature."""\n',
         "ports.py": (
@@ -1317,7 +1318,6 @@ def feature_files(feature: str) -> dict[str, str]:
             'implemented in app/infra/."""\n'
         ),
         "contracts.py": f'"""HTTP contracts for the {feature} feature."""\n',
-        "evaluations.py": _MAKE_FEATURE_EVALUATIONS.replace("__FEATURE__", feature),
         "policy.py": (
             f'"""Authorization rules for the {feature} feature.\n'
             "\n"
@@ -1326,12 +1326,19 @@ def feature_files(feature: str) -> dict[str, str]:
             'AppError; use cases fetch, then ask.\n"""\n'
         ),
         "routes.py": _MAKE_FEATURE_ROUTES.replace("__FEATURE__", feature),
-        "tasks.py": _MAKE_FEATURE_TASKS.replace("__FEATURE__", feature),
-        "jobs.py": _MAKE_FEATURE_JOBS.replace("__FEATURE__", feature),
-        "tools.py": _MAKE_FEATURE_TOOLS.replace("__FEATURE__", feature),
-        "use_cases/__init__.py": "",
-        "tests/__init__.py": "",
     }
+    selected = frozenset(capabilities)
+    unknown = selected - set(OPTIONAL_CAPABILITIES)
+    if unknown:
+        raise ValueError(f"unknown feature capabilities: {sorted(unknown)}")
+    for name in OPTIONAL_CAPABILITIES:
+        if name in selected:
+            files[f"{name}.py"] = _OPTIONAL_FEATURE_FILES[name].replace(
+                "__FEATURE__", feature
+            )
+    files["use_cases/__init__.py"] = ""
+    files["tests/__init__.py"] = ""
+    return files
 
 
 _USE_CASE = """\

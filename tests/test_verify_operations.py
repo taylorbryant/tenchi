@@ -41,6 +41,7 @@ from tenchi._verification_policy import (
     VerificationPolicyComparison,
     default_verification_policy,
     unconfigured_stages,
+    undeclared_composed_stages,
 )
 from tenchi.compatibility import CompatibilityReport
 
@@ -169,6 +170,15 @@ def _run_with_map(
         del root, target
         return object()
 
+    def fake_unconfigured_stages(
+        root: Path,
+        optional_targets: object,
+        *,
+        ref: str | None = None,
+    ) -> frozenset[str]:
+        del root, optional_targets, ref
+        return frozenset()
+
     def fake_load_optional_groups(root: Path, **targets: str) -> SimpleNamespace:
         del root, targets
         return SimpleNamespace(
@@ -251,6 +261,11 @@ def _run_with_map(
         _verify_operations,
         "load_optional_groups",
         fake_load_optional_groups,
+    )
+    monkeypatch.setattr(
+        _verify_operations,
+        "unconfigured_stages",
+        fake_unconfigured_stages,
     )
     monkeypatch.setattr(
         _verify_operations,
@@ -1109,3 +1124,45 @@ def test_unconfigured_stages_follow_the_default_module_files(tmp_path: Path) -> 
     # so it is never optional even though its module is absent.
     assert absent == frozenset({"jobs"})
     assert unconfigured_stages(tmp_path, None) == frozenset()
+
+
+def test_undeclared_composed_stages_name_the_module_and_the_fix(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app" / "server").mkdir(parents=True)
+    (tmp_path / "app" / "server" / "tools.py").write_text("tools = None\n")
+    strict = default_verification_policy()
+    omitted = VerificationPolicy(
+        source="repository",
+        requirements=tuple(
+            (stage, "not_configured" if stage in {"tools", "jobs"} else "required")
+            for stage, _ in strict.requirements
+        ),
+    )
+    comparison = VerificationPolicyComparison(
+        path="tenchi.toml",
+        baseline=f"{'a' * 40}:tenchi.toml",
+        current=omitted,
+        historical=omitted,
+        changes=(),
+    )
+    targets: OptionalStageTargets = {
+        "jobs": ("app.server.jobs:jobs", "app.server.jobs:jobs"),
+        "tools": ("app.server.tools:tools", "app.server.tools:tools"),
+    }
+
+    findings = undeclared_composed_stages(tmp_path, comparison, targets)
+
+    # jobs has no module, so its omission is honest; tools is composed.
+    assert [stage for stage, _ in findings] == ["tools"]
+    assert "app/server/tools.py composes tools" in findings[0][1]
+    assert "set tools = true" in findings[0][1]
+    assert undeclared_composed_stages(tmp_path, comparison, None) == ()
+    built_in = VerificationPolicyComparison(
+        path="tenchi.toml",
+        baseline=comparison.baseline,
+        current=strict,
+        historical=strict,
+        changes=(),
+    )
+    assert undeclared_composed_stages(tmp_path, built_in, targets) == ()

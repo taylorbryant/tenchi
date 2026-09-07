@@ -38,6 +38,7 @@ from ._cli_results import (
     DiagnosticPayload,
     DiagnosticResult,
 )
+from ._composition import load_optional_groups
 from ._evaluation_operations import (
     EvaluationDiffPayload,
     EvaluationDiffResult,
@@ -79,7 +80,6 @@ from ._targets import (
     DEFAULT_EVALUATIONS_TARGET,
     DEFAULT_JOBS_TARGET,
     DEFAULT_TOOLS_TARGET,
-    load_optional_groups,
 )
 from ._tool_operations import (
     ToolDiffPayload,
@@ -97,6 +97,7 @@ from ._verification_policy import (
     VerificationRequirement,
     default_verification_policy,
     unconfigured_stages,
+    undeclared_composed_stages,
     verification_policy_comparison,
 )
 
@@ -545,17 +546,34 @@ def verification_result(
     }
 
     _raise_if_cancelled(cancelled)
+    # Optional boundaries whose module did not exist at the baseline are first
+    # adoptions: their missing historical snapshot is compared against an empty
+    # manifest instead of failing. A renamed snapshot path still fails because
+    # its module existed.
+    absent_at_baseline: frozenset[VerificationEvidenceStage] = frozenset()
     try:
         policy_comparison = verification_policy_comparison(
             resolved_root,
             ref=baseline_commit,
             optional_targets=optional_targets,
         )
+        absent_at_baseline = unconfigured_stages(
+            resolved_root,
+            optional_targets,
+            ref=baseline_commit,
+        )
     except OperationError as exc:
         policy_error = str(exc)
         errors.append(VerificationErrorResult("policy", policy_error))
 
     initial_policy_comparison = policy_comparison
+    if policy_comparison is not None:
+        for stage, message in undeclared_composed_stages(
+            resolved_root,
+            policy_comparison,
+            optional_targets,
+        ):
+            errors.append(VerificationErrorResult(stage, message))
 
     fallback_policy = default_verification_policy(
         unconfigured=unconfigured_stages(resolved_root, optional_targets),
@@ -719,7 +737,9 @@ def verification_result(
                 jobs=jobs,
                 snapshot=job_snapshot_path,
                 ref=baseline_commit,
-                allow_missing_baseline=allow_missing_job_baseline,
+                allow_missing_baseline=(
+                    allow_missing_job_baseline or "jobs" in absent_at_baseline
+                ),
             )
         except OperationError as exc:
             errors.append(VerificationErrorResult("jobs", str(exc)))
@@ -733,6 +753,7 @@ def verification_result(
                 tools=tools,
                 snapshot=tool_snapshot_path,
                 ref=baseline_commit,
+                allow_missing_baseline="tools" in absent_at_baseline,
             )
         except OperationError as exc:
             errors.append(VerificationErrorResult("tools", str(exc)))
@@ -746,7 +767,10 @@ def verification_result(
                 evaluations=evaluations,
                 snapshot=evaluation_snapshot_path,
                 ref=baseline_commit,
-                allow_missing_baseline=allow_missing_evaluation_baseline,
+                allow_missing_baseline=(
+                    allow_missing_evaluation_baseline
+                    or "evaluations" in absent_at_baseline
+                ),
             )
         except OperationError as exc:
             errors.append(VerificationErrorResult("evaluations", str(exc)))
