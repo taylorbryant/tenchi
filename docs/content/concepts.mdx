@@ -1,86 +1,43 @@
 # How Tenchi works
 
 Tenchi has one architecture: typed contracts at the boundary, plain use cases
-at the center, and explicit dependency wiring around them. Learn these few
-pieces once, then reuse them from HTTP, jobs, tasks, tools, tests, and scripts.
+at the center, and explicit dependency wiring around them. Five pieces are
+enough to serve an HTTP API. Learn them once; everything else in Tenchi is
+another entrypoint to the same pieces.
 
 ## Contract
 
 A frozen declaration of one HTTP operation: method, path, validated inputs,
-successful responses, expected application errors, media types, metadata, and
-runtime limits. A contract contains no handler logic.
+successful responses, and the application errors callers may observe. A
+contract contains no handler logic.
 
 ## Route
 
 A binding between a contract and a use case. `route()` inspects the use-case
-signature immediately, so mismatched parameter names or annotations fail while
+signature immediately, so a mismatched parameter name or annotation fails while
 the application is composed rather than on the first request.
 
 ## Use case
 
 A plain async function that implements one application action. Its parameters
 are named boundary values such as `request`, `params`, `query`, `headers`, and
-`context`. It does not receive a Starlette request.
+`context`. It never receives a Starlette request, so the same function runs
+unchanged from HTTP, tests, scripts, and workers.
 
-## Operational task
+## Port and adapter
 
-A stable name bound to a use case for a backfill, repair, replay, or maintenance
-command. A task validates its input and result and runs with application
-lifecycle resources. It is an invocation boundary, not a scheduler or queue.
-
-## Background job
-
-A durable, stable name with validated request and result types. Producers
-serialize a `JobMessage`; the composition root binds the declaration to a plain
-async consumer; a dispatcher validates delivery. Queue persistence, retries,
-acknowledgement, and scheduling stay in infrastructure.
-
-## Application tool
-
-A stable machine-facing name with validated input, output, declared errors,
-and safety annotations, explicitly bound to a plain async use case. A tool
-runner supplies application lifecycle and context wiring. Model providers,
-agent loops, authentication, approval interfaces, and transport protocols stay
-outside the declaration.
-
-## Evaluation
-
-A named suite of typed cases, normalized metrics, passing thresholds, and
-optional token and cost budgets for AI-powered behavior. An evaluation runner
-supplies application lifecycle and a scoped context to each case. Models,
-prompts, judges, and datasets stay application-owned; reports contain scores
-and usage, not evaluated payloads.
-
-## Port
-
-An interface the application needs, declared with `typing.Protocol`. The
-feature owns the port; infrastructure supplies an adapter. This keeps the
-application independent of a database driver, HTTP SDK, cache, or queue.
+A port is an interface the application needs, declared with `typing.Protocol`.
+The feature owns the port; infrastructure supplies an adapter that implements
+it. A SQL repository and a memory test double are both adapters for the same
+port, so the application stays independent of any database driver, HTTP SDK,
+cache, or queue.
 
 ## Context
 
 A frozen dataclass carrying the dependencies and verified identity available
-to a use case. The application constructs it explicitly. Tenchi does not use a
-service locator or dependency-injection container.
-
-## Hook
-
-An HTTP-boundary function that sees `RequestInfo` and the current context. A
-hook can authenticate a request and return an enriched context. Hooks are for
-boundary concerns, not business authorization.
-
-## Policy
-
-A pure application function that answers an authorization question about a
-known subject. The use case loads the subject through a port and asks the
-policy. Because policies perform no I/O, they are easy to test and reusable
-from HTTP, workers, scripts, and tests.
-
-## Adapter
-
-A concrete implementation of a port. SQL repositories, external API clients,
-and memory test doubles are adapters. They live under `app/infra/` and are
-wired at the server composition root.
+to a use case. The application constructs it explicitly at the server
+composition root. Tenchi has no service locator or dependency-injection
+container.
 
 ## Boundary flow
 
@@ -99,6 +56,26 @@ HTTP request
 The typed client runs the complementary checks: it serializes inputs from the
 same contract and validates the status, media type, body, headers, and declared
 application errors returned by a server.
+
+## Optional extensions
+
+None of the following is required to define and serve an HTTP API. Each one
+gives an existing use case another entrypoint or another rule, and each has
+its own guide.
+
+- A **hook** runs at the HTTP boundary before input validation. It can
+  authenticate a request and return an enriched context. See
+  [authentication](/authentication).
+- A **policy** is a pure function that answers an authorization question
+  inside a use case. See [authentication](/authentication).
+- A **task** gives a use case a stable name for backfills, repairs, and
+  maintenance commands. See [operational tasks](/tasks).
+- A **job** is a durable, validated message bound to a consumer use case. See
+  [background jobs](/jobs).
+- A **tool** exposes a use case to machine callers with a stable name, typed
+  input and output, and safety annotations. See [application tools](/tools).
+- An **evaluation** is a typed, thresholded suite that gates AI-powered
+  behavior. See [AI evaluations](/evaluations).
 
 ## The key tradeoff
 

@@ -29,7 +29,7 @@ export const docsSections = [
         title: "Build a feature end to end",
         navLabel: "Build a feature",
         description:
-          "Carry one persisted operation through its contract, use case, port, adapters, route, tests, and verification receipt.",
+          "Carry one persisted operation through its contract, port, adapters, use case, route, tests, and OpenAPI snapshot.",
         priority: 0.95,
       },
       {
