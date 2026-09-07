@@ -6,7 +6,7 @@ function entry(overrides: Partial<SearchEntry>): SearchEntry {
   return {
     route: "/contracts",
     pageTitle: "Contracts",
-    sectionLabel: "Build APIs",
+    sectionLabel: "Core",
     heading: "Contracts",
     headingId: "",
     body: "A contract is the single source of truth for an API endpoint.",

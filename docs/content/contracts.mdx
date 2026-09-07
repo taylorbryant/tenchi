@@ -98,6 +98,57 @@ JSON response bodies are checked against their published schema and read back
 through the declared type before the request scope commits. See [successful
 responses](/responses) for that behavior and its rollback rules.
 
+## Paginate collections
+
+`tenchi.pagination` provides one small limit-and-offset vocabulary that stays
+typed across the contract, use case, client, and OpenAPI document:
+
+```python
+from tenchi.contracts import contract
+from tenchi.pagination import Page, PageQuery
+
+
+class ListTodosQuery(PageQuery):
+    completed: bool | None = None
+
+
+list_todos_contract = contract(
+    method="GET",
+    path="/todos",
+    query=ListTodosQuery,
+    response=Page[Todo],
+)
+```
+
+`PageQuery` declares `limit` and `offset` with boundary validation. Subclass it
+to add filters or sorting fields owned by the operation. `Page[Todo]`
+serializes one stable envelope with `items`, `total`, `limit`, and `offset`.
+
+The use case builds the page from the values its port returns:
+
+```python
+from tenchi.pagination import Page, page
+
+
+async def list_todos(
+    query: ListTodosQuery,
+    context: AppContext,
+) -> Page[Todo]:
+    items, total = await context.todos.list_page(
+        limit=query.limit,
+        offset=query.offset,
+        completed=query.completed,
+    )
+    return page(items, total=total, query=query)
+```
+
+`page()` copies the validated limit and offset into the response, so the
+repository result and the public envelope stay aligned. Memory adapters may
+slice a list, but production repositories should apply limit, offset, and
+filters in the database or remote service and return the page plus the total
+count through the port. The typed client returns `Page[Todo]`, and OpenAPI
+includes the query constraints and item schema without another declaration.
+
 ## Give callers concrete examples
 
 Use `request_examples=` and `response_examples=` when a caller would benefit

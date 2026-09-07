@@ -68,7 +68,7 @@ function NavLinks({
                     onClick={onNavigate}
                     className={`rounded-md px-3 py-1.5 text-sm no-underline transition-colors ${isActive(pathname, route.path) ? "bg-accent/10 font-medium text-accent" : "text-ink-light hover:bg-surface-muted hover:text-ink"}`}
                   >
-                    {"navLabel" in route ? route.navLabel : route.title}
+                    {route.navLabel}
                   </Link>
                 ))}
               </div>

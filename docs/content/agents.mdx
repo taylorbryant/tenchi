@@ -308,52 +308,14 @@ finished tree—including accepted snapshot updates—still agrees with the
 historical contract. Use the pull request base, previous push, or previous
 release instead of the branch's current commit.
 
-## Choose the right command
+## Choose JSON or human output
 
-| Command | Structured result |
-| --- | --- |
-| `tenchi map --json` | Root, summary, nodes, edges, diagnostics, and unresolved references |
-| `tenchi make ... --json` | Artifact identity, dry-run state, files, next steps, optional change plan and destination, and structured failure |
-| `tenchi doctor --json` | Overall status and source-anchored diagnostics with stable codes |
-| `tenchi check --json` | Overall status, counts, duration, and every validation step |
-| `tenchi verify --base-ref <ref> --json` | Source commit and digest, baseline commit, optional change-plan result, policy requirements and statuses, checks, architecture, and OpenAPI, job, tool, and evaluation-policy compatibility |
-| `tenchi preflight --json` | Deployment-environment status, counts, durations, and stable failure codes without dependency details |
-| `tenchi eval list --json` | Evaluation discovery without evaluated inputs or provider calls |
-| `tenchi eval run [name] --json` | Payload-safe scores, usage, thresholds, budgets, statuses, and failure codes for an explicitly authorized AI evaluation run |
-| `tenchi routes --json` | A versioned result containing the app root and composed HTTP route table |
-| `tenchi tools --json` | A versioned result containing the app root and registered tool manifest |
-| `tenchi jobs --json` | A versioned result containing the app root and registered durable job-message manifest |
-| `tenchi openapi --diff openapi.json --diff-format json` | A machine-readable API compatibility report |
-| `tenchi tools --diff tools.json --diff-format json` | A machine-readable tool compatibility report |
-| `tenchi jobs --diff jobs.json --diff-format json` | A machine-readable durable job-message compatibility report |
-| `tenchi eval snapshot --diff evaluations.json --diff-format json` | A machine-readable evaluation-policy compatibility report without evaluator execution |
-
-Human and JSON modes represent the same operation. Use JSON when another tool
-will make a decision; use human output when a person is reviewing the work in a
-terminal.
-
-If a JSON operation cannot build its normal result—for example, because its
-application target cannot be loaded—Tenchi still writes exactly one versioned
-object to stdout and exits nonzero:
-
-```json
-{
-  "schema_version": 12,
-  "result": "operation_error",
-  "operation": "routes",
-  "ok": false,
-  "code": "TENCHI_CLI_TARGET_LOAD_FAILED",
-  "message": "Could not load the configured route target.",
-  "details": {"target": "app.server.routes:routes"}
-}
-```
-
-The stable code is intended for branching. The message is safe to display, and
-optional details contain only deliberate context; application exception text
-and payloads are excluded. Argument parsing failures use
-`TENCHI_CLI_INVALID_ARGUMENTS` and also preserve stdout as valid JSON.
-Operation-specific failures that occur after loading—such as invalid task
-input—remain in that operation's normal result schema.
+Every command in this loop has a `--json` mode that writes exactly one
+versioned object to stdout, including on expected failures, so an agent can
+branch on a stable `code` instead of parsing terminal prose. Human and JSON
+modes describe the same operation: use JSON when another tool will make a
+decision and human output when a person is reviewing in a terminal. The [CLI
+reference](/cli) lists every command and the fields of its result.
 
 ## Know when to inspect the source yourself
 
