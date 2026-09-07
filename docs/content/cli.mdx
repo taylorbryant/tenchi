@@ -19,10 +19,20 @@ uvx tenchi new my_app
 
 Names use `snake_case`. The generated project includes a todos feature,
 SQLite persistence with request-scoped transactions, a memory test adapter,
-strict checks, integration tests, Swagger UI, OpenAPI, durable job-message,
-application-tool, and evaluation-policy snapshots, a protected `tenchi.toml`
-verification policy, a concise `AGENTS.md`, project-local MCP configuration,
-and GitHub Actions CI.
+strict checks, integration tests, Swagger UI, an OpenAPI snapshot, a
+`tenchi.toml` verification policy, a concise `AGENTS.md`, project-local MCP
+configuration, and GitHub Actions CI. Nothing else is required to serve an
+HTTP API.
+
+```shell
+uvx tenchi new my_app --full
+```
+
+`--full` also generates the composition module, snapshot, snapshot test, and
+`tenchi.toml` stage for background jobs, operational tasks, application tools,
+evaluations, and preflight checks, so every extension point exists from the
+start. Without it, add each module when the application adopts that
+capability; the matching guide shows the file.
 
 ## Generate application slices
 
@@ -41,7 +51,10 @@ uv run tenchi make use-case notes create_note \
 ```
 
 Generators create files and print explicit wiring instructions. They never
-rewrite route or infrastructure modules. `--dry-run` validates the operation
+rewrite route or infrastructure modules. A new feature receives `tasks.py`,
+`jobs.py`, `tools.py`, or `evaluations.py` only when the matching
+`app/server/` composition module exists, so a feature never gains a file that
+nothing composes. `--dry-run` validates the operation
 and lists every file without writing it. `--json` emits the same result as a
 versioned object with the app root, artifact identity, files, follow-up steps,
 and any error.

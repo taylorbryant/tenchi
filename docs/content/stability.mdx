@@ -46,10 +46,12 @@ every pre-1.0 release is source-compatible.
 
    The command discovers the route module's literal `OPENAPI_*` declarations;
    pass explicit metadata flags only when overriding that convention.
-5. Run `tenchi jobs --diff jobs.json` against the pre-upgrade snapshot.
-6. Run `tenchi tools --diff tools.json` against the pre-upgrade snapshot.
-7. Run `tenchi eval snapshot --diff evaluations.json` against the pre-upgrade
-   snapshot.
+5. If the application has durable jobs, run `tenchi jobs --diff jobs.json`
+   against the pre-upgrade snapshot.
+6. If it has application tools, run `tenchi tools --diff tools.json` against
+   the pre-upgrade snapshot.
+7. If it has evaluations, run `tenchi eval snapshot --diff evaluations.json`
+   against the pre-upgrade snapshot.
 8. Review application wiring, `tenchi.toml`, and generated-code convention
    changes. Do not weaken verification requirements to make the upgrade pass.
 9. Update snapshots only after accepting all compatibility reports.

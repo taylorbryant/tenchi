@@ -208,7 +208,9 @@ uv run tenchi eval snapshot --check evaluations.json
 The snapshot includes evaluation names, case names in execution order, the case
 JSON Schema, metric names and thresholds, suite kind, per-case timeout, and
 token or cost budgets. It never includes case inputs and creating it never
-invokes an evaluator. `tenchi check` performs the exact snapshot check.
+invokes an evaluator. `tenchi check` performs the exact snapshot check once
+`app/server/evaluations.py` exists; set `evaluations = true` under `[verify]`
+in `tenchi.toml` so `tenchi verify` enforces the historical comparison.
 
 Review policy changes before replacing the snapshot:
 

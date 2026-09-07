@@ -120,7 +120,9 @@ uv run tenchi jobs --write jobs.json
 
 The manifest contains stable names, descriptions, and input JSON Schemas. It
 never contains queued payloads or handler results. Commit `jobs.json`, then
-check exact drift locally and in CI:
+check exact drift locally and in CI (`tenchi check` runs this step once
+`app/server/jobs.py` exists, and `jobs = true` under `[verify]` in
+`tenchi.toml` makes `tenchi verify` enforce the historical comparison):
 
 ```shell
 uv run tenchi jobs --check jobs.json

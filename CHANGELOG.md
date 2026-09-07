@@ -9,6 +9,18 @@ versions may change the public API.
 
 ### Changed
 
+- `tenchi new` generates the minimal application: routes, context, runtime,
+  ASGI application, the todos feature with its SQLite and memory adapters,
+  the OpenAPI snapshot and its test, and a `tenchi.toml` that requires check,
+  architecture, and OpenAPI. The composition modules, snapshots, snapshot
+  tests, and policy stages for jobs, tasks, tools, evaluations, and preflight
+  are generated only by the new `tenchi new --full` flag. `tenchi make feature`
+  emits `tasks.py`, `jobs.py`, `tools.py`, or `evaluations.py` only when the
+  matching `app/server/` module exists, and lists only those compose steps.
+  The generated `AGENTS.md` and `README.md` describe the optional capabilities
+  as additions rather than assuming them. `tenchi.scaffold.app_files()` gains
+  a keyword-only `full` parameter, and `feature_files()` a keyword-only
+  `capabilities` parameter.
 - The server composition modules for background jobs, operational tasks,
   application tools, evaluations, and preflight checks are optional. `tenchi
   doctor` no longer reports any of them as missing structure. `tenchi map`,

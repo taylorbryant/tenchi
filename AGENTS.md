@@ -180,8 +180,8 @@ coding-agent MCP `app_map` tool treat an absent default target for jobs,
 tasks, tools, or evaluations as not configured rather than as a load failure.
 `check` omits a snapshot step only when both the module and its snapshot are
 absent. An explicitly overridden target is never optional. `tenchi preflight`
-still requires its module when it runs. The full scaffold still generates
-every module.
+still requires its module when it runs. `tenchi new` renders only the
+required modules; `tenchi new --full` renders every optional one.
 
 Dependency direction is enforced by `tenchi doctor` and must hold in every
 example and template:
@@ -325,8 +325,13 @@ print wiring instructions; they never edit existing modules. `routes`, `map`,
 `app.server.preflight:checks`,
 `app.server.evaluations:runner`,
 `app.server.asgi:app`); keep flags available to
-override, and keep `tenchi new` output aligned with `examples/todos` minus
-capabilities the starter intentionally omits.
+override. `tenchi new` renders the required layout (routes, context, ASGI
+application, OpenAPI snapshot, three-stage `tenchi.toml`); `tenchi new --full`
+also renders every optional composition module, snapshot, snapshot test, and
+policy stage, and that layout stays aligned with `examples/todos` minus
+capabilities the starter intentionally omits. `make feature` emits `tasks.py`,
+`jobs.py`, `tools.py`, and `evaluations.py` only when the matching server
+composition module exists.
 `map` combines source declarations with composed routes, operational tasks,
 background jobs, application tools, and evaluations and must stay deterministic,
 source-backed, and versioned in JSON. Feature projections retain directly

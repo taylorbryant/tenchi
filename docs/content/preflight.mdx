@@ -18,9 +18,10 @@ services, and worker heartbeats.
 
 ## Declare read-only observations
 
-The generated application exposes `checks` from
-`app/server/preflight.py`. Each observation is a zero-argument async function
-that returns `None` on success and raises on failure:
+Create `app/server/preflight.py` exposing `checks`, the module `tenchi
+preflight` loads by default (`tenchi new --full` generates an empty one). Each
+observation is a zero-argument async function that returns `None` on success
+and raises on failure:
 
 ```python
 from app.infra.port_wiring import open_preflight_connection

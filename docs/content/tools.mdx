@@ -206,8 +206,11 @@ Write the composed manifest from the application root:
 uv run tenchi tools --write tools.json
 ```
 
-`tenchi check` compares the generated manifest with `tools.json` so an
-unrecorded contract change fails locally and in CI. Before accepting a changed
+Once `app/server/tools.py` exists, `tenchi check` compares the generated
+manifest with `tools.json` so an unrecorded contract change fails locally and
+in CI. Set `tools = true` under `[verify]` in `tenchi.toml` after the snapshot
+is committed on the baseline so `tenchi verify` enforces the historical
+comparison as well. Before accepting a changed
 snapshot, classify it against the current file:
 
 ```shell

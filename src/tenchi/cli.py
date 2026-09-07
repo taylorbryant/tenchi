@@ -255,7 +255,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(raw_argv)
 
     if args.command == "new":
-        return _new(args.name)
+        return _new(args.name, full=args.full)
     if args.command == "make":
         if args.artifact == "feature":
             return _make_feature(args.name, dry_run=args.dry_run, as_json=args.json)
@@ -428,6 +428,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     new_parser = subparsers.add_parser("new", help="Create a new Tenchi application")
     new_parser.add_argument("name", help="Application directory name, in snake_case")
+    new_parser.add_argument(
+        "--full",
+        action="store_true",
+        help=(
+            "Also generate the job, task, tool, evaluation, and preflight "
+            "composition modules with their snapshots and policy stages"
+        ),
+    )
 
     make_parser = subparsers.add_parser(
         "make", help="Generate application code from conventions"
@@ -1207,7 +1215,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _new(name: str) -> int:
+def _new(name: str, *, full: bool = False) -> int:
     if not valid_name(name):
         _fail(
             f"tenchi new: {name!r} is not a valid application name; "
@@ -1220,7 +1228,7 @@ def _new(name: str) -> int:
         _fail(f"tenchi new: {name}/ already exists")
         return 1
 
-    write_files(target, app_files(name))
+    write_files(target, app_files(name, full=full))
 
     print(f"Created {name}/")
     print()
