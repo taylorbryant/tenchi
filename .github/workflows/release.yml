@@ -63,7 +63,7 @@ jobs:
       - name: Check Fieldnotes application
         run: uv run --directory examples/fieldnotes tenchi check
       - run: uv build
-      - name: Smoke-test the built wheel and generated app
+      - name: Smoke-test the built wheel and generated apps
         run: |
           smoke_dir=$(mktemp -d)
           wheel=$(find "$GITHUB_WORKSPACE/dist" -name '*.whl' -print -quit)
@@ -91,6 +91,13 @@ jobs:
           uv run tenchi make use-case todos preview_create_todo \
             --from-contract app.features.todos.contracts:create_todo_contract \
             --dry-run --json
+          uv run tenchi check
+          cd "$smoke_dir"
+          "$smoke_dir/venv/bin/tenchi" new generated_full_app --full
+          cd "$smoke_dir/generated_full_app"
+          uv add "$wheel"
+          uv run tenchi make feature notes
+          uv run tenchi make use-case notes create_note
           uv run tenchi check
           uv run python "$GITHUB_WORKSPACE/.github/scripts/mcp_smoke.py" .
       - run: uv publish --trusted-publishing always

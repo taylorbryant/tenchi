@@ -35,6 +35,13 @@ uv run tenchi check
 uv run tenchi dev
 ```
 
+The default starter includes the todos API, SQLite and memory adapters, and
+OpenAPI checks. Use `uvx tenchi new my_app --full` to also generate composition
+modules for jobs, operational tasks, application tools, evaluations, and
+preflight checks, along with their supporting files. `tenchi make feature`
+includes optional capability modules only when the application already composes
+them.
+
 Call the generated todos API from another terminal:
 
 ```shell

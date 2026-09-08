@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-07
+
 ### Changed
 
 - `tenchi new` generates the minimal application: routes, context, runtime,
@@ -19,7 +21,7 @@ versions may change the public API.
   matching `app/server/` module exists, and lists only those compose steps.
   The generated `AGENTS.md` and `README.md` describe the optional capabilities
   as additions rather than assuming them. `tenchi.scaffold.app_files()` gains
-    a keyword-only `full` parameter, and `feature_files()` a keyword-only
+  a keyword-only `full` parameter, and `feature_files()` a keyword-only
   `capabilities` parameter.
 - `tenchi verify` treats a job, tool, or evaluation boundary whose composition
   module did not exist at the baseline commit as a first adoption: the missing
@@ -36,14 +38,24 @@ versions may change the public API.
   `tenchi check`, `tenchi verify`, and the coding-agent MCP `app_map` tool
   treat an absent default job, task, tool, or evaluation target as not
   configured instead of failing to import it, whether the module would be a
-  file or a package; `tenchi preflight` still requires its module. `check` omits a job, tool, or evaluation snapshot step only when
+  file or a package; `tenchi preflight` still requires its module. `check`
+  omits a job, tool, or evaluation snapshot step only when
   both the module and its snapshot file are absent; either one alone still runs
   the step so drift fails visibly. Without `tenchi.toml`, the built-in
   verification policy requires check, architecture, and OpenAPI and records
   jobs, tools, and evaluations as `not_configured` while their module is
   absent, judged in the working tree for the current policy and at the
   baseline commit for the historical one. Explicitly overridden targets are
-  never optional. Generated applications are unchanged.
+  never optional.
+- The documentation simplifies the application model and feature-building
+  tutorial, starts from the minimal generated application, and explains how to
+  add optional capabilities as the application grows.
+
+### Fixed
+
+- Release smoke tests validate both the minimal and full generated applications
+  from the built wheel, and run optional MCP capability checks against the full
+  layout.
 
 ## [0.17.0] - 2026-09-05
 
