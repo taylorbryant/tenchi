@@ -7,9 +7,11 @@ separate from the use case that implements the operation.
 
 ## Declare an operation
 
+Keep shared input and output models in `app/features/todos/schemas.py`:
+
 ```python
+# app/features/todos/schemas.py
 from pydantic import BaseModel, Field
-from tenchi.contracts import contract
 
 
 class CreateTodo(BaseModel):
@@ -20,6 +22,17 @@ class Todo(BaseModel):
     id: str
     title: str
     completed: bool
+```
+
+Import those same models when declaring the operation. This example includes
+the `Location` response header used by the generated todos application:
+
+```python
+# app/features/todos/contracts.py
+from pydantic import BaseModel, Field
+from tenchi.contracts import contract
+
+from .schemas import CreateTodo, Todo
 
 
 class CreatedTodoHeaders(BaseModel):

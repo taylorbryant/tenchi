@@ -42,7 +42,9 @@ app/
     runtime.py
 ```
 
-These are the only modules Tenchi requires. Background jobs, operational tasks,
+These are the modules used in this example. The required server modules are
+`asgi.py`, `context.py`, and `routes.py`; `runtime.py` keeps this example's
+shared resource wiring in one place. Background jobs, operational tasks,
 application tools, and evaluations each add one module under `app/server/`
 when the application needs them; until then `tenchi map`, `tenchi check`, and
 `tenchi verify` treat those boundaries as not configured. Preflight checks add

@@ -27,7 +27,48 @@ persisting application payloads.
 
 `execute()` deliberately supplies only `request` and `context`. A use case that
 requires HTTP-specific `params`, `query`, or `headers` is not portable to this
-entrypoint and fails with `ExecutionError`.
+entrypoint and fails with `ExecutionError`. Jobs, tasks, and tools use the same
+`request` and `context` convention.
+
+## Adapt HTTP inputs
+
+After completing [Build a feature](/build-a-feature), the `complete_todo`
+function accepts `params` and `context`. To expose it as a task, add a function
+that receives the same data through `request`:
+
+```python
+# app/features/todos/use_cases/complete_todo_from_request.py
+from app.server.context import AppContext
+
+from ..schemas import CompleteTodoParams, Todo
+from .complete_todo import complete_todo
+
+
+async def complete_todo_from_request(
+    request: CompleteTodoParams,
+    context: AppContext,
+) -> Todo:
+    return await complete_todo(params=request, context=context)
+```
+
+Bind the adapter in `app/features/todos/tasks.py`:
+
+```python
+from tenchi.tasks import task, task_group
+
+from .use_cases.complete_todo_from_request import complete_todo_from_request
+
+
+tasks = task_group(
+    task("todos.complete", complete_todo_from_request),
+)
+```
+
+Compose this group with the [operational task runner](/tasks#compose-the-runner).
+The adapter can also receive validated input through `execute()` or a matching
+job or tool declaration. Business logic and authorization still run in
+`complete_todo`. If several HTTP inputs are needed, define a request model that
+contains them and unpack it in the adapter.
 
 ## Set an entrypoint-neutral deadline
 

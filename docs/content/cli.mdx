@@ -355,16 +355,15 @@ baseline, verify treats the missing historical snapshot as a first adoption
 automatically and records a `job manifest baseline`, `tool manifest
 baseline`, or `evaluation manifest baseline` metadata change. The overrides
 below cover a module that did exist at the baseline while its snapshot did
-not, such as a renamed snapshot path. If the selected ref genuinely predates
+not. If the selected ref predates
 the application's first `jobs.json` in that situation, pass
 `--allow-missing-job-baseline` once and confirm the job result includes a
-`job manifest baseline` metadata change. If it already contains the OpenAPI,
-job, and tool snapshots but genuinely predates the application's first
-`evaluations.json`, pass
+`job manifest baseline` metadata change. If it predates the application's
+first `evaluations.json`, pass
 `--allow-missing-evaluation-baseline` once and confirm the evaluation result
-includes an `evaluation manifest baseline` metadata change. Missing evaluation
-snapshots otherwise fail closed, so a renamed or mistyped path cannot silently
-replace the historical policy.
+includes an `evaluation manifest baseline` metadata change. Other boundaries
+follow their own configured requirements. Do not use these overrides to bypass
+an existing historical snapshot at a renamed or mistyped path.
 
 `--snapshot`, `--job-snapshot`, `--tool-snapshot`, `--evaluation-snapshot`, and the route, task,
 job, tool, evaluation, and OpenAPI metadata options override the generated

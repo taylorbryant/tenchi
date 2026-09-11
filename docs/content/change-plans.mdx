@@ -12,33 +12,6 @@ Plans are JSON files with a content-derived `plan_id`, the Git baseline, the
 contract and use-case identities, generated paths, one exact pytest target, and
 a fixed set of completion conditions.
 
-## Verification terms
-
-These words keep one meaning across `tenchi verify`, change plans, and the
-coding-agent guides.
-
-- **Baseline.** The Git commit that `--base-ref` resolves to. A ref such as
-  `origin/main` can move later, so the receipt records the commit and every
-  comparison uses that same historical state.
-- **Receipt.** The result of `tenchi verify`: one JSON object covering the
-  source digest, verification policy, checks, architecture, compatibility
-  reports, and any change plan. `tenchi check` produces a result; only `verify`
-  produces a receipt.
-- **Evidence.** What a `[verify]` stage in `tenchi.toml` requires, such as a
-  passing check or a compatible OpenAPI report. Each stage ends as `passed`,
-  `failed`, `skipped`, `not_configured`, or `not_verifiable`.
-- **Source digest.** A SHA-256 hash of the application tree, including
-  nonignored untracked files, captured before verification and rechecked after
-  every project-owned stage.
-- **Plan ID.** The `sha256:…` identity of a change plan, derived from its
-  content. Any change to the plan produces a new ID.
-- **Payload-safe.** A result that never contains request bodies, case inputs,
-  prompts, model output, secrets, or exception text. Tenchi's manifests,
-  reports, and observer outcomes all hold to this.
-- **Compatible.** A historical comparison passes when the new version still
-  accepts everything the old version accepted. The comparison is one-way: it
-  does not ask whether the two versions are equal.
-
 ## Preview the generation
 
 Start from a committed baseline, then preview the files and boundary Tenchi
@@ -97,14 +70,18 @@ uv run tenchi check --json
 
 ## Verify the requested structure
 
-Use the same baseline named in the plan:
+Copy the full commit from `baseline.commit` in the plan into `PLAN_BASE_SHA`:
 
 ```shell
+PLAN_BASE_SHA="<commit from the plan's baseline.commit>"
 uv run tenchi verify \
-  --base-ref origin/main \
+  --base-ref "$PLAN_BASE_SHA" \
   --change-plan .tenchi/changes/create-project.json \
   --json
 ```
+
+Use that recorded commit even if `origin/main` has advanced since generation.
+Repeating the ref name works only while it still resolves to the plan's commit.
 
 The change-plan section passes only when:
 
@@ -113,7 +90,7 @@ The change-plan section passes only when:
 - the exact contract and use case are registered, and the current contract still
   produces the accepted use-case signature;
 - one registered route binds that contract and use case through exact
-  application-map evidence; and
+  application-map evidence;
 - exactly one top-level test function matches the target, directly references
   the imported use case, and neither the module nor function rebinds that
   imported name;
@@ -146,9 +123,9 @@ code run in that same interpreter. Code with permission to modify and execute
 the repository can therefore interfere with the evidence collector. Tenchi
 clears inherited `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, and `PYTHONPATH` so shell
 configuration cannot silently redirect the run, but it does not describe this
-in-process evidence as tamper-proof. Use an external evaluator with withheld
-tests—such as the repository's agent-change benchmark—or an isolated CI policy
-owned outside the edited worktree when the code producer is adversarial.
+in-process evidence as tamper-proof. When the code producer is untrusted, keep
+acceptance tests and the process that evaluates them outside the worktree the
+producer can edit.
 
 The receipt also does not prove that the test called the use case, that its
 assertions are strong enough, or that the implementation satisfies the product
@@ -169,3 +146,36 @@ validates its content-derived identity and refuses weakened completion
 conditions, but someone who can edit the repository can replace the whole
 plan and receive a new ID. Preserve the initially accepted `plan_id` outside
 the edited worktree when the exact requested intent needs independent review.
+
+## Verification terms
+
+These words keep one meaning across `tenchi verify`, change plans, and the
+coding-agent guides.
+
+- **Baseline.** The Git commit that `--base-ref` resolves to. A ref such as
+  `origin/main` can move later, so the receipt records the commit and every
+  comparison uses that same historical state.
+- **Receipt.** The result of `tenchi verify`: one JSON object covering the
+  source digest, verification policy, checks, architecture, compatibility
+  reports, and any change plan. `tenchi check` produces a result; only `verify`
+  produces a receipt.
+- **Evidence.** What a `[verify]` stage in `tenchi.toml` requires, such as a
+  passing check or a compatible OpenAPI report. Each stage ends as `passed`,
+  `failed`, `skipped`, `not_configured`, or `not_verifiable`.
+- **Source digest.** A SHA-256 hash of the application tree, including
+  nonignored untracked files, captured before verification and rechecked after
+  every project-owned stage.
+- **Plan ID.** The `sha256:…` identity of a change plan, derived from its
+  content. Any change to the plan produces a new ID.
+- **Payload-safe outcomes.** Runtime observer outcomes and evaluation reports
+  omit invocation inputs, generated outputs, and exception messages. Manifests
+  publish application-supplied schemas, descriptions, and other declaration
+  metadata; keep that metadata safe to share. Failed `check` steps retain
+  bounded command output, which is also included in `verify` reports. Tenchi
+  does not redact what your tests or validation commands print.
+- **Compatible.** A change preserves existing callers or the guarantees a
+  policy protects. Current inputs must accept historical valid inputs;
+  current outputs must remain understandable to existing consumers. Job
+  comparisons protect stored messages, while evaluation comparisons protect
+  the strength of the quality gate. These comparisons do not require the
+  documents to be identical.

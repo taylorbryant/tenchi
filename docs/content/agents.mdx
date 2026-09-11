@@ -114,10 +114,10 @@ Inspect these fields before editing:
 
 Node IDs, result keys, and diagnostic codes are stable within the declared
 `schema_version`. If your tooling parses the JSON directly, check that version
-before relying on the rest of the result. Tenchi snapshots the JSON Schema for
-every structured CLI result and MCP tool input and output in CI. Additive
-changes may retain the current version; breaking or unknown changes require a
-new version and preserve the older baseline.
+before relying on the rest of the result. Additive fields may appear within
+the same version. When you encounter an unsupported version, update the
+integration before interpreting its results. See [upgrade guidance](/stability)
+for the versioned public surfaces.
 
 ### 3. Preview generated structure
 
@@ -260,13 +260,18 @@ use it.
 ### 7. Produce the completion receipt
 
 After reviewing and accepting any snapshot updates, verify the finished tree
-against the same historical point:
+against the same historical point. When using a change plan, first set
+`PLAN_BASE_SHA` to its recorded `baseline.commit`; the original ref may have
+moved. Choose the corresponding command:
 
 ```shell
 uv run tenchi verify --base-ref origin/main --json
-uv run tenchi verify --base-ref origin/main \
+uv run tenchi verify --base-ref "$PLAN_BASE_SHA" \
   --change-plan .tenchi/changes/create-note.json --json
 ```
+
+See [verifying a generated change](/change-plans#verify-the-requested-structure)
+for the complete plan workflow.
 
 The receipt contains the resolved commit, current and historical
 `tenchi.toml` requirements, complete check result, application summary,
@@ -317,6 +322,10 @@ branch on a stable `code` instead of parsing terminal prose. Human and JSON
 modes describe the same operation: use JSON when another tool will make a
 decision and human output when a person is reviewing in a terminal. The [CLI
 reference](/cli) lists every command and the fields of its result.
+
+Failed check steps include bounded output from the project's validation
+commands, and verification includes the same output. Review it before sharing
+reports: Tenchi does not remove sensitive values printed by tests or scripts.
 
 ## Know when to inspect the source yourself
 

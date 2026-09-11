@@ -9,9 +9,12 @@ result.
 
 For ordinary JSON responses, Tenchi serializes the value, checks those exact
 bytes against the published serialization schema, and reads them back through
-Pydantic before the request scope commits. A failure becomes a framework-owned
-500 and rolls back scoped writes. The rules that make a response readable are
-listed under [Constraints](#constraints).
+Pydantic before the request context exits. A failure becomes a framework-owned
+500 and reaches the context as an exception. A transaction scope configured to
+roll back on exceptions can then undo its writes; Tenchi does not create that
+transaction or undo writes already committed by an adapter. See
+[database transactions](/database) for the context setup and
+[Constraints](#constraints) for response requirements.
 
 ## One successful response
 
@@ -51,15 +54,38 @@ errors remain framework-owned 500 responses.
 
 ## Status-dependent responses
 
+The following route creates or replaces a todo. Implement `put_todo` with
+the signature shown below, returning both the saved todo and whether it was
+created. The function body depends on your repository's create-or-replace
+operation.
+
 ```python
 from dataclasses import dataclass
+from pydantic import BaseModel
+from tenchi.contracts import contract
 from tenchi.responses import PresentedResponse, present, response
+from tenchi.routes import route
+
+from app.server.context import AppContext
+
+from .schemas import CreateTodo, Todo
+
+
+class PutTodoParams(BaseModel):
+    todo_id: str
 
 
 @dataclass(frozen=True, slots=True)
 class PutTodoResult:
     todo: Todo
     created: bool
+
+
+async def put_todo(
+    params: PutTodoParams,
+    request: CreateTodo,
+    context: AppContext,
+) -> PutTodoResult: ...
 
 
 created = response(
@@ -75,6 +101,7 @@ existing = response(Todo, status=200, description="Todo replaced")
 put_todo_contract = contract(
     method="PUT",
     path="/todos/{todo_id}",
+    params=PutTodoParams,
     request=CreateTodo,
     responses=(created, existing),
 )

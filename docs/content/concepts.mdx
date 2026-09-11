@@ -2,8 +2,8 @@
 
 Tenchi has one architecture: typed contracts at the boundary, plain use cases
 at the center, and explicit dependency wiring around them. Five pieces are
-enough to serve an HTTP API. Learn them once; everything else in Tenchi is
-another entrypoint to the same pieces.
+enough to serve an HTTP API. Optional capabilities reuse this structure as you
+add other callers, operational checks, or AI behavior.
 
 ## Contract
 
@@ -21,8 +21,10 @@ the application is composed rather than on the first request.
 
 A plain async function that implements one application action. Its parameters
 are named boundary values such as `request`, `params`, `query`, `headers`, and
-`context`. It never receives a Starlette request, so the same function runs
-unchanged from HTTP, tests, scripts, and workers.
+`context`. It never receives a Starlette request, so you can call it directly
+from tests and scripts. Jobs, tasks, tools, and `execute()` supply `request`
+and `context`; a function that also needs `params`, `query`, or `headers`
+requires an [input adapter](/execution#adapt-http-inputs) for those callers.
 
 ## Port and adapter
 

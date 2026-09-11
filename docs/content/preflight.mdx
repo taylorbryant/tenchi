@@ -18,24 +18,48 @@ services, and worker heartbeats.
 
 ## Declare read-only observations
 
+For the generated application's SQLite database, first add a connection
+factory that opens an existing database in read-only mode:
+
+```python
+# app/infra/preflight_database.py
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import aiosqlite
+
+
+@asynccontextmanager
+async def open_preflight_connection(
+    database_path: str,
+) -> AsyncIterator[aiosqlite.Connection]:
+    uri = f"{Path(database_path).resolve().as_uri()}?mode=ro"
+    async with aiosqlite.connect(uri, uri=True) as connection:
+        yield connection
+```
+
 Create `app/server/preflight.py` exposing `checks`, the module `tenchi
 preflight` loads by default (`tenchi new --full` generates an empty one). Each
 observation is a zero-argument async function that returns `None` on success
-and raises on failure:
+and raises on failure. This example assumes your migrations set SQLite's
+`user_version` to `7`; replace that value with the version your release
+requires. The starter does not set a migration version for you.
 
 ```python
-from app.infra.port_wiring import open_preflight_connection
-from app.server.runtime import DATABASE_URL
+# app/server/preflight.py
+from app.infra.preflight_database import open_preflight_connection
+from app.server.runtime import DATABASE_PATH
 from tenchi.preflight import preflight_check, preflight_group
 
 
 async def database_connectivity() -> None:
-    async with open_preflight_connection(DATABASE_URL) as connection:
+    async with open_preflight_connection(DATABASE_PATH) as connection:
         await connection.execute("SELECT 1")
 
 
 async def database_schema() -> None:
-    async with open_preflight_connection(DATABASE_URL) as connection:
+    async with open_preflight_connection(DATABASE_PATH) as connection:
         cursor = await connection.execute("PRAGMA user_version")
         row = await cursor.fetchone()
         if row is None or int(row[0]) != 7:

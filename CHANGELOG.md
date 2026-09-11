@@ -7,6 +7,18 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Fixed
+
+- Documentation examples now compose consistently across contracts, routes,
+  response presenters, idempotency headers, evaluation runners, and read-only
+  preflight checks. Guides explain input adapters for reusing HTTP use cases
+  from jobs, tasks, and tools,
+  application-owned rollback, and the limits of verification-report redaction.
+- Verification guidance uses the commit recorded in a change plan and describes
+  automatic first adoption of optional boundaries. Application structure and
+  production guides distinguish required setup from optional capabilities;
+  the Python reference includes callable signatures, defaults, and failures.
+
 ## [0.18.0] - 2026-09-07
 
 ### Changed

@@ -298,7 +298,11 @@ Tenchi accepts a valid inbound `x-request-id` or creates one, exposes it as
 trusted edge so callers cannot inject unrelated tracing headers past your
 policy.
 
-When HTTP enqueues work, copy the trusted request or trace correlation into
+The accepted request ID is safe to use as a header, but may be caller-supplied.
+Have the trusted edge replace it if your telemetry requires an edge-generated
+identifier. Treat trace headers according to the same deployment policy.
+
+When HTTP enqueues work, copy correlation allowed by that policy into
 message metadata. A worker should start or continue a trace from that metadata
 and attach its attempt and queue measurements around `dispatcher.dispatch()`. The shared
 use-case observer reports the application call; the consumer still owns

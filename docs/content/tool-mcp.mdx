@@ -312,7 +312,9 @@ uv run tenchi tools --check tools.json
 The snapshot covers the names, JSON Schemas, declared errors, and safety
 annotations this MCP server publishes. Use `--diff-ref` in pull requests so the
 baseline comes from before the branch. The application MCP result envelope has
-its own protocol version; Tenchi tests that wire shape separately.
+its own protocol version, separate from the tool manifest and coding-agent
+results. If you parse the envelope directly, check that version and update
+your integration before accepting an unsupported one.
 
 For an integration test, create a server with a fixed test principal instead
 of the HTTP authentication callback. After seeding one project visible to

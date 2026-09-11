@@ -111,15 +111,18 @@ contract and redaction boundary.
 Every tool returns structured content with a `schema_version`. A doctor
 finding, failed check, generator conflict, or incompatible API, job, tool, or
 evaluation policy is a valid result with `ok: false` or `compatible: false`;
-malformed arguments and unreadable or unsafe paths are MCP errors. Tenchi
-snapshots every tool's input and output schema in CI; breaking or unknown
-changes require a new protocol version.
+malformed arguments and unreadable or unsafe paths are MCP errors. Check
+`schema_version` before interpreting a result. Additive fields may appear
+within a supported version; update your integration before accepting an
+unsupported version.
 
 <Callout type="warning" title="Check and verify run project-owned commands">
   `check` and `verify` execute the application's tests and validation commands.
   Those commands can have their usual filesystem, database, or network side
   effects. MCP clients should treat them as actions rather than read-only
   inspection. Cancelling either tool stops the active validation process.
+  Failed steps include bounded command output without content redaction, so
+  tests and scripts must control what they print before reports are shared.
 </Callout>
 
 ## Follow the agent loop
@@ -185,18 +188,20 @@ application tools through `--tools`. Tool discovery and compatibility also use
 `--tools`; `tools_diff`, `check`, and `verify` use `--tool-snapshot`.
 Job discovery and compatibility use `--jobs`; `jobs_diff`, `check`, and
 `verify` use `--job-snapshot`.
-Both `jobs_diff` and `verify` reject a missing historical job snapshot by
-default. Use `allow_missing_baseline` on `jobs_diff`, or
-`allow_missing_job_baseline` on `verify`, for the one first-adoption comparison.
+`jobs_diff` rejects a missing historical snapshot unless you set
+`allow_missing_baseline` for the first adoption. `verify` handles first
+adoption automatically when the default job composition module was absent at
+the baseline. If the module existed but its first snapshot did not, use
+`allow_missing_job_baseline` for that initial comparison.
 The evaluation tools use `--evaluations`; `evaluation_diff`, `check`, and
 `verify` use `--evaluation-snapshot`.
-Both `evaluation_diff` and `verify` reject a missing historical evaluation
-snapshot by default. A human may set `allow_missing_baseline` on
-`evaluation_diff`, or `allow_missing_evaluation_baseline` on `verify`, for the
-one first-adoption comparison. The `verify` override applies only when the
-selected ref already contains the OpenAPI, job, and tool snapshots. The returned
-policy result records an `evaluation manifest baseline` metadata change; do
-not authorize this for a renamed or mistyped path.
+`evaluation_diff` likewise requires `allow_missing_baseline` for an initial
+missing snapshot. `verify` handles it automatically when the default evaluation
+composition module was absent at the baseline; otherwise the first snapshot
+requires `allow_missing_evaluation_baseline`. These adoptions record a
+`job manifest baseline` or `evaluation manifest baseline` metadata change.
+Do not use an override to bypass an existing snapshot at a renamed or mistyped
+path. Other boundaries follow their own configured verification requirements.
 OpenAPI title, version,
 description, and security defaults come from the same literal route-module
 declarations used by `tenchi check`.
