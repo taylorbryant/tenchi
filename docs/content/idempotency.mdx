@@ -28,7 +28,6 @@ from tenchi.idempotency import (
 
 class CreateTaskHeaders(BaseModel):
     idempotency_key: str = Field(
-        alias="Idempotency-Key",
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -46,6 +45,10 @@ create_task_contract = contract(
     errors=(IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS),
 )
 ```
+
+Tenchi maps the `idempotency_key` field to the `idempotency-key` HTTP header;
+header names are case-insensitive. Construct this model with the Python field
+name when calling the typed client.
 
 Missing or malformed headers fail normal request validation. A reused key with
 different input raises `IDEMPOTENCY_CONFLICT`. Matching work that still owns

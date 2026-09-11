@@ -1,10 +1,296 @@
 # Python module reference
 
-Tenchi's supported Python modules each own one small responsibility. Import
-from the module that owns a declaration when you want its full API, or use the
-selected package-root re-exports for compact application code.
+Find the API for the task you are working on. Import from its submodule, such
+as `tenchi.contracts` or `tenchi.testing`.
 
-## Package-root imports
+| Task | Start with | Guide |
+| --- | --- | --- |
+| Declare HTTP input and output | `contract()` | [Contracts](/contracts) and [responses](/responses) |
+| Bind behavior and run an API | `route()`, `route_group()`, `create_app()` | [Routes and server](/server) |
+| Report an expected failure | `ErrorDef`, `AppError` | [Application errors](/errors) |
+| Call an API from Python | `Client` | [Typed client](/client) |
+| Test an application in process | `open_client()`, `open_http()` | [Testing](/testing) |
+| Run behavior outside HTTP | `execute()`, `task()`, `job()` | [Scripts](/execution), [tasks](/tasks), and [jobs](/jobs) |
+| Expose application tools | `tool()`, `tool_handler()`, `create_tool_runner()` | [Tools](/tools) and [MCP](/tool-mcp) |
+| Check AI behavior or deployment resources | `evaluation()`, `preflight_check()` | [Evaluations](/evaluations) and [preflight](/preflight) |
+
+The call signatures below list argument names and defaults. Types, return
+values, and failures are described immediately afterward. Arguments following
+`*` must be passed by name.
+
+## Declare a contract
+
+Import `contract` from `tenchi.contracts`.
+
+```text
+contract(
+    *,
+    method,
+    path,
+    request=None,
+    params=None,
+    query=None,
+    headers=None,
+    response=None,
+    response_headers=None,
+    request_examples=None,
+    response_examples=None,
+    status=200,
+    errors=(),
+    name=None,
+    request_media_type="application/json",
+    response_media_type="application/json",
+    summary=None,
+    description=None,
+    tags=(),
+    public=False,
+    webhook=False,
+    idempotency_key=False,
+    deprecated=False,
+    sunset=None,
+    max_request_bytes=None,
+    responses=(),
+    timeout=None,
+) -> Contract
+```
+
+Pass Pydantic-compatible types for `request`, `params`, `query`, `headers`, and
+`response`. Use one `response` for a fixed successful status, or `responses`
+for [status-dependent results](/responses#status-dependent-responses).
+`errors` is a sequence of `ErrorDef` values the operation may expose.
+
+The returned immutable `Contract` describes the operation; it does not
+register a handler. Its response types are retained for typed client calls.
+Invalid declaration options raise `ConfigurationError`. Schema and binding
+checks also run when you compose routes, the server, OpenAPI, or a client call.
+See [contract constraints](/contracts#constraints).
+
+## Bind and group routes
+
+Import `route` and `route_group` from `tenchi.routes`.
+
+```text
+route(
+    contract,
+    use_case,
+    *,
+    response_headers=None,
+    present=None,
+) -> Route
+```
+```text
+route_group(
+    *items,
+    prefix="",
+    errors=(),
+) -> RouteGroup
+```
+
+`use_case` is an async function accepting `context` and every input source
+its contract declares. For a fixed response, its return annotation matches
+`contract.response`. `response_headers` projects the result into the declared
+header type. `present` selects a `PresentedResponse` when the contract declares
+multiple response definitions.
+
+`route()` returns a binding and raises `RouteBindingError` for incompatible
+signatures or missing presenters and header projectors. `route_group()` accepts
+routes, groups, or sequences of routes and returns a flat immutable group.
+Its prefix is prepended to every path, and its errors are declared across the
+group. See [route composition](/server).
+
+## Create an application
+
+Import `create_app` from `tenchi.server`.
+
+```text
+create_app(
+    *,
+    routes,
+    context_factory,
+    lifespan=None,
+    hooks=(),
+    webhooks=(),
+    middleware=(),
+    observers=(),
+    use_case_observers=(),
+    max_request_bytes=1048576,
+) -> starlette.applications.Starlette
+```
+
+`routes` is a `RouteGroup`. `context_factory` takes no arguments, or takes the
+state yielded by `lifespan`. It may return a context directly, an awaitable,
+or an async context manager. `lifespan`, when supplied, is a zero-argument
+async-context-manager factory.
+
+The default request-body limit is 1 MiB (`1048576` bytes); `None` disables it.
+A contract can override that limit with `max_request_bytes`. Hooks, webhook
+verifiers, middleware, and observers are sequences of their respective
+[server bindings](/server#hooks-middleware-and-observers).
+
+The return value is an ASGI application. Invalid composition, including duplicate
+routes or an incompatible context factory, raises `ConfigurationError`.
+Request validation errors become HTTP error responses; expected application
+errors must be declared on the contract or route group. Configure commit and
+rollback in your [application context](/database).
+
+## Call an API
+
+Import `Client` from `tenchi.client` and use it as an async context manager.
+
+```text
+Client(
+    *,
+    base_url=None,
+    headers=None,
+    transport=None,
+    http=None,
+    errors=(),
+    observers=(),
+    attempt_observers=(),
+) -> Client
+```
+```text
+await client.call(
+    contract,
+    *,
+    params=None,
+    query=None,
+    headers=None,
+    request=<omitted>,
+    retry=None,
+) -> the contract's response type
+```
+
+Supply `base_url` for normal HTTP calls. Use `transport` for a custom httpx
+transport, or `http` to supply an existing `httpx.AsyncClient`. A supplied
+client remains caller-owned; do not combine it with `base_url`, `headers`, or
+`transport`. Incompatible constructor options raise `ConfigurationError`.
+
+Call arguments correspond to the contract's input types. `<omitted>` means
+leave `request` out when there is no body; passing `None` supplies a value for
+validation. A successful `call()` returns the validated body. Use
+[`call_with_response()`](/client) when you also need status, headers, or the selected
+response definition.
+
+Invalid input can fail before network I/O. Declared application failures raise
+`AppError`; an unexpected response raises `UnexpectedResponseError`; transport
+failures retain their httpx exception types. Retries are off unless you pass a
+`RetryPolicy`. See [client errors and retries](/client).
+
+## Test with application lifespan
+
+Import `open_client` or `open_http` from `tenchi.testing`.
+
+```text
+open_client(
+    app,
+    *,
+    headers=None,
+    errors=(),
+    observers=(),
+    attempt_observers=(),
+    base_url="http://testserver",
+) -> async context manager yielding Client
+```
+```text
+open_http(
+    app,
+    *,
+    headers=None,
+    base_url="http://testserver",
+) -> async context manager yielding httpx.AsyncClient
+```
+
+Both helpers accept an ASGI application and start and stop its lifespan.
+Use `open_client` for contract-driven assertions and `open_http` to inspect
+raw HTTP statuses, headers, and envelopes. Default requests use
+`http://testserver`; no listening HTTP server is required.
+
+Exceptions from application startup, shutdown, or the body of the context
+manager propagate to the test. HTTP error responses can be inspected with
+`open_http`; `open_client` applies the same declared-error behavior as `Client`.
+See [application testing](/testing).
+
+## Complete export index
+
+Use this index to locate less common declarations, protocols, and exceptions.
+The guides above explain when to use them.
+
+### Core declarations
+
+| Module | Public names |
+| --- | --- |
+| `tenchi.contracts` | `Contract`, `contract()` |
+| `tenchi.routes` | `Route`, `RouteGroup`, `RouteBindingError`, `UseCase`, `route()`, `route_group()` |
+| `tenchi.responses` | `ResponseDef`, `PresentedResponse`, `response()`, `present()` |
+| `tenchi.errors` | `ErrorDef`, `AppError`, `TenchiError`, `ConfigurationError`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER`, `error_body()` |
+
+Contracts describe HTTP. Routes bind contracts to use cases. Response
+definitions describe successful wire outcomes. Error definitions describe
+expected application failures.
+
+### Runtime
+
+| Module | Public names |
+| --- | --- |
+| `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver`, `ContextFactory`, `Lifespan`, `DEFAULT_MAX_REQUEST_BYTES`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER` |
+| `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `ExecutionInputError`, `UseCaseOutcome`, `UseCaseObserver` |
+| `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `MemoryIdempotencyStore`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
+| `tenchi.jobs` | `Job`, `JobMessage`, `JobManifest`, `JobManifestEntry`, `JOB_MANIFEST_VERSION`, `JobHandler`, `JobGroup`, `JobDispatcher`, `JobBindingError`, `JobNotFoundError`, `JobPayloadError`, `JobResultError`, `job()`, `job_message()`, `job_handler()`, `job_group()`, `job_manifest()`, `create_job_dispatcher()` |
+| `tenchi.evaluations` | `EVALUATION_MANIFEST_VERSION`, `EvaluationManifest`, `EvaluationManifestEntry`, `EvaluationMetricManifest`, `Evaluation`, `EvaluationCase`, `EvaluationMetric`, `EvaluationMeasurement`, `EvaluationGroup`, `EvaluationRunner`, `EvaluationCaseOutcome`, `EvaluationCaseStatus`, `EvaluationMetricOutcome`, `EvaluationBudgetOutcome`, `EvaluationBudgetStatus`, `EvaluationKind`, `EvaluationOutcome`, `EvaluationReport`, `EvaluationBindingError`, `EvaluationNotFoundError`, `EvaluationResultError`, `MAX_EVALUATION_TOKENS`, `evaluation()`, `evaluation_case()`, `evaluation_metric()`, `evaluation_result()`, `evaluation_group()`, `evaluation_manifest()`, `create_evaluation_runner()` |
+| `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
+| `tenchi.rate_limits` | `RateLimitStore`, `RateLimitPermit`, `RateLimitExceeded`, `RateLimitDecision`, `RateLimitStoreError`, `MemoryRateLimitStore`, `RATE_LIMITED`, `enforce_rate_limit()` |
+| `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `TaskBindingError`, `TaskInputError`, `TaskNotFoundError`, `TaskResultError`, `task()`, `task_group()`, `create_task_runner()` |
+| `tenchi.tools` | `TOOL_MANIFEST_VERSION`, `Tool`, `ToolBinding`, `ToolGroup`, `ToolRunner`, `ToolManifest`, `ToolManifestEntry`, `ToolAnnotationManifest`, `ToolErrorManifest`, `ToolBindingError`, `ToolNotFoundError`, `ToolResultError`, `ToolInvocationError`, `tool()`, `tool_handler()`, `tool_group()`, `create_tool_runner()`, `tool_manifest()` |
+| `tenchi.webhooks` | `Webhook`, `WebhookRequest`, `WebhookVerifier`, `WebhookBindingError`, `webhook()` |
+| `tenchi.client` | `Client`, `ClientResponse`, `ClientOutcome`, `ClientObserver`, `ClientAttemptOutcome`, `ClientAttemptObserver`, `UnexpectedResponseError` |
+| `tenchi.retries` | `RetryPolicy`, `RetryTimeoutError`, `retry_policy()` |
+| `tenchi.testing` | `open_client()`, `open_http()`, `verify_idempotency_store()`, `verify_rate_limit_store()`, `StoreConformanceError`, `IdempotencyStoreFactory`, `RateLimitStoreFactory`, `ClockAdvance`, `ASGIApp` |
+
+`create_app()` owns HTTP dispatch and lifecycle composition. `execute()` runs
+the application boundary without HTTP. A preflight group defines read-only,
+timeout-bounded observations for a deployment gate. A `TaskRunner` adds stable
+discovery, input and result validation, and application lifecycle wiring for
+operational commands. `Client` enforces contracts against remote or in-process
+servers; an explicit `RetryPolicy` coordinates bounded logical retries. A
+`JobDispatcher` validates durable messages and their registered consumer
+results without owning a queue. A `Webhook` binds an exact-body verifier to a
+contract marked `webhook=True`. A `RateLimitStore` atomically applies
+fixed-window application quotas. An application `ToolRunner` validates
+machine-facing calls, applies lifecycle and context wiring, and masks
+undeclared failures. `tool_manifest()` exposes portable JSON Schemas and
+safety metadata without choosing an agent transport. An `EvaluationRunner`
+applies the same lifecycle discipline to typed, budgeted AI quality gates
+without choosing a model provider or judge.
+
+### Optional integrations
+
+| Module | Public names | Install |
+| --- | --- | --- |
+| `tenchi.mcp` | `TOOL_MCP_PROTOCOL_VERSION`, `McpRequest`, `create_tool_mcp_server()` | `uv add "tenchi[mcp]"` |
+| `tenchi.opentelemetry` | `OpenTelemetryObservers`, `create_opentelemetry_observers()` | `uv add "tenchi[otel]"` |
+
+The MCP module exposes an authenticated `ToolGroup` through the MCP SDK while
+the application owns identity, visibility, approval policy, and runner wiring.
+The OpenTelemetry module records through application-configured providers. It
+does not create an SDK, exporter, background worker, or shutdown lifecycle.
+
+### Schema and operations
+
+| Module | Public names |
+| --- | --- |
+| `tenchi.openapi` | `openapi_schema()`, `openapi_route()`, `swagger_ui_route()` |
+| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `analyze_job_compatibility()`, `analyze_tool_compatibility()`, `analyze_evaluation_compatibility()`, `render_compatibility_report()`, `render_job_compatibility_report()`, `render_tool_compatibility_report()`, `render_evaluation_compatibility_report()` |
+| `tenchi.pagination` | `Page`, `PageQuery`, `page()` |
+| `tenchi.health` | `HealthCheck`, `HealthReport`, `health_route()` |
+
+Use the [`tenchi` CLI](/cli) for scaffolding, application inspection,
+architecture diagnostics, project checks, verification receipts, and OpenAPI,
+job-message, application-tool, and evaluation-policy snapshots. Modules such as `tenchi.cli`,
+`tenchi.doctor`, `tenchi.scaffold`, and `tenchi.snapshots` implement that
+command surface; they are not supported application imports.
+<details>
+<summary>Package-root convenience imports</summary>
 
 `tenchi` re-exports these convenience names. `__version__` reports the
 installed package version:
@@ -155,89 +441,8 @@ from tenchi import (
 )
 ```
 
-Canonical examples use the owning submodule when that makes the responsibility
-clearer.
 
-## Core declarations
-
-| Module | Public names |
-| --- | --- |
-| `tenchi.contracts` | `Contract`, `contract()` |
-| `tenchi.routes` | `Route`, `RouteGroup`, `RouteBindingError`, `UseCase`, `route()`, `route_group()` |
-| `tenchi.responses` | `ResponseDef`, `PresentedResponse`, `response()`, `present()` |
-| `tenchi.errors` | `ErrorDef`, `AppError`, `TenchiError`, `ConfigurationError`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER`, `error_body()` |
-
-Contracts describe HTTP. Routes bind contracts to use cases. Response
-definitions describe successful wire outcomes. Error definitions describe
-expected application failures.
-
-## Runtime
-
-| Module | Public names |
-| --- | --- |
-| `tenchi.server` | `create_app()`, `RequestInfo`, `RequestOutcome`, `Hook`, `OutcomeObserver`, `ContextFactory`, `Lifespan`, `DEFAULT_MAX_REQUEST_BYTES`, `ERROR_SOURCE_HEADER`, `REQUEST_ID_HEADER` |
-| `tenchi.execution` | `execute()`, `open_context()`, `ExecutionError`, `ExecutionInputError`, `UseCaseOutcome`, `UseCaseObserver` |
-| `tenchi.idempotency` | `IdempotencyStore`, `IdempotencyReservation`, `IdempotencyReplay`, `IdempotencyConflict`, `IdempotencyInProgress`, `IdempotencyDecision`, `IdempotencyResultError`, `IdempotencyStoreError`, `MemoryIdempotencyStore`, `IDEMPOTENCY_CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`, `fingerprint()`, `run_idempotently()` |
-| `tenchi.jobs` | `Job`, `JobMessage`, `JobManifest`, `JobManifestEntry`, `JOB_MANIFEST_VERSION`, `JobHandler`, `JobGroup`, `JobDispatcher`, `JobBindingError`, `JobNotFoundError`, `JobPayloadError`, `JobResultError`, `job()`, `job_message()`, `job_handler()`, `job_group()`, `job_manifest()`, `create_job_dispatcher()` |
-| `tenchi.evaluations` | `EVALUATION_MANIFEST_VERSION`, `EvaluationManifest`, `EvaluationManifestEntry`, `EvaluationMetricManifest`, `Evaluation`, `EvaluationCase`, `EvaluationMetric`, `EvaluationMeasurement`, `EvaluationGroup`, `EvaluationRunner`, `EvaluationCaseOutcome`, `EvaluationCaseStatus`, `EvaluationMetricOutcome`, `EvaluationBudgetOutcome`, `EvaluationBudgetStatus`, `EvaluationKind`, `EvaluationOutcome`, `EvaluationReport`, `EvaluationBindingError`, `EvaluationNotFoundError`, `EvaluationResultError`, `MAX_EVALUATION_TOKENS`, `evaluation()`, `evaluation_case()`, `evaluation_metric()`, `evaluation_result()`, `evaluation_group()`, `evaluation_manifest()`, `create_evaluation_runner()` |
-| `tenchi.preflight` | `PreflightCheck`, `PreflightGroup`, `PreflightOutcome`, `PreflightReport`, `PreflightStatus`, `PreflightBindingError`, `preflight_check()`, `preflight_group()`, `run_preflight()` |
-| `tenchi.rate_limits` | `RateLimitStore`, `RateLimitPermit`, `RateLimitExceeded`, `RateLimitDecision`, `RateLimitStoreError`, `MemoryRateLimitStore`, `RATE_LIMITED`, `enforce_rate_limit()` |
-| `tenchi.tasks` | `Task`, `TaskGroup`, `TaskRunner`, `TaskBindingError`, `TaskInputError`, `TaskNotFoundError`, `TaskResultError`, `task()`, `task_group()`, `create_task_runner()` |
-| `tenchi.tools` | `TOOL_MANIFEST_VERSION`, `Tool`, `ToolBinding`, `ToolGroup`, `ToolRunner`, `ToolManifest`, `ToolManifestEntry`, `ToolAnnotationManifest`, `ToolErrorManifest`, `ToolBindingError`, `ToolNotFoundError`, `ToolResultError`, `ToolInvocationError`, `tool()`, `tool_handler()`, `tool_group()`, `create_tool_runner()`, `tool_manifest()` |
-| `tenchi.webhooks` | `Webhook`, `WebhookRequest`, `WebhookVerifier`, `WebhookBindingError`, `webhook()` |
-| `tenchi.client` | `Client`, `ClientResponse`, `ClientOutcome`, `ClientObserver`, `ClientAttemptOutcome`, `ClientAttemptObserver`, `UnexpectedResponseError` |
-| `tenchi.retries` | `RetryPolicy`, `RetryTimeoutError`, `retry_policy()` |
-| `tenchi.testing` | `open_client()`, `open_http()`, `verify_idempotency_store()`, `verify_rate_limit_store()`, `StoreConformanceError`, `IdempotencyStoreFactory`, `RateLimitStoreFactory`, `ClockAdvance`, `ASGIApp` |
-
-`create_app()` owns HTTP dispatch and lifecycle composition. `execute()` runs
-the application boundary without HTTP. A preflight group defines read-only,
-timeout-bounded observations for a deployment gate. A `TaskRunner` adds stable
-discovery, input and result validation, and application lifecycle wiring for
-operational commands. `Client` enforces contracts against remote or in-process
-servers; an explicit `RetryPolicy` coordinates bounded logical retries. A
-`JobDispatcher` validates durable messages and their registered consumer
-results without owning a queue. A `Webhook` binds an exact-body verifier to a
-contract marked `webhook=True`. A `RateLimitStore` atomically applies
-fixed-window application quotas. An application `ToolRunner` validates
-machine-facing calls, applies lifecycle and context wiring, and masks
-undeclared failures. `tool_manifest()` exposes portable JSON Schemas and
-safety metadata without choosing an agent transport. An `EvaluationRunner`
-applies the same lifecycle discipline to typed, budgeted AI quality gates
-without choosing a model provider or judge.
-
-## Optional integrations
-
-| Module | Public names | Install |
-| --- | --- | --- |
-| `tenchi.mcp` | `TOOL_MCP_PROTOCOL_VERSION`, `McpRequest`, `create_tool_mcp_server()` | `uv add "tenchi[mcp]"` |
-| `tenchi.opentelemetry` | `OpenTelemetryObservers`, `create_opentelemetry_observers()` | `uv add "tenchi[otel]"` |
-
-The MCP module exposes an authenticated `ToolGroup` through the MCP SDK while
-the application owns identity, visibility, approval policy, and runner wiring.
-The OpenTelemetry module records through application-configured providers. It
-does not create an SDK, exporter, background worker, or shutdown lifecycle.
-
-## Schema and operations
-
-| Module | Public names |
-| --- | --- |
-| `tenchi.openapi` | `openapi_schema()`, `openapi_route()`, `swagger_ui_route()` |
-| `tenchi.compatibility` | `CompatibilityChange`, `CompatibilityReport`, `analyze_openapi_compatibility()`, `analyze_job_compatibility()`, `analyze_tool_compatibility()`, `analyze_evaluation_compatibility()`, `render_compatibility_report()`, `render_job_compatibility_report()`, `render_tool_compatibility_report()`, `render_evaluation_compatibility_report()` |
-| `tenchi.pagination` | `Page`, `PageQuery`, `page()` |
-| `tenchi.health` | `HealthCheck`, `HealthReport`, `health_route()` |
-
-Use the [`tenchi` CLI](/cli) for scaffolding, application inspection,
-architecture diagnostics, project checks, verification receipts, and OpenAPI,
-job-message, application-tool, and evaluation-policy snapshots. Modules such as `tenchi.cli`,
-`tenchi.doctor`, `tenchi.scaffold`, and `tenchi.snapshots` implement that
-command surface; they are not supported application imports.
-
-## Exact signatures
-
-Tenchi ships inline type information and is checked with strict Pyright. Use
-editor completion for overloads and parameter types, or inspect the supported
-module source on
-[GitHub](https://github.com/taylorbryant/tenchi/tree/main/src/tenchi).
+</details>
 
 Pre-1.0 releases may change these APIs between minor versions. Follow the
 [safe upgrade workflow](/stability) before updating an application.

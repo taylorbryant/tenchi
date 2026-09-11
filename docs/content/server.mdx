@@ -7,21 +7,37 @@ dependencies and ASGI concerns.
 
 ## Bind a route
 
+For the todos contract from [Declare an HTTP contract](/contracts), provide
+the `Location` header as well as the use case's response body:
+
 ```python
+# app/features/todos/routes.py
 from tenchi.routes import route, route_group
 
-from .contracts import create_todo_contract
+from .contracts import CreatedTodoHeaders, create_todo_contract
+from .schemas import Todo
 from .use_cases.create_todo import create_todo
 
 
+def create_todo_headers(todo: Todo) -> CreatedTodoHeaders:
+    return CreatedTodoHeaders(Location=f"/todos/{todo.id}")
+
+
 routes = route_group(
-    route(create_todo_contract, create_todo),
+    route(
+        create_todo_contract,
+        create_todo,
+        response_headers=create_todo_headers,
+    ),
 )
 ```
 
 `route()` checks the use-case signature immediately. A missing input, wrong
 parameter name, incompatible annotation, invalid header projector, or invalid
 presenter is a composition error.
+
+If a contract does not declare `response_headers=`, the binding only needs
+`route(contract, use_case)`.
 
 ## Compose route groups
 
@@ -143,10 +159,9 @@ guarantees cleanup before the response is finalized.
   observer contract works with `execute()`; `completed_at` records when the
   use-case call returned or raised, before later context cleanup.
 
-<Callout title="Expose the ecosystem">
-  Tenchi does not wrap Starlette middleware or ASGI deployment servers. Use
-  those libraries directly at the composition root and keep framework-owned
-  behavior focused on contracts and use cases.
+<Callout title="Configure middleware and deployment">
+  Configure Starlette middleware and your ASGI server directly at the
+  composition root. See [deployment](/deployment) for process and proxy settings.
 </Callout>
 
 ## Constraints

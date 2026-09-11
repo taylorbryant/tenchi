@@ -94,6 +94,10 @@ base commit rather than the snapshot committed in the same change. After
 accepting a snapshot update, `tenchi verify --base-ref <ref>` reruns the checks
 and records architecture plus every compatibility report against one commit.
 
+Failed checks include bounded output from the project's validation commands.
+That output is also included in verification reports; review it before sharing
+because Tenchi does not redact what tests or scripts print.
+
 `tenchi.toml` is the repository-owned definition of required verification
 evidence. `verify` compares it with the selected Git baseline and enforces the
 stronger current-or-historical requirement, so weakening a gate cannot skip
@@ -149,8 +153,9 @@ Framework agent workflow: https://tenchi.io/agents
    step as unfinished work.
 5. Finish with `uv run tenchi verify --base-ref <ref> --json`, adding
    `--change-plan <path>` when one was created, and using the pull request base,
-   previous push, or previous release as `<ref>`. Treat a failed check, change
-   plan, weakened `tenchi.toml`, architecture diagnostic, unresolved
+   previous push, or previous release as `<ref>`. With a change plan, use its
+   recorded `baseline.commit` even if the original ref has moved. Treat a failed
+   check, change plan, weakened `tenchi.toml`, architecture diagnostic, unresolved
    relationship, or incompatible boundary as unfinished work. The receipt
    records the exact source-tree digest and fails if project-owned checks or
    imports leave that tree changed at a verification checkpoint. A change plan
@@ -162,6 +167,8 @@ Use `--json` with `tenchi map`, `tenchi routes`, `tenchi doctor`,
 more useful than terminal text. On an expected failure before the command can
 build its normal result, parse the versioned `operation_error` object from
 stdout and branch on its stable `code`; the process still exits nonzero.
+Failed check steps include bounded command output, also retained in verification
+reports. Do not assume Tenchi redacts values printed by tests or scripts.
 
 For MCP-aware agents, `.mcp.json` registers the app-local Tenchi server. Its
 `app_map`, `routes`, `doctor`, `openapi_diff`, `make_preview`, `check`, and

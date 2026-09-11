@@ -6,34 +6,42 @@ Use this structure when deciding where new code belongs and which direction its
 dependencies may point. Tenchi organizes application behavior by feature while
 keeping infrastructure and server composition explicit.
 
+Start with the layout from [your first application](/getting-started). The
+required server modules are `context.py`, `routes.py`, and `asgi.py`, alongside
+the Python package initializers. `runtime.py` is a useful place for shared
+resource wiring, but is not required.
+
+The tree below shows where additional capabilities belong. Add files marked
+optional only when you need them; a feature does not need every file shown.
+
 ```text
 app/
   features/<feature>/
     contracts.py
     schemas.py
     ports.py
-    policy.py
+    policy.py       # optional: authorization rules
     routes.py
-    jobs.py
-    tasks.py
-    tools.py
-    evaluations.py
+    jobs.py         # optional: durable messages
+    tasks.py        # optional: operational commands
+    tools.py        # optional: machine-facing calls
+    evaluations.py  # optional: AI quality checks
     use_cases/
     tests/
   shared/
   infra/
   server/
     context.py
-    hooks.py
-    webhooks.py
+    hooks.py        # optional: HTTP boundary hooks
+    webhooks.py     # optional: signed deliveries
     routes.py
-    jobs.py
-    runtime.py
-    preflight.py
-    evaluations.py
-    tasks.py
-    tools.py
-    mcp.py
+    jobs.py         # optional
+    runtime.py      # optional: shared resource wiring
+    preflight.py    # optional
+    evaluations.py  # optional
+    tasks.py        # optional
+    tools.py        # optional
+    mcp.py          # optional
     asgi.py
 tests/
 ```
@@ -172,6 +180,7 @@ rules:
   feature module.
 - Modules directly under `app/` outside `features`, `shared`, `infra`, and
   `server` are rejected.
-- Symlinked application paths are rejected so results do not vary with
-  Python's directory-walking behavior.
+- Application files must live directly under the application root rather than
+  behind symbolic links. Replace a symlink with a regular file or directory
+  before running doctor.
 - Test modules are exempt from the import rules.

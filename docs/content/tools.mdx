@@ -195,8 +195,11 @@ and repeated manifest calls return the same schema.
 uses a new version for breaking changes rather than silently changing an
 adapter's assumptions.
 
-The manifest describes registered application tools only. It does not expose
-Python functions, context values, credentials, request payloads, or results.
+The manifest describes registered application tools without including Python
+functions, context values, invocation inputs, or results. It does publish
+application-supplied descriptions, error messages, and schema metadata such as
+defaults and examples. Do not put credentials or sensitive data in those
+declarations.
 
 ## Protect the contract in version control
 

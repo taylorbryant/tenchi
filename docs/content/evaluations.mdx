@@ -141,12 +141,16 @@ such as `groundedness` only when the evaluator verifies that stronger property.
 
 ## Compose the runner
 
-Combine feature groups at the server composition root:
+Combine feature groups at the server composition root. The example below uses
+the generated application's `DATABASE_PATH` and resource factories. First add
+the support feature above and supply its `answers: AnswerGenerator` port from
+your context factory, following [context and adapter wiring](/application).
+The generated todos context alone does not provide that port.
 
 ```python
 # app/server/evaluations.py
 from app.features.support.evaluations import evaluations as support_evaluations
-from app.server.runtime import DATABASE_URL, create_context, create_lifespan
+from app.server.runtime import DATABASE_PATH, create_context, create_lifespan
 from tenchi.evaluations import create_evaluation_runner, evaluation_group
 
 evaluations = evaluation_group(support_evaluations)
@@ -154,7 +158,7 @@ evaluations = evaluation_group(support_evaluations)
 runner = create_evaluation_runner(
     evaluations=evaluations,
     context_factory=create_context,
-    lifespan=create_lifespan(DATABASE_URL),
+    lifespan=create_lifespan(DATABASE_PATH),
     concurrency=2,
 )
 ```

@@ -162,6 +162,11 @@ These features are independent. A Tenchi application does not need jobs, AI
 tools, evaluations, or historical compatibility checks to define and serve an
 HTTP API.
 
+Jobs, tasks, tools, and `execute()` call functions with `request` and `context`.
+For a use case that also requires HTTP-specific `params`, `query`, or `headers`,
+add an [input adapter](https://tenchi.io/execution#adapt-http-inputs) to reuse its
+behavior from those entrypoints.
+
 ## When Tenchi fits
 
 Choose Tenchi when you want a long-lived typed JSON API with explicit

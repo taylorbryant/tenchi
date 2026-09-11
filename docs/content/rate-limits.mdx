@@ -119,9 +119,11 @@ such as `user:alice` and `tenant:acme` can keep mixed scope kinds explicit.
 
 Place the consume according to what the policy limits.
 
-For a transport-attempt limit, consume before the application operation in
-storage that commits independently. Invalid or failed attempts still cost
-capacity.
+To count each attempt that reaches the use case, consume before its business
+operation in storage that commits independently. Those attempts cost capacity
+even if later application work fails. Malformed HTTP input is rejected before
+the use case runs, so this placement does not count it. Apply a separate
+boundary or gateway policy when you need to count rejected requests too.
 
 For a logical-operation quota, combine it with idempotency so transport retries
 do not consume the allowance repeatedly:

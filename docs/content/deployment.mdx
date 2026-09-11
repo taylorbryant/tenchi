@@ -124,10 +124,14 @@ Also configure transport and platform timeouts.
 
 ## Observe outcomes
 
-`RequestInfo` includes a trusted request ID. Tenchi accepts a valid inbound
+`RequestInfo` includes a validated correlation ID. Tenchi accepts a valid inbound
 `x-request-id` or creates one and includes it on responses. Outcome observers
 receive the request, final status, duration, and application/framework error
 source after request-scoped cleanup.
+
+Callers can choose an accepted `x-request-id`; validation does not establish
+who supplied it. Configure your trusted proxy to replace it if you need
+edge-generated identifiers.
 
 Use request and use-case observers or ASGI middleware to feed structured logs,
 metrics, and traces. They should never contain request bodies, credentials, or
@@ -145,6 +149,46 @@ baseline commit from the version currently deployed:
 uv run tenchi verify --base-ref "$BASE_SHA"
 ```
 
+Continue only when verification passes. Retain its report with the release.
+
+Then release in this order:
+
+1. Verify production settings and secret references without printing their
+   values.
+2. If the service stores data, back it up according to the datastore's recovery
+   plan.
+3. If the release changes the database schema, run backward-compatible
+   [database migrations](/database#run-migrations-as-a-release-step) once.
+4. Start the new API generation without sending it traffic.
+5. If the application has preflight checks, run
+   [`tenchi preflight`](/preflight) against the target environment.
+6. For model-backed behavior, run the explicitly budgeted
+   [`tenchi eval run`](/evaluations) gate with the provider configuration this
+   release will use.
+7. If the service enqueues work, start or update [background workers](/reliability)
+   that can consume messages
+   from both application generations. Deploy compatible consumers before new
+   producers receive traffic.
+8. Wait for startup and readiness checks, then shift traffic gradually.
+9. Smoke-test an application operation through the production edge, including
+   authentication when the operation is protected.
+10. Watch error rate, latency, database saturation, and queue age during the
+   rollout.
+
+`tenchi check` runs your local validation commands; it does not establish
+production readiness. Those commands may contact services if your tests or
+imports do so. Keep migrations as their own release step, then use
+[`tenchi preflight`](/preflight) for read-only, timeout-bounded dependency
+checks where the target environment is available. AI evaluation execution
+remains separate because it may be nondeterministic and incur provider cost;
+the declared policy is still checked locally.
+
+Plan rollback before rollout. Application rollback must remain compatible with
+the migrated schema and any work records already written by the new
+generation.
+
+## Understand verification failures
+
 `verify` discovers the literal OpenAPI title, version, description, and
 security configuration from `app.server.routes:api_routes`. It runs the same
 deterministic checks, rejects an application map with diagnostics or unresolved
@@ -159,44 +203,15 @@ while the command is running.
 Use its metadata flags only when the application does not keep those values as
 literal route-module declarations.
 
-Missing historical job or evaluation snapshots fail by default. If that commit
-predates only `jobs.json`, add `--allow-missing-job-baseline` once and confirm
-the result records a `job manifest baseline` metadata change. Use
-`--allow-missing-evaluation-baseline` in the same way for `evaluations.json`.
-Remove either override after its baseline lands.
-
-Then release in this order:
-
-1. Verify production settings and secret references without printing their
-   values.
-2. Back up data according to the datastore's recovery plan.
-3. Run backward-compatible
-   [database migrations](/database#run-migrations-as-a-release-step) once.
-4. Start the new API generation without sending it traffic.
-5. Run [`tenchi preflight`](/preflight) against the target environment.
-6. For model-backed behavior, run the explicitly budgeted
-   [`tenchi eval run`](/evaluations) gate with the provider configuration this
-   release will use.
-7. Start or update [background workers](/reliability) that can consume messages
-   from both application generations. Deploy compatible consumers before new
-   producers receive traffic.
-8. Wait for startup and readiness checks, then shift traffic gradually.
-9. Smoke-test a public route and an authenticated operation through the
-   production edge.
-10. Watch error rate, latency, database saturation, and queue age during the
-   rollout.
-
-`tenchi check` does not contact production dependencies, validate secret
-manager permissions, run migrations, or prove that an external worker is
-healthy. Keep migrations as their own release step, then use
-[`tenchi preflight`](/preflight) for read-only, timeout-bounded dependency
-checks where the target environment is available. AI evaluation execution
-remains separate because it may be nondeterministic and incur provider cost;
-the declared policy is still checked locally.
-
-Plan rollback before rollout. Application rollback must remain compatible with
-the migrated schema and any work records already written by the new
-generation.
+When adding jobs, tools, or evaluations for the first time, `verify` handles
+a missing historical snapshot automatically if its default composition module
+was also absent at the baseline. If a job or evaluation module already existed
+but its first snapshot did not, use `--allow-missing-job-baseline` or
+`--allow-missing-evaluation-baseline` for that initial comparison. Confirm the
+corresponding `job manifest baseline` or `evaluation manifest baseline` metadata
+change. Do not use an override to bypass an existing snapshot at a renamed or
+mistyped path. The [CLI reference](/cli#verify-a-completed-change) describes the
+complete policy.
 
 <Callout type="warning" title="Exercise lifespan in tests">
   Raw `httpx.ASGITransport` does not run lifespan by itself. Prefer

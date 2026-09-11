@@ -54,9 +54,15 @@ async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
     return await context.todos.create(title=request.title)
 ```
 
-Use cases are plain async functions. Parameter names connect them to contract
-inputs: `request`, `params`, `query`, `headers`, and `context`. A function takes
-only the values it needs.
+Use cases are plain async functions. A route-bound function must accept
+`context` and every input source its contract declares: `request`, `params`,
+`query`, or `headers`. It may omit input sources that the contract does not
+declare. The input and return annotations must match the contract; your
+application supplies and type-checks the context.
+
+Functions that accept only `request` and `context` can also bind directly to
+jobs, tasks, and tools. When a function requires HTTP-specific arguments, use
+an [input adapter](/execution#adapt-http-inputs) for those entrypoints.
 
 The return value is application data. HTTP headers and status selection remain
 at the [route and response boundary](/responses).

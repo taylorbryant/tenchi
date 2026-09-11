@@ -127,9 +127,11 @@ async def complete_todo(
     return todo
 ```
 
-The use case knows the application error but not its HTTP status or envelope.
-The same function can later run from a task, a tool, or a script without
-changes.
+The use case raises the application error without constructing an HTTP
+response. You can call it directly from a test or script. Tasks, tools, jobs,
+and `execute()` supply `request` and `context`, so this function's `params`
+argument needs a small [input adapter](/execution#adapt-http-inputs) when you
+add one of those entrypoints.
 
 <Callout title="Generate the use case instead">
   `uv run tenchi make use-case todos complete_todo --from-contract
@@ -210,8 +212,9 @@ routes = route_group(
 )
 ```
 
-Importing the module now proves that the `params`, `context`, and return
-annotations match the contract.
+Importing the module now checks that the function accepts `context` and that
+its `params` and return annotations match the contract. Context types remain
+application-owned and are checked by your type checker.
 
 ## Exercise the HTTP boundary
 

@@ -20,8 +20,9 @@ architecture need to remain aligned over time.
 - API compatibility must be checked in CI against a historical baseline.
 - The same use cases should be exposed to AI callers through versioned,
   verifiable tool contracts.
-- Business behavior should run unchanged from HTTP, workers, scripts, and
-  direct tests.
+- Business behavior should be reusable from HTTP, workers, scripts, and
+  direct tests, with [input adapters](/execution#adapt-http-inputs) where an
+  entrypoint needs a different function signature.
 - You want composition-time signature failures and explicit dependency wiring.
 - A small, readable core matters more than a large extension ecosystem.
 

@@ -12,53 +12,49 @@ This guide turns that model into an ordered production checklist for a service
 that needs to survive retries, concurrent writes, partial failures, and
 deployment changes.
 
-## What Tenchi owns
+## Prepare the API for deployment
 
-Tenchi provides the application seams and boundary guarantees:
+Start with the resources and behavior your API already uses:
 
-| Concern | Tenchi's part | Your application's part |
-| --- | --- | --- |
-| Configuration | Explicit composition and lifespan state | Load and validate environment-specific values |
-| Database | Lifespan and request-scoped context managers | Choose a driver, migrations, transaction isolation, and adapters |
-| Authentication | Boundary hooks and public-contract metadata | Verify credentials and supply the identity port |
-| Authorization | Plain use cases and pure policies | Define abilities and owner-scoped repository methods |
-| Idempotency | Canonical fingerprints, durable store transitions, typed replay, and declared errors | Implement storage in the command transaction and choose key scope and retention |
-| Outbound retries | Opt-in attempt limits, declared-error and raw-status selection, bounded backoff, `Retry-After`, total deadlines, cancellation, and payload-safe attempt outcomes | Mark transient errors and intermediary statuses, choose timing, and authorize unsafe methods only when the operation is retry-safe |
-| Rate limiting | Atomic fixed-window store protocol, policy validation, and a standard 429 | Choose authenticated scope, shared storage, transaction semantics, and edge limits |
-| Inbound webhooks | Exact-body verifier bindings, required composition, request limits, and typed validation | Verify the provider protocol, attach service identity, enforce replay rules, and store event ids |
-| Background work | Validated job messages, handler bindings, dispatch, and scoped contexts | Choose a queue or outbox, schedule workers, and define retry policy |
-| Operational maintenance | Validated named tasks, CLI/MCP discovery, and scoped execution | Define safe dry runs, operator access, and rollout procedure |
-| AI quality | Typed cases, normalized thresholds, bounded execution, redacted reports, and optional token/cost budgets | Choose providers, prompts, datasets, scorers, judge models, and acceptable variance |
-| Observability | Finalized outcomes plus an optional OpenTelemetry bridge | Configure the SDK, transport instrumentation, exporters, alerts, and retention |
-| Deployment | Health routes, request limits, deadlines, `tenchi check`, and environment preflight | Configure the ASGI server, proxy, secrets, migrations, dependency credentials, and rollout |
+1. [Validate configuration and secrets](/configuration) at startup.
+2. Give each connection pool and SDK client a lifespan that closes it on
+   shutdown. If requests write to a database, configure
+   [transactions that commit on success and roll back on failure](/database).
+3. For protected operations, [authenticate callers and authorize their
+   actions](/authentication). Keep credentials and identity out of request data.
+4. Configure body limits, deadlines, health checks, and your ASGI process and
+   proxy using the [deployment guide](/deployment).
+5. [Record outcomes](/observability) so you can investigate errors and latency
+   without logging request bodies or credentials.
+6. Run `tenchi check` and review [API compatibility](/openapi) against the
+   version callers currently use. Follow the [release sequence](/deployment#release-sequence)
+   to verify and deploy the finished application.
 
-<Callout title="The core does not select your infrastructure">
-  Tenchi does not bundle an ORM, queue, scheduler, telemetry SDK, or settings
-  package. Those libraries remain replaceable adapters. The handbook defines
-  how they participate in the application lifecycle and failure model.
+Test business behavior with memory adapters, then test real transactions and
+lifespan behavior through [in-process HTTP clients](/testing).
+
+## Add safeguards for the capabilities you use
+
+An HTTP API can ship without jobs, tools, evaluations, or business quotas.
+Use the following guides when their conditions apply:
+
+| If your application… | Prepare this before deployment |
+| --- | --- |
+| Accepts commands callers may retry | [Idempotency](/idempotency) with durable storage in the same transaction as protected writes |
+| Calls external services | [Bounded retries and failure handling](/reliability), with provider timeouts and explicit retry-safe operations |
+| Enforces per-user or per-tenant quotas | [Rate limits](/rate-limits) backed by shared storage; configure edge limits separately for request floods |
+| Receives signed provider callbacks | [Webhook verification](/webhooks), timestamp checks, and duplicate-delivery handling |
+| Enqueues background work | [Durable jobs](/jobs), worker deadlines, acknowledgement, retries, and dead-letter handling |
+| Needs maintenance commands | [Operational tasks](/tasks), operator access, and application-defined dry runs |
+| Exposes application tools | [Tool contracts](/tools) and, for MCP, [authentication, visibility, and approval](/tool-mcp) |
+| Uses model-backed behavior | [Evaluations](/evaluations) with suitable cases, thresholds, deadlines, and usage budgets |
+| Depends on external deployment resources | [Read-only preflight checks](/preflight) for connectivity, permissions, and schema readiness |
+
+<Callout title="Choose infrastructure for your application">
+  Tenchi provides contracts, validation, and lifecycle integration. You choose
+  database drivers, migrations, identity providers, queues, schedulers, and
+  telemetry exporters, and connect them through application-owned adapters.
 </Callout>
-
-## Build the production boundary
-
-Use the following order when turning a working Tenchi application into a
-deployed service:
-
-1. [Validate configuration and secrets](/configuration) once at startup.
-2. [Open process resources and one transaction per request](/database).
-3. Put outbound SDKs, repositories, clocks, and identity lookups behind ports.
-4. Make retried commands idempotent and [defer external effects through a
-   durable worker boundary](/reliability).
-5. [Apply authenticated operation quotas and configure edge limits](/rate-limits).
-6. [Verify inbound webhook bytes and collapse provider redeliveries](/webhooks).
-7. [Emit low-cardinality request and worker telemetry](/observability).
-8. [Declare read-only checks for the target environment](/preflight).
-9. [Gate model-backed behavior with explicit evaluations](/evaluations).
-10. [Configure health, limits, middleware, and the release gate](/deployment).
-
-Authentication and authorization have their own
-[boundary-to-policy workflow](/authentication). Testing follows the same
-resource model: use memory adapters for application behavior, then exercise
-real transactions and lifespan in integration tests.
 
 ## Choose a consistency requirement before an adapter
 
@@ -90,29 +86,5 @@ This avoids ambiguous failures such as retrying invalid payloads forever,
 committing state before its outbox record, or treating a logging outage as an
 API failure.
 
-## Production baseline
-
-Before the first deployment, verify that the service has:
-
-- validated startup configuration with no secret values in logs;
-- graceful acquisition and cleanup for every pool and SDK client;
-- commit-on-success and rollback-on-error request scopes;
-- an explicit migration step and rollback-compatible deployment plan;
-- idempotency for commands callers or infrastructure can retry;
-- shared, atomic rate-limit storage plus gateway limits for unauthenticated
-  traffic;
-- exact-body verification, timestamp checks, and idempotency for inbound
-  webhooks;
-- retry and dead-letter rules for every background handler;
-- trusted request IDs, bounded-cardinality telemetry, and actionable alerts;
-- readiness checks for dependencies required to serve traffic;
-- body-size limits and operation deadlines appropriate to the API;
-- a read-only `tenchi preflight` gate in the target environment;
-- an explicitly budgeted `tenchi eval run` gate for model-backed behavior,
-  separate from deterministic source checks;
-- `tenchi verify --base-ref <release-ref>` for checks, strict architecture
-  evidence, and OpenAPI, job-message, application-tool, and evaluation-policy comparisons
-  against one immutable release baseline.
-
-The [deployment guide](/deployment) turns this list into the final release
-sequence.
+Continue with the [deployment guide](/deployment) for process configuration,
+release verification, rollout, and rollback.
