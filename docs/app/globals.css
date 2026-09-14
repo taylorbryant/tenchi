@@ -50,6 +50,11 @@ body {
   min-height: 100vh;
 }
 
+code:not(pre code) {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 ::selection {
   background: color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
