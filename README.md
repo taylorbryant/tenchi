@@ -55,6 +55,10 @@ Open [Swagger UI](http://127.0.0.1:8000/docs) to inspect and call the same API
 in a browser. The [first-application guide](https://tenchi.io/getting-started)
 follows this request through the generated code and makes one behavior change.
 
+The optional [application MCP adapter](https://tenchi.io/tool-mcp) supports
+stateless Streamable HTTP. SDK session idle timeout and session cap options
+are accepted but unused; legacy SSE is rejected.
+
 ## The application model
 
 Every HTTP operation follows the same path:

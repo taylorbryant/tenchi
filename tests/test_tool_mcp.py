@@ -1158,9 +1158,9 @@ async def test_mcp_rejects_legacy_sse_transport(
     monkeypatch.setattr(MCPServer, "run_sse_async", unsafe_run_sse_async)
 
     with pytest.raises(ConfigurationError, match="does not support legacy SSE"):
-        server.sse_app()
+        server.sse_app(max_request_body_size=1024)
     with pytest.raises(ConfigurationError, match="does not support legacy SSE"):
-        await server.run_sse_async()
+        await server.run_sse_async(max_request_body_size=1024)
 
     assert base_calls == []
 
@@ -1202,8 +1202,12 @@ def test_mcp_run_rejects_legacy_sse_and_stateful_http_aliases(
     assert base_calls == []
 
 
+@pytest.mark.parametrize(
+    "session_options", [(1800.0, 10_000), (60.0, 10), (None, None)]
+)
 async def test_mcp_streamable_runner_enforces_stateless_mode_and_security(
     monkeypatch: pytest.MonkeyPatch,
+    session_options: tuple[float | None, int | None],
 ) -> None:
     tools = application_tools()
     transport_security = TransportSecuritySettings(
@@ -1234,11 +1238,43 @@ async def test_mcp_streamable_runner_enforces_stateless_mode_and_security(
     with pytest.raises(ConfigurationError, match="requires stateless_http=True"):
         await server.run_streamable_http_async(stateless_http=cast(Any, 1))
 
-    await server.run_streamable_http_async()
+    await server.run_streamable_http_async(
+        session_idle_timeout=session_options[0],
+        max_sessions=session_options[1],
+        max_request_body_size=1024,
+    )
 
     assert len(base_calls) == 1
+    assert "session_idle_timeout" not in base_calls[0]
+    assert "max_sessions" not in base_calls[0]
+    assert base_calls[0]["max_request_body_size"] == 1024
     assert base_calls[0]["stateless_http"] is True
     assert base_calls[0]["transport_security"] is transport_security
+
+
+@pytest.mark.parametrize(
+    "session_options", [(1800.0, 10_000), (60.0, 10), (None, None)]
+)
+def test_mcp_streamable_app_accepts_stateful_session_options(
+    session_options: tuple[float | None, int | None],
+) -> None:
+    tools = application_tools()
+    server = create_tool_mcp_server(
+        tools=tools,
+        authenticate=lambda request: Principal("alice"),
+        runner_factory=lambda principal: runner_for(tools, principal, []),
+    )
+    server.streamable_http_app(
+        session_idle_timeout=session_options[0],
+        max_sessions=session_options[1],
+    )
+    assert server.session_manager.stateless is True
+    with pytest.raises(ConfigurationError, match="requires stateless_http=True"):
+        server.streamable_http_app(
+            stateless_http=False,
+            session_idle_timeout=session_options[0],
+            max_sessions=session_options[1],
+        )
 
 
 def test_mcp_validates_composition_options() -> None:

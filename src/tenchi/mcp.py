@@ -12,7 +12,8 @@ caller-specific :class:`~tenchi.tools.ToolRunner`.
 
 Network serving supports stateless Streamable HTTP only. The MCP SDK's legacy
 SSE entrypoints are rejected because they do not preserve Tenchi's per-request
-header authentication scope.
+header authentication scope. Session idle timeout and session cap options are
+accepted for SDK compatibility but unused in stateless mode.
 """
 
 from __future__ import annotations
@@ -248,10 +249,14 @@ class _ToolMcpServer[PrincipalT](MCPServer[dict[str, Any]]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
         max_request_body_size: int = 4 * 1024 * 1024,
+        session_idle_timeout: float | None = 30 * 60,
+        max_sessions: int | None = 10_000,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
         _require_stateless_http(stateless_http)
+        # Session limits are unused in stateless mode; keep MCP 2.0 compatible.
+        del session_idle_timeout, max_sessions
         app = super().streamable_http_app(
             streamable_http_path=streamable_http_path,
             json_response=json_response,
@@ -280,9 +285,13 @@ class _ToolMcpServer[PrincipalT](MCPServer[dict[str, Any]]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
         max_request_body_size: int = 4 * 1024 * 1024,
+        session_idle_timeout: float | None = 30 * 60,
+        max_sessions: int | None = 10_000,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         _require_stateless_http(stateless_http)
+        # Session limits are unused in stateless mode; keep MCP 2.0 compatible.
+        del session_idle_timeout, max_sessions
         await super().run_streamable_http_async(
             host=host,
             port=port,
@@ -304,11 +313,12 @@ class _ToolMcpServer[PrincipalT](MCPServer[dict[str, Any]]):
         *,
         sse_path: str = "/sse",
         message_path: str = "/messages/",
+        max_request_body_size: int = 4 * 1024 * 1024,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
         """Reject legacy SSE, which lacks Tenchi's HTTP request scope."""
-        del sse_path, message_path, transport_security, host
+        del sse_path, message_path, max_request_body_size, transport_security, host
         raise ConfigurationError(_LEGACY_SSE_UNSUPPORTED)
 
     async def run_sse_async(
@@ -318,10 +328,18 @@ class _ToolMcpServer[PrincipalT](MCPServer[dict[str, Any]]):
         port: int = 8000,
         sse_path: str = "/sse",
         message_path: str = "/messages/",
+        max_request_body_size: int = 4 * 1024 * 1024,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         """Reject legacy SSE, which lacks Tenchi's HTTP request scope."""
-        del host, port, sse_path, message_path, transport_security
+        del (
+            host,
+            port,
+            sse_path,
+            message_path,
+            max_request_body_size,
+            transport_security,
+        )
         raise ConfigurationError(_LEGACY_SSE_UNSUPPORTED)
 
     async def list_tools(self) -> list[McpTool]:

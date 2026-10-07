@@ -640,14 +640,16 @@ async def test_mcp_rejects_agent_instructions_outside_the_root(
     (project / "AGENTS.md").symlink_to(outside)
     server = build_mcp_server(McpServerOptions(project))
 
-    with pytest.raises(ResourceError, match="Error reading resource") as raised:
+    with pytest.raises(ResourceError) as raised:
         await server.read_resource("tenchi://project/agents")
 
-    cause = raised.value.__cause__
-    assert cause is not None
-    assert "AGENTS.md must stay inside the application root" in str(cause)
-    assert "Outside rules" not in str(raised.value)
-    assert "Outside rules" not in str(cause)
+    # MCP 2.0 wraps ResourceError; 2.2 preserves the application error.
+    messages = (str(raised.value), str(raised.value.__cause__))
+    assert any(
+        "AGENTS.md must stay inside the application root" in message
+        for message in messages
+    )
+    assert all("Outside rules" not in message for message in messages)
 
 
 @pytest.mark.parametrize("tool_name", ["check", "verify"])

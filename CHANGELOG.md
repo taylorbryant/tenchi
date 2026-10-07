@@ -9,6 +9,11 @@ versions may change the public API.
 
 ### Fixed
 
+- Application MCP transport overrides accept MCP 2.2 session and body-size
+  options while retaining stateless HTTP, legacy-SSE rejection, and MCP 2.0
+  compatibility. Session idle timeouts and session caps are unused in stateless
+  mode.
+
 - Documentation examples now compose consistently across contracts, routes,
   response presenters, idempotency headers, evaluation runners, and read-only
   preflight checks. Guides explain input adapters for reusing HTTP use cases
