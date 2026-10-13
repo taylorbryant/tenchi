@@ -42,15 +42,21 @@ describe("documentation", () => {
     expect(docsSections.map((section) => section.label)).toEqual([
       "Start",
       "Core",
+      "Develop",
       "Operate",
-      "Agents and AI",
+      "AI capabilities",
       "Reference",
     ]);
     expect(getSectionLabel("/getting-started")).toBe("Start");
     expect(getSectionLabel("/contracts")).toBe("Core");
+    expect(getSectionLabel("/agents")).toBe("Develop");
+    expect(getSectionLabel("/mcp")).toBe("Develop");
+    expect(getSectionLabel("/change-plans")).toBe("Develop");
+    expect(getSectionLabel("/openapi")).toBe("Develop");
     expect(getSectionLabel("/production")).toBe("Operate");
-    expect(getSectionLabel("/ai")).toBe("Agents and AI");
-    expect(getSectionLabel("/ai/")).toBe("Agents and AI");
+    expect(getSectionLabel("/ai")).toBe("AI capabilities");
+    expect(getSectionLabel("/ai/")).toBe("AI capabilities");
+    expect(getSectionLabel("/tool-mcp")).toBe("AI capabilities");
   });
 
   test("every registered route has an MDX page", () => {

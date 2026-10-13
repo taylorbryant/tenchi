@@ -17,9 +17,9 @@ export const MAX_RESULTS = 12;
 
 const DEFAULT_ROUTES = [
   "/getting-started",
+  "/agents",
   "/architecture",
   "/production",
-  "/ai",
 ];
 
 const FIELD_WEIGHTS = {

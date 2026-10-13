@@ -2,11 +2,11 @@ import { Callout } from "@/components/callout";
 
 # Let a coding agent change your backend
 
-Tenchi gives coding agents deterministic inspection, previewable generation,
-structured diagnostics, and one complete validation command. An MCP-aware
-agent can access those operations directly through the [Tenchi MCP
-server](/mcp); an agent with filesystem and shell access can use the equivalent
-CLI workflow.
+Tenchi's development workflow gives people and coding agents deterministic
+inspection, previewable generation, structured checks, and historical
+verification. An MCP-aware agent can access those operations directly through
+the [Tenchi MCP server](/mcp); an agent with filesystem and shell access can
+use the equivalent CLI workflow.
 
 You remain in control because contracts, use cases, ports, and composition stay
 in ordinary Python files. The agent inspects evidence, edits those files
@@ -33,11 +33,13 @@ updating `jobs.json`. If an application tool changed, run the tool
 compatibility diff before updating `tools.json`. If an evaluation policy
 changed, run the evaluation compatibility diff before updating
 `evaluations.json`.
-For a contract-driven generated use case, create a change plan with `--plan`
-and retain its reported `plan_id`. Finish with `uv run tenchi verify --base-ref
-<historical-ref> --change-plan <path> --json` and report the receipt with the
-files changed. Do not weaken `tenchi.toml` to make a failing requirement
-disappear.
+When generated structure needs its own completion evidence, create a change
+plan with `--plan` and retain its reported `plan_id`. Finish with
+`uv run tenchi verify --base-ref <historical-ref> --json`, adding
+`--change-plan <path>` if a plan was created. Use that plan's baseline commit
+when present, and report the receipt with the files changed. Review behavior
+and test assertions against the requirement. Do not weaken `tenchi.toml` to
+make a failing requirement disappear.
 ```
 
 If you already know the feature, include its name in the task so the agent can
@@ -62,11 +64,14 @@ complete application graph.
 | `tenchi jobs --json` | Registered durable job names and payload schemas without queued values |
 | `tenchi check --json` | One bounded, complete result for formatting, linting, types, tests, architecture, and boundary snapshot drift |
 | `tenchi verify --base-ref <ref> --json` | One [receipt](/change-plans#verification-terms) for the finished tree: source digest, baseline commit, policy requirements, checks, architecture, and all four compatibility reports |
-| `tenchi preflight --json` | A redacted, timeout-bounded report that the selected deployment environment is ready |
+| `tenchi preflight --json` | Redacted, timeout-bounded results for the application's chosen environment checks |
 | OpenAPI compatibility commands | A historical contract baseline that an agent cannot accidentally replace and then compare to itself |
-| Job compatibility commands | Proof that a new consumer still accepts durable messages created under the historical job contract |
-| Tool compatibility commands | Proof that machine-facing input, output, errors, and safety did not break existing callers |
-| Evaluation compatibility commands | Proof, without case inputs, that cases, metrics, thresholds, timeouts, budgets, and suite kinds did not silently weaken the release gate |
+| Job compatibility commands | A directional schema comparison of what the new consumer accepts against historical message contracts |
+| Tool compatibility commands | Compatibility evidence for declared inputs, outputs, errors, and safety annotations; annotations do not prove runtime safety |
+| Evaluation compatibility commands | A comparison of cases, metrics, thresholds, timeouts, budgets, and suite kinds without running evaluators or exposing case inputs |
+
+A passing receipt establishes the evidence it reports; it does not establish
+business correctness or the quality of assertions.
 
 Tenchi's documentation is also published as [/llms.txt](/llms.txt) for compact
 navigation and [/llms-full.txt](/llms-full.txt) for the complete guide.
@@ -283,10 +288,13 @@ for the complete plan workflow.
 
 The receipt contains the resolved commit, current and historical
 `tenchi.toml` requirements, complete check result, application summary,
-diagnostics, unresolved relationships, and all four compatibility reports. It
-passes only when the policy was not weakened, every enforced requirement
-passes, the map has no diagnostics or unresolved relationships, and none of
-the four boundaries contains a breaking or unknown change.
+diagnostics, unresolved relationships, and evidence for OpenAPI, jobs, tools,
+and evaluations. It distinguishes passed, failed, skipped, not configured, and
+not verifiable stages. It passes only when the policy was not weakened, every
+enforced requirement passes, and the map has no diagnostics or unresolved
+relationships. Required compatibility stages reject breaking and unknown
+changes; optional boundaries can be not configured or explicitly skipped
+according to the current and historical policy.
 
 The `source` field identifies the exact application tree with its current
 `HEAD`, SHA-256 digest, and clean-or-dirty state. Tenchi includes tracked and
@@ -317,9 +325,9 @@ built-in policy requires check, architecture, and OpenAPI plus each optional
 boundary whose composition module exists; generated applications commit the
 policy so the repository owns its definition of done.
 
-`verify` does not replace the diff-before-write review. It proves that the
-finished tree—including accepted snapshot updates—still agrees with the
-historical contract. Use the pull request base, previous push, or previous
+`verify` complements the diff-before-write review by comparing the configured
+boundaries of the finished tree, including accepted snapshot updates, with
+historical contracts. Use the pull request base, previous push, or previous
 release instead of the branch's current commit.
 
 ## Choose JSON or human output

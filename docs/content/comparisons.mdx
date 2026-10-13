@@ -1,30 +1,32 @@
 # Choose the right framework
 
-Tenchi is not a universal replacement for every Python web framework. It is a
-focused choice for typed JSON APIs whose contracts, clients, and application
-architecture need to remain aligned over time.
+Tenchi focuses on backend changes that humans and coding agents can
+understand, implement, and verify. Its small application model combines typed
+contracts, plain use cases, and explicit ports with inspection, generation,
+and compatibility evidence.
 
 ## At a glance
 
 | Framework | Strongest fit | Main tradeoff |
 | --- | --- | --- |
-| FastAPI | Fast adoption, broad ecosystem, interactive API development | More built-in API ergonomics; less prescribed application architecture; typed clients generated from OpenAPI |
-| Starlette | Small ASGI toolkit and low-level control | Direct control over ASGI primitives without a shared contract, client, or application model |
-| Litestar | Feature-rich typed ASGI applications | More built-in capabilities and framework concepts |
-| Django Ninja | Typed APIs inside the Django ecosystem | Deep Django integration and conventions rather than a framework-independent stack |
-| Tenchi | Long-lived typed JSON APIs with explicit use cases and ports | More up-front structure; fewer built-in integrations and protocols |
+| [FastAPI](https://fastapi.tiangolo.com/features/) | Typed HTTP APIs with interactive documentation | Built-in API ergonomics and dependency injection; application architecture remains a project choice |
+| [Starlette](https://starlette.dev/) | Small ASGI toolkit and low-level control | The application supplies its contract and use-case conventions |
+| [Litestar](https://docs.litestar.dev/latest/) | Typed ASGI applications with integrated capabilities | More built-in features and framework concepts |
+| [Django Ninja](https://django-ninja.dev/) | Typed APIs inside the Django ecosystem | Uses Django's infrastructure and conventions |
+| Tenchi | Contract-first backends with a shared development workflow for people and coding agents | Prescribed source structure and explicit wiring; infrastructure integrations remain application-owned |
 
 ## Choose Tenchi when
 
+- People and coding agents need predictable files, mutation previews,
+  structured diagnostics, and reviewable evidence for backend changes.
 - The server and a Python client should share one executable contract.
 - API compatibility must be checked in CI against a historical baseline.
-- The same use cases should be exposed to AI callers through versioned,
-  verifiable tool contracts.
 - Business behavior should be reusable from HTTP, workers, scripts, and
   direct tests, with [input adapters](/execution#adapt-http-inputs) where an
   entrypoint needs a different function signature.
 - You want composition-time signature failures and explicit dependency wiring.
-- A small, readable core matters more than a large extension ecosystem.
+- You want a small application model while retaining inspection, generation,
+  and verification as part of everyday development.
 
 ## Choose another framework when
 
@@ -32,8 +34,8 @@ architecture need to remain aligned over time.
   as first-class framework features.
 - You want built-in dependency injection, authentication primitives, or a
   broader integration surface.
-- The API is small enough that a prescribed contract, use-case, and port
-  structure would add more ceremony than value.
+- You need to choose your own application layout instead of adopting Tenchi's
+  feature and composition conventions.
 - You need older Python versions; Tenchi requires Python 3.12 or newer.
 
 ## Tenchi and Starlette
@@ -52,5 +54,8 @@ the contract from the use case so the same application function is not owned
 by HTTP, and it includes a contract-driven runtime client and conservative
 OpenAPI compatibility analysis.
 
-The tradeoff is visible: Tenchi asks you to name the layers. That is valuable
-when the API will grow, but unnecessary ceremony for some small services.
+The tradeoff is explicit source structure and application-owned wiring.
+Evaluate it by making a representative change: find the affected behavior,
+change its contract, implement and test it, then review the compatibility
+evidence. That shows whether the conventions help your team more clearly than
+the size of the first endpoint example.

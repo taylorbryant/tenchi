@@ -19,8 +19,10 @@ cd my_app
 uv sync
 ```
 
-The generated application already contains a todos feature and SQLite
-persistence. Start it:
+The generated application contains a todos feature and SQLite persistence.
+It also includes tests, `AGENTS.md`, project-local MCP configuration, and a
+`tenchi.toml` verification policy. People and coding agents can use the same
+source structure and checks from the first change. Start it:
 
 ```shell
 uv run tenchi dev
@@ -47,6 +49,16 @@ Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) to inspect and cal
 the same API through Swagger UI.
 
 ## Follow the request through four files
+
+Inspect the feature before editing:
+
+```shell
+uv run tenchi map --feature todos
+```
+
+The map identifies declarations, source locations, and relationships. Read
+those definitions to understand the behavior; the map does not replace the
+source or tests.
 
 The create operation has four application-facing parts:
 
@@ -112,17 +124,25 @@ uv run tenchi check
 ```
 
 `tenchi check` runs the generated project's formatting, linting, type,
-behavior, architecture, and boundary checks. The command reports every failed
+test, architecture, and boundary checks. The command reports every failed
 step so one run gives you the complete repair list.
 
 Your first change touched one plain function and one focused test. The contract,
 route, persistence wiring, OpenAPI, and HTTP behavior remained aligned without
 requiring changes.
 
+The passing test gives evidence for the whitespace behavior you asserted.
+Review its assertions along with the code. For changes with a committed
+baseline, `tenchi verify` also records architecture and historical
+compatibility evidence; the [feature tutorial](/build-a-feature) uses that
+workflow on a new operation.
+
 ## Continue from the core
 
 - [How Tenchi works](/concepts) explains the small application model.
 - [Build a feature end to end](/build-a-feature) adds a persisted operation
   across a port, two adapters, a route, tests, and the OpenAPI snapshot.
+- [Develop with a coding agent](/agents) applies the same loop through the
+  CLI or coding-agent MCP.
 - [Prepare for production](/production) covers operational decisions when the
   application is ready to ship.
