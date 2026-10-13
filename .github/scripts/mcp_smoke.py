@@ -33,6 +33,14 @@ async def main() -> None:
         preflight = await client.call_tool("preflight", {})
         evaluations = await client.call_tool("evaluation_list", {})
         tasks = await client.call_tool("task_list", {})
+        preview = await client.call_tool(
+            "make_preview",
+            {
+                "artifact": "feature",
+                "name": "preview_notes",
+                "capabilities": ["jobs", "tools"],
+            },
+        )
     names = {tool.name for tool in tools.tools}
     expected = {
         "app_map",
@@ -106,6 +114,20 @@ async def main() -> None:
         raise RuntimeError("evaluation_list MCP result is not versioned")
     if evaluations.structured_content.get("evaluations") != []:
         raise RuntimeError("generated app unexpectedly registered evaluations")
+    if preview.is_error or preview.structured_content is None:
+        raise RuntimeError("make_preview MCP smoke call failed")
+    if preview.structured_content.get("schema_version") != AGENT_PROTOCOL_VERSION:
+        raise RuntimeError("make_preview MCP result is not versioned")
+    if preview.structured_content.get("ok") is not True:
+        raise RuntimeError("make_preview MCP result was unsuccessful")
+    files = preview.structured_content.get("files", [])
+    prefix = "app/features/preview_notes/"
+    if not all(f"{prefix}{name}.py" in files for name in ("jobs", "tools")):
+        raise RuntimeError("feature preview omitted selected capabilities")
+    if any(f"{prefix}{name}.py" in files for name in ("tasks", "evaluations")):
+        raise RuntimeError("feature preview included unselected capabilities")
+    if (root / prefix).exists():
+        raise RuntimeError("make_preview unexpectedly wrote a feature")
 
 
 if __name__ == "__main__":

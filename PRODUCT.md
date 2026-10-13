@@ -108,12 +108,11 @@ in realistic development work.
 ## Current priorities
 
 Favor consolidation and demonstrated workflow improvements over adding new
-capabilities. These priorities guide future work; the 0.19 progress noted
-below is implemented in the development tree and is not yet released:
+capabilities. Build on the selective capability support in Tenchi 0.19:
 
 - Reduce empty generated files and make application capabilities easier to
   adopt selectively, while retaining the default coding-agent tooling. The
-  0.19 development cycle provides explicit per-feature `--with` selection and
+  0.19 release provides explicit per-feature `--with` selection and
   `make capability tools`; evaluate that adoption path before extending the
   generator to other capabilities.
 - Keep the todos teaching path focused on the core model; demonstrate advanced

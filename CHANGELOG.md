@@ -7,6 +7,8 @@ versions may change the public API.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-13
+
 ### Added
 
 - `tenchi make capability tools` creates an empty application tool group,
@@ -35,18 +37,17 @@ versions may change the public API.
   options while retaining stateless HTTP, legacy-SSE rejection, and MCP 2.0
   compatibility. Session idle timeouts and session caps are unused in stateless
   mode.
-
-- The `make` generators preserve a destination created by another process during file
-  creation and roll back failed or partial writes. They require neither hard
-  links nor write access to the application's parent directory.
+- The `make` generators preserve a destination created by another process
+  during file creation and roll back failed or partial writes. They require
+  neither hard links nor write access to the application's parent directory.
 - Tools-capability previews and generation return structured failures for
   inaccessible paths on every supported Python version, including when using
   `--json` on Python 3.12.
 - Documentation examples now compose consistently across contracts, routes,
   response presenters, idempotency headers, evaluation runners, and read-only
   preflight checks. Guides explain input adapters for reusing HTTP use cases
-  from jobs, tasks, and tools,
-  application-owned rollback, and the limits of verification-report redaction.
+  from jobs, tasks, and tools, application-owned rollback, and the limits of
+  verification-report redaction.
 - Verification guidance uses the commit recorded in a change plan and describes
   automatic first adoption of optional boundaries. Application structure and
   production guides distinguish required setup from optional capabilities;

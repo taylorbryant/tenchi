@@ -40,7 +40,7 @@ OpenAPI checks. Use `uvx tenchi new my_app --full` to also generate composition
 modules for jobs, operational tasks, application tools, evaluations, and
 preflight checks, along with their supporting files.
 
-In the unreleased 0.19 version, select optional feature modules explicitly:
+Select optional feature modules explicitly:
 `tenchi make feature invoices --with jobs --with tools`. Start adopting
 application tools with `tenchi make capability tools --dry-run --json`, then
 run it without `--dry-run` and follow its composition, snapshot, and
