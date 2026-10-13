@@ -17,7 +17,7 @@ from ._change_plans import ChangePlan, ChangePlanPayload
 from .evaluations import MAX_EVALUATION_TOKENS, EvaluationBudgetStatus
 
 type DiagnosticSeverity = Literal["error", "warning", "hint"]
-type GeneratedArtifact = Literal["feature", "use-case"]
+type GeneratedArtifact = Literal["feature", "use-case", "capability"]
 type CheckStepStatus = Literal["passed", "failed"]
 type PreflightCheckStatus = Literal["passed", "failed", "timed_out"]
 type EvaluationKind = Literal["deterministic", "model"]
@@ -66,9 +66,9 @@ type AgentOperationErrorCode = Literal[
 ]
 type AgentOperationErrorDetail = str | int | bool | list[str]
 type AgentOperationErrorDetails = dict[str, AgentOperationErrorDetail]
-type AgentProtocolVersion = Literal[12]
+type AgentProtocolVersion = Literal[13]
 
-AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 12
+AGENT_PROTOCOL_VERSION: AgentProtocolVersion = 13
 
 
 class AgentOperationErrorPayload(TypedDict):

@@ -2,6 +2,7 @@ import sys
 import typing
 from enum import Enum
 from pathlib import Path
+from typing import IO, Any
 
 import pytest
 from pydantic import BaseModel
@@ -76,17 +77,20 @@ def test_contract_generation_rolls_back_files_and_change_plan_together(
         ")\n",
         encoding="utf-8",
     )
-    original_replace = Path.replace
+    original_open = Path.open
     calls = 0
 
-    def fail_plan_write(source: Path, target: Path) -> Path:
+    def fail_plan_write(
+        destination: Path, mode: str = "r", *args: Any, **kwargs: Any
+    ) -> IO[Any]:
         nonlocal calls
-        calls += 1
-        if calls == 3:
-            raise OSError("simulated plan write failure")
-        return original_replace(source, target)
+        if mode == "x":
+            calls += 1
+            if calls == 3:
+                raise OSError("simulated plan write failure")
+        return original_open(destination, mode, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "replace", fail_plan_write)
+    monkeypatch.setattr(Path, "open", fail_plan_write)
     with isolated_project_imports(
         tmp_path,
         module_names=("app.features.projects.contracts",),

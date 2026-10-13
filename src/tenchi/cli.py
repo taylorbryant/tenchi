@@ -6,6 +6,8 @@ Commands are intentionally few and reliable:
   structure.
 - ``tenchi make feature <name>`` generates a feature skeleton; ``tenchi
   make use-case <feature> <name>`` generates a use-case stub and test.
+  Repeat ``--with`` to select optional feature modules. ``tenchi make
+  capability tools`` adds application-tools composition and snapshot files.
   Generators create files and print wiring instructions — they never edit
   existing modules, because dependency wiring stays explicit and app-owned.
 - ``tenchi routes`` prints the application's bound route table.
@@ -57,6 +59,7 @@ from ._app_map import (
     map_app,
     project_app_map,
 )
+from ._capability_operations import make_capability_result
 from ._checks import run_check
 from ._cli_operations import (
     ContractLoadError,
@@ -133,7 +136,7 @@ from .evaluations import EvaluationManifest, evaluation_manifest
 from .jobs import JOB_MANIFEST_VERSION, JobManifest, job_manifest
 from .openapi import openapi_schema
 from .routes import RouteGroup
-from .scaffold import app_files
+from .scaffold import OPTIONAL_CAPABILITIES, app_files
 from .snapshots import (
     describe_openapi_drift,
     evaluation_snapshot_diff,
@@ -258,7 +261,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _new(args.name, full=args.full)
     if args.command == "make":
         if args.artifact == "feature":
-            return _make_feature(args.name, dry_run=args.dry_run, as_json=args.json)
+            return _make_feature(
+                args.name,
+                capabilities=args.capabilities,
+                dry_run=args.dry_run,
+                as_json=args.json,
+            )
+        if args.artifact == "capability":
+            return _render_make_result(
+                make_capability_result(
+                    Path.cwd(), name=args.name, dry_run=args.dry_run
+                ),
+                as_json=args.json,
+            )
         return _make_use_case(
             args.feature,
             args.name,
@@ -446,6 +461,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "feature", help="Generate a feature skeleton under app/features/"
     )
     feature_parser.add_argument("name", help="Feature name, in snake_case")
+    feature_parser.add_argument(
+        "--with",
+        dest="capabilities",
+        action="append",
+        choices=OPTIONAL_CAPABILITIES,
+        default=[],
+        help="Include this optional feature module; repeat to select more",
+    )
+    capability_parser = make_subparsers.add_parser(
+        "capability",
+        help="Adopt an application capability without editing existing files",
+    )
+    capability_parser.add_argument(
+        "name", choices=("tools",), help="Capability to adopt"
+    )
     use_case_parser = make_subparsers.add_parser(
         "use-case",
         help="Generate a use-case stub and test, optionally from a contract",
@@ -470,7 +500,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="REF",
         help="Git baseline captured by --plan (default: HEAD)",
     )
-    for generator_parser in (feature_parser, use_case_parser):
+    for generator_parser in (feature_parser, use_case_parser, capability_parser):
         generator_parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -1242,8 +1272,12 @@ def _new(name: str, *, full: bool = False) -> int:
     return 0
 
 
-def _make_feature(name: str, *, dry_run: bool, as_json: bool) -> int:
-    result = make_feature_result(Path.cwd(), name=name, dry_run=dry_run)
+def _make_feature(
+    name: str, *, capabilities: Sequence[str], dry_run: bool, as_json: bool
+) -> int:
+    result = make_feature_result(
+        Path.cwd(), name=name, dry_run=dry_run, capabilities=capabilities
+    )
     return _render_make_result(result, as_json=as_json)
 
 

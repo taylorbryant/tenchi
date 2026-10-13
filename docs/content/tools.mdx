@@ -11,6 +11,40 @@ A `ToolRunner` owns one application lifespan and scoped context per call. It
 validates input before opening either resource and validates the result before
 the context commits.
 
+## Add tools to an existing application
+
+With Tenchi 0.19 or newer, start from the application root:
+
+```shell
+uv run tenchi make capability tools --dry-run --json
+uv run tenchi make capability tools
+```
+
+The generator creates an empty `app/server/tools.py`, `tools.json`, and
+`tests/test_tool_snapshot.py`. If any destination already exists, it refuses
+the operation; use the declarations and composition examples below to finish
+an existing setup manually.
+
+In your existing `tenchi.toml`, add `tools = true` inside `[verify]`, preserving
+the other stages. For a new feature, `tenchi make feature projects --with tools`
+includes its `tools.py`; for an existing feature, add that module manually.
+Then declare and bind its tools and import the feature group into
+`app/server/tools.py` as shown below.
+
+After composition, review and accept the manifest, then verify against the
+commit before adoption:
+
+```shell
+uv run tenchi tools --diff tools.json
+uv run tenchi tools --write tools.json
+uv run tenchi check
+uv run tenchi verify --base-ref <commit-before-adoption>
+```
+
+A baseline without the tools composition module records the manifest as a
+first adoption. The generator supplies discovery and verification setup;
+configure a runner with authenticated context before exposing invocation.
+
 ## Declare and bind a tool
 
 Keep the declaration and its binding with the feature:

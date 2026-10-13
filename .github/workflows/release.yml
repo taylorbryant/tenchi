@@ -92,6 +92,18 @@ jobs:
             --from-contract app.features.todos.contracts:create_todo_contract \
             --dry-run --json
           uv run tenchi check
+          uv run tenchi make feature invoices --with jobs --with tools
+          uv run tenchi make capability tools --dry-run --json
+          uv run tenchi make capability tools --json
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          policy = Path("tenchi.toml")
+          policy.write_text(
+              policy.read_text().replace("[verify]\n", "[verify]\ntools = true\n")
+          )
+          PY
+          uv run tenchi check
           cd "$smoke_dir"
           "$smoke_dir/venv/bin/tenchi" new generated_full_app --full
           cd "$smoke_dir/generated_full_app"

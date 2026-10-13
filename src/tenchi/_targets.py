@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Literal
 
 DEFAULT_ROUTES_TARGET = "app.server.routes:routes"
 DEFAULT_API_ROUTES_TARGET = "app.server.routes:api_routes"
@@ -28,7 +29,9 @@ DEFAULT_TOOLS_TARGET = "app.server.tools:tools"
 
 # Optional capabilities keyed by the feature file and server module that
 # carry them, in the order generators emit them.
-OPTIONAL_CAPABILITY_TARGETS: Mapping[str, str] = {
+type FeatureCapability = Literal["tasks", "jobs", "tools", "evaluations"]
+
+OPTIONAL_CAPABILITY_TARGETS: Mapping[FeatureCapability, str] = {
     "tasks": DEFAULT_TASKS_TARGET,
     "jobs": DEFAULT_JOBS_TARGET,
     "tools": DEFAULT_TOOLS_TARGET,
@@ -75,6 +78,7 @@ __all__ = [
     "DEFAULT_TASKS_TARGET",
     "DEFAULT_TOOLS_TARGET",
     "OPTIONAL_CAPABILITY_TARGETS",
+    "FeatureCapability",
     "OptionalTargets",
     "optional_target_absent",
     "present_module_path",

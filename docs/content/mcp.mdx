@@ -70,7 +70,7 @@ each call, so a server that stays open sees edits made during the agent session.
 | `preflight` | Read-only, timeout-bounded observations of the target deployment environment with redacted results |
 | `evaluation_list` | Evaluation names, case names and schemas, metric thresholds, timeouts, and budgets without case inputs |
 | `task_list` | Registered operational tasks with validated input and output JSON Schemas |
-| `make_preview` | The files and wiring steps for a feature or use case, always with `dry_run: true`; use-case previews accept `from_contract` to derive an exact boundary signature and `base_ref` to return an inline change plan |
+| `make_preview` | Files and wiring steps with `dry_run: true`. Feature previews accept an explicit `capabilities` list. `artifact: "capability", name: "tools"` previews application-tools adoption. Use-case previews accept `from_contract` for an exact boundary signature and `base_ref` for an inline change plan. Capability selection and adoption require Tenchi 0.19 or newer. |
 | `openapi_diff` | A compatibility report against `openapi.json`, another project snapshot, or that snapshot at a Git ref |
 | `jobs_diff` | A compatibility report against `jobs.json`, another project snapshot, or that snapshot at a Git ref |
 | `tools_diff` | A compatibility report against `tools.json`, another project snapshot, or that snapshot at a Git ref |
@@ -137,6 +137,9 @@ For a feature change, give the agent this sequence:
    `from_contract` so the preview derives the exact boundary signature. Pass
    the intended `base_ref` to receive a change plan inline, then retain its
    `plan_id` outside the edited worktree.
+   For optional feature files, pass `capabilities: ["jobs", "tools"]` (also
+   supports `tasks` and `evaluations`). For application-tools adoption, pass
+   `artifact: "capability", name: "tools"` and review its policy and wiring steps.
 4. Edit ordinary Python files through the agent's normal filesystem tools.
 5. Call `check` and resolve every failed step.
 6. Call `openapi_diff` before accepting a changed OpenAPI snapshot.
