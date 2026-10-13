@@ -1,13 +1,50 @@
 # Tenchi repository guide
 
-Tenchi is a contract-first, Python-native framework for building typed
-JSON APIs around use cases, ports, and explicit dependency wiring: one
-architecture — contracts at the boundary, plain use cases at the center —
-expressed with plain functions, frozen dataclasses, `typing.Protocol`,
+Tenchi is a contract-first Python framework for backends that humans and
+coding agents can understand, build, review, and verify. Its application
+model stays small: contracts at the boundary, plain use cases at the center,
+and explicit dependency wiring through frozen dataclasses, `typing.Protocol`,
 Pydantic v2, and Starlette.
 
 This file is the root instruction set for the repo. Follow it when changing
 framework code, the CLI, docs, or the example apps.
+
+## Product direction
+
+Read [PRODUCT.md](PRODUCT.md) before proposing changes to framework scope,
+architecture, generated defaults, or development workflows. It records the
+agreed direction, tradeoffs, and criteria for future work without relying on
+conversation history. Apply these defaults to implementation and review:
+
+- The primary goal is reliable development with humans and coding agents.
+  A small, contract-first Python application model is the design constraint.
+  Beignet supplies architectural heritage; Laravel supplies inspiration for
+  conventions and developer experience. Neither creates a feature-parity goal.
+- Agent-native development benefits ordinary backend applications. An app
+  does not need model calls, application tools, an MCP endpoint, or evaluations
+  to benefit from Tenchi.
+- Generated agent instructions, structured CLI results, inspection,
+  previewable generation, `check`, `verify`, and coding-agent MCP support are
+  central product capabilities. Keep the CLI and MCP operations aligned and
+  vendor-neutral. Do not make this tooling peripheral merely to make the
+  starter resemble a minimal HTTP library.
+- Application tools and MCP, evaluations, jobs, and operational tasks are
+  separate, selectively adopted application capabilities. Keep the distinction
+  between development tooling and application runtime capabilities explicit.
+- Optimize the complete change workflow: understand the affected feature,
+  specify the boundary, preview structure, implement behavior, check it, and
+  review compatibility evidence. Keep the resulting source and evidence
+  understandable to a human reviewer.
+- Judge complexity by concepts, ambiguity, repeated decisions, and maintenance
+  cost. Predictable files and explicit wiring can help both people and agents;
+  fewer files or framework lines alone do not establish a simpler design.
+- Verification must state what its evidence proves. Structure, test execution,
+  compatibility, and satisfaction of a business requirement are distinct
+  claims. Preserve the limits documented below and in `PRODUCT.md`.
+- Prioritize observed friction in realistic application changes. Use
+  `benchmarks/agent_changes/`, examples, and human walkthroughs to justify
+  additional machinery. Normal CI remains deterministic and never invokes a
+  model. Proposed priorities in `PRODUCT.md` are not shipped behavior.
 
 ## Operating principles
 
@@ -30,6 +67,8 @@ framework code, the CLI, docs, or the example apps.
 
 ## Repo orientation
 
+- `PRODUCT.md` — the maintainer-facing product direction and decision criteria;
+  keep this file's product summary aligned with it when the direction changes.
 - `src/tenchi/` is the framework package. One module per responsibility:
   - `contracts.py` — contract declarations (pure data; validation happens
     in consumers via `TypeAdapter`).
@@ -79,6 +118,8 @@ framework code, the CLI, docs, or the example apps.
     working tree or at a baseline commit), and the shared loader that `map`,
     `check`, and `verify` use to treat them as not configured.
   - `cli.py` + `scaffold.py` — the `tenchi` CLI and its string templates.
+  - `_capability_operations.py` — create-only application-tools adoption,
+    shared by the CLI and coding-agent MCP preview.
   - `_generation.py` — contract-driven source rendering and the explicit
     incomplete marker enforced by doctor.
   - `_change_plans.py` — versioned, content-addressed structural intent for
@@ -99,7 +140,9 @@ framework code, the CLI, docs, or the example apps.
   `api_snapshot.txt`), and versioned agent-protocol snapshots guarded by
   `test_agent_protocol.py`.
 - `examples/todos/` — the teaching app. Keep it minimal and aligned with
-  the scaffold; it demonstrates each capability once.
+  the starter's core application model. Prefer taskboard or Fieldnotes for
+  advanced capability demonstrations; preserve their test coverage when
+  moving examples.
 - `examples/taskboard/` — the stress-test app, a standalone uv project
   consuming tenchi as a path dependency. It exercises capabilities
   together under realistic pressure. If a framework capability regresses,
@@ -330,8 +373,15 @@ application, OpenAPI snapshot, three-stage `tenchi.toml`); `tenchi new --full`
 also renders every optional composition module, snapshot, snapshot test, and
 policy stage, and that layout stays aligned with `examples/todos` minus
 capabilities the starter intentionally omits. `make feature` emits `tasks.py`,
-`jobs.py`, `tools.py`, and `evaluations.py` only when the matching server
-composition module exists.
+`jobs.py`, `tools.py`, and `evaluations.py` only when explicitly selected with
+repeatable `--with` flags; existing server modules do not select feature files.
+Selection may precede application adoption; next steps name the missing
+composition setup. `make capability tools` previews or creates an empty server
+tool group, canonical snapshot, and snapshot test. It refuses existing output
+paths, composition packages, and symlink parents before writing, and leaves
+`tenchi.toml` and feature bindings to explicit follow-up instructions. MCP
+`make_preview` supports the same capability adoption and feature selection
+without writing. Additional capability generators require demonstrated need.
 `map` combines source declarations with composed routes, operational tasks,
 background jobs, application tools, and evaluations and must stay deterministic,
 source-backed, and versioned in JSON. Feature projections retain directly

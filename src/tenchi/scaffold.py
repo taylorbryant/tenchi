@@ -12,7 +12,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from ._targets import OPTIONAL_CAPABILITY_TARGETS, present_module_path
+from ._targets import (
+    OPTIONAL_CAPABILITY_TARGETS,
+    FeatureCapability,
+    present_module_path,
+)
 
 _PYPROJECT = """\
 [project]
@@ -111,6 +115,14 @@ evaluations.json`, and set the matching `[verify]` stage to `true` in
 `tenchi.toml`. Operational tasks compose in `app/server/tasks.py` and deployment
 preflight checks in `app/server/preflight.py`.
 
+Select optional feature files explicitly, for example:
+`uv run tenchi make feature invoices --with jobs --with tools --dry-run`.
+Existing server modules do not select capabilities for a new feature.
+To adopt application tools, preview `uv run tenchi make capability tools
+--dry-run --json`, run it without `--dry-run`, and follow its wiring and
+verification-policy steps. It creates the server group, snapshot, and snapshot
+test, and refuses conflicts instead of overwriting files.
+
 The API persists to `__APP_NAME__.db` by default. Override the location with
 `__APP_ENV_PREFIX___DATABASE`. With the development server running, browse
 Swagger UI at http://127.0.0.1:8000/docs.
@@ -143,6 +155,11 @@ Framework agent workflow: https://tenchi.io/agents
    the requested structure needs its own evidence, create it with
    `--plan .tenchi/changes/<name>.json --base-ref <ref>` and retain the
    returned `plan_id` outside the edited worktree.
+   Select optional feature files with repeatable `--with` flags, such as
+   `--with jobs --with tools`; tasks and evaluations are also supported.
+   Server modules do not opt a feature into them. Preview application
+   tools adoption with `uv run tenchi make capability tools --dry-run --json`,
+   then create the files and follow its composition, snapshot, and policy steps.
 3. Keep explicit wiring visible in `app/server/routes.py`,
    `app/server/runtime.py`, `app/infra/port_wiring.py`, and
    `app/server/asgi.py`, plus `app/server/jobs.py`, `app/server/tasks.py`,
@@ -1200,8 +1217,10 @@ _FULL_ONLY_FILES: dict[str, str] = {
 }
 
 # Optional feature files keyed by the server composition module that binds
-# them. ``make feature`` emits one only when that module exists.
-OPTIONAL_CAPABILITIES: tuple[str, ...] = tuple(OPTIONAL_CAPABILITY_TARGETS)
+# them. ``make feature`` emits only explicitly selected capabilities.
+OPTIONAL_CAPABILITIES: tuple[FeatureCapability, ...] = tuple(
+    OPTIONAL_CAPABILITY_TARGETS
+)
 
 
 def present_capabilities(root: Path) -> dict[str, Path]:
@@ -1314,8 +1333,8 @@ def feature_files(
     """Return a feature skeleton, relative to ``app/features/<feature>/``.
 
     *capabilities* names the optional modules to include (see
-    ``OPTIONAL_CAPABILITIES``); callers pass the ones whose server composition
-    module exists so a feature never gains a file nothing composes.
+    ``OPTIONAL_CAPABILITIES``). Selection is explicit, independent of which
+    capabilities other features or server composition modules already use.
     """
     files = {
         "__init__.py": "",
@@ -1346,6 +1365,17 @@ def feature_files(
     files["use_cases/__init__.py"] = ""
     files["tests/__init__.py"] = ""
     return files
+
+
+def capability_files(name: str) -> dict[str, str]:
+    """Return the files for adopting application tools in an existing app."""
+    if name != "tools":
+        raise ValueError(f"unsupported application capability: {name!r}")
+    return {
+        "app/server/tools.py": _SERVER_TOOLS,
+        "tools.json": _TOOLS_SNAPSHOT,
+        "tests/test_tool_snapshot.py": _TOOLS_TEST,
+    }
 
 
 _USE_CASE = """\

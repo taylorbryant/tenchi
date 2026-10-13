@@ -9,10 +9,9 @@ import json
 import keyword
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any, cast
 
 from ._change_plans import (
@@ -99,7 +98,9 @@ def write_files(root: Path, files: Mapping[str, str]) -> None:
         path.write_text(content, encoding="utf-8")
 
 
-def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
+def make_feature_result(
+    root: Path, *, name: str, dry_run: bool, capabilities: Sequence[str] = ()
+) -> MakeResult:
     """Plan or create a feature without choosing a result renderer."""
     resolved_root = root.resolve()
     if not valid_name(name):
@@ -150,8 +151,39 @@ def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
             error=f"tenchi make feature: {relative_feature_root} already exists",
         )
 
-    capabilities = present_capabilities(resolved_root)
-    files = feature_files(name, capabilities=capabilities)
+    selected = frozenset(capabilities)
+    unknown = selected - set(OPTIONAL_CAPABILITIES)
+    if unknown:
+        return MakeResult(
+            root=str(resolved_root),
+            artifact="feature",
+            name=name,
+            feature=name,
+            dry_run=dry_run,
+            ok=False,
+            files=(),
+            next_steps=(),
+            error=f"tenchi make feature: unknown capabilities: {sorted(unknown)}",
+        )
+    files = feature_files(name, capabilities=selected)
+    composition = present_capabilities(resolved_root)
+    capability_steps: list[str] = []
+    for capability in OPTIONAL_CAPABILITIES:
+        if capability not in selected:
+            continue
+        target = composition.get(capability, Path(f"app/server/{capability}.py"))
+        if capability not in composition:
+            capability_steps.append(
+                "Adopt application tools: tenchi make capability tools --dry-run"
+                if capability == "tools"
+                else f"Create {target.as_posix()} using https://tenchi.io/{capability}"
+            )
+        capability_steps.append(
+            f"Bind app.features.{name}.jobs declarations to use cases "
+            f"with job_handler() in {target.as_posix()}"
+            if capability == "jobs"
+            else f"Compose app.features.{name}.{capability} in {target.as_posix()}"
+        )
     if not dry_run:
         write_error = _write_files_transactionally(feature_root, files)
         if write_error is not None:
@@ -185,12 +217,7 @@ def make_feature_result(root: Path, *, name: str, dry_run: bool) -> MakeResult:
                 f"app.features.{name}.contracts:<contract_name>"
             ),
             f"Compose app.features.{name}.routes in app/server/routes.py",
-            *(
-                f"Compose app.features.{name}.{capability} "
-                f"in {capabilities[capability].as_posix()}"
-                for capability in OPTIONAL_CAPABILITIES
-                if capability in capabilities
-            ),
+            *capability_steps,
         ),
     )
 
@@ -651,17 +678,15 @@ def _write_files_transactionally(root: Path, files: Mapping[str, str]) -> str | 
         existing_directories = {
             directory for directory in destination_directories if directory.exists()
         }
-        with TemporaryDirectory(prefix=".tenchi-", dir=root.parent) as staging_name:
-            staging_root = Path(staging_name)
-            write_files(staging_root, files)
-            for relative_path in files:
-                source = staging_root / relative_path
-                destination = root / relative_path
-                if destination.exists():
-                    raise FileExistsError(f"{destination} already exists")
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                source.replace(destination)
+        for relative_path, content in files.items():
+            destination = root / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            # Exclusive creation preserves concurrent files without hard links
+            # or staging outside the application. Register before writing so a
+            # partial write or close failure also rolls back this file.
+            with destination.open("x", encoding="utf-8") as output:
                 created_files.append(destination)
+                output.write(content)
     except OSError as exc:
         rollback_errors = _rollback_created_paths(
             created_files,

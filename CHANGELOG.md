@@ -7,6 +7,28 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Added
+
+- `tenchi make capability tools` creates an empty application tool group,
+  canonical `tools.json`, and snapshot test. Preview with `--dry-run --json`,
+  then follow the composition, snapshot-review, and `[verify] tools = true`
+  instructions. Existing files, composition packages, and symlink paths are
+  refused; existing source and policy files are never rewritten. Coding-agent
+  MCP `make_preview` accepts `artifact: "capability", name: "tools"` for the
+  same read-only preview.
+
+### Changed
+
+- `tenchi make feature` generates the core feature files by default, including
+  in applications created with `--full`. Select optional modules explicitly
+  with repeatable flags: `--with tasks`, `--with jobs`, `--with tools`, and
+  `--with evaluations`. Selection can precede application adoption; follow-up
+  steps identify the missing composition setup. MCP feature previews accept
+  the equivalent `capabilities` list.
+- The coding-agent protocol is version 13, reflecting the new `capability`
+  artifact result and explicit feature selection. Earlier protocol snapshots
+  are retained; application tool manifests and application MCP are unchanged.
+
 ### Fixed
 
 - Application MCP transport overrides accept MCP 2.2 session and body-size
@@ -14,6 +36,12 @@ versions may change the public API.
   compatibility. Session idle timeouts and session caps are unused in stateless
   mode.
 
+- The `make` generators preserve a destination created by another process during file
+  creation and roll back failed or partial writes. They require neither hard
+  links nor write access to the application's parent directory.
+- Tools-capability previews and generation return structured failures for
+  inaccessible paths on every supported Python version, including when using
+  `--json` on Python 3.12.
 - Documentation examples now compose consistently across contracts, routes,
   response presenters, idempotency headers, evaluation runners, and read-only
   preflight checks. Guides explain input adapters for reusing HTTP use cases

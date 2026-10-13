@@ -5,7 +5,7 @@ import tomllib
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import pytest
 
@@ -44,7 +44,7 @@ def _assert_operation_error(
     assert result.returncode != 0
     payload = json.loads(result.stdout)
     assert payload == {
-        "schema_version": 12,
+        "schema_version": 13,
         "result": "operation_error",
         "operation": operation,
         "ok": False,
@@ -248,7 +248,7 @@ def test_new_scaffolds_a_working_app(
     mapped = _tenchi(root, "map", "--json")
     assert mapped.returncode == 0, mapped.stdout + mapped.stderr
     app_map = json.loads(mapped.stdout)
-    assert app_map["schema_version"] == 12
+    assert app_map["schema_version"] == 13
     assert app_map["summary"] == {
         "features": 1,
         "contracts": 2,
@@ -317,7 +317,7 @@ def test_new_full_generates_every_extension_point(
     preflight = _tenchi(root, "preflight", "--json")
     assert preflight.returncode == 0, preflight.stdout + preflight.stderr
     preflight_result = json.loads(preflight.stdout)
-    assert preflight_result["schema_version"] == 12
+    assert preflight_result["schema_version"] == 13
     assert preflight_result["ok"] is True
     assert preflight_result["counts"] == {
         "passed": 0,
@@ -331,13 +331,13 @@ def test_new_full_generates_every_extension_point(
         evaluation_list.stdout + evaluation_list.stderr
     )
     listed_evaluations = json.loads(evaluation_list.stdout)
-    assert listed_evaluations["schema_version"] == 12
+    assert listed_evaluations["schema_version"] == 13
     assert listed_evaluations["evaluations"] == []
 
     evaluation_run = _tenchi(root, "eval", "run", "--json")
     assert evaluation_run.returncode == 0, evaluation_run.stdout + evaluation_run.stderr
     evaluation_report = json.loads(evaluation_run.stdout)
-    assert evaluation_report["schema_version"] == 12
+    assert evaluation_report["schema_version"] == 13
     assert evaluation_report["ok"] is True
     assert evaluation_report["counts"] == {
         "completed": 0,
@@ -561,7 +561,7 @@ def test_eval_snapshot_cli_writes_checks_and_classifies_policy_changes(
 
     assert changed.returncode == 1
     report = json.loads(changed.stdout)
-    assert report["schema_version"] == 12
+    assert report["schema_version"] == 13
     assert report["compatible"] is False
     assert report["changes"][0]["message"].startswith("threshold decreased")
     assert "private prompt" not in changed.stdout + changed.stderr
@@ -684,7 +684,7 @@ def test_jobs_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> None
     agent_result = _tenchi(tmp_path, "jobs", "--jobs", target, "--json")
     assert agent_result.returncode == 0, agent_result.stderr
     listed_result = json.loads(agent_result.stdout)
-    assert listed_result["schema_version"] == 12
+    assert listed_result["schema_version"] == 13
     assert listed_result["manifest"] == manifest
 
     written = _tenchi(tmp_path, "jobs", "--jobs", target, "--write", "jobs.json")
@@ -766,7 +766,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     agent_result = _tenchi(tmp_path, "tools", "--tools", target, "--json")
     assert agent_result.returncode == 0, agent_result.stderr
     listed_result = json.loads(agent_result.stdout)
-    assert listed_result["schema_version"] == 12
+    assert listed_result["schema_version"] == 13
     assert listed_result["root"] == str(tmp_path)
     assert listed_result["manifest"] == manifest
 
@@ -802,7 +802,7 @@ def test_tools_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> Non
     )
     assert diff.returncode == 1
     report = json.loads(diff.stdout)
-    assert report["schema_version"] == 12
+    assert report["schema_version"] == 13
     assert report["status"] == "incompatible"
     assert report["counts"]["breaking"] == 1
     assert report["counts"]["metadata"] == 1
@@ -909,7 +909,7 @@ def test_preflight_cli_returns_redacted_versioned_results(tmp_path: Path) -> Non
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 12
+    assert payload["schema_version"] == 13
     assert payload["target"] == target
     assert payload["ok"] is False
     assert payload["counts"] == {
@@ -1104,7 +1104,7 @@ def test_task_cli_lists_runs_and_reports_validation_as_versioned_json(
     listed = _tenchi(tmp_path, "task", "list", "--tasks", target, "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     listing = json.loads(listed.stdout)
-    assert listing["schema_version"] == 12
+    assert listing["schema_version"] == 13
     assert listing["target"] == target
     assert listing["tasks"][0]["name"] == "records.repair"
     assert listing["tasks"][0]["input_required"] is True
@@ -1156,7 +1156,7 @@ def test_generated_app_checks_pass(
 
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
-    assert report["schema_version"] == 12
+    assert report["schema_version"] == 13
     assert report["ok"] is True
     assert report["counts"] == {"passed": 6, "failed": 0, "total": 6}
     assert [step["name"] for step in report["steps"]] == [
@@ -1356,7 +1356,7 @@ def test_verify_produces_one_receipt_against_an_immutable_baseline(
 
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads(result.stdout)
-    assert receipt["schema_version"] == 12
+    assert receipt["schema_version"] == 13
     assert receipt["tenchi_version"]
     assert receipt["ok"] is True
     assert receipt["baseline"] == {"ref": "HEAD", "commit": commit}
@@ -1875,7 +1875,7 @@ def test_openapi_diff_ref_reads_the_snapshot_from_git(
     )
     assert compatible_result.returncode == 0, compatible_result.stderr
     compatible = json.loads(compatible_result.stdout)
-    assert compatible["schema_version"] == 12
+    assert compatible["schema_version"] == 13
     assert compatible["root"] == str(root)
     assert compatible["baseline"] == "HEAD:openapi.json"
     assert compatible["compatible"] is True
@@ -1990,7 +1990,7 @@ def test_routes_prints_bound_routes(
     assert "TODO_NOT_FOUND" in out
 
 
-def test_make_feature_omits_files_nothing_composes(
+def test_make_feature_does_not_inherit_application_capabilities(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -2000,7 +2000,7 @@ def test_make_feature_omits_files_nothing_composes(
     capsys.readouterr()
     root = tmp_path / "my_app"
     monkeypatch.chdir(root)
-    # Adding one composition module opts that capability back in.
+    # A server composition module does not opt every new feature into tools.
     (root / "app/server/tools.py").write_text(
         "from tenchi.tools import tool_group\n\ntools = tool_group()\n"
     )
@@ -2017,13 +2017,11 @@ def test_make_feature_omits_files_nothing_composes(
         "routes.py",
     ):
         assert (feature_root / expected).is_file()
-    assert (feature_root / "tools.py").is_file()
-    for absent in ("tasks.py", "jobs.py", "evaluations.py"):
+    for absent in ("tasks.py", "jobs.py", "tools.py", "evaluations.py"):
         assert not (feature_root / absent).exists()
     compose_steps = [step for step in created["next_steps"] if "Compose" in step]
     assert compose_steps == [
         "Compose app.features.notes.routes in app/server/routes.py",
-        "Compose app.features.notes.tools in app/server/tools.py",
     ]
 
 
@@ -2036,7 +2034,22 @@ def test_make_feature_scaffolds_importable_skeleton(
     assert main(["new", "my_app", "--full"]) == 0
     monkeypatch.chdir(tmp_path / "my_app")
 
-    assert main(["make", "feature", "notes"]) == 0
+    assert (
+        main(
+            [
+                "make",
+                "feature",
+                "notes",
+                "--with",
+                "tasks",
+                "--with",
+                "jobs",
+                "--with",
+                "tools",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     assert "app/features/notes" in out
     assert "app/server/routes.py" in out
@@ -2086,10 +2099,25 @@ def test_make_dry_run_and_json_share_a_versioned_result(
     root = tmp_path / "my_app"
     monkeypatch.chdir(root)
 
-    assert main(["make", "feature", "notes", "--dry-run", "--json"]) == 0
+    assert (
+        main(
+            [
+                "make",
+                "feature",
+                "notes",
+                "--with",
+                "tools",
+                "--with",
+                "evaluations",
+                "--dry-run",
+                "--json",
+            ]
+        )
+        == 0
+    )
     planned = json.loads(capsys.readouterr().out)
 
-    assert planned["schema_version"] == 12
+    assert planned["schema_version"] == 13
     assert planned["ok"] is True
     assert planned["dry_run"] is True
     assert planned["artifact"] == "feature"
@@ -2099,7 +2127,21 @@ def test_make_dry_run_and_json_share_a_versioned_result(
     assert any("app/server/evaluations.py" in step for step in planned["next_steps"])
     assert not (root / "app/features/notes").exists()
 
-    assert main(["make", "feature", "notes", "--json"]) == 0
+    assert (
+        main(
+            [
+                "make",
+                "feature",
+                "notes",
+                "--with",
+                "tools",
+                "--with",
+                "evaluations",
+                "--json",
+            ]
+        )
+        == 0
+    )
     created = json.loads(capsys.readouterr().out)
     assert created["files"] == planned["files"]
     assert created["dry_run"] is False
@@ -2137,7 +2179,7 @@ def test_make_json_reports_errors_without_writing(
     assert main(["make", "feature", "notes", "--json"]) == 1
 
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == 12
+    assert result["schema_version"] == 13
     assert result["ok"] is False
     assert result["files"] == []
     assert "app/features/ not found" in result["error"]
@@ -2154,18 +2196,21 @@ def test_make_json_rolls_back_a_partial_filesystem_failure(
     monkeypatch.chdir(root)
     capsys.readouterr()
 
-    original_replace = Path.replace
-    replace_calls = 0
+    original_open = Path.open
+    create_calls = 0
 
-    def fail_second_replace(source: Path, target: Path) -> Path:
-        nonlocal replace_calls
-        replace_calls += 1
-        if replace_calls == 2:
-            raise OSError("simulated filesystem failure")
-        return original_replace(source, target)
+    def fail_second_create(
+        destination: Path, mode: str = "r", *args: Any, **kwargs: Any
+    ) -> IO[Any]:
+        nonlocal create_calls
+        if mode == "x":
+            create_calls += 1
+            if create_calls == 2:
+                raise OSError("simulated filesystem failure")
+        return original_open(destination, mode, *args, **kwargs)
 
     with monkeypatch.context() as failure:
-        failure.setattr(Path, "replace", fail_second_replace)
+        failure.setattr(Path, "open", fail_second_create)
         assert main(["make", "feature", "notes", "--json"]) == 1
 
     failed = json.loads(capsys.readouterr().out)
@@ -2725,7 +2770,7 @@ create_project_contract = contract(
 
     assert result.returncode == 1
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == 12
+    assert payload["schema_version"] == 13
     assert payload["artifact"] == "use-case"
     assert payload["ok"] is False
     assert payload["files"] == []
@@ -3351,7 +3396,7 @@ def test_routes_json_emits_a_machine_readable_map(
     assert main(["routes", "--json"]) == 0
 
     result = cast(dict[str, Any], json.loads(capsys.readouterr().out))
-    assert result["schema_version"] == 12
+    assert result["schema_version"] == 13
     assert result["root"] == str(EXAMPLE_DIR)
     entries = cast(list[dict[str, Any]], result["routes"])
     assert entries

@@ -38,9 +38,13 @@ uv run tenchi dev
 The default starter includes the todos API, SQLite and memory adapters, and
 OpenAPI checks. Use `uvx tenchi new my_app --full` to also generate composition
 modules for jobs, operational tasks, application tools, evaluations, and
-preflight checks, along with their supporting files. `tenchi make feature`
-includes optional capability modules only when the application already composes
-them.
+preflight checks, along with their supporting files.
+
+In the unreleased 0.19 version, select optional feature modules explicitly:
+`tenchi make feature invoices --with jobs --with tools`. Start adopting
+application tools with `tenchi make capability tools --dry-run --json`, then
+run it without `--dry-run` and follow its composition, snapshot, and
+verification-policy instructions.
 
 Call the generated todos API from another terminal:
 
@@ -183,6 +187,11 @@ features. The [framework comparison](https://tenchi.io/comparisons) describes
 the tradeoffs with FastAPI, Starlette, Litestar, and Django Ninja.
 
 ## Development
+
+Contributors should read [AGENTS.md](AGENTS.md) for repository rules and
+[PRODUCT.md](PRODUCT.md) for the framework's goals and design tradeoffs.
+Tenchi prioritizes a development workflow that humans and coding agents can
+understand and verify, built on a small, contract-first Python application model.
 
 ```shell
 uv sync

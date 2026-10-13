@@ -24,6 +24,7 @@ from ._app_map import (
     map_app,
     project_app_map,
 )
+from ._capability_operations import make_capability_result
 from ._checks import CheckCancelled, run_check
 from ._cli_operations import (
     ContractLoadError,
@@ -84,6 +85,7 @@ from ._targets import (
     DEFAULT_ROUTES_TARGET,
     DEFAULT_TASKS_TARGET,
     DEFAULT_TOOLS_TARGET,
+    FeatureCapability,
 )
 from ._task_operations import (
     load_task_runner,
@@ -658,7 +660,9 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
     @server.tool(
         name="make_preview",
         description=(
-            "Preview a Tenchi feature or use-case generator. The result performs "
+            "Preview a Tenchi feature, use-case, or tools-capability generator. "
+            "Feature previews include only explicitly selected capabilities "
+            "(tasks, jobs, tools, evaluations). The result performs "
             "normal validation and lists files and wiring steps but never writes. "
             "For a use case, from_contract derives its exact boundary signature "
             "from a contract in the selected feature. Pass base_ref to include a "
@@ -672,18 +676,33 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         feature: str | None = None,
         from_contract: str | None = None,
         base_ref: str | None = None,
+        capabilities: list[FeatureCapability] | None = None,
     ) -> MakePayload:
-        if artifact == "feature":
+        if artifact != "feature" and capabilities is not None:
+            raise ToolError("capabilities is only valid when artifact is 'feature'")
+        if artifact in ("feature", "capability"):
             if feature is not None:
-                raise ToolError("feature must be omitted when artifact is 'feature'")
+                raise ToolError(
+                    f"feature must be omitted when artifact is {artifact!r}"
+                )
             if from_contract is not None:
                 raise ToolError(
-                    "from_contract must be omitted when artifact is 'feature'"
+                    f"from_contract must be omitted when artifact is {artifact!r}"
                 )
             if base_ref is not None:
-                raise ToolError("base_ref must be omitted when artifact is 'feature'")
+                raise ToolError(
+                    f"base_ref must be omitted when artifact is {artifact!r}"
+                )
+            if artifact == "capability":
+                return await call(
+                    lambda: make_capability_result(
+                        root, name=name, dry_run=True
+                    ).as_dict()
+                )
             return await call(
-                lambda: make_feature_result(root, name=name, dry_run=True).as_dict()
+                lambda: make_feature_result(
+                    root, name=name, dry_run=True, capabilities=capabilities or ()
+                ).as_dict()
             )
         if feature is None:
             raise ToolError("feature is required when artifact is 'use-case'")
@@ -906,6 +925,9 @@ def _fallback_agent_instructions() -> str:
    `base_ref` when the result should include a change plan, then retain its
    `plan_id` outside the edited worktree. Keep the generated test function name
    when replacing its body; the plan binds execution evidence to that target.
+   For a feature, pass an explicit `capabilities` list to select optional files.
+   To adopt application tools, preview `artifact: "capability", name: "tools"`
+   and follow its composition, snapshot, and verification-policy instructions.
 3. Keep contracts at the boundary, behavior in async use cases, infrastructure
    behind protocols, and wiring explicit in the server composition root.
 4. Run `check` after a coherent change.

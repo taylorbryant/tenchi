@@ -38,9 +38,13 @@ adoption when the module did not exist at the baseline.
 
 ## Generate application slices
 
+The explicit capability flags and tools-adoption generator below target
+Tenchi 0.19 (unreleased).
+
 ```shell
 uv run tenchi make feature notes
 uv run tenchi make feature notes --dry-run
+uv run tenchi make feature invoices --with jobs --with tools --dry-run --json
 uv run tenchi make use-case notes create_note
 uv run tenchi make use-case notes create_note --json
 uv run tenchi make use-case notes create_note \
@@ -53,10 +57,13 @@ uv run tenchi make use-case notes create_note \
 ```
 
 Generators create files and print explicit wiring instructions. They never
-rewrite route or infrastructure modules. A new feature receives `tasks.py`,
-`jobs.py`, `tools.py`, or `evaluations.py` only when the matching
-`app/server/` composition module exists, so a feature never gains a file that
-nothing composes. `--dry-run` validates the operation
+rewrite existing modules. A new feature receives the core files by default,
+even in an application created with `--full`. Add `--with tasks`, `--with jobs`,
+`--with tools`, or `--with evaluations` to select optional feature modules;
+repeat the flag to select more than one. Repeated values are deduplicated, and
+file order is stable regardless of flag order. You can select a capability
+before its server module exists; follow-up steps name the required setup.
+`--dry-run` validates the operation
 and lists every file without writing it. `--json` emits the same result as a
 versioned object with the app root, artifact identity, files, follow-up steps,
 and any error.
@@ -92,6 +99,29 @@ in the same transaction as the generated use case and test. The result includes
 the content-derived plan ID. With `--dry-run`, Tenchi returns the prospective
 plan but writes neither the plan nor application files. See [verify a generated
 change](/change-plans) for the complete workflow and proof boundary.
+
+## Adopt application tools
+
+From an existing application root, preview the files and follow-up steps:
+
+```shell
+uv run tenchi make capability tools --dry-run --json
+uv run tenchi make capability tools
+```
+
+This creates `app/server/tools.py` with an empty tool group, its canonical
+`tools.json`, and `tests/test_tool_snapshot.py`. The generator refuses the
+whole operation if any output already exists, if `app/server/tools/` exists,
+or if an output path passes through a symlink. It reports conflicts during
+preview too. For a partially configured application, use the [tools guide](/tools)
+to complete the setup manually.
+
+Finish the printed steps: enable `tools = true` in the existing `[verify]`
+table in `tenchi.toml`, bind feature tools, compose their groups, review the
+manifest diff, and run `check` and historical `verify`. The command never
+edits policy or existing source files. Without a policy file, Tenchi's built-in
+policy requires tools while the composition module exists. Only `tools` is
+supported by this generator.
 
 ## Inspect routes
 
