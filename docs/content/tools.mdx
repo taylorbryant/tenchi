@@ -280,7 +280,7 @@ agent or CI system needs the versioned report. `tenchi tools --json` returns
 the current registered manifest in a versioned result without writing a file.
 
 `tenchi map` includes tool nodes, their feature ownership, safety details,
-registration state, and exact bindings to use cases. This lets a coding agent
+registration state, and exact bindings to use cases. This lets an agent
 find both the contract and the behavior it exposes before editing either one.
 
 ## Connect a transport
@@ -298,5 +298,5 @@ For MCP clients, [`create_tool_mcp_server()`](/tool-mcp) maps schemas and
 failures, propagates cancellation, and invokes callbacks for authentication,
 visibility, and approval policy.
 
-`tenchi mcp` is a different server: it lets a coding agent inspect and validate
+`tenchi mcp` is a different server: it lets an agent inspect and validate
 a Tenchi repository. It does not expose the application's `ToolGroup`.

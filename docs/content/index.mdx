@@ -8,11 +8,13 @@ import { LogoMark } from "@/components/logo-mark";
 </div>
 
 <div className="mb-5 text-xl font-medium leading-relaxed tracking-tight text-ink">
-  Build typed Python APIs around explicit contracts and plain async functions.
+  A contract-first Python framework for humans and agents.
 </div>
 
-Tenchi validates data at the boundary, keeps behavior independent of HTTP, and
-leaves infrastructure choices to your application.
+Build Python backends that you and your agent can understand, change,
+and verify. Tenchi keeps contracts at the boundary, behavior in plain async
+functions, and dependency wiring explicit. Its development tools help you
+inspect a feature, preview a change, and review the resulting evidence.
 
 ## Choose a path
 
@@ -30,10 +32,10 @@ leaves infrastructure choices to your application.
     href="/concepts"
   />
   <JourneyCard
-    label="Look up"
-    title="Find a public API"
-    description="Browse Tenchi's Python modules and the focused guides for each capability."
-    href="/reference"
+    label="Develop"
+    title="Make a reviewable change"
+    description="Inspect, preview, implement, and verify with the same workflow for people and agents."
+    href="/agents"
   />
 </div>
 
@@ -58,6 +60,8 @@ curl -i \
 The generated application includes a working feature, SQLite persistence,
 direct use-case tests, HTTP tests, and Swagger UI at
 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+It also includes `AGENTS.md`, project-local MCP configuration, and a
+`tenchi.toml` verification policy for the development workflow.
 
 ## One small application model
 
@@ -81,6 +85,27 @@ Read [How Tenchi works](/concepts) for the complete mental model or
 [Build a feature](/build-a-feature) to carry a new operation through
 persistence and tests.
 
+## Understand, change, and verify
+
+| Step | What you do |
+| --- | --- |
+| Understand | Run `tenchi map --feature <name>` and read the source and tests it identifies |
+| Specify | Declare inputs, outputs, and errors in the contract |
+| Preview | Use `tenchi make ... --dry-run` to review files and wiring steps |
+| Implement | Write the use case and meaningful tests; compose dependencies explicitly |
+| Check | Run `tenchi check` for formatting, lint, types, tests, architecture, and snapshot drift |
+| Review | Compare compatibility before accepting snapshots, then run `tenchi verify --base-ref <historical-ref>` and review its receipt with the diff |
+
+`verify` compares with a committed baseline from before the change. Its
+receipt reports the configured checks and compatibility evidence. A change
+plan can also verify generated structure and planned-test execution; neither
+result establishes business correctness or the quality of test assertions.
+
+Follow the [development workflow](/agents) directly or give it to an agent.
+Structured CLI results and the [agent MCP server](/mcp) expose the same
+inspection, preview, and verification operations without requiring a
+particular agent vendor. The [CLI reference](/cli) lists the commands.
+
 ## Add capabilities when the application needs them
 
 The same use-case model supports more than HTTP, but those capabilities are
@@ -92,12 +117,8 @@ optional:
   idempotency, retries, observability, preflight, and deployment decisions.
 - [Run behavior outside HTTP](/execution) from workers, jobs, tasks, scripts,
   or application tools.
-- [Build with AI](/ai) when the application needs coding-agent workflows,
-  machine-facing tools, MCP, or evaluations.
-
-You can ignore those guides until the corresponding need appears. They extend
-the same contracts, use cases, ports, and explicit wiring rather than adding a
-second architecture.
+- [Add AI capabilities](/ai) when the application needs model calls,
+  machine-facing tools, an application MCP endpoint, or evaluations.
 
 <Callout type="warning" title="Pre-1.0 software">
   Minor releases can still change Tenchi's public API. Read [stability and

@@ -79,9 +79,31 @@ its own guide.
 - An **evaluation** is a typed, thresholded suite that gates AI-powered
   behavior. See [AI evaluations](/evaluations).
 
+## Development workflow
+
+The same small application model gives people and agents predictable
+places to read and edit. Development tools connect those source files to
+reviewable evidence:
+
+- `tenchi map` identifies features, declarations, and their relationships.
+- Generator previews show the files and explicit wiring a change needs.
+- `tenchi check` runs project checks, including tests and snapshot drift.
+- `tenchi verify` compares the finished tree with a historical commit and
+  records the checks, architecture, and required compatibility evidence.
+
+Generated applications include instructions, an MCP configuration for agents,
+and a verification policy. Use the [development workflow](/agents) through
+the CLI or agent MCP.
+
+Passing checks establish only the evidence they collected. The developer
+still reviews business behavior and test assertions; [change plans](/change-plans#what-the-receipt-proves)
+add structural and test-execution evidence with explicit limits.
+
 ## The key tradeoff
 
 Tenchi asks for more structure than a one-file microframework example. In
-return, an endpoint's validation, client behavior, OpenAPI, compatibility
-policy, and application boundary do not become separate models as the service
-grows.
+return, the contract connects validation, client behavior, OpenAPI, and
+compatibility review, while explicit source structure helps people and agents
+find the affected behavior. Judge that structure by the decisions it removes
+and the clarity of a real change. The number of files alone does not tell you
+how difficult the application will be to maintain.

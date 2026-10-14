@@ -15,7 +15,7 @@ Tenchi gives each public surface an explicit compatibility boundary:
   updates before upgrading.
 - OpenAPI, durable job messages, application tools, and evaluation policy have
   compatibility reports you can run against your own historical snapshots.
-- Structured CLI results and the coding-agent MCP server share one versioned
+- Structured CLI results and the agent MCP server share one versioned
   schema. Application-tool manifests and application MCP results use separate
   versioned schemas. Contract-driven change plans also carry their own schema
   version and a content-derived plan ID. A breaking wire-format change receives a new
@@ -72,12 +72,15 @@ and response headers.
 
 ## What will gate 1.0
 
-Tenchi should reach 1.0 after its contract, response, client, context, and
-composition APIs have been exercised by several independently maintained
-applications and can remain stable across normal framework evolution.
+The goal for 1.0 is a stable application model and a dependable change workflow.
+Contracts, responses, clients, contexts, and composition need experience from
+independently maintained applications. Inspection, generation, diagnostics,
+and verification also need to hold up as people and agents make
+realistic changes.
 
-The bar is not a large feature checklist. It is confidence that the small core
-has earned its abstractions and that users can upgrade predictably.
+Look for predictable upgrades, clear evidence and limitations, and less
+repeated work during implementation and review. Additional framework
+capabilities should earn their cost through observed application needs.
 
 <Callout title="Report real application pressure">
   Bugs and design feedback from complete applications are more valuable than

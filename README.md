@@ -4,15 +4,15 @@
 [![PyPI](https://img.shields.io/pypi/v/tenchi.svg)](https://pypi.org/project/tenchi/)
 [![Python](https://img.shields.io/pypi/pyversions/tenchi.svg)](https://pypi.org/project/tenchi/)
 
-**Typed Python APIs with explicit boundaries and plain application code.**
+**A contract-first Python framework for humans and agents.**
 
 Tenchi keeps Pydantic validation at the boundary, behavior in plain async
 functions, and infrastructure behind `typing.Protocol` ports. A contract
 describes an HTTP operation; `route()` binds it to a use case; your application
 wires the dependencies.
 
-There is no dependency-injection container, base controller, ORM, queue,
-scheduler, or model runtime hidden inside the framework.
+The same development workflow lets you inspect a feature, preview its
+structure, implement behavior, and review checks and compatibility evidence.
 
 > **Pre-1.0 software.** Minor releases may change public APIs. Read
 > [stability and releases](https://tenchi.io/stability) before adopting Tenchi
@@ -20,7 +20,8 @@ scheduler, or model runtime hidden inside the framework.
 
 [Documentation](https://tenchi.io/) ·
 [First application](https://tenchi.io/getting-started) ·
-[How Tenchi works](https://tenchi.io/concepts)
+[How Tenchi works](https://tenchi.io/concepts) ·
+[Development workflow](https://tenchi.io/agents)
 
 ## Build and run an application
 
@@ -35,16 +36,10 @@ uv run tenchi check
 uv run tenchi dev
 ```
 
-The default starter includes the todos API, SQLite and memory adapters, and
-OpenAPI checks. Use `uvx tenchi new my_app --full` to also generate composition
-modules for jobs, operational tasks, application tools, evaluations, and
-preflight checks, along with their supporting files.
-
-Select optional feature modules explicitly:
-`tenchi make feature invoices --with jobs --with tools`. Start adopting
-application tools with `tenchi make capability tools --dry-run --json`, then
-run it without `--dry-run` and follow its composition, snapshot, and
-verification-policy instructions.
+The default starter includes the todos API, SQLite and memory adapters,
+tests, and OpenAPI checks. It also includes `AGENTS.md`, project-local MCP
+configuration, and `tenchi.toml` so people, agents, and CI share the
+same application conventions and verification requirements.
 
 Call the generated todos API from another terminal:
 
@@ -59,9 +54,29 @@ Open [Swagger UI](http://127.0.0.1:8000/docs) to inspect and call the same API
 in a browser. The [first-application guide](https://tenchi.io/getting-started)
 follows this request through the generated code and makes one behavior change.
 
-The optional [application MCP adapter](https://tenchi.io/tool-mcp) supports
-stateless Streamable HTTP. SDK session idle timeout and session cap options
-are accepted but unused; legacy SSE is rejected.
+## Make a reviewable change
+
+1. Inspect the affected feature with `uv run tenchi map --feature todos` and
+   read the source and tests it identifies.
+2. Declare the boundary in a contract and preview generated files with
+   `tenchi make ... --dry-run` before creating them.
+3. Implement behavior in plain Python, wire dependencies explicitly, and
+   write tests for the requirement.
+4. Run `uv run tenchi check` for formatting, lint, types, tests, architecture,
+   and snapshot drift. Review compatibility changes before accepting new
+   snapshots.
+5. Run `uv run tenchi verify --base-ref <historical-ref>` against the commit
+   before the change, then review its receipt alongside the code and tests.
+
+Use the pull-request base, previous push, or previous release for the
+historical ref. `verify` needs committed baseline snapshots. A passing result
+records the configured checks and compatibility evidence; reviewers still
+judge whether the behavior and assertions meet the requirement.
+
+[Agents](https://tenchi.io/agents) use these same commands with
+`--json`, or access inspection, previews, and verification through the
+[agent MCP server](https://tenchi.io/mcp). You choose the agent and
+model provider.
 
 ## The application model
 
@@ -162,13 +177,16 @@ The core model stays the same as the application grows:
 - Add [idempotency](https://tenchi.io/idempotency),
   [observability](https://tenchi.io/observability), and
   [deployment checks](https://tenchi.io/production) when preparing to ship.
-- Expose selected use cases as [application tools](https://tenchi.io/tools) or
-  use [coding-agent workflows](https://tenchi.io/agents) when those capabilities
-  fit the project.
+- Expose selected use cases as [application tools](https://tenchi.io/tools),
+  serve them through [application MCP](https://tenchi.io/tool-mcp), or add
+  [evaluations](https://tenchi.io/evaluations) when the application runs AI
+  behavior.
 
-These features are independent. A Tenchi application does not need jobs, AI
-tools, evaluations, or historical compatibility checks to define and serve an
-HTTP API.
+Adopt these runtime capabilities individually. Select optional feature modules
+with `tenchi make feature invoices --with jobs --with tools`. Preview tools
+adoption with `tenchi make capability tools --dry-run --json`, then follow its
+composition and verification-policy instructions. `tenchi new --full` includes
+all optional composition modules when you need that starting point.
 
 Jobs, tasks, tools, and `execute()` call functions with `request` and `context`.
 For a use case that also requires HTTP-specific `params`, `query`, or `headers`,
@@ -177,9 +195,10 @@ behavior from those entrypoints.
 
 ## When Tenchi fits
 
-Choose Tenchi when you want a long-lived typed JSON API with explicit
-dependencies, directly testable behavior, and boundary definitions that stay
-aligned with OpenAPI and client code.
+Choose Tenchi when you want humans and agents to make backend changes
+through explicit contracts, predictable source structure, directly testable
+behavior, and reviewable verification evidence. The application model stays
+small, while development tooling is part of the framework's main workflow.
 
 Choose another framework when you need WebSockets, HTML templates, an ORM,
 admin UI, background runtime, or a large integration ecosystem as built-in
@@ -190,7 +209,7 @@ the tradeoffs with FastAPI, Starlette, Litestar, and Django Ninja.
 
 Contributors should read [AGENTS.md](AGENTS.md) for repository rules and
 [PRODUCT.md](PRODUCT.md) for the framework's goals and design tradeoffs.
-Tenchi prioritizes a development workflow that humans and coding agents can
+Tenchi prioritizes a development workflow that humans and agents can
 understand and verify, built on a small, contract-first Python application model.
 
 ```shell

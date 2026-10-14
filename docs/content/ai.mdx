@@ -1,48 +1,29 @@
 import { Callout } from "@/components/callout";
 
-# Build with AI
+# Add AI capabilities
 
-Tenchi supports two different roles for AI without creating two application
-architectures:
+Use application-owned ports for model calls, typed tools for machine callers,
+and evaluation cases for behavior you need to measure. Adopt each capability
+when your application needs it; they share the same plain async use cases and
+explicit dependency wiring as an HTTP API.
 
-| Goal | Tenchi's role |
+| Application need | Start with |
 | --- | --- |
-| Let a coding agent change the backend | Give the agent deterministic inspection, previewable generation, structured checks, and historical verification |
-| Add AI behavior to the backend | Expose ordinary use cases as typed tools, keep providers behind ports, and gate model behavior with evaluations |
+| Call a model provider | An application-owned protocol and an infrastructure adapter |
+| Let a machine caller invoke a use case | [Application tools](/tools) |
+| Expose those tools over MCP | [Application MCP](/tool-mcp) |
+| Measure model behavior against cases and thresholds | [Evaluations](/evaluations) |
 
-Both paths lead back to the same plain async use cases and explicit dependency
-wiring. Model-generated input never supplies identity or infrastructure, and a
-coding agent does not need a hidden framework runtime to understand the
-application.
+Model-generated input never supplies identity or infrastructure. Your
+application owns authentication, authorization, provider choice, and resource
+lifecycle.
 
 ## Let an agent change the backend
 
-A coding agent works through the same development loop as a person:
-
-```shell
-uv run tenchi map --feature projects --json
-uv run tenchi make use-case projects create_project \
-  --from-contract app.features.projects.contracts:create_project_contract \
-  --dry-run --json
-uv run tenchi check --json
-uv run tenchi verify --base-ref origin/main --json
-```
-
-The map explains what exists and how it is connected. The preview derives a
-use-case boundary from the contract without writing files. `check` reports the
-complete local repair list, and `verify` compares the finished application with
-a Git baseline.
-
-Generated applications include an `AGENTS.md` and project-local MCP
-configuration. Use the [coding-agent workflow](/agents) with any agent that can
-read files and run commands, or [connect an MCP-aware coding agent](/mcp) to the
-same operations.
-
-For contract-driven generation, a [change plan](/change-plans) can bind the
-requested contract, generated files, route wiring, and one test target to the
-final verification receipt. The [receipt](/change-plans#verification-terms) proves that the structure was
-completed and its test ran. When the code producer is untrusted, acceptance
-tests owned outside the repository remain the right check.
+Follow the [development workflow](/agents) to have an agent inspect,
+change, and verify your backend. The [agent MCP server](/mcp) provides
+access to those development operations; [application MCP](/tool-mcp) exposes
+your use cases to callers.
 
 ## Add AI behavior to the backend
 
@@ -139,7 +120,7 @@ credentials in CI.
 
 Choose the next page from the role AI will play:
 
-- [Let a coding agent change your backend](/agents)
+- [Let an agent change your backend](/agents)
 - [Expose use cases as AI tools](/tools)
 - [Gate AI behavior with evaluations](/evaluations)
 - [Study the Fieldnotes reference backend](/fieldnotes)

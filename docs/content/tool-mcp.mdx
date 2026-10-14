@@ -9,7 +9,7 @@ the caller's `ToolRunner`.
 
 <Callout type="note" title="This is your application's MCP server">
   `tenchi.mcp` serves the application tools you declared. The `tenchi mcp` CLI
-  command is a separate development server that lets coding agents inspect and
+  command is a separate development server that lets agents inspect and
   validate a Tenchi repository.
 </Callout>
 
@@ -23,7 +23,7 @@ uv add "tenchi[mcp]"
 
 Tenchi uses the stable 2.x line of the official MCP Python SDK.
 
-Keep it as a development dependency only when you use the coding-agent server
+Keep it as a development dependency only when you use the agent server
 and do not expose application tools at runtime.
 
 ## Authenticate and create the server
@@ -314,7 +314,7 @@ uv run tenchi tools --check tools.json
 The snapshot covers the names, JSON Schemas, declared errors, and safety
 annotations this MCP server publishes. Use `--diff-ref` in pull requests so the
 baseline comes from before the branch. The application MCP result envelope has
-its own protocol version, separate from the tool manifest and coding-agent
+its own protocol version, separate from the tool manifest and agent
 results. If you parse the envelope directly, check that version and update
 your integration before accepting an unsupported one.
 

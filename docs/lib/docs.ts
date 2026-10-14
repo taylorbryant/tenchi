@@ -1,7 +1,7 @@
 export const siteName = "Tenchi";
 
 export const siteDescription =
-  "Build typed Python APIs around explicit contracts and plain async functions.";
+  "Build and verify Python backends with humans and agents, using explicit contracts and plain async functions.";
 
 export const defaultSiteUrl = "https://tenchi.io";
 
@@ -37,7 +37,7 @@ export const docsSections = [
         title: "How Tenchi works",
         navLabel: "Mental model",
         description:
-          "Understand the small application model shared by HTTP, workers, tools, tests, and coding-agent workflows.",
+          "Understand the small application model shared by HTTP, workers, tools, tests, and agent workflows.",
         priority: 0.94,
       },
       {
@@ -124,6 +124,43 @@ export const docsSections = [
         description:
           "Call Tenchi contracts through async httpx with validated inputs, responses, errors, retries, and payload-safe outcomes.",
         priority: 0.84,
+      },
+    ],
+  },
+  {
+    label: "Develop",
+    routes: [
+      {
+        path: "/agents",
+        title: "Let an agent change your backend",
+        navLabel: "Development workflow",
+        description:
+          "Inspect, preview, implement, check, and review backend changes with the same workflow for people and agents.",
+        priority: 0.94,
+      },
+      {
+        path: "/mcp",
+        title: "Connect an agent over MCP",
+        navLabel: "Agent MCP server",
+        description:
+          "Connect an MCP-aware agent to Tenchi's application map, generation previews, compatibility reports, and checks.",
+        priority: 0.9,
+      },
+      {
+        path: "/change-plans",
+        title: "Verify a generated change",
+        navLabel: "Change plans",
+        description:
+          "Record the intended structure of a generated use case, then verify its wiring and planned-test execution against one Git baseline.",
+        priority: 0.9,
+      },
+      {
+        path: "/openapi",
+        title: "Review API compatibility",
+        navLabel: "OpenAPI and compatibility",
+        description:
+          "Generate OpenAPI 3.1, store canonical snapshots, and classify contract changes against a historical baseline.",
+        priority: 0.86,
       },
     ],
   },
@@ -234,50 +271,18 @@ export const docsSections = [
           "Configure the production process, lifecycle resources, middleware, health checks, and release gates.",
         priority: 0.8,
       },
-      {
-        path: "/openapi",
-        title: "Review API compatibility",
-        navLabel: "OpenAPI and compatibility",
-        description:
-          "Generate OpenAPI 3.1, store canonical snapshots, and classify contract changes against a historical baseline.",
-        priority: 0.86,
-      },
     ],
   },
   {
-    label: "Agents and AI",
+    label: "AI capabilities",
     routes: [
       {
         path: "/ai",
-        title: "Build with AI",
+        title: "Add AI capabilities",
         navLabel: "Overview",
         description:
-          "Use coding agents to change a Tenchi backend and expose application behavior safely to AI callers through the same architecture.",
-        priority: 0.92,
-      },
-      {
-        path: "/agents",
-        title: "Let a coding agent change your backend",
-        navLabel: "Coding agents",
-        description:
-          "Give coding agents deterministic maps, mutation previews, structured diagnostics, and a complete validation loop.",
-        priority: 0.88,
-      },
-      {
-        path: "/mcp",
-        title: "Connect a coding agent over MCP",
-        navLabel: "Coding-agent MCP server",
-        description:
-          "Connect an MCP-aware coding agent to Tenchi's application map, generation previews, compatibility reports, and checks.",
+          "Adopt application tools, model-provider ports, MCP endpoints, and evaluation gates when your backend needs AI behavior.",
         priority: 0.86,
-      },
-      {
-        path: "/change-plans",
-        title: "Verify a generated change",
-        navLabel: "Change plans",
-        description:
-          "Record what a generated use case must become, then verify the finished change against one Git baseline.",
-        priority: 0.87,
       },
       {
         path: "/tools",

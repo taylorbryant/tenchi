@@ -10,6 +10,28 @@ the route, a direct test, an HTTP test, and the OpenAPI snapshot.
 Complete [Build your first Tenchi app](/getting-started) first, and run every
 command in this guide from the application root.
 
+## Establish a baseline and inspect the feature
+
+Commit the working application, including its current `openapi.json`, before
+editing. For a fresh generated application with no Git repository:
+
+```shell
+git init
+git add .
+git commit -m "Baseline todo application"
+```
+
+If the application already uses Git, use a commit containing the working
+application and its snapshots. Keep that commit for the final comparison:
+
+```shell
+BASE_REF=$(git rev-parse HEAD)
+uv run tenchi map --feature todos
+```
+
+Read the contracts, use cases, ports, and adapters the map identifies. The
+following steps make the boundary change explicit before implementing it.
+
 ## Declare the input and the HTTP operation
 
 Add the path model to `app/features/todos/schemas.py`:
@@ -47,6 +69,37 @@ complete_todo_contract = contract(
 The contract says that the operation accepts one validated path parameter,
 returns a `Todo`, and may expose the existing `TODO_NOT_FOUND` application
 error. It does not yet implement or register the operation.
+
+## Preview the use-case boundary
+
+Ask Tenchi to derive the use-case signature and planned files from the contract:
+
+```shell
+uv run tenchi make use-case todos complete_todo \
+  --from-contract app.features.todos.contracts:complete_todo_contract \
+  --dry-run --json
+```
+
+The preview validates the contract and lists the use-case file, test file, and
+wiring steps without writing them. The implementation below uses that boundary.
+Use the code below to create the files yourself, or generate them with the
+optional command before replacing their contents.
+
+<Callout title="Generate with a change plan (optional)">
+  To record the intended structure and planned test, use this generation
+  command before creating either file:
+
+  ```shell
+  uv run tenchi make use-case todos complete_todo \
+    --from-contract app.features.todos.contracts:complete_todo_contract \
+    --plan .tenchi/changes/complete-todo.json \
+    --base-ref "$BASE_REF" --json
+  ```
+
+  This creates the use-case file, failing test, and plan together. Replace
+  the generated placeholders with the implementation and test below. See
+  [verify a generated change](/change-plans) for what the plan verifies.
+</Callout>
 
 ## Extend the repository port
 
@@ -106,7 +159,8 @@ response validation succeed. A failure rolls the transaction back.
 
 ## Implement the use case
 
-Create `app/features/todos/use_cases/complete_todo.py`:
+Create `app/features/todos/use_cases/complete_todo.py`, or replace its generated
+contents:
 
 ```python
 from tenchi.errors import AppError
@@ -133,14 +187,6 @@ and `execute()` supply `request` and `context`, so this function's `params`
 argument needs a small [input adapter](/execution#adapt-http-inputs) when you
 add one of those entrypoints.
 
-<Callout title="Generate the use case instead">
-  `uv run tenchi make use-case todos complete_todo --from-contract
-  app.features.todos.contracts:complete_todo_contract --dry-run` previews a
-  use case and a failing test derived from the contract. Add `--plan` when a
-  coding agent should prove the generated change was completed; see [verify a
-  generated change](/change-plans).
-</Callout>
-
 <Callout title="No owner scope yet">
   The generated starter has no authenticated subject in `AppContext`, so every
   caller can complete every todo. Do not infer ownership from `todo_id`. When
@@ -151,7 +197,8 @@ add one of those entrypoints.
 
 ## Test the use case directly
 
-Create `app/features/todos/tests/test_complete_todo.py`:
+Create `app/features/todos/tests/test_complete_todo.py`, or replace its generated
+contents:
 
 ```python
 from app.features.todos.schemas import CompleteTodoParams, CreateTodo
@@ -275,6 +322,26 @@ change by writing the new snapshot, then run the complete check:
 uv run tenchi openapi --write openapi.json
 uv run tenchi check
 ```
+
+Finish with a receipt against the commit recorded before editing. If you
+opened a new terminal, set `BASE_REF` to that same full commit hash first:
+
+```shell
+uv run tenchi verify --base-ref "$BASE_REF" --json
+```
+
+If you generated the change plan, use this command instead:
+
+```shell
+uv run tenchi verify --base-ref "$BASE_REF" \
+  --change-plan .tenchi/changes/complete-todo.json --json
+```
+
+The receipt records project checks, architecture, and compatibility with the
+historical API, even after the current snapshot has been updated. Optional
+boundaries the application has not adopted are reported as not configured.
+Review the implementation and assertions too: these checks do not establish
+that every product requirement has been met.
 
 Run `uv run tenchi dev`, create a todo, and call
 `PATCH /todos/{todo_id}/complete` to see the result yourself.
