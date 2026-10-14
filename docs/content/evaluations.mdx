@@ -132,7 +132,7 @@ every generated claim is grounded in supplied evidence. Use a stronger name
 such as `groundedness` only when the evaluator verifies that stronger property.
 
 <Callout type="warning" title="Your provider and logs remain application-owned">
-  The CLI and coding-agent MCP server discard direct standard output and
+  The CLI and agent MCP server discard direct standard output and
   standard error from evaluation code. They cannot redact handlers that send
   data directly to files, telemetry, or a provider dashboard. Configure those
   systems separately and never log prompts or model output unless your data
@@ -283,9 +283,9 @@ be nondeterministic, depend on external services, and incur cost. Run it in a
 deployment workflow that has the intended provider credentials and an explicit
 budget.
 
-## Let a coding agent inspect or run evaluations
+## Let an agent inspect or run evaluations
 
-The coding-agent MCP server always exposes `evaluation_list` and
+The agent MCP server always exposes `evaluation_list` and
 `evaluation_diff`. Discovery returns case
 names and schemas, metric thresholds, timeouts, and budgets without running a
 provider or exposing case inputs. The diff tool compares the same manifest
@@ -319,9 +319,9 @@ their thresholds against examples a person has reviewed. Keep provider
 requests idempotent or isolated when retries could incur duplicate cost.
 
 `tenchi map` includes evaluation nodes with source locations, registration
-state, suite kind, case count, metrics, timeout, and budgets. This gives coding
-agents and reviewers one architecture view of both AI-facing tools and the
-gates that protect their behavior.
+state, suite kind, case count, metrics, timeout, and budgets. This gives agents
+and reviewers one architecture view of both AI-facing tools and the gates
+that protect their behavior.
 
 ## Constraints
 

@@ -1,8 +1,8 @@
 import { Callout } from "@/components/callout";
 
-# Connect a coding agent over MCP
+# Connect an agent over MCP
 
-Tenchi's MCP server gives a coding agent structured access to the application
+Tenchi's MCP server gives an agent structured access to the application
 map, route table, registered job and application-tool contracts, architecture
 diagnostics, generator previews, OpenAPI, job, tool, and evaluation-policy
 compatibility, deployment preflight, evaluation discovery, operational-task
@@ -11,7 +11,7 @@ Inspection and preview tools do not edit application files; `check` runs the
 project's own validation commands and can have their usual side effects.
 
 <Callout type="note" title="This server is for building the application">
-  `tenchi mcp` exposes repository inspection and validation to a coding agent.
+  `tenchi mcp` exposes repository inspection and validation to an agent.
   To expose your application's own `ToolGroup` to users or AI features, see
   [Serve application tools over MCP](/tool-mcp).
 </Callout>
@@ -50,7 +50,7 @@ standard input.
 
 The `tenchi://project/agents` resource contains the application's `AGENTS.md`.
 Ask the agent to read it before changing code. If the file is absent, the
-resource supplies a short fallback workflow and a link to the full coding-agent
+resource supplies a short fallback workflow and a link to the full agent
 guide.
 
 The server captures one application root when it starts. Every tool operates
@@ -211,5 +211,5 @@ declarations used by `tenchi check`.
 `--title`, `--version`, `--description`, and `--security` provide the same
 explicit overrides when an application does not keep that metadata as literals.
 
-Continue with [coding agents](/agents) for the complete source-editing workflow
+Continue with [agents](/agents) for the complete source-editing workflow
 or the [CLI reference](/cli) when an agent can run shell commands but not MCP.

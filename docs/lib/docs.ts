@@ -1,7 +1,7 @@
 export const siteName = "Tenchi";
 
 export const siteDescription =
-  "Build and verify Python backends with humans and coding agents, using explicit contracts and plain async functions.";
+  "Build and verify Python backends with humans and agents, using explicit contracts and plain async functions.";
 
 export const defaultSiteUrl = "https://tenchi.io";
 
@@ -37,7 +37,7 @@ export const docsSections = [
         title: "How Tenchi works",
         navLabel: "Mental model",
         description:
-          "Understand the small application model shared by HTTP, workers, tools, tests, and coding-agent workflows.",
+          "Understand the small application model shared by HTTP, workers, tools, tests, and agent workflows.",
         priority: 0.94,
       },
       {
@@ -132,18 +132,18 @@ export const docsSections = [
     routes: [
       {
         path: "/agents",
-        title: "Let a coding agent change your backend",
+        title: "Let an agent change your backend",
         navLabel: "Development workflow",
         description:
-          "Inspect, preview, implement, check, and review backend changes with the same workflow for people and coding agents.",
+          "Inspect, preview, implement, check, and review backend changes with the same workflow for people and agents.",
         priority: 0.94,
       },
       {
         path: "/mcp",
-        title: "Connect a coding agent over MCP",
-        navLabel: "Coding-agent MCP server",
+        title: "Connect an agent over MCP",
+        navLabel: "Agent MCP server",
         description:
-          "Connect an MCP-aware coding agent to Tenchi's application map, generation previews, compatibility reports, and checks.",
+          "Connect an MCP-aware agent to Tenchi's application map, generation previews, compatibility reports, and checks.",
         priority: 0.9,
       },
       {

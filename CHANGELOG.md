@@ -9,7 +9,7 @@ versions may change the public API.
 
 ### Changed
 
-- The guides separate the shared human and coding-agent development workflow
+- The guides separate the shared human and agent development workflow
   from optional application AI capabilities. The feature tutorial includes a
   committed baseline and historical verification, and verification summaries
   distinguish structural and test-execution evidence from business correctness.

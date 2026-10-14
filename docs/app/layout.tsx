@@ -36,7 +36,7 @@ export const metadata: Metadata = {
     "OpenAPI",
     "Pydantic",
     "Starlette",
-    "coding agents",
+    "agents",
     "AI tools",
     "MCP",
   ],

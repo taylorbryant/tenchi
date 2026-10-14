@@ -167,9 +167,9 @@ tool target is `app.server.tools:tools`; override it with
 
 The JSON result also embeds `tenchi doctor` diagnostics and unresolved source
 relationships. Agents should inspect both before editing and use stable node
-IDs and source locations to choose the files involved in a change. See [coding
-agents](/agents) for the complete workflow across map, make, check, and OpenAPI
-compatibility.
+IDs and source locations to choose the files involved in a change. See
+[agents](/agents) for the complete workflow across map, make, check, and
+OpenAPI compatibility.
 
 ## Manage durable job messages
 
@@ -477,7 +477,7 @@ Use `--tasks module:attribute` to override the runner target.
 See [Operational tasks](/tasks) for declarations, composition, dry-run design,
 failure semantics, and MCP access.
 
-## Serve coding-agent tools over MCP
+## Serve agent tools over MCP
 
 ```shell
 uv run tenchi mcp
@@ -502,7 +502,7 @@ it.
 The command uses stdio and waits for an MCP client; it does not start an HTTP
 listener.
 
-See [connect an MCP-aware coding agent](/mcp) for tool behavior, safety, and
+See [connect an MCP-aware agent](/mcp) for tool behavior, safety, and
 client configuration.
 
 ## Run development

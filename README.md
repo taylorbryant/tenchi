@@ -4,7 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/tenchi.svg)](https://pypi.org/project/tenchi/)
 [![Python](https://img.shields.io/pypi/pyversions/tenchi.svg)](https://pypi.org/project/tenchi/)
 
-**A contract-first Python framework for humans and coding agents.**
+**A contract-first Python framework for humans and agents.**
 
 Tenchi keeps Pydantic validation at the boundary, behavior in plain async
 functions, and infrastructure behind `typing.Protocol` ports. A contract
@@ -38,7 +38,7 @@ uv run tenchi dev
 
 The default starter includes the todos API, SQLite and memory adapters,
 tests, and OpenAPI checks. It also includes `AGENTS.md`, project-local MCP
-configuration, and `tenchi.toml` so people, coding agents, and CI share the
+configuration, and `tenchi.toml` so people, agents, and CI share the
 same application conventions and verification requirements.
 
 Call the generated todos API from another terminal:
@@ -73,9 +73,9 @@ historical ref. `verify` needs committed baseline snapshots. A passing result
 records the configured checks and compatibility evidence; reviewers still
 judge whether the behavior and assertions meet the requirement.
 
-[Coding agents](https://tenchi.io/agents) use these same commands with
+[Agents](https://tenchi.io/agents) use these same commands with
 `--json`, or access inspection, previews, and verification through the
-[coding-agent MCP server](https://tenchi.io/mcp). You choose the agent and
+[agent MCP server](https://tenchi.io/mcp). You choose the agent and
 model provider.
 
 ## The application model
@@ -195,7 +195,7 @@ behavior from those entrypoints.
 
 ## When Tenchi fits
 
-Choose Tenchi when you want humans and coding agents to make backend changes
+Choose Tenchi when you want humans and agents to make backend changes
 through explicit contracts, predictable source structure, directly testable
 behavior, and reviewable verification evidence. The application model stays
 small, while development tooling is part of the framework's main workflow.
@@ -209,7 +209,7 @@ the tradeoffs with FastAPI, Starlette, Litestar, and Django Ninja.
 
 Contributors should read [AGENTS.md](AGENTS.md) for repository rules and
 [PRODUCT.md](PRODUCT.md) for the framework's goals and design tradeoffs.
-Tenchi prioritizes a development workflow that humans and coding agents can
+Tenchi prioritizes a development workflow that humans and agents can
 understand and verify, built on a small, contract-first Python application model.
 
 ```shell

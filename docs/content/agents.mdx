@@ -1,8 +1,8 @@
 import { Callout } from "@/components/callout";
 
-# Let a coding agent change your backend
+# Let an agent change your backend
 
-Tenchi's development workflow gives people and coding agents deterministic
+Tenchi's development workflow gives people and agents deterministic
 inspection, previewable generation, structured checks, and historical
 verification. An MCP-aware agent can access those operations directly through
 the [Tenchi MCP server](/mcp); an agent with filesystem and shell access can
@@ -369,7 +369,7 @@ Those commands still check and compare the declared policy. Let an agent
 inspect suites with `eval list` and `evaluation_diff`, but authorize `eval run`
 separately because it may send application-owned case data to external
 providers and incur cost. The
-coding-agent MCP server follows the same rule: `evaluation_list` is available
+agent MCP server follows the same rule: `evaluation_list` is available
 by default, while `evaluation_run` requires `--allow-evaluation-runs`.
 
 <Callout title="Use MCP or the same CLI operations">
@@ -379,7 +379,7 @@ by default, while `evaluation_run` requires `--allow-evaluation-runs`.
   same.
 </Callout>
 
-Continue with the [coding-agent MCP guide](/mcp) to connect a client, the [CLI
+Continue with the [agent MCP guide](/mcp) to connect a client, the [CLI
 reference](/cli) for every command option, or [stability and
 releases](/stability) for the compatibility guarantees around these result
 schemas.
