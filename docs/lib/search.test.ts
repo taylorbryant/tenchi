@@ -29,6 +29,20 @@ const entries: SearchEntry[] = [
     body: "Create a Tenchi app and run it locally.",
   }),
   entry({
+    route: "/ai",
+    pageTitle: "Add AI capabilities",
+    sectionLabel: "AI capabilities",
+    heading: "Add AI capabilities",
+    body: "Add model calls, application tools, and evaluations to your backend.",
+  }),
+  entry({
+    route: "/agents",
+    pageTitle: "Let an agent change your backend",
+    sectionLabel: "Develop",
+    heading: "Let an agent change your backend",
+    body: "Inspect, preview, implement, check, and review backend changes.",
+  }),
+  entry({
     route: "/errors",
     pageTitle: "Errors",
     heading: "Error definitions",
@@ -50,8 +64,10 @@ describe("tokenize", () => {
 describe("search", () => {
   test("empty query returns curated page-intro defaults", () => {
     const results = search(entries, "");
-    expect(results.length).toBeGreaterThan(0);
-    expect(results[0]?.entry.route).toBe("/getting-started");
+    expect(results.map((result) => result.entry.route)).toEqual([
+      "/getting-started",
+      "/agents",
+    ]);
     for (const result of results) {
       expect(result.entry.headingId).toBe("");
     }

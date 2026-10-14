@@ -82,8 +82,24 @@ uv run tenchi make use-case todos complete_todo \
 
 The preview validates the contract and lists the use-case file, test file, and
 wiring steps without writing them. The implementation below uses that boundary.
-You can create the files yourself or run the command without `--dry-run` and
-replace its incomplete function and failing test with the code below.
+Use the code below to create the files yourself, or generate them with the
+optional command before replacing their contents.
+
+<Callout title="Generate with a change plan (optional)">
+  To record the intended structure and planned test, use this generation
+  command before creating either file:
+
+  ```shell
+  uv run tenchi make use-case todos complete_todo \
+    --from-contract app.features.todos.contracts:complete_todo_contract \
+    --plan .tenchi/changes/complete-todo.json \
+    --base-ref "$BASE_REF" --json
+  ```
+
+  This creates the use-case file, failing test, and plan together. Replace
+  the generated placeholders with the implementation and test below. See
+  [verify a generated change](/change-plans) for what the plan verifies.
+</Callout>
 
 ## Extend the repository port
 
@@ -143,7 +159,8 @@ response validation succeed. A failure rolls the transaction back.
 
 ## Implement the use case
 
-Create `app/features/todos/use_cases/complete_todo.py`:
+Create `app/features/todos/use_cases/complete_todo.py`, or replace its generated
+contents:
 
 ```python
 from tenchi.errors import AppError
@@ -170,13 +187,6 @@ and `execute()` supply `request` and `context`, so this function's `params`
 argument needs a small [input adapter](/execution#adapt-http-inputs) when you
 add one of those entrypoints.
 
-<Callout title="Record the intended structure">
-  Add `--plan` during generation when you need evidence of the intended
-  structure and planned-test execution. Use `--base-ref "$BASE_REF"` to bind
-  it to this tutorial's baseline, then add `--change-plan` to the final
-  verification command. See [verify a generated change](/change-plans).
-</Callout>
-
 <Callout title="No owner scope yet">
   The generated starter has no authenticated subject in `AppContext`, so every
   caller can complete every todo. Do not infer ownership from `todo_id`. When
@@ -187,7 +197,8 @@ add one of those entrypoints.
 
 ## Test the use case directly
 
-Create `app/features/todos/tests/test_complete_todo.py`:
+Create `app/features/todos/tests/test_complete_todo.py`, or replace its generated
+contents:
 
 ```python
 from app.features.todos.schemas import CompleteTodoParams, CreateTodo
@@ -312,13 +323,20 @@ uv run tenchi openapi --write openapi.json
 uv run tenchi check
 ```
 
-Finish with a receipt against the commit recorded before editing:
+Finish with a receipt against the commit recorded before editing. If you
+opened a new terminal, set `BASE_REF` to that same full commit hash first:
 
 ```shell
 uv run tenchi verify --base-ref "$BASE_REF" --json
 ```
 
-If you opened a new terminal, set `BASE_REF` to that same full commit hash.
+If you generated the change plan, use this command instead:
+
+```shell
+uv run tenchi verify --base-ref "$BASE_REF" \
+  --change-plan .tenchi/changes/complete-todo.json --json
+```
+
 The receipt records project checks, architecture, and compatibility with the
 historical API, even after the current snapshot has been updated. Optional
 boundaries the application has not adopted are reported as not configured.
