@@ -332,12 +332,25 @@ release instead of the branch's current commit.
 
 ## Choose JSON or human output
 
-Every command in this loop has a `--json` mode that writes exactly one
-versioned object to stdout, including on expected failures, so an agent can
-branch on a stable `code` instead of parsing terminal prose. Human and JSON
-modes describe the same operation: use JSON when another tool will make a
-decision and human output when a person is reviewing in a terminal. The [CLI
-reference](/cli) lists every command and the fields of its result.
+Use `--json` with `map`, `routes`, `doctor`, `make`, `check`, and `verify`.
+Compatibility comparisons use `--diff-format json`, including OpenAPI, jobs,
+tools, and evaluation snapshots:
+
+```shell
+uv run tenchi map --json
+uv run tenchi openapi --diff openapi.json --diff-format json
+uv run tenchi jobs --diff jobs.json --diff-format json
+uv run tenchi tools --diff tools.json --diff-format json
+uv run tenchi eval snapshot --diff evaluations.json --diff-format json
+uv run tenchi verify --base-ref origin/main --json
+```
+
+These modes write one versioned object to stdout, including on expected
+failures. Parse the command's result schema; failures before a normal result
+exists use `operation_error` with a stable `code`. Human and JSON modes
+describe the same operation: use JSON when another tool will make a decision
+and human output when a person is reviewing in a terminal. The [CLI
+reference](/cli) describes the commands and their results.
 
 Failed check steps include bounded output from the project's validation
 commands, and verification includes the same output. Review it before sharing

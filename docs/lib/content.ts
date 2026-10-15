@@ -32,6 +32,7 @@ import RateLimits from "@/content/rate-limits.mdx";
 import Reference from "@/content/reference.mdx";
 import Reliability from "@/content/reliability.mdx";
 import Responses from "@/content/responses.mdx";
+import SecureTodos from "@/content/secure-todos.mdx";
 import Server from "@/content/server.mdx";
 import Stability from "@/content/stability.mdx";
 import Tasks from "@/content/tasks.mdx";
@@ -45,6 +46,7 @@ export const docsContent: Record<DocsPath, ComponentType> = {
   "/": Overview,
   "/getting-started": GettingStarted,
   "/build-a-feature": BuildAFeature,
+  "/secure-todos": SecureTodos,
   "/existing-project": ExistingProject,
   "/concepts": Concepts,
   "/architecture": Architecture,

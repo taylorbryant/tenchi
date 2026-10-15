@@ -164,6 +164,9 @@ Read [How Tenchi works](https://tenchi.io/concepts) for the complete mental
 model or [Build a feature](https://tenchi.io/build-a-feature) to carry an
 operation through persistence and tests.
 
+Continue with [Secure the todos API](https://tenchi.io/secure-todos) to add
+authentication, owner-scoped storage, and tests for cross-user isolation.
+
 ## Add capabilities when you need them
 
 The core model stays the same as the application grows:
