@@ -1,0 +1,670 @@
+import { Callout } from "@/components/callout";
+
+# Secure the todos API
+
+Continue [Build a feature](/build-a-feature) by making every todo belong to an
+authenticated user. Alice can create, list, and complete her todos; Bob cannot
+list or complete them. Missing credentials produce `401`, and another user's
+todo looks the same as a missing todo: `404`.
+
+Run commands from the generated application root. The Python blocks below
+contain complete files: create or replace each named file. Keep the schemas,
+HTTP contracts, and feature route bindings from the feature tutorial, including
+`CompleteTodoParams` and `complete_todo_contract`. Keep `runtime.py` and
+`port_wiring.py`; their resource wiring does not change.
+
+## Choose a database and compatibility baseline
+
+Commit the completed feature tutorial, including `openapi.json`, before editing:
+
+```shell
+git add .
+git commit -m "Complete the todo feature"
+BASE_REF=$(git rev-parse HEAD)
+```
+
+This tutorial adds a required `owner_id` column. Use a **new local database**
+when running it; the schema setup below does not migrate an existing table.
+Existing records have no verified owner. For a deployed service, define an
+explicit ownership migration and follow the [database rollout guide](/database#run-migrations-as-a-release-step)
+instead of assigning existing records to whichever user signs in first.
+
+## Define identity and the ownership scope
+
+Keep the existing not-found error and add the authentication error:
+
+```python
+# app/shared/errors.py
+from tenchi.errors import ErrorDef
+
+unauthorized = ErrorDef(
+    code="UNAUTHORIZED",
+    status=401,
+    message="Authentication required",
+)
+todo_not_found = ErrorDef(
+    code="TODO_NOT_FOUND",
+    status=404,
+    message="Todo not found",
+)
+```
+
+Identity comes from token verification. Repository methods require an
+`OwnerScope`, so a use case must derive the owner from that identity rather
+than accept an owner ID from request input:
+
+```python
+# app/shared/users.py
+from dataclasses import dataclass
+from typing import Protocol
+
+from tenchi.errors import AppError
+
+from .errors import unauthorized
+
+
+@dataclass(frozen=True, slots=True)
+class User:
+    id: str
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerScope:
+    owner_id: str
+
+
+class TokenDirectory(Protocol):
+    async def lookup(self, token: str) -> User | None: ...
+
+
+def require_user(user: User | None) -> User:
+    if user is None:
+        raise AppError(unauthorized)
+    return user
+
+
+def require_owner_scope(user: User | None) -> OwnerScope:
+    return OwnerScope(owner_id=require_user(user).id)
+```
+
+`OwnerScope` makes the intended source of the ID explicit to your type checker.
+It is application data, not a cryptographic credential. Only trusted
+application code constructs identity and scopes.
+
+## Scope every repository operation
+
+Replace the port so every write and read requires a verified scope:
+
+```python
+# app/features/todos/ports.py
+from typing import Protocol
+
+from app.shared.users import OwnerScope
+
+from .schemas import Todo
+
+
+class TodoRepository(Protocol):
+    async def create(self, scope: OwnerScope, *, title: str) -> Todo: ...
+
+    async def list_owned_by(self, scope: OwnerScope) -> list[Todo]: ...
+
+    async def complete_owned_by(
+        self, scope: OwnerScope, todo_id: str
+    ) -> Todo | None: ...
+```
+
+The memory adapter stores ownership separately from the public `Todo` model:
+
+```python
+# app/infra/memory_todo_repository.py
+from uuid import uuid4
+
+from app.features.todos.schemas import Todo
+from app.shared.users import OwnerScope
+
+
+class MemoryTodoRepository:
+    def __init__(self) -> None:
+        self._todos: dict[str, tuple[str, Todo]] = {}
+
+    async def create(self, scope: OwnerScope, *, title: str) -> Todo:
+        todo = Todo(id=uuid4().hex, title=title, completed=False)
+        self._todos[todo.id] = (scope.owner_id, todo)
+        return todo
+
+    async def list_owned_by(self, scope: OwnerScope) -> list[Todo]:
+        return [
+            todo for owner, todo in self._todos.values() if owner == scope.owner_id
+        ]
+
+    async def complete_owned_by(
+        self, scope: OwnerScope, todo_id: str
+    ) -> Todo | None:
+        entry = self._todos.get(todo_id)
+        if entry is None or entry[0] != scope.owner_id:
+            return None
+        completed = entry[1].model_copy(update={"completed": True})
+        self._todos[todo_id] = (scope.owner_id, completed)
+        return completed
+```
+
+The SQLite adapter includes the owner predicate in both the update and the
+read. Checking ownership only after an unscoped update would already have
+changed another user's record:
+
+```python
+# app/infra/sqlite_todo_repository.py
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import Any
+from uuid import uuid4
+
+import aiosqlite
+
+from app.features.todos.schemas import Todo
+from app.shared.users import OwnerScope
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS todos (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0
+)
+"""
+
+
+class SqliteTodoRepository:
+    def __init__(self, connection: aiosqlite.Connection) -> None:
+        self._connection = connection
+
+    async def create(self, scope: OwnerScope, *, title: str) -> Todo:
+        todo = Todo(id=uuid4().hex, title=title, completed=False)
+        await self._connection.execute(
+            "INSERT INTO todos (id, owner_id, title, completed) VALUES (?, ?, ?, ?)",
+            (todo.id, scope.owner_id, todo.title, int(todo.completed)),
+        )
+        return todo
+
+    async def list_owned_by(self, scope: OwnerScope) -> list[Todo]:
+        cursor = await self._connection.execute(
+            "SELECT id, title, completed FROM todos WHERE owner_id = ? ORDER BY rowid",
+            (scope.owner_id,),
+        )
+        return [_row_to_todo(row) for row in await cursor.fetchall()]
+
+    async def complete_owned_by(
+        self, scope: OwnerScope, todo_id: str
+    ) -> Todo | None:
+        await self._connection.execute(
+            "UPDATE todos SET completed = 1 WHERE id = ? AND owner_id = ?",
+            (todo_id, scope.owner_id),
+        )
+        cursor = await self._connection.execute(
+            "SELECT id, title, completed FROM todos WHERE id = ? AND owner_id = ?",
+            (todo_id, scope.owner_id),
+        )
+        row = await cursor.fetchone()
+        return _row_to_todo(row) if row is not None else None
+
+
+async def ensure_sqlite_todo_schema(database_path: str) -> None:
+    async with aiosqlite.connect(database_path) as connection:
+        await _configure_connection(connection)
+        await connection.execute(_SCHEMA)
+        await connection.commit()
+
+
+@asynccontextmanager
+async def open_sqlite_todo_repository(
+    database_path: str,
+) -> AsyncGenerator[SqliteTodoRepository]:
+    async with aiosqlite.connect(database_path) as connection:
+        await _configure_connection(connection)
+        try:
+            yield SqliteTodoRepository(connection)
+            await connection.commit()
+        except BaseException:
+            await connection.rollback()
+            raise
+
+
+async def _configure_connection(connection: aiosqlite.Connection) -> None:
+    await connection.execute("PRAGMA busy_timeout = 5000")
+
+
+def _row_to_todo(row: Any) -> Todo:
+    return Todo(id=row[0], title=row[1], completed=bool(row[2]))
+```
+
+The existing `open_todo_repository()` wiring still supplies the port, and the
+transaction still commits after successful response validation.
+
+## Assert identity in every use case
+
+The request context starts without identity. The authentication hook will
+return an enriched copy:
+
+```python
+# app/server/context.py
+from dataclasses import dataclass
+
+from app.features.todos.ports import TodoRepository
+from app.shared.users import User
+
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    todos: TodoRepository
+    user: User | None = None
+```
+
+Update all three use cases. Each asserts identity even when called directly,
+without HTTP or its authentication hook:
+
+```python
+# app/features/todos/use_cases/create_todo.py
+from app.server.context import AppContext
+from app.shared.users import require_owner_scope
+
+from ..schemas import CreateTodo, Todo
+
+
+async def create_todo(request: CreateTodo, context: AppContext) -> Todo:
+    scope = require_owner_scope(context.user)
+    return await context.todos.create(scope, title=request.title.strip())
+```
+
+```python
+# app/features/todos/use_cases/list_todos.py
+from app.server.context import AppContext
+from app.shared.users import require_owner_scope
+
+from ..schemas import Todo
+
+
+async def list_todos(context: AppContext) -> list[Todo]:
+    scope = require_owner_scope(context.user)
+    return await context.todos.list_owned_by(scope)
+```
+
+```python
+# app/features/todos/use_cases/complete_todo.py
+from tenchi.errors import AppError
+
+from app.server.context import AppContext
+from app.shared.errors import todo_not_found
+from app.shared.users import require_owner_scope
+
+from ..schemas import CompleteTodoParams, Todo
+
+
+async def complete_todo(params: CompleteTodoParams, context: AppContext) -> Todo:
+    scope = require_owner_scope(context.user)
+    todo = await context.todos.complete_owned_by(scope, params.todo_id)
+    if todo is None:
+        raise AppError(todo_not_found, details={"todo_id": params.todo_id})
+    return todo
+```
+
+There is no separate ownership policy to fetch and check here: the repository
+only returns or changes records within the verified scope. For membership or
+role rules that inspect a fetched subject, use the pure policies in the
+[authentication guide](/authentication#authorize-in-the-use-case).
+
+## Authenticate at the HTTP boundary
+
+Use a small local token directory to exercise two identities:
+
+```python
+# app/infra/static_token_directory.py
+from collections.abc import Mapping
+
+from app.shared.users import User
+
+
+class StaticTokenDirectory:
+    def __init__(self, users: Mapping[str, User]) -> None:
+        self._users = dict(users)
+
+    async def lookup(self, token: str) -> User | None:
+        return self._users.get(token)
+```
+
+The hook checks `contract.public`, rejects invalid credentials, and enriches
+the context without mutating it:
+
+```python
+# app/server/hooks.py
+from dataclasses import replace
+
+from tenchi.errors import AppError
+from tenchi.server import Hook, RequestInfo
+
+from app.server.context import AppContext
+from app.shared.errors import unauthorized
+from app.shared.users import TokenDirectory
+
+
+def create_bearer_hook(tokens: TokenDirectory) -> Hook:
+    async def authenticate(
+        info: RequestInfo, context: AppContext
+    ) -> AppContext | None:
+        if info.contract.public:
+            return None
+        scheme, _, token = info.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise AppError(unauthorized)
+        user = await tokens.lookup(token)
+        if user is None:
+            raise AppError(unauthorized)
+        return replace(context, user=user)
+
+    return authenticate
+```
+
+Declare `unauthorized` across the API group so hook and use-case failures
+produce the intended `401`. Publish the same bearer requirement in OpenAPI:
+
+```python
+# app/server/routes.py
+from tenchi.health import health_route
+from tenchi.openapi import openapi_route, swagger_ui_route
+from tenchi.routes import route_group
+
+from app.features.todos.routes import routes as todo_routes
+from app.shared.errors import unauthorized
+
+OPENAPI_TITLE = "my_app"
+OPENAPI_VERSION = "0.1.0"
+OPENAPI_DESCRIPTION: str | None = None
+OPENAPI_SECURITY = {"bearerAuth": {"type": "http", "scheme": "bearer"}}
+
+api_routes = route_group(todo_routes, errors=(unauthorized,))
+
+routes = route_group(
+    api_routes,
+    openapi_route(
+        api_routes,
+        title=OPENAPI_TITLE,
+        version=OPENAPI_VERSION,
+        description=OPENAPI_DESCRIPTION,
+        security=OPENAPI_SECURITY,
+    ),
+    swagger_ui_route(title=f"{OPENAPI_TITLE} API"),
+    health_route(),
+)
+```
+
+Keep your application's existing `OPENAPI_TITLE` if it has another name.
+Health, OpenAPI, and Swagger UI stay public; that is an explicit choice for
+this local tutorial. Follow the [deployment guide](/deployment#separate-liveness-from-readiness)
+for probes that must stay independent of database availability.
+
+Wire the directory and hook into the existing app factory:
+
+```python
+# app/server/asgi.py
+from starlette.applications import Starlette
+from tenchi.server import create_app
+
+from app.infra.static_token_directory import StaticTokenDirectory
+from app.server.hooks import create_bearer_hook
+from app.server.routes import routes
+from app.server.runtime import DATABASE_PATH, create_context, create_lifespan
+from app.shared.users import User
+
+
+def build_app(database_path: str = DATABASE_PATH) -> Starlette:
+    tokens = StaticTokenDirectory(
+        {"alice-token": User(id="alice"), "bob-token": User(id="bob")}
+    )
+    return create_app(
+        routes=routes,
+        context_factory=create_context,
+        lifespan=create_lifespan(database_path),
+        hooks=(create_bearer_hook(tokens),),
+    )
+
+
+app = build_app()
+```
+
+<Callout type="warning" title="Demo credentials are for local development">
+  These public tokens are not production credentials. Before exposing the
+  service, replace the static directory with your identity-provider adapter,
+  validate its tokens according to that provider's rules, and use HTTPS.
+  Keep `require_owner_scope()` in the use cases after replacing the hook's
+  authentication adapter.
+</Callout>
+
+## Test behavior without HTTP
+
+Replace the two feature test files from the earlier tutorials. Both identities
+share one memory repository, so the tests can detect missing owner filters:
+
+```python
+# app/features/todos/tests/test_create_todo.py
+import pytest
+from tenchi.errors import AppError
+
+from app.features.todos.schemas import CreateTodo
+from app.features.todos.use_cases.create_todo import create_todo
+from app.features.todos.use_cases.list_todos import list_todos
+from app.infra.memory_todo_repository import MemoryTodoRepository
+from app.server.context import AppContext
+from app.shared.errors import unauthorized
+from app.shared.users import User
+
+
+async def test_create_todo() -> None:
+    repository = MemoryTodoRepository()
+    alice = AppContext(todos=repository, user=User(id="alice"))
+    bob = AppContext(todos=repository, user=User(id="bob"))
+
+    todo = await create_todo(CreateTodo(title="  Buy milk  "), alice)
+
+    assert todo.title == "Buy milk"
+    assert await list_todos(alice) == [todo]
+    assert await list_todos(bob) == []
+
+
+async def test_direct_calls_require_identity() -> None:
+    context = AppContext(todos=MemoryTodoRepository())
+    with pytest.raises(AppError) as caught:
+        await create_todo(CreateTodo(title="Buy milk"), context)
+    assert caught.value.definition == unauthorized
+    with pytest.raises(AppError) as caught:
+        await list_todos(context)
+    assert caught.value.definition == unauthorized
+```
+
+```python
+# app/features/todos/tests/test_complete_todo.py
+import pytest
+from tenchi.errors import AppError
+
+from app.features.todos.schemas import CompleteTodoParams, CreateTodo
+from app.features.todos.use_cases.complete_todo import complete_todo
+from app.features.todos.use_cases.create_todo import create_todo
+from app.features.todos.use_cases.list_todos import list_todos
+from app.infra.memory_todo_repository import MemoryTodoRepository
+from app.server.context import AppContext
+from app.shared.errors import todo_not_found, unauthorized
+from app.shared.users import User
+
+
+async def test_complete_todo() -> None:
+    repository = MemoryTodoRepository()
+    alice = AppContext(todos=repository, user=User(id="alice"))
+    bob = AppContext(todos=repository, user=User(id="bob"))
+    created = await create_todo(CreateTodo(title="Buy milk"), alice)
+    params = CompleteTodoParams(todo_id=created.id)
+
+    with pytest.raises(AppError) as caught:
+        await complete_todo(params, bob)
+    assert caught.value.definition == todo_not_found
+    assert await list_todos(alice) == [created]
+    assert created.completed is False
+
+    completed = await complete_todo(params, alice)
+    assert completed.id == created.id
+    assert completed.completed is True
+
+
+async def test_completion_requires_identity() -> None:
+    with pytest.raises(AppError) as caught:
+        await complete_todo(
+            CompleteTodoParams(todo_id="missing"),
+            AppContext(todos=MemoryTodoRepository()),
+        )
+    assert caught.value.definition == unauthorized
+```
+
+## Test authentication, isolation, and persistence over HTTP
+
+Replace `tests/test_http.py`. The typed client receives the group-level error
+through `errors=`, keeping its declared-error behavior aligned with the server.
+The SQLite test checks that Bob's rejected update leaves Alice's todo unchanged
+and that the correct owner still sees it after a restart:
+
+```python
+# tests/test_http.py
+from pathlib import Path
+
+import pytest
+from tenchi.testing import open_client, open_http
+
+from app.features.todos.contracts import create_todo_contract
+from app.features.todos.schemas import CreateTodo
+from app.infra.port_wiring import ensure_schema, open_todo_repository
+from app.server.asgi import build_app
+from app.shared.errors import unauthorized
+from app.shared.users import User, require_owner_scope
+
+ALICE_HEADERS = {"Authorization": "Bearer alice-token"}
+BOB_HEADERS = {"Authorization": "Bearer bob-token"}
+
+
+async def test_owners_are_isolated_across_a_restart(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "todos.db")
+    async with open_client(
+        build_app(database_path), headers=ALICE_HEADERS, errors=(unauthorized,)
+    ) as client:
+        created = await client.call_with_response(
+            create_todo_contract, request=CreateTodo(title="Buy milk")
+        )
+    assert created.headers.location == f"/todos/{created.body.id}"
+    complete_url = f"/todos/{created.body.id}/complete"
+
+    async with open_http(build_app(database_path)) as http:
+        assert (await http.get("/todos", headers=BOB_HEADERS)).json() == []
+        for url in (complete_url, "/todos/missing/complete"):
+            rejected = await http.patch(url, headers=BOB_HEADERS)
+            assert rejected.status_code == 404
+            assert rejected.json()["code"] == "TODO_NOT_FOUND"
+            assert rejected.headers["x-tenchi-error-source"] == "app"
+        listed = await http.get("/todos", headers=ALICE_HEADERS)
+        assert listed.json() == [created.body.model_dump()]
+        completed = await http.patch(complete_url, headers=ALICE_HEADERS)
+        assert completed.status_code == 200
+        assert completed.json()["completed"] is True
+
+    async with open_http(build_app(database_path)) as http:
+        assert (await http.get("/todos", headers=ALICE_HEADERS)).json() == [
+            completed.json()
+        ]
+        assert (await http.get("/todos", headers=BOB_HEADERS)).json() == []
+
+
+@pytest.mark.parametrize("token", [None, "invalid-token"])
+async def test_private_routes_require_identity(
+    tmp_path: Path, token: str | None
+) -> None:
+    headers = {} if token is None else {"Authorization": f"Bearer {token}"}
+    async with open_http(build_app(str(tmp_path / "todos.db"))) as http:
+        for method, path in (
+            ("GET", "/todos"),
+            ("POST", "/todos"),
+            ("PATCH", "/todos/missing/complete"),
+        ):
+            response = await http.request(method, path, headers=headers)
+            assert response.status_code == 401
+            assert response.json()["code"] == "UNAUTHORIZED"
+            assert response.headers["x-tenchi-error-source"] == "app"
+
+
+async def test_service_routes_are_public(tmp_path: Path) -> None:
+    async with open_http(build_app(str(tmp_path / "todos.db"))) as http:
+        for path in ("/health", "/openapi.json", "/docs"):
+            assert (await http.get(path)).status_code == 200
+
+
+async def test_failed_repository_scope_rolls_back(tmp_path: Path) -> None:
+    database_path = str(tmp_path / "todos.db")
+    scope = require_owner_scope(User(id="alice"))
+    await ensure_schema(database_path)
+    with pytest.raises(RuntimeError, match="abort request"):
+        async with open_todo_repository(database_path) as todos:
+            await todos.create(scope, title="Do not persist")
+            raise RuntimeError("abort request")
+    async with open_todo_repository(database_path) as todos:
+        assert await todos.list_owned_by(scope) == []
+```
+
+The `POST` authentication test deliberately omits its body: the authentication
+hook must reject it before normal input validation. Keep the existing OpenAPI
+snapshot test too; its snapshot is updated in the next step.
+
+## Review the boundary change and run the checks
+
+```shell
+uv run ruff check --fix .
+uv run ruff format .
+uv run tenchi openapi --diff-ref "$BASE_REF" --snapshot openapi.json
+```
+
+Requiring authentication on previously public operations is an intentional
+breaking change. The comparison exits nonzero for the new security requirement
+and caller-visible authentication errors. Review that report before writing
+the snapshot; do not describe the change as backward compatible.
+
+For this local tutorial, accept the new boundary and run the application checks:
+
+```shell
+uv run tenchi openapi --write openapi.json
+uv run tenchi check
+uv run tenchi verify --base-ref "$BASE_REF" --json
+```
+
+`check` should pass. Historical `verify` still fails for the intentional
+compatibility break, even after updating the snapshot. Coordinate a versioned
+API transition for existing callers before deploying this change. Do not
+weaken `tenchi.toml` or replace the historical baseline to hide that result.
+If you created a change plan in the feature tutorial, retain it with that
+change; this authentication change has its own baseline.
+
+Run against a new database, using the environment prefix from your generated
+README if the application is named differently:
+
+```shell
+MY_APP_DATABASE=secure-todos.db uv run tenchi dev
+```
+
+Create a todo as Alice, then list as Bob:
+
+```shell
+curl http://127.0.0.1:8000/todos \
+  -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Buy milk"}'
+
+curl http://127.0.0.1:8000/todos \
+  -H 'Authorization: Bearer bob-token'
+```
+
+The create returns `201`; Bob receives `[]`. With no bearer header, either
+operation returns `401`. Continue with the [authentication concepts](/authentication)
+for membership policies and other identity sources, or [production preparation](/production)
+for the remaining deployment decisions.

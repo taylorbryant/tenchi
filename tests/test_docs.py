@@ -54,6 +54,7 @@ def test_docs_cover_the_framework_workflow() -> None:
         "index",
         "getting-started",
         "build-a-feature",
+        "secure-todos",
         "idempotency",
         "existing-project",
         "fieldnotes",

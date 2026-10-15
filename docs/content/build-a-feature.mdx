@@ -192,7 +192,8 @@ add one of those entrypoints.
   caller can complete every todo. Do not infer ownership from `todo_id`. When
   the application gains users or tenants, enrich the context in an
   authentication hook and add owner-scoped repository methods. The
-  [authentication guide](/authentication) shows that flow.
+  [Secure the todos API](/secure-todos) continues this example through both
+  adapters, authentication wiring, and cross-user tests.
 </Callout>
 
 ## Test the use case directly
@@ -346,6 +347,6 @@ that every product requirement has been met.
 Run `uv run tenchi dev`, create a todo, and call
 `PATCH /todos/{todo_id}/complete` to see the result yourself.
 
-Continue with [authentication and authorization](/authentication) when the
+Continue with [Secure the todos API](/secure-todos) when the
 operation must act for a verified user, or [databases and transactions](/database)
 when adapting this pattern to another datastore.

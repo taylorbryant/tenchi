@@ -90,8 +90,6 @@ by the operations it serves:
 from tenchi.health import health_route
 
 
-liveness = health_route(path="/live")
-
 readiness = health_route(
     path="/ready",
     checks={"database": check_database},
@@ -99,10 +97,55 @@ readiness = health_route(
 )
 ```
 
-Register both routes at the composition root. Configure the platform's
-liveness probe to call `/live` and its readiness probe to call `/ready`. A
-database outage can then remove this process from traffic without causing a
-restart loop.
+Add `readiness` to the application's composed routes. `check_database` is an
+application-owned check accepting the request context and raising on failure.
+Like every Tenchi route, a health route first opens the application's context
+and runs its hooks. Even `health_route()` without checks can fail or block
+while acquiring a database connection. Its `check_timeout` bounds the checks,
+not context acquisition; a context failure can return `500` before a check runs.
+
+Serve liveness outside that request context. For the generated application's
+existing `app.server.asgi:app`, create this deployment wrapper:
+
+```python
+# app/server/deployment.py
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Mount, Route
+
+from app.server.asgi import app as api
+
+
+async def live(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
+@asynccontextmanager
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
+    async with api.router.lifespan_context(api):
+        yield
+
+
+app = Starlette(
+    routes=[Route("/live", live), Mount("/", app=api)],
+    lifespan=lifespan,
+)
+```
+
+Run `uv run uvicorn app.server.deployment:app --host 0.0.0.0 --port 8000`
+when using this wrapper. The parent explicitly runs the mounted API's lifespan;
+Starlette does not do that automatically. Startup must still succeed before
+the process serves requests. Once started, `/live` bypasses the API's request
+context and hooks, while all API paths stay the same.
+
+Configure the platform's liveness probe to call `/live` and its readiness
+probe to call `/ready`. A database failure during request handling can then
+fail readiness without failing liveness. Keep dependency I/O and
+authentication out of the outer liveness route and its middleware.
 
 Readiness checks run concurrently and return `503` when any check is unhealthy
 or exceeds `check_timeout`. Synchronous checks run in worker threads so

@@ -7,6 +7,16 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Fixed
+
+- Deployment guidance keeps liveness outside database-backed request contexts
+  and preserves the mounted API's lifespan. Agent guidance uses
+  `--diff-format json` for compatibility reports, and contract guidance
+  distinguishes declaration checks from later composition checks.
+- The todos tutorials now continue through authentication, owner-scoped memory
+  and SQLite storage, and cross-user tests, including the database migration
+  and compatibility implications of protecting a previously public API.
+
 ### Changed
 
 - The guides separate the shared human and agent development workflow

@@ -33,6 +33,14 @@ export const docsSections = [
         priority: 0.95,
       },
       {
+        path: "/secure-todos",
+        title: "Secure the todos API",
+        navLabel: "Secure a feature",
+        description:
+          "Add bearer authentication and owner-scoped persistence to the todos tutorial, then test cross-user isolation.",
+        priority: 0.94,
+      },
+      {
         path: "/concepts",
         title: "How Tenchi works",
         navLabel: "Mental model",

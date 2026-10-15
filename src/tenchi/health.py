@@ -59,12 +59,14 @@ def health_route(
 ) -> Route:
     """Build a route reporting service health.
 
-    With no ``checks`` the route is a plain liveness endpoint. Each check
-    receives the request context; a check that raises marks the service
+    With no ``checks`` the route reports success after context acquisition
+    and hooks. It still depends on those steps, so process liveness that must
+    survive dependency failures belongs outside that request context.
+    Each check receives the request context; a check that raises marks the service
     unhealthy and its exception class name (never the message) appears in
     the response details. A check that exceeds ``check_timeout`` seconds fails
-    as ``TimeoutError`` — a hung dependency must produce the
-    503 the contract promises, not a hung health endpoint. The route declares
+    as ``TimeoutError``. This timeout covers the checks, not context acquisition
+    or hooks. The route declares
     ``public=True`` by default; pass ``public=False`` when authentication hooks
     should protect it.
     """

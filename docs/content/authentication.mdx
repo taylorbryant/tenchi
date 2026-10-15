@@ -6,6 +6,12 @@ Authentication belongs at the HTTP boundary. Business authorization belongs
 in use cases and pure policy functions. Keeping them separate lets the same
 application rules run from HTTP, workers, scripts, and direct tests.
 
+For a complete continuation of the todos tutorials, follow
+[Secure the todos API](/secure-todos). It defines identity, token lookup,
+owner-scoped memory and SQLite repositories, hook and route wiring, and tests
+for authentication and cross-user isolation. This page explains the individual
+patterns, including membership policies for rules beyond ownership.
+
 ## Carry optional identity
 
 ```python

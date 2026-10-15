@@ -218,7 +218,12 @@ storage; follow [Make operations safe to retry](/idempotency) for that work.
 - `errors=` declares the application failures callers are allowed to observe.
 - `responses=` declares status-dependent successful outcomes.
 
-Invalid combinations and unsupported schemas fail when `contract()` is called.
+`contract()` rejects invalid declaration options and incompatible media-type
+combinations. `route()` checks the use-case signature and path binding. Further
+schema checks run when the application, OpenAPI document, or typed client is
+composed; constructing a contract alone does not prove every schema is
+supported. For example, a nested-object query is rejected by `create_app()`
+even if its contract and use-case binding were constructed successfully.
 Continue with [routes and server](/server), [responses](/responses), and
 [errors](/errors).
 
