@@ -7,24 +7,7 @@ versions may change the public API.
 
 ## [Unreleased]
 
-### Fixed
-
-- Deployment guidance keeps liveness outside database-backed request contexts
-  and preserves the mounted API's lifespan. Agent guidance uses
-  `--diff-format json` for compatibility reports, and contract guidance
-  distinguishes declaration checks from later composition checks.
-- The todos tutorials now continue through authentication, owner-scoped memory
-  and SQLite storage, and cross-user tests, including the database migration
-  and compatibility implications of protecting a previously public API.
-
-### Changed
-
-- The guides separate the shared human and agent development workflow
-  from optional application AI capabilities. The feature tutorial includes a
-  committed baseline and historical verification, and verification summaries
-  distinguish structural and test-execution evidence from business correctness.
-
-## [0.19.0] - 2026-10-13
+## [0.19.0] - 2026-10-18
 
 ### Added
 
@@ -32,7 +15,7 @@ versions may change the public API.
   canonical `tools.json`, and snapshot test. Preview with `--dry-run --json`,
   then follow the composition, snapshot-review, and `[verify] tools = true`
   instructions. Existing files, composition packages, and symlink paths are
-  refused; existing source and policy files are never rewritten. Coding-agent
+  refused; existing source and policy files are never rewritten. Agent
   MCP `make_preview` accepts `artifact: "capability", name: "tools"` for the
   same read-only preview.
 
@@ -44,9 +27,13 @@ versions may change the public API.
   `--with evaluations`. Selection can precede application adoption; follow-up
   steps identify the missing composition setup. MCP feature previews accept
   the equivalent `capabilities` list.
-- The coding-agent protocol is version 13, reflecting the new `capability`
+- The agent protocol is version 13, reflecting the new `capability`
   artifact result and explicit feature selection. Earlier protocol snapshots
   are retained; application tool manifests and application MCP are unchanged.
+- The guides separate the shared human and agent development workflow
+  from optional application AI capabilities. The feature tutorial includes a
+  committed baseline and historical verification, and verification summaries
+  distinguish structural and test-execution evidence from business correctness.
 
 ### Fixed
 
@@ -69,6 +56,13 @@ versions may change the public API.
   automatic first adoption of optional boundaries. Application structure and
   production guides distinguish required setup from optional capabilities;
   the Python reference includes callable signatures, defaults, and failures.
+- Deployment guidance keeps liveness outside database-backed request contexts
+  and preserves the mounted API's lifespan. Agent guidance uses
+  `--diff-format json` for compatibility reports, and contract guidance
+  distinguishes declaration checks from later composition checks.
+- The todos tutorials now continue through authentication, owner-scoped memory
+  and SQLite storage, and cross-user tests, including the database migration
+  and compatibility implications of protecting a previously public API.
 
 ## [0.18.0] - 2026-09-07
 
