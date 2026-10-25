@@ -606,13 +606,15 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         description=(
             "Compare registered application tools with a project snapshot or "
             "the same snapshot at a Git ref. Breaking and unknown changes are "
-            "incompatible."
+            "incompatible. A missing Git snapshot requires an explicit "
+            "first-adoption override."
         ),
         annotations=_READ_ONLY,
     )
     async def tools_diff(  # pyright: ignore[reportUnusedFunction]
         snapshot: str | None = None,
         ref: str | None = None,
+        allow_missing_baseline: bool = False,
     ) -> ToolDiffPayload:
         selected = options.tool_snapshot if snapshot is None else snapshot
 
@@ -623,6 +625,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
                 tools=options.tools,
                 snapshot=Path(selected),
                 ref=ref,
+                allow_missing_baseline=allow_missing_baseline,
             ).as_dict()
 
         return await call(operation)
@@ -732,9 +735,9 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
             "checks, protected repository verification policy, strict "
             "application-map validation, and OpenAPI, "
             "job-message, application-tool, and evaluation-policy compatibility "
-            "against an explicit Git ref. Missing job or evaluation snapshots "
-            "require explicit "
-            "first-adoption override. "
+            "against an explicit Git ref. Missing job, tool, or evaluation "
+            "snapshots require a first-adoption override unless their "
+            "composition module was absent at the baseline. "
             "Project-owned commands run with their normal side effects; output "
             "is bounded and cancellation stops the active process."
         ),
@@ -745,6 +748,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
         base_ref: str,
         timeout_seconds: Annotated[float, Field(gt=0, le=3600)] = 600.0,
         allow_missing_job_baseline: bool = False,
+        allow_missing_tool_baseline: bool = False,
         allow_missing_evaluation_baseline: bool = False,
         change_plan: str | None = None,
     ) -> VerificationPayload:
@@ -777,6 +781,7 @@ def build_mcp_server(options: McpServerOptions) -> MCPServer[dict[str, Any]]:
                     tool_snapshot=options.tool_snapshot,
                     evaluation_snapshot=options.evaluation_snapshot,
                     allow_missing_job_baseline=allow_missing_job_baseline,
+                    allow_missing_tool_baseline=allow_missing_tool_baseline,
                     allow_missing_evaluation_baseline=(
                         allow_missing_evaluation_baseline
                     ),

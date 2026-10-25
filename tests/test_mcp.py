@@ -1,5 +1,6 @@
 import asyncio
 import os
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -519,6 +520,9 @@ async def test_mcp_returns_tool_errors_for_invalid_boundaries() -> None:
         misplaced_evaluation_override = await session.call_tool(
             "evaluation_diff", {"allow_missing_baseline": True}
         )
+        misplaced_tool_override = await session.call_tool(
+            "tools_diff", {"allow_missing_baseline": True}
+        )
         invalid_preview = await session.call_tool(
             "make_preview",
             {"artifact": "use-case", "name": "create_note"},
@@ -537,6 +541,7 @@ async def test_mcp_returns_tool_errors_for_invalid_boundaries() -> None:
     assert empty.is_error is True
     assert escaped_tools.is_error is True
     assert empty_tools.is_error is True
+    assert misplaced_tool_override.is_error is True
     assert escaped_evaluations.is_error is True
     assert empty_evaluations.is_error is True
     assert misplaced_evaluation_override.is_error is True
@@ -719,6 +724,51 @@ async def test_mcp_check_returns_failed_validation_as_data(
     )
 
 
+async def test_mcp_tools_diff_records_explicit_first_adoption(tmp_path: Path) -> None:
+    (tmp_path / "app").mkdir()
+    (tmp_path / "application_tools.py").write_text(
+        "from tenchi.tools import tool_group\ntools = tool_group()\n",
+        encoding="utf-8",
+    )
+    for arguments in (
+        ("init", "-q"),
+        ("add", "."),
+        (
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "tool composition without snapshot",
+        ),
+    ):
+        subprocess.run(
+            ["git", *arguments], cwd=tmp_path, check=True, capture_output=True
+        )
+    server = build_mcp_server(
+        McpServerOptions(tmp_path, tools="application_tools:tools")
+    )
+
+    async with Client(server) as session:
+        rejected = await session.call_tool("tools_diff", {"ref": "HEAD"})
+        allowed = await session.call_tool(
+            "tools_diff", {"ref": "HEAD", "allow_missing_baseline": True}
+        )
+
+    assert rejected.is_error is True
+    assert allowed.is_error is False
+    assert allowed.structured_content is not None
+    assert allowed.structured_content["compatible"] is True
+    assert allowed.structured_content["changes"] == [
+        {
+            "severity": "metadata",
+            "location": "tool manifest baseline",
+            "message": "historical baseline absent; first adoption recorded",
+        }
+    ]
+
+
 async def test_mcp_verify_returns_the_shared_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -760,6 +810,7 @@ async def test_mcp_verify_returns_the_shared_receipt(
                 "base_ref": "origin/main",
                 "timeout_seconds": 10,
                 "allow_missing_evaluation_baseline": True,
+                "allow_missing_tool_baseline": True,
             },
         )
 
@@ -783,6 +834,7 @@ async def test_mcp_verify_returns_the_shared_receipt(
     assert captured["tools"] == "app.server.tools:tools"
     assert captured["timeout_seconds"] == 10
     assert captured["allow_missing_evaluation_baseline"] is True
+    assert captured["allow_missing_tool_baseline"] is True
 
 
 async def test_mcp_verify_rejects_null_bytes_as_a_structured_failure() -> None:

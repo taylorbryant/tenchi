@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator
 from jsonschema.protocols import Validator
 from pydantic import TypeAdapter
 from referencing import Registry
@@ -16,15 +16,19 @@ from .errors import ConfigurationError
 def response_schema_validator(
     adapter: TypeAdapter[Any] | None, *, label: str
 ) -> Validator | None:
-    """Compile the same aliased serialization schema that OpenAPI publishes."""
+    """Compile the same aliased serialization schema that OpenAPI publishes.
+
+    As at the job, tool, MCP, and example boundaries, payload ``format``
+    keywords are annotations. Pydantic owns typed format validation;
+    jsonschema's optional format packages must not change runtime behavior.
+    Schema syntax checks and all other payload assertions remain enabled.
+    """
     if adapter is None:
         return None
     try:
         schema = adapter.json_schema(mode="serialization", by_alias=True)
         Draft202012Validator.check_schema(schema)
-        return Draft202012Validator(
-            schema, format_checker=FormatChecker(), registry=Registry()
-        )
+        return Draft202012Validator(schema, format_checker=None, registry=Registry())
     except Exception as exc:
         raise ConfigurationError(
             f"{label}: response JSON Schema is invalid: {exc}"

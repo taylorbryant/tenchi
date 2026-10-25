@@ -16,6 +16,14 @@ transaction or undo writes already committed by an adapter. See
 [database transactions](/database) for the context setup and
 [Constraints](#constraints) for response requirements.
 
+JSON Schema payload `format` keywords are annotations, not an additional
+format validator. Pydantic types and validators enforce format constraints,
+independently of optional jsonschema format packages. Plain `datetime` accepts
+both naive and aware values; use Pydantic's `AwareDatetime` when your boundary
+requires a timezone. Other schema assertions and the Pydantic round trip still
+run for every JSON response. This format policy also applies to job messages,
+tool results, application MCP inputs, and OpenAPI examples.
+
 ## One successful response
 
 ```python

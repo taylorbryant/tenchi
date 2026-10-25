@@ -153,7 +153,8 @@ class ClientAttemptOutcome:
     ``will_retry`` describes the decision made after this attempt.
     ``retry_delay_seconds`` is the selected backoff, including a valid
     ``Retry-After`` response header from a selected status or declared error
-    when present and bounded by the retry policy's maximum delay.
+    when it fits the retry policy's maximum delay and remaining time budget.
+    A longer server wait ends retries with the current error and no delay.
     ``completed_at`` is captured before attempt observers run.
     """
 
@@ -582,10 +583,12 @@ class Client:
                             if retry_by_status
                             else _app_error_retry_after(exc)
                         ),
+                        deadline=deadline,
                     )
                     if should_retry and policy is not None
                     else None
                 )
+                should_retry = should_retry and delay is not None
                 app_status: Literal["app_error", "unexpected_response", "failed"]
                 if error_code is not None:
                     app_status = "app_error"
@@ -621,10 +624,12 @@ class Client:
                         policy,
                         attempt_number,
                         retry_after=attempt.retry_after_header,
+                        deadline=deadline,
                     )
                     if should_retry and policy is not None
                     else None
                 )
+                should_retry = should_retry and delay is not None
                 attempt_outcome = attempt.finish(
                     "unexpected_response",
                     will_retry=should_retry,
@@ -1312,20 +1317,25 @@ def _retry_delay(
     attempt: int,
     *,
     retry_after: str | None = None,
-) -> float:
+    deadline: float | None = None,
+) -> float | None:
+    """Choose a backoff, or stop when the server's minimum wait cannot fit."""
     exponential = policy.base_delay_seconds * (2.0 ** min(attempt - 1, 1023))
     if exponential and policy.jitter:
         exponential *= random.uniform(1 - policy.jitter, 1 + policy.jitter)
     exponential = min(policy.max_delay_seconds, exponential)
     retry_after_seconds = (
-        _retry_after_seconds(retry_after, maximum=policy.max_delay_seconds)
-        if retry_after is not None
-        else None
+        _retry_after_seconds(retry_after) if retry_after is not None else None
     )
-    return min(
-        policy.max_delay_seconds,
-        max(exponential, retry_after_seconds or 0.0),
-    )
+    if retry_after_seconds is not None and (
+        retry_after_seconds > policy.max_delay_seconds
+        or (
+            deadline is not None
+            and retry_after_seconds >= deadline - asyncio.get_running_loop().time()
+        )
+    ):
+        return None
+    return max(exponential, retry_after_seconds or 0.0)
 
 
 def _app_error_retry_after(error: AppError) -> str | None:
@@ -1339,16 +1349,16 @@ def _app_error_retry_after(error: AppError) -> str | None:
     )
 
 
-def _retry_after_seconds(raw: str, *, maximum: float) -> float | None:
+def _retry_after_seconds(raw: str) -> float | None:
     if raw.isascii() and raw.isdigit():
         significant = raw.lstrip("0") or "0"
         # A finite binary64 value has at most 309 significant decimal digits.
         # Avoid handing an arbitrarily large untrusted integer to float().
         if len(significant) > 309:
-            return maximum
+            return math.inf
         delay = float(significant)
         if not math.isfinite(delay):
-            return maximum
+            return math.inf
     else:
         try:
             value = parsedate_to_datetime(raw)
@@ -1359,7 +1369,7 @@ def _retry_after_seconds(raw: str, *, maximum: float) -> float | None:
         delay = (value - datetime.now(UTC)).total_seconds()
     if not delay >= 0 or not delay < float("inf"):
         return None
-    return min(maximum, delay)
+    return delay
 
 
 def _encoded_query_input(

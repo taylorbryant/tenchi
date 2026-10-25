@@ -19,7 +19,7 @@ from datetime import UTC
 from html import escape
 from typing import Any, cast
 
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator
 from jsonschema.protocols import Validator
 from pydantic import TypeAdapter
 
@@ -806,7 +806,7 @@ def _serialized_examples(
     root_schema = {**schema, "components": {"schemas": components}}
     validator: Validator = Draft202012Validator(
         root_schema,
-        format_checker=FormatChecker(),
+        format_checker=None,
     )
     rendered: dict[str, dict[str, object]] = {}
     for name, value in examples:

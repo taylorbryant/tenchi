@@ -191,18 +191,20 @@ application tools through `--tools`. Tool discovery and compatibility also use
 `--tools`; `tools_diff`, `check`, and `verify` use `--tool-snapshot`.
 Job discovery and compatibility use `--jobs`; `jobs_diff`, `check`, and
 `verify` use `--job-snapshot`.
-`jobs_diff` rejects a missing historical snapshot unless you set
+`jobs_diff` and `tools_diff` reject a missing historical snapshot unless you set
 `allow_missing_baseline` for the first adoption. `verify` handles first
-adoption automatically when the default job composition module was absent at
-the baseline. If the module existed but its first snapshot did not, use
-`allow_missing_job_baseline` for that initial comparison.
+adoption automatically when the corresponding default composition module was
+absent at the baseline. If the module existed but its first snapshot did not,
+use `allow_missing_job_baseline` or `allow_missing_tool_baseline` for that
+initial comparison.
 The evaluation tools use `--evaluations`; `evaluation_diff`, `check`, and
 `verify` use `--evaluation-snapshot`.
 `evaluation_diff` likewise requires `allow_missing_baseline` for an initial
 missing snapshot. `verify` handles it automatically when the default evaluation
 composition module was absent at the baseline; otherwise the first snapshot
 requires `allow_missing_evaluation_baseline`. These adoptions record a
-`job manifest baseline` or `evaluation manifest baseline` metadata change.
+`job manifest baseline`, `tool manifest baseline`, or
+`evaluation manifest baseline` metadata change.
 Do not use an override to bypass an existing snapshot at a renamed or mistyped
 path. Other boundaries follow their own configured verification requirements.
 OpenAPI title, version,

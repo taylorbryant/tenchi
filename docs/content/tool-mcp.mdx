@@ -7,6 +7,11 @@ Use `tenchi.mcp` to expose a registered `ToolGroup` to Model Context Protocol
 annotations, authenticates discovery and invocation, and executes calls through
 the caller's `ToolRunner`.
 
+Payload `format` keywords are annotations. Pydantic validates typed input
+formats, so optional jsonschema format packages cannot impose different
+datetime or time rules on MCP calls. Other input schema assertions remain
+enabled. See [response validation](/responses) for the shared format policy.
+
 <Callout type="note" title="This is your application's MCP server">
   `tenchi.mcp` serves the application tools you declared. The `tenchi mcp` CLI
   command is a separate development server that lets agents inspect and

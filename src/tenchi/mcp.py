@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from jsonschema.protocols import Validator
 from pydantic import ValidationError
@@ -725,7 +725,7 @@ def _mcp_entries(tools: ToolGroup) -> dict[str, _McpEntry]:
             ),
             input_validator=Draft202012Validator(
                 input_schema,
-                format_checker=FormatChecker(),
+                format_checker=None,
             ),
             direct_input=direct_input,
         )

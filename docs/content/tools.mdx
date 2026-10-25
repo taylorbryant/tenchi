@@ -11,6 +11,11 @@ A `ToolRunner` owns one application lifespan and scoped context per call. It
 validates input before opening either resource and validates the result before
 the context commits.
 
+Result JSON must satisfy its published schema. Payload `format` keywords are
+annotations, with typed format constraints enforced by Pydantic independently
+of optional jsonschema format packages. See [response validation](/responses)
+for the shared format policy.
+
 ## Add tools to an existing application
 
 With Tenchi 0.19 or newer, start from the application root:
@@ -264,6 +269,13 @@ uv run tenchi tools \
   --diff-ref origin/main \
   --snapshot tools.json
 ```
+
+If the tools composition module existed at the baseline but its first snapshot
+did not, explicitly authorize `tools --diff-ref <ref> --allow-missing-baseline`
+or `verify --base-ref <ref> --allow-missing-tool-baseline` for that adoption.
+Require a `tool manifest baseline` metadata change in the report. The override
+does not bypass malformed snapshots, invalid refs, or current snapshot drift;
+do not use it to bypass an existing snapshot at a renamed or mistyped path.
 
 The compatibility report classifies changes against the historical manifest:
 

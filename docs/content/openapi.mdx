@@ -64,6 +64,10 @@ the published schema. This keeps aliases, custom validators, and custom
 serializers honest while giving external clients and agents concrete payloads
 they can adapt.
 
+As at runtime, payload `format` keywords remain annotations; Pydantic enforces
+typed format constraints. Optional jsonschema format packages do not change
+which examples Tenchi accepts. See [response validation](/responses).
+
 ```python
 create_todo_contract = contract(
     method="POST",
@@ -197,8 +201,12 @@ uv run tenchi openapi --check openapi.json
 
 `--diff-ref` resolves the snapshot inside the current Git repository and reads
 `REF:PATH` without changing the working tree. Missing refs and snapshots fail
-the command. Generated CI uses the pull request's base SHA; push checks retain
-exact snapshot validation without assuming a previous commit exists.
+the command. Generated CI runs `verify` against the pull request's base SHA or
+`github.event.before` for a push to `main`. The push baseline covers every commit
+in that push, including a commit that replaces the snapshot. Only an initial
+push with no historical commit runs `check` alone and prints that limitation.
+An unavailable noninitial baseline is fetched or fails CI; it never falls back
+to comparing the current snapshot with itself.
 
 Programmatic consumers can import `analyze_openapi_compatibility()` from
 `tenchi.compatibility` and inspect its structured `CompatibilityReport`.

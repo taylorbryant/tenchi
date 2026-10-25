@@ -148,7 +148,7 @@ from .snapshots import (
     render_tool_snapshot,
     tool_snapshot_diff,
 )
-from .tools import ToolManifest, tool_manifest
+from .tools import TOOL_MANIFEST_VERSION, ToolManifest, tool_manifest
 
 
 def _positive_float(value: str) -> float:
@@ -295,6 +295,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             diff_ref=args.diff_ref,
             snapshot=args.snapshot,
             diff_format=args.diff_format,
+            allow_missing_baseline=args.allow_missing_baseline,
         )
     if args.command == "jobs":
         return _jobs(
@@ -368,6 +369,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             evaluation_snapshot=args.evaluation_snapshot,
             tool_snapshot=args.tool_snapshot,
             allow_missing_job_baseline=args.allow_missing_job_baseline,
+            allow_missing_tool_baseline=args.allow_missing_tool_baseline,
             allow_missing_evaluation_baseline=(args.allow_missing_evaluation_baseline),
             change_plan=args.change_plan,
             security_json=args.security,
@@ -636,6 +638,12 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("text", "json"),
         default="text",
         help="Compatibility report format (default: %(default)s)",
+    )
+
+    tools_parser.add_argument(
+        "--allow-missing-baseline",
+        action="store_true",
+        help="Explicitly allow a missing Git snapshot during first adoption",
     )
 
     map_parser = subparsers.add_parser(
@@ -954,6 +962,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Explicitly allow a missing historical job snapshot during first adoption"
+        ),
+    )
+    verify_parser.add_argument(
+        "--allow-missing-tool-baseline",
+        action="store_true",
+        help=(
+            "Explicitly allow a missing historical tool snapshot during first adoption"
         ),
     )
     verify_parser.add_argument(
@@ -1538,6 +1553,7 @@ def _verify(
     evaluation_snapshot: str,
     tool_snapshot: str,
     allow_missing_job_baseline: bool,
+    allow_missing_tool_baseline: bool,
     allow_missing_evaluation_baseline: bool,
     change_plan: str | None,
     security_json: str | None,
@@ -1561,6 +1577,7 @@ def _verify(
             evaluation_snapshot=evaluation_snapshot,
             tool_snapshot=tool_snapshot,
             allow_missing_job_baseline=allow_missing_job_baseline,
+            allow_missing_tool_baseline=allow_missing_tool_baseline,
             allow_missing_evaluation_baseline=allow_missing_evaluation_baseline,
             change_plan=change_plan,
             security_json=security_json,
@@ -2495,6 +2512,7 @@ def _tools(
     diff_ref: str | None,
     snapshot: str | None,
     diff_format: str,
+    allow_missing_baseline: bool,
 ) -> int:
     structured = as_json or diff_format == "json"
     has_snapshot_mode = any(
@@ -2531,6 +2549,16 @@ def _tools(
             details=None,
             as_json=structured,
             human_message="tenchi tools: --snapshot requires --diff-ref",
+        )
+
+    if allow_missing_baseline and diff_ref is None:
+        return _render_operation_error(
+            operation="tools",
+            code="TENCHI_CLI_INVALID_ARGUMENTS",
+            message="--allow-missing-baseline requires --diff-ref.",
+            details=None,
+            as_json=structured,
+            human_message="tenchi tools: --allow-missing-baseline requires --diff-ref",
         )
 
     try:
@@ -2570,6 +2598,7 @@ def _tools(
             Path(snapshot or "tools.json"),
             manifest,
             output_format=diff_format,
+            allow_missing_baseline=allow_missing_baseline,
         )
     if as_json:
         _print_agent_json(
@@ -2659,12 +2688,20 @@ def _diff_tool_ref(
     current: ToolManifest,
     *,
     output_format: str,
+    allow_missing_baseline: bool,
 ) -> int:
     try:
         baseline = read_git_snapshot(
             Path.cwd(),
             ref=ref,
             snapshot=snapshot,
+            missing_text=(
+                render_tool_snapshot(
+                    {"schema_version": TOOL_MANIFEST_VERSION, "tools": []}
+                )
+                if allow_missing_baseline
+                else None
+            ),
         )
         baseline_text = baseline.text
         baseline_label = baseline.label
@@ -2682,6 +2719,7 @@ def _diff_tool_ref(
         baseline_label=baseline_label,
         current=current,
         output_format=output_format,
+        baseline_present=baseline.present,
     )
 
 
@@ -2691,6 +2729,7 @@ def _compare_tool_baseline(
     baseline_label: str,
     current: ToolManifest,
     output_format: str,
+    baseline_present: bool = True,
 ) -> int:
     try:
         result = compare_tool_baseline(
@@ -2698,6 +2737,7 @@ def _compare_tool_baseline(
             baseline_text=baseline_text,
             baseline_label=baseline_label,
             current=current,
+            baseline_present=baseline_present,
         )
     except OperationError as exc:
         return _render_operation_error(

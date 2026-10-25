@@ -20,6 +20,7 @@ from ._pytest_evidence import (
     TestDefinitionIdentity,
     TestExecutionEvidence,
     evidence_environment,
+    isolated_pytest_environment,
     read_test_execution_evidence,
 )
 from ._targets import (
@@ -134,6 +135,9 @@ def run_check(
                 root=resolved_root,
                 timeout_seconds=timeout_seconds,
                 cancelled=cancelled,
+                environment=isolated_pytest_environment()
+                if command.name == "pytest"
+                else None,
             )
         results.append(result)
         if step_completed is not None:

@@ -93,14 +93,19 @@ uv run tenchi mcp       # serve Tenchi tools to MCP-aware coding agents
 ```
 
 Run `openapi --diff` before `openapi --write` replaces the baseline. In CI,
-the generated workflow uses `--diff-ref` to compare against the pull request's
-base commit rather than the snapshot committed in the same change. After
-accepting a snapshot update, `tenchi verify --base-ref <ref>` reruns the checks
-and records architecture plus every compatibility report against one commit.
+the generated workflow runs `verify` against the pull request's base commit or
+the commit before a push to `main`, including pushes containing multiple commits.
+An initial push has no historical baseline and runs `check` with an explicit
+notice; an unavailable noninitial baseline fails CI. After accepting a snapshot
+update, `tenchi verify --base-ref <ref>` reruns the checks and records
+architecture plus every compatibility report against one commit.
 
 Failed checks include bounded output from the project's validation commands.
 That output is also included in verification reports; review it before sharing
 because Tenchi does not redact what tests or scripts print.
+
+The pytest step clears inherited `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, and
+`PYTHONPATH`; configure selection, plugins, and import paths in the project.
 
 `tenchi.toml` is the repository-owned definition of required verification
 evidence. `verify` compares it with the selected Git baseline and enforces the
@@ -227,14 +232,21 @@ JSON responses must satisfy their published schema and revalidate from the
 emitted bytes before the request scope commits; response field aliases must be
 readable by the same model. Contract examples are public documentation, so use
 realistic placeholder values and never credentials or production payloads.
+JSON Schema payload `format` keywords are annotations; Pydantic types and
+validators enforce format constraints independently of optional packages.
 Contracts marked `webhook=True` require an exact-body verifier binding in
-`create_app(webhooks=...)`. Application tools receive identity through context
+`create_app(webhooks=...)`. Unexpected verifier errors must unwind the request
+context and become generic 500s, never request-validation 422s.
+Application tools receive identity through context
 wiring, never model-supplied input, and their safety annotations never
 authorize a call. Evaluators return only normalized scores and usage; keep
 `tenchi eval run` separate from deterministic checks because it may call
 providers and incur cost.
 
 ## Change checklist
+
+`check` and `verify` clear inherited `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, and
+`PYTHONPATH` for pytest. Keep test configuration in the project.
 
 - Update the contract, use case, route binding, tests, and OpenAPI snapshot
   together when an operation changes.
@@ -252,7 +264,8 @@ providers and incur cost.
   where the module did not exist as a first adoption. A missing historical
   snapshot for a module that did exist at the baseline is an error unless a
   human authorizes `--allow-missing-baseline`, or
-  `--allow-missing-job-baseline` / `--allow-missing-evaluation-baseline` with
+  `--allow-missing-job-baseline`, `--allow-missing-tool-baseline`, or
+  `--allow-missing-evaluation-baseline` with
   `verify`, once.
 - After accepting snapshot changes, run `tenchi verify --base-ref <ref>` with a
   historical ref and retain its complete pass/fail receipt.
@@ -782,13 +795,21 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
-      - run: uv run tenchi check
-        if: github.event_name != 'pull_request'
       - name: Verify source, architecture, and compatibility
-        if: github.event_name == 'pull_request'
-        run: >-
-          uv run tenchi verify
-          --base-ref "${{ github.event.pull_request.base.sha }}"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ] && [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "Initial push: no historical baseline; running local checks only."
+            uv run tenchi check
+          else
+            test -n "$BASE_SHA"
+            if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              git fetch --no-tags origin "$BASE_SHA"
+            fi
+            uv run tenchi verify --base-ref "$BASE_SHA"
+          fi
 """
 
 _TOOLS_SNAPSHOT = """\

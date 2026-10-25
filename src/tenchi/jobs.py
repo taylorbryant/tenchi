@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from types import UnionType
 from typing import Any, Literal, cast, overload
 
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator
 from jsonschema.protocols import Validator
 from pydantic import ConfigDict, TypeAdapter, ValidationError, with_config
 from typing_extensions import TypedDict
@@ -567,7 +567,7 @@ def _request_schema(
         Draft202012Validator.check_schema(schema)
         validator = Draft202012Validator(
             schema,
-            format_checker=FormatChecker(),
+            format_checker=None,
         )
     except Exception as exc:
         raise JobBindingError(

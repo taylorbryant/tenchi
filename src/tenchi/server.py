@@ -1202,41 +1202,51 @@ def _make_endpoint(
         request_id = request_info.request_id
         body: bytes | None = None
         actual_media_type: str | None = None
-        try:
-            if bound.webhook is not None:
-                # A signed webhook is an authentication boundary. After the
-                # cheap media-type and size guards, verify its exact bytes
-                # before any Pydantic adapter can disclose input details.
-                assert bound.request_adapter is not None
-                actual_media_type = request.headers.get("content-type")
-                if not media_type_matches(
-                    declared=contract.request_media_type,
-                    actual=actual_media_type,
-                ):
-                    return _framework_error_response(
-                        tenchi_errors.unsupported_media_type,
-                        details={
-                            "expected": contract.request_media_type,
-                            "actual": actual_media_type,
-                        },
-                        request_id=request_id,
-                    )
-                body = await _read_body(request, bound.body_limit)
-                verification = bound.webhook.verifier(
-                    WebhookRequest(
-                        body=body,
-                        headers=request_info.headers,
-                        header_values=MappingProxyType(_header_values(request)),
-                        contract=contract,
-                        request_id=request_id,
-                    ),
-                    context,
+        if bound.webhook is not None:
+            # A signed webhook is an authentication boundary. After the
+            # cheap media-type and size guards, verify its exact bytes
+            # before any Pydantic adapter can disclose input details.
+            assert bound.request_adapter is not None
+            actual_media_type = request.headers.get("content-type")
+            if not media_type_matches(
+                declared=contract.request_media_type,
+                actual=actual_media_type,
+            ):
+                return _framework_error_response(
+                    tenchi_errors.unsupported_media_type,
+                    details={
+                        "expected": contract.request_media_type,
+                        "actual": actual_media_type,
+                    },
+                    request_id=request_id,
                 )
-                if inspect.isawaitable(verification):
-                    verification = await verification
-                if verification is not None:
-                    context = verification
-                    kwargs["context"] = context
+            try:
+                body = await _read_body(request, bound.body_limit)
+            except _BodyTooLarge as exc:
+                return _framework_error_response(
+                    tenchi_errors.request_too_large,
+                    details={"limit_bytes": exc.limit},
+                    request_id=request_id,
+                )
+            # Verifier failures are application failures, even when they use
+            # Pydantic or decode text internally. Let them unwind the context
+            # before error mapping instead of reporting request-field details.
+            verification = bound.webhook.verifier(
+                WebhookRequest(
+                    body=body,
+                    headers=request_info.headers,
+                    header_values=MappingProxyType(_header_values(request)),
+                    contract=contract,
+                    request_id=request_id,
+                ),
+                context,
+            )
+            if inspect.isawaitable(verification):
+                verification = await verification
+            if verification is not None:
+                context = verification
+                kwargs["context"] = context
+        try:
             if bound.params_adapter is not None:
                 kwargs["params"] = bound.params_adapter.validate_python(
                     request.path_params

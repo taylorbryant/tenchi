@@ -139,6 +139,10 @@ def retry_policy(
     as intermediary-generated 502, 503, or 504 responses. Unsafe methods such
     as POST require ``allow_unsafe_methods=True``; callers should normally pair
     that opt-in with an idempotency key.
+
+    A valid ``Retry-After`` is a minimum wait, never clamped downward. If it
+    exceeds ``max_delay_seconds`` or cannot fit the remaining total timeout,
+    the client stops retrying and raises the current response error.
     """
     raw_codes = cast(object, retry_on)
     if isinstance(raw_codes, str | bytes) or not isinstance(raw_codes, Sequence):
