@@ -118,15 +118,9 @@ class TestExecutionEvidence:
         }
 
 
-def evidence_environment(
-    path: Path,
-    target: str,
-    identity: TestDefinitionIdentity | None,
-) -> dict[str, str]:
-    """Return the private child environment used by the pytest plugin."""
-    environment = {
-        _EVIDENCE_PATH_ENVIRONMENT: str(path),
-        _EVIDENCE_TARGET_ENVIRONMENT: target,
+def isolated_pytest_environment() -> dict[str, str]:
+    """Keep every Tenchi pytest subprocess independent of shell overrides."""
+    return {
         # Inherited pytest selection and import hooks would make verification
         # depend on the invoking shell rather than the checked project. This
         # does not turn project-owned pytest code into a security boundary;
@@ -134,6 +128,19 @@ def evidence_environment(
         "PYTEST_ADDOPTS": "",
         "PYTEST_PLUGINS": "",
         "PYTHONPATH": "",
+    }
+
+
+def evidence_environment(
+    path: Path,
+    target: str,
+    identity: TestDefinitionIdentity | None,
+) -> dict[str, str]:
+    """Return the private child environment used by the pytest plugin."""
+    environment = {
+        **isolated_pytest_environment(),
+        _EVIDENCE_PATH_ENVIRONMENT: str(path),
+        _EVIDENCE_TARGET_ENVIRONMENT: target,
     }
     if identity is not None:
         environment.update(
@@ -479,6 +486,7 @@ __all__ = [
     "TestExecutionEvidencePayload",
     "TestExecutionStatus",
     "evidence_environment",
+    "isolated_pytest_environment",
     "read_test_execution_evidence",
     "unavailable_test_execution_evidence",
 ]

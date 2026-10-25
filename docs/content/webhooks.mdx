@@ -214,6 +214,10 @@ Verifiers may be synchronous or asynchronous. Return `None` to keep the
 current context, or return an enriched context. An expected rejection should
 raise `AppError`; an unexpected verifier failure is logged and returned as a
 framework-owned 500 without exposing the exception.
+This includes Pydantic `ValidationError` and `UnicodeDecodeError` raised inside
+the verifier: they unwind the request context before error mapping and never
+become request-validation 422s. Validation errors in the actual request models
+still return 422 after verification succeeds.
 
 ## Prevent replayed effects
 

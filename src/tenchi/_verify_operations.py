@@ -425,6 +425,7 @@ def verification_result(
     security_json: str | None,
     timeout_seconds: float,
     allow_missing_job_baseline: bool = False,
+    allow_missing_tool_baseline: bool = False,
     allow_missing_evaluation_baseline: bool = False,
     change_plan: str | None = None,
     cancelled: Callable[[], bool] | None = None,
@@ -753,7 +754,9 @@ def verification_result(
                 tools=tools,
                 snapshot=tool_snapshot_path,
                 ref=baseline_commit,
-                allow_missing_baseline="tools" in absent_at_baseline,
+                allow_missing_baseline=(
+                    allow_missing_tool_baseline or "tools" in absent_at_baseline
+                ),
             )
         except OperationError as exc:
             errors.append(VerificationErrorResult("tools", str(exc)))

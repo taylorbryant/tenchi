@@ -73,6 +73,13 @@ historical ref. `verify` needs committed baseline snapshots. A passing result
 records the configured checks and compatibility evidence; reviewers still
 judge whether the behavior and assertions meet the requirement.
 
+The pytest step clears inherited `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, and
+`PYTHONPATH`; configure test selection, plugins, and import paths in the project.
+
+Generated CI verifies pull requests against their base commit and pushes to
+`main` against the commit before the push. Only the first push, which has no
+historical baseline, runs local checks alone with an explicit notice.
+
 [Agents](https://tenchi.io/agents) use these same commands with
 `--json`, or access inspection, previews, and verification through the
 [agent MCP server](https://tenchi.io/mcp). You choose the agent and
@@ -85,6 +92,11 @@ Every HTTP operation follows the same path:
 ```text
 validated input -> contract + route -> async use case -> app-owned port -> adapter
 ```
+
+JSON Schema payload `format` entries are descriptive; Pydantic types and
+validators enforce format constraints. Optional jsonschema format packages do
+not change accepted values. JSON responses still undergo runtime schema checks
+and Pydantic revalidation before the request context exits.
 
 A Pydantic model defines the boundary data:
 

@@ -13,7 +13,7 @@ from tenchi.client import (
     UnexpectedResponseError,
 )
 from tenchi.contracts import contract
-from tenchi.errors import ConfigurationError, ErrorDef
+from tenchi.errors import AppError, ConfigurationError, ErrorDef
 from tenchi.retries import RetryPolicy, RetryTimeoutError, retry_policy
 
 
@@ -102,15 +102,86 @@ async def test_retries_declared_errors_and_respects_retry_after(
     assert outcomes[0].status_code == 200
 
 
+@pytest.mark.parametrize("selection", ["app_code", "app_status", "raw_status"])
+@pytest.mark.parametrize(
+    ("retry_after", "max_delay", "budget"),
+    [
+        ("30", 5, None),
+        ("1", 0, None),
+        ("9" * 309, 5, None),
+        ("9" * 5000, 5, None),
+        ("Fri, 31 Dec 9999 23:59:59 GMT", 5, None),
+        ("2", 5, 1.0),
+    ],
+)
+async def test_retry_after_that_cannot_fit_stops_without_retrying_early(
+    monkeypatch: pytest.MonkeyPatch,
+    selection: str,
+    retry_after: str,
+    max_delay: float,
+    budget: float | None,
+) -> None:
+    requests = 0
+    attempts: list[ClientAttemptOutcome] = []
+    outcomes: list[ClientOutcome] = []
+    raw = selection == "raw_status"
+    status_code = 429 if raw else 503
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if raw:
+            return httpx.Response(
+                status_code, text="slow down", headers={"retry-after": retry_after}
+            )
+        return httpx.Response(
+            status_code,
+            json={"code": temporarily_unavailable.code, "message": "Try later"},
+            headers={"x-tenchi-error-source": "app", "retry-after": retry_after},
+        )
+
+    async def unexpected_sleep(delay: float) -> None:
+        raise AssertionError("a server wait outside the policy must not be shortened")
+
+    monkeypatch.setattr("tenchi.client.asyncio.sleep", unexpected_sleep)
+    async with Client(
+        transport=httpx.MockTransport(respond),
+        attempt_observers=(attempts.append,),
+        observers=(outcomes.append,),
+    ) as client:
+        with pytest.raises(UnexpectedResponseError if raw else AppError):
+            await client.call(
+                get_item,
+                retry=retry_policy(
+                    retry_on=(temporarily_unavailable.code,)
+                    if selection == "app_code"
+                    else (),
+                    retry_on_statuses=(status_code,) if selection != "app_code" else (),
+                    base_delay_seconds=0,
+                    max_delay_seconds=max_delay,
+                    total_timeout_seconds=budget,
+                    jitter=0,
+                ),
+            )
+
+    assert requests == 1
+    assert len(attempts) == len(outcomes) == 1
+    assert attempts[0].will_retry is False
+    assert attempts[0].retry_delay_seconds is None
+    assert (
+        attempts[0].status
+        == outcomes[0].status
+        == ("unexpected_response" if raw else "app_error")
+    )
+    assert outcomes[0].status_code == status_code
+    assert outcomes[0].attempts == 1
+
+
 @pytest.mark.parametrize(
     ("retry_after", "base_delay", "max_delay", "expected_delay"),
     [
         ("2", 0, 5, 2),
         ("1", 2, 5, 2),
-        ("86400", 0, 1, 1),
-        ("86400", 0, 0, 0),
-        ("9" * 5000, 0, 1, 1),
-        ("Fri, 31 Dec 9999 23:59:59 GMT", 0, 1, 1),
         ("1.5", 0.25, 1, 0.25),
         ("1e3", 0.25, 1, 0.25),
         ("+2", 0.25, 1, 0.25),
@@ -176,12 +247,37 @@ async def test_retry_after_is_validated_and_bounded(
     ]
 
 
+async def test_retry_after_uses_the_remaining_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleep = asyncio.sleep
+    requests = 0
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        await sleep(0.02)
+        return httpx.Response(429, text="slow down", headers={"Retry-After": "1"})
+
+    async def unexpected_backoff(delay: float) -> None:
+        raise AssertionError("the request has already consumed part of the budget")
+
+    monkeypatch.setattr("tenchi.client.asyncio.sleep", unexpected_backoff)
+    async with Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(UnexpectedResponseError):
+            await client.call(
+                get_item,
+                retry=retry_policy(
+                    retry_on_statuses=(429,), total_timeout_seconds=1.01
+                ),
+            )
+    assert requests == 1
+
+
 @pytest.mark.parametrize(
     ("retry_after", "base_delay", "max_delay", "expected_delay"),
     [
         ("2", 0, 5, 2),
-        ("86400", 0, 1, 1),
-        ("9" * 5000, 0, 1, 1),
         ("not-a-date", 0.25, 1, 0.25),
     ],
 )
@@ -479,7 +575,6 @@ async def test_retry_deadline_can_expire_during_raw_status_backoff() -> None:
         return httpx.Response(
             503,
             text="upstream unavailable",
-            headers={"retry-after": "1"},
         )
 
     async with Client(
@@ -492,7 +587,7 @@ async def test_retry_deadline_can_expire_during_raw_status_backoff() -> None:
                 get_item,
                 retry=retry_policy(
                     retry_on_statuses=(503,),
-                    base_delay_seconds=0,
+                    base_delay_seconds=1,
                     max_delay_seconds=1,
                     jitter=0,
                     total_timeout_seconds=0.01,
@@ -558,7 +653,7 @@ async def test_external_cancellation_during_retry_after_backoff_is_preserved(
             headers={
                 "content-type": "application/json",
                 "x-tenchi-error-source": "app",
-                "retry-after": "86400",
+                "retry-after": "1",
             },
         )
 
@@ -608,7 +703,7 @@ async def test_external_cancellation_during_raw_status_backoff_is_preserved(
         return httpx.Response(
             503,
             text="upstream unavailable",
-            headers={"retry-after": "86400"},
+            headers={"retry-after": "1"},
         )
 
     async def wait_in_backoff(delay: float) -> None:

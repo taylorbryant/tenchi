@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import httpx
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from starlette.applications import Starlette
 
 from tenchi.contracts import contract
@@ -325,6 +325,59 @@ async def test_verifier_failure_exits_request_scope_before_error_mapping() -> No
 
     assert response.status_code == 401
     assert exits == [AppError]
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("failure", ["validation", "unicode"])
+async def test_unexpected_verifier_errors_roll_back_without_validation_details(
+    asynchronous: bool, failure: str
+) -> None:
+    exits: list[type[BaseException]] = []
+    invoked = False
+
+    @asynccontextmanager
+    async def context_factory() -> AsyncGenerator[Context]:
+        try:
+            yield Context()
+        except BaseException as exc:
+            exits.append(type(exc))
+            raise
+
+    def reject(request: WebhookRequest, context: Context) -> None:
+        if failure == "validation":
+            Delivery.model_validate({"event_id": "private-verifier-value"})
+        else:
+            b"private-verifier-value\xff".decode("utf-8")
+
+    async def reject_async(request: WebhookRequest, context: Context) -> None:
+        await asyncio.sleep(0)
+        reject(request, context)
+
+    async def use_case(request: Delivery, context: Context) -> Delivery:
+        nonlocal invoked
+        invoked = True
+        return request
+
+    app = create_app(
+        routes=route_group(route(delivery_contract, use_case)),
+        context_factory=context_factory,
+        webhooks=[webhook(delivery_contract, reject_async if asynchronous else reject)],
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/deliveries", json={"event_id": "evt_5", "action": "opened"}
+        )
+
+    assert response.status_code == 500
+    assert response.headers[ERROR_SOURCE_HEADER] == "framework"
+    assert response.json()["code"] == "INTERNAL_SERVER_ERROR"
+    assert "details" not in response.json()
+    assert "private-verifier-value" not in response.text
+    assert exits == [ValidationError if failure == "validation" else UnicodeDecodeError]
+    assert not invoked
 
 
 async def test_undeclared_verifier_error_remains_a_framework_failure() -> None:

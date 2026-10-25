@@ -7,6 +7,37 @@ versions may change the public API.
 
 ## [Unreleased]
 
+### Fixed
+
+- Client retries honor `Retry-After` as a minimum wait. A valid server delay
+  beyond the configured delay cap or remaining time budget stops retries with
+  the current response error instead of retrying early. Attempt observers
+  report the terminal decision without a retry delay.
+- Generated GitHub Actions CI runs historical `verify` on direct pushes to
+  `main` using the commit before the push, including multi-commit pushes.
+  Initial pushes explicitly run local checks only; unavailable historical
+  commits fail CI instead of falling back to an equality check.
+- Application-tool baseline adoption now has the same explicit overrides as
+  jobs and evaluations: `tools --diff-ref --allow-missing-baseline` and
+  `verify --allow-missing-tool-baseline`, plus matching coding-agent MCP
+  inputs. Missing baselines record `tool manifest baseline` metadata; invalid
+  refs, malformed baselines, and current snapshot drift still fail. These
+  optional MCP inputs are additive updates to agent protocol version 13.
+- Every pytest step launched by `check` and `verify` clears inherited
+  `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, and `PYTHONPATH`. Ambient collection-only
+  or selection options can no longer produce a passing check without running
+  the project's configured tests. Project pytest configuration and plugins
+  remain supported.
+- HTTP responses, job messages, tool results, application MCP inputs, and
+  OpenAPI examples treat JSON Schema payload `format` keywords as annotations.
+  Pydantic owns typed format validation, so installing optional jsonschema
+  format packages no longer changes accepted datetime and time values.
+  Runtime schema assertions and existing Pydantic round trips remain enabled.
+- Unexpected webhook verifier failures, including Pydantic validation and
+  Unicode decoding errors, unwind the request context before returning a
+  generic framework-owned 500. They no longer become request-validation 422s
+  that expose verifier field details or allow the context to commit.
+
 ## [0.19.0] - 2026-10-18
 
 ### Added

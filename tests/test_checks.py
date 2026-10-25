@@ -56,6 +56,52 @@ def _run(root: Path, **overrides: Any) -> CheckResult:
     return _checks.run_check(root, **arguments)
 
 
+def _pytest_only(**kwargs: object) -> tuple[_checks._CheckCommand, ...]:  # pyright: ignore[reportPrivateUsage]
+    del kwargs
+    return (_checks._CheckCommand("pytest", ("pytest",)),)  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize("addopts", ["--collect-only -q", "-k test_passes"])
+def test_check_pytest_ignores_ambient_selection_and_import_hooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, addopts: str
+) -> None:
+    (tmp_path / "app").mkdir()
+    (tmp_path / "test_example.py").write_text(
+        "def test_passes():\n    pass\n\n"
+        "def test_fails():\n    assert False, 'failure must run'\n",
+        encoding="utf-8",
+    )
+    injected = tmp_path / "injected"
+    injected.mkdir()
+    marker = tmp_path / "sitecustomize-ran"
+    (injected / "sitecustomize.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).touch()\n",
+        encoding="utf-8",
+    )
+    plugin_marker = tmp_path / "ambient-plugin-ran"
+    (tmp_path / "ambient_plugin.py").write_text(
+        f"from pathlib import Path\nPath({str(plugin_marker)!r}).touch()\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTEST_ADDOPTS", addopts)
+    monkeypatch.setenv("PYTEST_PLUGINS", "ambient_plugin")
+    monkeypatch.setenv("PYTHONPATH", str(injected))
+    # Exercise the normal check path with a real pytest subprocess, without
+    # requiring unrelated lint, typing, and composition setup in this fixture.
+    monkeypatch.setattr(_checks, "_check_commands", _pytest_only)
+
+    result = _run(tmp_path)
+
+    assert not result.ok
+    assert result.steps[0].exit_code == 1
+    assert "1 failed, 1 passed" in result.steps[0].stdout
+    assert not marker.exists()
+    assert not plugin_marker.exists()
+    assert os.environ["PYTEST_ADDOPTS"] == addopts
+    assert os.environ["PYTEST_PLUGINS"] == "ambient_plugin"
+    assert os.environ["PYTHONPATH"] == str(injected)
+
+
 def test_check_omits_snapshot_steps_for_unconfigured_boundaries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -81,6 +127,35 @@ def test_check_omits_snapshot_steps_for_unconfigured_boundaries(
         "openapi",
     ]
     assert len(calls) == 6
+
+
+def test_check_pytest_keeps_project_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "app").mkdir()
+    support = tmp_path / "support"
+    support.mkdir()
+    (support / "project_plugin.py").write_text(
+        "import pytest\n\n@pytest.fixture\ndef value():\n    return 42\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "conftest.py").write_text(
+        "pytest_plugins = ['project_plugin']\n", encoding="utf-8"
+    )
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\npythonpath = support\naddopts = -k selected\n", encoding="utf-8"
+    )
+    (tmp_path / "test_example.py").write_text(
+        "def test_selected(value):\n    assert value == 42\n\n"
+        "def test_excluded():\n    assert False\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--invalid-ambient-option")
+    monkeypatch.setattr(_checks, "_check_commands", _pytest_only)
+
+    result = _run(tmp_path)
+
+    assert result.ok
 
 
 @pytest.mark.parametrize(

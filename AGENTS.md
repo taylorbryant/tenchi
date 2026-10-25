@@ -286,6 +286,10 @@ API shape:
   unreadable aliases fail during composition, OpenAPI generation, and client
   preflight. Response schemas must be self-contained; validation never fetches
   remote references.
+- JSON Schema payload `format` keywords are annotations. Pydantic types and
+  validators own format constraints; optional jsonschema format packages must
+  not change HTTP, job, tool, MCP, or example validation. Preserve runtime
+  schema assertions and the existing boundary-specific Pydantic round trips.
 - Do not hide httpx, Starlette, or Pydantic where exposing them is more
   useful (e.g. `Client(transport=...)`, lifespans as async context
   managers).
@@ -327,6 +331,9 @@ API shape:
   and may return an enriched context carrying service identity. Use cases
   still assert that identity, and provider event ids use transaction-scoped
   idempotency to collapse redelivery.
+  Unexpected verifier exceptions, including Pydantic and Unicode decoding
+  errors, must unwind the request context and become generic 500s, never
+  request-validation 422s.
 - Retry-safe operations use `run_idempotently()` with an `IdempotencyStore`
   supplied through the application context. The store that protects database
   writes participates in the same transaction; keys are scoped to an actor or
@@ -335,6 +342,9 @@ API shape:
   declare one required, non-empty string `Idempotency-Key` header. This is
   checked and published to OpenAPI; it never substitutes for
   `run_idempotently()` or correct transaction placement.
+- Client retries treat a valid `Retry-After` as a minimum wait. If it exceeds
+  the policy's delay cap or remaining total timeout, stop with the current
+  response error; never clamp the server's delay downward.
 - Application-level quotas use `enforce_rate_limit()` with a `RateLimitStore`
   scoped from authenticated identity, never untrusted request input. Put the
   consume inside idempotent work when one logical operation should cost once.
@@ -351,6 +361,10 @@ API shape:
   tool results and set MCP's standard `isError` flag.
 
 ## CLI expectations
+
+Every pytest subprocess launched by `check` or `verify` clears inherited
+`PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, and `PYTHONPATH`. Project-owned pytest
+configuration, conftest files, and plugins remain authoritative and cooperative.
 
 The CLI is product surface. New applications and structural generator output
 must pass Ruff, Ruff format, Pyright strict, pytest, and `tenchi doctor`
@@ -471,6 +485,9 @@ accepting a changed snapshot:
 breaking and unknown changes fail, while additive and metadata-only changes
 pass. CI compatibility checks must obtain their baseline from the pull-request
 base or preceding push; prefer `--diff-ref` when that baseline is committed.
+Generated CI uses `verify` with that immutable base SHA for pull requests and
+direct pushes to `main`. Only an initial push with no historical SHA may run
+`check` alone, with an explicit notice; unavailable noninitial baselines fail.
 Comparing against the snapshot committed in the same change is only an equality
 check and belongs to `openapi --check`.
 Named request/response examples are validated and serialized against the exact
@@ -498,7 +515,7 @@ execution or import and at the end; any observed persistent change fails the
 receipt as a source error. It never writes
 snapshots. A missing job, tool, or evaluation snapshot is a first adoption when the
 composition module did not exist at the baseline commit and otherwise requires
-the explicit `--allow-missing-job-baseline` or
+the explicit `--allow-missing-job-baseline`, `--allow-missing-tool-baseline`, or
 `--allow-missing-evaluation-baseline` override. A stage omitted from
 `tenchi.toml` while its composition module exists is a verification error;
 `false` remains a deliberate skip. The CLI and

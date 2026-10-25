@@ -671,6 +671,85 @@ def test_eval_snapshot_missing_baseline_override_requires_a_git_diff(
     assert "--allow-missing-baseline requires --diff-ref" in result.stderr
 
 
+def test_tools_git_diff_requires_explicit_first_adoption(tmp_path: Path) -> None:
+    _write_tool_module(tmp_path)
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", ".")
+    _git(
+        tmp_path,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "tool composition before snapshot",
+    )
+    arguments = (
+        "tools",
+        "--tools",
+        "tool_app:tools",
+        "--diff-ref",
+        "HEAD",
+        "--diff-format",
+        "json",
+    )
+
+    rejected = _tenchi(tmp_path, *arguments)
+    _assert_operation_error(
+        rejected, operation="tools", code="TENCHI_CLI_OPERATION_FAILED"
+    )
+    allowed = _tenchi(tmp_path, *arguments, "--allow-missing-baseline")
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+    report = json.loads(allowed.stdout)
+    assert report["compatible"] is True
+    assert report["counts"]["additive"] == 1
+    assert report["counts"]["metadata"] == 1
+    assert report["changes"][-1] == {
+        "severity": "metadata",
+        "location": "tool manifest baseline",
+        "message": "historical baseline absent; first adoption recorded",
+    }
+
+    # The override is only for absence: malformed committed content still fails.
+    (tmp_path / "tools.json").write_text("not JSON", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(
+        tmp_path,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "malformed snapshot",
+    )
+    malformed = _tenchi(tmp_path, *arguments, "--allow-missing-baseline")
+    _assert_operation_error(
+        malformed, operation="tools", code="TENCHI_CLI_OPERATION_FAILED"
+    )
+
+
+@pytest.mark.parametrize("structured", [False, True])
+def test_tools_missing_baseline_override_requires_a_git_diff(
+    tmp_path: Path, structured: bool
+) -> None:
+    result = _tenchi(
+        tmp_path,
+        "tools",
+        "--allow-missing-baseline",
+        *(["--json"] if structured else []),
+    )
+    if structured:
+        failure = _assert_operation_error(
+            result, operation="tools", code="TENCHI_CLI_INVALID_ARGUMENTS"
+        )
+        assert failure["message"] == "--allow-missing-baseline requires --diff-ref."
+    else:
+        assert result.returncode == 1
+        assert "--allow-missing-baseline requires --diff-ref" in result.stderr
+
+
 def test_jobs_cli_writes_checks_and_classifies_snapshots(tmp_path: Path) -> None:
     _write_job_module(tmp_path)
     target = "job_app:jobs"
@@ -1677,6 +1756,48 @@ def test_verify_requires_explicit_job_manifest_first_adoption(
     receipt = json.loads(allowed.stdout)
     assert receipt["jobs"]["counts"]["metadata"] == 1
     assert receipt["jobs"]["changes"][-1]["location"] == "job manifest baseline"
+
+
+def test_verify_requires_explicit_tool_manifest_first_adoption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["new", "my_app", "--full"]) == 0
+    root = tmp_path / "my_app"
+    snapshot = (root / "tools.json").read_text(encoding="utf-8")
+    (root / "tools.json").unlink()
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "tool composition without its first snapshot")
+    (root / "tools.json").write_text(snapshot, encoding="utf-8")
+
+    rejected = _tenchi(
+        root,
+        "verify",
+        "--base-ref",
+        "HEAD",
+        "--json",
+    )
+    assert rejected.returncode == 1
+    rejected_receipt = json.loads(rejected.stdout)
+    assert rejected_receipt["tools"] is None
+    assert any(error["stage"] == "tools" for error in rejected_receipt["errors"])
+
+    allowed = _tenchi(
+        root,
+        "verify",
+        "--base-ref",
+        "HEAD",
+        "--allow-missing-tool-baseline",
+        "--json",
+    )
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+    receipt = json.loads(allowed.stdout)
+    assert receipt["tools"]["counts"]["metadata"] == 1
+    assert receipt["tools"]["changes"][-1]["location"] == "tool manifest baseline"
 
 
 def test_verify_catches_a_breaking_snapshot_change_after_the_snapshot_is_replaced(

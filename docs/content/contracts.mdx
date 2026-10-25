@@ -260,6 +260,10 @@ application, OpenAPI document, or typed client is composed.
   readable by the declared type. Response field aliases must be readable by the
   same model: use `Field(alias=...)` or accept the serialization name in
   `validation_alias`. See [response constraints](/responses#constraints).
+- JSON Schema payload `format` keywords are annotations. Pydantic types and
+  validators enforce format constraints, so installing optional format
+  packages does not change the boundary. Use `AwareDatetime` when a timestamp
+  must include a timezone. See [response validation](/responses).
 - Before sending a typed request, `Client` passes the concrete path, query, and
   header values through their HTTP encoding and the declared validator again,
   including configured httpx defaults, so an inherited parameter cannot

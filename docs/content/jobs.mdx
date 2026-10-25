@@ -68,6 +68,12 @@ If a custom serializer emits a different wire shape, `job_message()` raises
 `JobBindingError` before enqueueing it. Keep custom serialization aligned with
 the JSON Schema generated from the request annotation.
 
+Payload `format` keywords are annotations; Pydantic enforces typed format
+constraints. Optional jsonschema format packages do not change which messages
+can be enqueued. Use `AwareDatetime` for a required timezone; plain `datetime`
+also accepts naive values. Schema assertions and strict consumer revalidation
+remain enabled.
+
 The job payload carries application facts. Delivery metadata such as message
 ids, trace ids, attempt counts, scheduled time, and queue partition belongs in
 your infrastructure envelope, not in every business payload.

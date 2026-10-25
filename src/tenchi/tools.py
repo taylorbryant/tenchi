@@ -33,7 +33,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar, cast, overload
 
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator
 from jsonschema.protocols import Validator
 from pydantic import ConfigDict, TypeAdapter, ValidationError, with_config
 from typing_extensions import TypedDict, TypeForm
@@ -753,7 +753,7 @@ def _build_schema_validator(
         Draft202012Validator.check_schema(schema)
         return Draft202012Validator(
             schema,
-            format_checker=FormatChecker(),
+            format_checker=None,
         )
     except Exception as exc:
         raise ToolBindingError(

@@ -7098,6 +7098,11 @@
     "tools_diff": {
       "input": {
         "properties": {
+          "allow_missing_baseline": {
+            "default": false,
+            "title": "Allow Missing Baseline",
+            "type": "boolean"
+          },
           "ref": {
             "anyOf": [
               {
@@ -7254,6 +7259,11 @@
           "allow_missing_job_baseline": {
             "default": false,
             "title": "Allow Missing Job Baseline",
+            "type": "boolean"
+          },
+          "allow_missing_tool_baseline": {
+            "default": false,
+            "title": "Allow Missing Tool Baseline",
             "type": "boolean"
           },
           "base_ref": {

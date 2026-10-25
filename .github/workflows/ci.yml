@@ -59,8 +59,12 @@ jobs:
           if ! git cat-file -e "${BASE_SHA}:examples/todos/jobs.json" 2>/dev/null; then
             job_args+=(--allow-missing-job-baseline)
           fi
+          tool_args=()
+          if ! git cat-file -e "${BASE_SHA}:examples/todos/tools.json" 2>/dev/null; then
+            tool_args+=(--allow-missing-tool-baseline)
+          fi
           uv run --directory examples/todos tenchi verify \
-            --base-ref "${BASE_SHA}" "${job_args[@]}" "${evaluation_args[@]}"
+            --base-ref "${BASE_SHA}" "${job_args[@]}" "${tool_args[@]}" "${evaluation_args[@]}"
       # The taskboard example is a standalone project consuming tenchi as
       # a path dependency; it gets its own environment and checks.
       - name: Verify taskboard source, architecture, and compatibility
@@ -75,14 +79,17 @@ jobs:
           if ! git cat-file -e "${BASE_SHA}:examples/taskboard/jobs.json" 2>/dev/null; then
             job_args+=(--allow-missing-job-baseline)
           fi
+          tool_args=()
+          if ! git cat-file -e "${BASE_SHA}:examples/taskboard/tools.json" 2>/dev/null; then
+            tool_args+=(--allow-missing-tool-baseline)
+          fi
           uv run --directory examples/taskboard tenchi verify \
-            --base-ref "${BASE_SHA}" "${job_args[@]}" "${evaluation_args[@]}"
+            --base-ref "${BASE_SHA}" "${job_args[@]}" "${tool_args[@]}" "${evaluation_args[@]}"
       - name: Verify Fieldnotes source, architecture, and compatibility
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/openapi.json" 2>/dev/null || \
-             ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/tools.json" 2>/dev/null; then
+          if ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/openapi.json" 2>/dev/null; then
             uv run --directory examples/fieldnotes tenchi check
             exit 0
           fi
@@ -95,5 +102,9 @@ jobs:
           if ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/jobs.json" 2>/dev/null; then
             job_args+=(--allow-missing-job-baseline)
           fi
+          tool_args=()
+          if ! git cat-file -e "${BASE_SHA}:examples/fieldnotes/tools.json" 2>/dev/null; then
+            tool_args+=(--allow-missing-tool-baseline)
+          fi
           uv run --directory examples/fieldnotes tenchi verify \
-            --base-ref "${BASE_SHA}" "${job_args[@]}" "${evaluation_args[@]}"
+            --base-ref "${BASE_SHA}" "${job_args[@]}" "${tool_args[@]}" "${evaluation_args[@]}"

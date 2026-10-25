@@ -248,11 +248,12 @@ literal route-module declarations.
 
 When adding jobs, tools, or evaluations for the first time, `verify` handles
 a missing historical snapshot automatically if its default composition module
-was also absent at the baseline. If a job or evaluation module already existed
-but its first snapshot did not, use `--allow-missing-job-baseline` or
-`--allow-missing-evaluation-baseline` for that initial comparison. Confirm the
-corresponding `job manifest baseline` or `evaluation manifest baseline` metadata
-change. Do not use an override to bypass an existing snapshot at a renamed or
+was also absent at the baseline. If a job, tool, or evaluation module already
+existed but its first snapshot did not, use `--allow-missing-job-baseline`,
+`--allow-missing-tool-baseline`, or `--allow-missing-evaluation-baseline` for that
+initial comparison. Confirm the corresponding `job manifest baseline`,
+`tool manifest baseline`, or `evaluation manifest baseline` metadata change.
+Do not use an override to bypass an existing snapshot at a renamed or
 mistyped path. The [CLI reference](/cli#verify-a-completed-change) describes the
 complete policy.
 
